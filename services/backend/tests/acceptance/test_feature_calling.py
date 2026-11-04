@@ -653,6 +653,29 @@ def test_caller_hanging_up_before_a_rep_answers_ends_the_return_call_and_frees_t
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com"]
 
 
+def test_fresh_inbound_greeting_does_not_wait_for_carrier_status(workspace, clock, carrier, monkeypatch):
+    checks = []
+
+    async def reconcile(command_id, provider_id=None):
+        checks.append(provider_id)
+        return {"call_control_id": provider_id, "is_alive": False}
+
+    monkeypatch.setattr(carrier, "reconcile", reconcile)
+    ws = workspace
+    Telnyx(ws, clock).deliver("call.initiated", inbound("in-1", "+12025550177"), "evt-in-1")
+    run_jobs(ws)
+    post(ws, "/v1/admin/recovery")
+
+    assert checks == []
+    assert [a["action"] for a in carrier.actions if a["provider_id"] == "in-1"] == ["answer", "speak"]
+    assert inbound_task(ws, "in-1")["status"] == "open"
+
+    clock.now += timedelta(seconds=31)
+    post(ws, "/v1/admin/recovery")
+    assert checks == ["in-1"]
+    assert inbound_task(ws, "in-1")["inbound_state"] == "ended"
+
+
 def test_unanswered_rep_leg_falls_through_to_the_business_line_then_a_spoken_message(
     workspace, clock, carrier
 ):

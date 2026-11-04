@@ -410,7 +410,8 @@ def sync_columns(row):
             if row.op_active and data.get("inbound_state") != "ending"
             else None
         )
-        last = as_time(data.get("last_reconciled_at"))
+        # A fresh signed initiation can be answered before a potentially slow carrier status lookup.
+        last = as_time(data.get("last_reconciled_at")) or as_time(row.created_at)
         row.op_reconcile_at = (
             (last + timedelta(seconds=30) if last else datetime(1970, 1, 1, tzinfo=UTC))
             if row.op_active
