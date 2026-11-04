@@ -136,14 +136,19 @@ class InboundCallbacks:
         tried = {a.get("rep_id") for a in attempts}
         claims = list(s.scalars(select(ActiveClaim).where(ActiveClaim.tenant_id == p["tenant_id"])))
         lead = get(s, "leads", task.data.get("lead_id"), p["tenant_id"]) if task.data.get("lead_id") else None
+        workspace_sip = self.configs.read(p["tenant_id"]).get("sip_username")
         candidates = []
         for user in self.scoped(s, "users", p):
             presence = user.data.get("presence", {})
             at = dt(presence.get("at"))
+            sip = user.data.get("sip_username") or (
+                workspace_sip if user.data.get("role") in {"owner", "admin"} else None
+            )
             if (
                 user.id not in tried
                 and not user.data.get("disabled")
-                and re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", user.data.get("sip_username", ""))
+                and sip
+                and re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", sip)
                 and presence.get("status") == "ready"
                 and presence.get("audio_ready")
                 and presence.get("telephony_ready")
@@ -154,20 +159,14 @@ class InboundCallbacks:
                     for c in claims
                 )
             ):
-                candidates.append(user)
-        candidates.sort(key=lambda u: (u.id != task.data.get("responsible_rep_id"), u.id))
+                candidates.append((user, sip))
+        candidates.sort(key=lambda pair: (pair[0].id != task.data.get("responsible_rep_id"), pair[0].id))
         seller = self.required(s, "sellers", p["seller_id"], p)
         # Numbers on no lead hear the greeting; only the first test call can come from anyone.
         known = bool(lead or task.data.get("ambiguous") or not seller.data.get("callback_test"))
-        rep = candidates[0] if known and candidates and len(attempts) < 3 else None
+        rep, sip = candidates[0] if known and candidates and len(attempts) < 3 else (None, None)
         config = task.data["routing_config"]
-        target = (
-            f"sip:{rep.data['sip_username']}@sip.telnyx.com"
-            if rep
-            else config["destination"]
-            if known
-            else ""
-        )
+        target = f"sip:{sip}@sip.telnyx.com" if rep else config["destination"] if known else ""
         if not rep and any(a.get("kind") == "business_fallback" for a in attempts):
             target = ""
         if target in {task.data.get("callback_phone"), task.data.get("called_phone")}:

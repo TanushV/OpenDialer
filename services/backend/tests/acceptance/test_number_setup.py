@@ -206,6 +206,36 @@ def test_until_the_test_call_passes_any_caller_rings_a_rep(fresh, carrier, clock
     assert inbound_task(ws, "first")["routed_rep_id"]
 
 
+def test_first_inbound_call_uses_the_ready_owners_workspace_sip(fresh, carrier, clock):
+    ws = fresh
+    connect(ws, sip_username="workspace-audio")
+    own_numbers(carrier)
+    post(ws, "/v1/admin/numbers/add", {"phone": SF})
+    owner = get(ws, "/v1/workspace")["user"]["id"]
+    ready_as(ws)
+    answered_test_call(ws, Telnyx(ws, clock), SF)
+
+    assert inbound_task(ws, "test-in")["routed_rep_id"] == owner
+    transfers = [action["payload"]["to"] for action in carrier.actions if action["action"] == "transfer"]
+    assert transfers == ["sip:workspace-audio@sip.telnyx.com"]
+    assert get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"]
+
+
+def test_rep_without_sip_does_not_inherit_the_workspace_sip(fresh, carrier, clock):
+    ws = fresh
+    connect(ws, sip_username="workspace-audio")
+    own_numbers(carrier)
+    post(ws, "/v1/admin/numbers/add", {"phone": SF})
+    _, rep = add_user(ws, "rep@example.test")
+    ready_as(ws, rep)
+    Telnyx(ws, clock).deliver("call.initiated", inbound("first", "+12025550123", to=SF), "evt-first")
+    run_jobs(ws)
+    call(ws, "POST", "/v1/admin/control/run")
+
+    assert inbound_task(ws, "first")["route"] == "callback_queue"
+    assert not [action for action in carrier.actions if action["action"] == "transfer"]
+
+
 def test_a_new_number_warms_up_from_15_a_day_toward_60_and_shows_it(workspace, carrier):
     ws = workspace
     connect(ws)

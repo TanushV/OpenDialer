@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. Software evidence only so far: no real number has been bought and no real call placed.
+Updated November 4, 2026. One purchased number is active and its inbound route delivered a signed Telnyx event. The workspace test call and live outbound proof are still open.
 
 ## Goal
 
@@ -40,8 +40,7 @@ Shipped in 0.8.3 and 0.8.4:
 - The rep is bridged on answer, so detection does not hold up live audio.
 - Clear refusals, one transcription switch, optional caller name, $25 daily spend cap (set on the real account).
 
-Telnyx account: the owner reports it is now Verified. Not yet proven on a real call that the hourly cap and the automated notice
-are gone. Balance $15. No numbers owned.
+Telnyx account: the owner reports it is now Verified. The hourly cap and automated notice have yet to be checked on live outbound calls.
 
 ## Close-out order
 
@@ -96,6 +95,8 @@ are gone. Balance $15. No numbers owned.
   voicemail beep and hang-up, the final rep-spoken voicemail, caller display, labels, two-way audio and answer-to-audio time.
 - [ ] Prove the workspace test call and both answered and missed callbacks. Confirm A attestation, absence of a carrier notice,
   and more than ten calls in an hour. Exclude all proof calls from production metrics.
+- [ ] Ship and install the signed inbound routing fix, then repeat the workspace test with **Go ready** complete before dialing.
+  Verify the greeting and callback task separately when no rep is ready.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -166,7 +167,11 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   `/Applications/OpenDialer.app` copy.
 - The console's Verified status is owner-confirmed. Carrier lookup is explicitly approved per endpoint in the lead packet.
   Report time buckets use Pacific time. Bridge latency is a proxy and the billing warnings are estimates.
-  Number purchases, real calls, ring-timeout billing confirmation and measured lift remain open.
+  Additional purchases, live outbound calls, ring-timeout billing confirmation and measured lift remain open.
+- The first owned 628 number is active with its route confirmed. Its first inbound test arrived before the rep's audio
+  session was ready. OpenDialer queued a callback, but did not send the greeting before the call timed out. The incident
+  also exposed that **Go ready** uses the workspace SIP login for owners and admins, while 0.8.6 inbound routing only
+  uses per-user SIP. The source fix aligns routing with readiness. The signed release and a successful live retest are pending.
 
 ## Sources
 
