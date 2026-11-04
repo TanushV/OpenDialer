@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. One purchased number is active and its inbound route delivered a signed Telnyx event. The workspace test call and live outbound proof are still open.
+Updated November 4, 2026. One purchased number is active. A real call proved the inbound greeting and callback task on 0.8.8. The answered workspace test and live outbound proof are still open.
 
 ## Goal
 
@@ -95,8 +95,9 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
   voicemail beep and hang-up, the final rep-spoken voicemail, caller display, labels, two-way audio and answer-to-audio time.
 - [ ] Prove the workspace test call and both answered and missed callbacks. Confirm A attestation, absence of a carrier notice,
   and more than ten calls in an hour. Exclude all proof calls from production metrics.
-- [ ] Ship and install the signed inbound routing fix, then repeat the workspace test with **Go ready** complete before dialing.
-  Verify the greeting and callback task separately when no rep is ready.
+- [x] Install the signed inbound fixes on the Mac and confirm the existing workspace and number reopen.
+- [x] Verify the greeting, hangup and callback task on a real inbound call when no rep is ready, using signed carrier events.
+- [ ] With **Go ready** complete before dialing, answer a live test call in OpenDialer and confirm both sides can hear.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -171,7 +172,17 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - The first owned 628 number is active with its route confirmed. Its first inbound test arrived before the rep's audio
   session was ready. OpenDialer queued a callback, but did not send the greeting before the call timed out. The incident
   also exposed that **Go ready** uses the workspace SIP login for owners and admins, while 0.8.6 inbound routing only
-  uses per-user SIP. The source fix aligns routing with readiness. The signed release and a successful live retest are pending.
+  uses per-user SIP. Signed 0.8.7 aligned routing with readiness and deferred the carrier status lookup for fresh calls.
+  The signed Mac update preserved the workspace. A real call through the Mac's Phone app reached the relay and opened a
+  callback task, but the answer and greeting still timed out. A regression using an advancing clock reproduced the cause:
+  the control dispatcher compared two separate clock readings when no send time was scheduled. The 0.8.8 fix uses one
+  timestamp per dispatch. The affected SQLite and PostgreSQL acceptance suites pass, with 46 cases per engine.
+- [0.8.8](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.8) was built from `4b228d9`. All six
+  [CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41838308724) passed. The Mac and Windows builds signed,
+  the Mac archive checksum matched, and this Mac installed through the signed updater and reopened the existing workspace.
+  The 5:42 a.m. Pacific test call produced signed Telnyx answer, speech start, speech end and hangup events. OpenDialer
+  kept an open callback task and sent the hangup after the greeting. The answered rep test is waiting on macOS microphone
+  permission for the updated bundle. Direct confirmation of two-way audio, outbound checks and the 12% measurement remain open.
 
 ## Sources
 
