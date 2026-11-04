@@ -37,8 +37,7 @@ Your workspace, leads and keys are kept. Do not uninstall or delete workspace da
 The updater checks the repository's pinned signing key; that verifies the download, separately from Apple
 notarization or Windows publisher trust. Versions before 0.7 show the same steps under **Settings → App updates**.
 
-**0.8.6** adds Telnyx voicemail-only auto hang-up with a Stay override, outbound ring-time controls,
-the Live connect report, free registry export and number-health controls. Updating from 0.8.4 keeps the workspace.
+**0.8.7** fixes inbound test calls and callbacks. Updating from 0.8.6 keeps the workspace.
 After updating from 0.6.x, paste your script again in the new format on the **Script** page
 ([example](examples/script.md), [setup guide](GETTING_STARTED.md#4-add-your-script)).
 Updates from 0.4 to 0.6 keep your workspace. Upgrading from 0.6.0 or 0.6.1 may require re-entering provider keys
