@@ -24,10 +24,7 @@
 - **Caller name is optional.** One saved name applies to every number. Leave it blank for none.
 - **Daily spend cap.** Telnyx refuses new calls past the cap, $25 a day unless you change it.
 - **One transcription switch.** Live transcription and help are now one setting. The app still keeps no call audio.
-
-# OpenDialer 0.8.2
-
-- **Number search finds nearby numbers.** When an area code is sold out at Telnyx (415 is), the search now offers
+- **Number search finds nearby numbers (0.8.2).** When an area code is sold out at Telnyx (415 is), the search now offers
   numbers from the same area in the same state, such as the 628 overlay for San Francisco, marked "near 415". Numbers
   from other states are never offered. Before, a sold-out area code showed "No priced numbers found".
 - **Better objection help (0.8.1).** When a prospect objects, live help now sees every objection response in your script
@@ -41,14 +38,6 @@
 - **Readiness says what to do next.** Instead of one SIP message, Check readiness and Go ready name the single next
   step: connect Telnyx, import this computer's audio login, add a caller number, set up its route, or call it once to
   test callbacks.
-- **Existing Telnyx numbers.** Sync finds numbers you own that are not routed anywhere yet; numbers routed to another
-  Telnyx app are counted and left alone. After you set up a number's route, calling it once from your own phone and
-  answering in OpenDialer starts its warmup automatically.
-- **Warmup.** A new number starts at 5 real calls per rolling 24 hours and may grow by at most 20% a day, only after
-  20 resolved calls across 10 leads and 3 calling days, never past the number's maximum. Waiting alone earns nothing.
-  Two reps calling at once never share a number that is reserved or on a call.
-- **Caller name.** Numbers has one action that lists your business name for outbound caller ID with Telnyx (the paid
-  inbound name lookup is never turned on) and a link to the Free Caller Registry.
 - **Call timing.** Ordinary retries wait at least a day. A requested callback is due at its own time (a five-minute
   callback is no longer blocked by the old one-hour cooldown) and is completed when you reach the person. When the
   next-to-last attempt goes unanswered, your next Space press offers that lead once more right away (for five minutes);
