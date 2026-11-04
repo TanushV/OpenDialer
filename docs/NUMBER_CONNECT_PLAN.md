@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. One purchased number is active. A real call proved the inbound greeting and callback task. The signed 0.8.10 update removed the app's registration timer and changed how return calls acquire audio. The live answer and outbound proof are still open.
+Updated November 4, 2026. Both purchased numbers are active and routed to OpenDialer. Live calls reached the greeting and callback queue on both numbers. The live rep answer and outbound proof are still open.
 
 ## Goal
 
@@ -97,7 +97,11 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
   and more than ten calls in an hour. Exclude all proof calls from production metrics.
 - [x] Install the signed inbound fixes on the Mac and confirm the existing workspace and number reopen.
 - [x] Verify the greeting, hangup and callback task on a real inbound call when no rep is ready, using signed carrier events.
+- [x] Confirm both purchased numbers are active with recording disabled, and prove inbound routing to the callback queue on both.
+- [x] Fix the order list that kept showing Pending after a successful inventory sync. Cover the transition on SQLite and PostgreSQL.
+- [ ] Verify the signed order-status fix in the installed Mac app.
 - [ ] With **Go ready** complete before dialing, answer a live test call in OpenDialer and confirm both sides can hear.
+- [ ] Verify outbound delivery from each purchased number using an authorized test destination.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -202,6 +206,13 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   [CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41913771224). The Mac installed it through the signed
   updater and the running local authority reported 0.8.10. macOS requested a fresh microphone grant after the update
   changed the bundle signature. The live answer retest awaits that grant.
+- The saved Telnyx key confirmed both order and line items succeeded. Both numbers were active on the workspace voice
+  route with recording disabled after the app synced. A 1:42 p.m. Pacific call to the second number reached the signed
+  inbound route. The answer, greeting and hangup commands completed and OpenDialer kept an open callback task.
+  The order list still displayed Pending from the original purchase receipt. The 0.8.11 fix displays current carrier
+  inventory status after sync and keeps **Check order status** available until the route setup is confirmed. The raw
+  purchase receipt stays available in the backend. The affected acceptance suite passed 25 cases on each database
+  and the five number-purchase browser journeys passed.
 
 ## Sources
 

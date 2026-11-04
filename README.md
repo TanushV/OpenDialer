@@ -13,8 +13,8 @@ practice.
 
 | Computer | Download | Install |
 | --- | --- | --- |
-| Apple Silicon Mac, macOS 14 or newer | [Mac installer (.dmg)](https://github.com/TanushV/OpenDialer/releases/download/v0.8.10/OpenDialer_0.8.10_aarch64.dmg) | Open it and drag OpenDialer to Applications. |
-| Windows PC, Intel/AMD 64-bit | [Windows installer (.exe)](https://github.com/TanushV/OpenDialer/releases/download/v0.8.10/OpenDialer_0.8.10_x64-setup.exe) | Run it and follow the prompts. |
+| Apple Silicon Mac, macOS 14 or newer | [Mac installer (.dmg)](https://github.com/TanushV/OpenDialer/releases/download/v0.8.11/OpenDialer_0.8.11_aarch64.dmg) | Open it and drag OpenDialer to Applications. |
+| Windows PC, Intel/AMD 64-bit | [Windows installer (.exe)](https://github.com/TanushV/OpenDialer/releases/download/v0.8.11/OpenDialer_0.8.11_x64-setup.exe) | Run it and follow the prompts. |
 
 Already installed? Open **Settings → More settings → Workspace and app updates → Check for updates**.
 Nothing else needs installing. This is a preview: it is not Apple-notarized or Windows publisher-signed,

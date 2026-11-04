@@ -37,7 +37,7 @@ Your workspace, leads and keys are kept. Do not uninstall or delete workspace da
 The updater checks the repository's pinned signing key; that verifies the download, separately from Apple
 notarization or Windows publisher trust. Versions before 0.7 show the same steps under **Settings → App updates**.
 
-**0.8.10** removes the registration timer and reuses the ready microphone when answering a return call.
+**0.8.11** shows the current carrier activation in Number orders and keeps the status check available until setup finishes.
 After updating from 0.6.x, paste your script again in the new format on the **Script** page
 ([example](examples/script.md), [setup guide](GETTING_STARTED.md#4-add-your-script)).
 Updates from 0.4 to 0.6 keep your workspace. Upgrading from 0.6.0 or 0.6.1 may require re-entering provider keys
