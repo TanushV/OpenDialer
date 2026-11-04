@@ -150,6 +150,32 @@ def test_a_number_that_arrives_late_is_set_up_when_the_order_is_checked(workspac
     assert numbers(ws)[quote["phone"]]["lifecycle"] == "limited_real_use"
 
 
+def test_an_initially_pending_order_reports_current_number_activation(workspace, carrier, monkeypatch):
+    ws = workspace
+    connect(ws, maximum_owned_numbers=9, number_initial_limit_usd=9, number_monthly_limit_usd=9)
+    purchase = carrier.purchase_number
+
+    async def pending(phone, reference):
+        receipt = await purchase(phone, reference)
+        number = next(n for n in carrier.numbers.values() if n["phone_number"] == phone)
+        number["status"] = "purchase-pending"
+        return {**receipt, "status": "pending"}
+
+    monkeypatch.setattr(carrier, "purchase_number", pending)
+    quote = post(ws, "/v1/admin/numbers/search", {"region": "929"})["numbers"][0]
+    order = post(ws, "/v1/admin/numbers/purchase", {"quote_id": quote["id"], "approve_recurring": True})
+    assert order["provider_status"] == "pending"
+    [waiting] = get(ws, "/v1/admin/numbers/orders")
+    assert not waiting["ready"] and waiting["number_status"] == "purchase-pending"
+
+    number = next(n for n in carrier.numbers.values() if n["phone_number"] == quote["phone"])
+    number["status"] = "active"
+    post(ws, "/v1/admin/numbers/sync")
+    [active] = get(ws, "/v1/admin/numbers/orders")
+    assert active["ready"] and active["number_status"] == "active"
+    assert len(carrier.purchases) == 1
+
+
 def test_one_answered_test_call_opens_every_number_immediately_and_never_expires(fresh, app, carrier, clock):
     ws = fresh
     connect(ws)

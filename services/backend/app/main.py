@@ -1281,10 +1281,19 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.get("/v1/admin/numbers/orders")
     def number_orders(p=Depends(administrator)):
         with db.transaction(False) as s:
-            owned = {n.data["phone"] for n in service.scoped(s, "number_inventory", p)}
-            return [
-                {**doc(r), "ready": r.data.get("phone") in owned} for r in service.purchase_orders_in(s, p)
-            ]
+            owned = {n.data["phone"]: n.data for n in service.scoped(s, "number_inventory", p)}
+            orders = []
+            for row in service.purchase_orders_in(s, p):
+                number = owned.get(row.data["phone"], {})
+                status = number.get("provider_status") if number.get("provider_present") is True else None
+                ready = (
+                    status == "active"
+                    and number.get("configuration_status") == "confirmed"
+                    and number.get("identity_configured") is True
+                    and number.get("provider_recording_enabled") is False
+                )
+                orders.append({**doc(row), "number_status": status, "ready": ready})
+            return orders
 
     @app.post("/v1/admin/numbers/purchase")
     async def purchase_number(data: NumberPurchase, p=Depends(administrator)):

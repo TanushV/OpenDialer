@@ -15,6 +15,7 @@ type Quote = {
 type Order = Quote & {
   status: string;
   provider_status?: string;
+  number_status?: string | null;
   error?: string;
   ready?: boolean;
 };
@@ -39,7 +40,7 @@ export function NumberPurchasing({
   listName: string | null;
   stateSearch: { state: string; revision: number } | null;
 }) {
-  const { api, run, snapshot: w, notice } = useWorkspace();
+  const { api, run, snapshot: w, notice, subscribe } = useWorkspace();
   const [settings, setSettings] = useState<Limits | null>(null);
   const [region, setRegion] = useState("");
   const [state, setState] = useState("");
@@ -73,10 +74,15 @@ export function NumberPurchasing({
   };
   useEffect(() => {
     void load().catch((e) => setError(String(e)));
+    const unsubscribe = subscribe((events) => {
+      if (events.some((event) => event.type === "number.updated"))
+        void load().catch((e) => setError(String(e)));
+    });
     return () => {
+      unsubscribe();
       loadVersion.current++;
     };
-  }, [api]);
+  }, [api, subscribe]);
   useEffect(() => {
     searchVersion.current++;
     setQuotes([]);
@@ -407,38 +413,39 @@ export function NumberPurchasing({
       {!!orders.length && (
         <section aria-label="Number orders">
           <h3>Number orders</h3>
-          {orders.map((order) => (
-            <div key={order.id}>
-              <p>
-                {order.phone} · {label(order.status)}
-                {order.provider_status
-                  ? ` · ${label(order.provider_status)}`
-                  : ""}
-              </p>
-              {order.error && <p className="fine">{order.error}</p>}
-              {order.ready && (
-                <p className="fine">Set up and in your numbers.</p>
-              )}
-              {order.status !== "failed" && !order.ready && (
-                <button
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() =>
-                    action(async () => {
-                      await api(
-                        `/v1/admin/numbers/orders/${order.id}/reconcile`,
-                        "POST",
-                      );
-                      await load();
-                      await onChanged();
-                    })
-                  }
-                >
-                  Check order status for {order.phone}
-                </button>
-              )}
-            </div>
-          ))}
+          {orders.map((order) => {
+            const status = order.number_status || order.provider_status;
+            return (
+              <div key={order.id}>
+                <p>
+                  {order.phone} · {label(order.status)}
+                  {status && ` · ${label(status.replaceAll("-", " "))}`}
+                </p>
+                {order.error && <p className="fine">{order.error}</p>}
+                {order.ready && (
+                  <p className="fine">Set up and in your numbers.</p>
+                )}
+                {order.status !== "failed" && !order.ready && (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() =>
+                      action(async () => {
+                        await api(
+                          `/v1/admin/numbers/orders/${order.id}/reconcile`,
+                          "POST",
+                        );
+                        await load();
+                        await onChanged();
+                      })
+                    }
+                  >
+                    Check order status for {order.phone}
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </section>
       )}
     </details>
