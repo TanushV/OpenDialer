@@ -582,9 +582,9 @@ class TelephonyWorkflows:
                 and command["action"] == "hangup"
                 and target == provider_id
             ):
-                self.finish_call(
-                    s, p, self.required(s, "call_attempts", call_id, p), "simulated_control_hangup"
-                )
+                call = self.required(s, "call_attempts", call_id, p, lock=True)
+                self.finish_call(s, p, call, "simulated_control_hangup")
+                self.enqueue_finalize(s, p, call, "simulated_control_hangup")
 
     async def dispatch_controls(self, p, *, command_id=None):
         commands, orphan_vms = (

@@ -213,6 +213,10 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   inventory status after sync and keeps **Check order status** available until the route setup is confirmed. The raw
   purchase receipt stays available in the backend. The affected acceptance suite passed 25 cases on each database
   and the five number-purchase browser journeys passed.
+- The first 0.8.11 draft's full browser run exposed a simulation bug. When the voicemail beep ended the call
+  before a rep hung up, the simulator skipped finalization and the optional next-call timer did not start.
+  A regression reproduces that sequence through the HTTP control runner. The fix queues finalization on the
+  simulated hangup receipt. Live Telnyx finalization continues to use the carrier's hangup webhook.
 
 ## Sources
 

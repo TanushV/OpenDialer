@@ -105,3 +105,17 @@ def test_confirmed_mailbox_is_saved_after_rep_hangup_receipt(workspace):
     assert result["state"] == "FINALIZED"
     assert result["outcome"] == "voicemail"
     assert result["outcome_source"] == "carrier"
+
+
+def test_mailbox_auto_hangup_saves_outcome_without_rep_hangup(workspace):
+    from journey import post
+
+    placed = start(workspace)
+    event(workspace, placed["id"], "call.answered")
+    event(workspace, placed["id"], "call.machine.greeting.ended:beep_detected")
+    post(workspace, "/v1/admin/control/run")
+    run_jobs(workspace, rounds=2)
+    result = get(workspace, f"/v1/calls/{placed['id']}")
+    assert result["state"] == "FINALIZED"
+    assert result["outcome"] == "voicemail"
+    assert result["outcome_source"] == "carrier"
