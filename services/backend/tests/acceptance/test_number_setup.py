@@ -52,6 +52,14 @@ def fresh(client):
     return ws
 
 
+def sign_in_again(ws):
+    token = ws["client"].post(
+        "/v1/auth/session",
+        json={"email": "operator@example.test", "password": "a-test-only-password-123"},
+    )
+    ws["headers"] = {"Authorization": "Bearer " + token.json()["access_token"]}
+
+
 def pause_seeded(ws):
     for phone in ("+14155550100", "+12125550100"):
         call(
@@ -153,14 +161,14 @@ def test_one_answered_test_call_opens_every_number_and_never_expires(fresh, carr
     answered_test_call(ws, Telnyx(ws, clock), SF)
     assert get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"] is True
     board = numbers(ws)
-    assert board[SF]["outbound_ready"] and board[NYC]["outbound_ready"]
+    assert all(not board[phone]["outbound_ready"] for phone in (SF, NYC))
+    assert board[SF]["outbound_hold_until"]
+    clock.now += timedelta(hours=24)
+    sign_in_again(ws)
+    assert all(numbers(ws)[phone]["outbound_ready"] for phone in (SF, NYC))
 
     clock.now += timedelta(days=45)
-    token = ws["client"].post(
-        "/v1/auth/session",
-        json={"email": "operator@example.test", "password": "a-test-only-password-123"},
-    )
-    ws["headers"] = {"Authorization": "Bearer " + token.json()["access_token"]}
+    sign_in_again(ws)
     board = numbers(ws)
     assert board[SF]["outbound_ready"] and board[NYC]["outbound_ready"]
     assert get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"] is True
@@ -255,6 +263,8 @@ def test_a_state_without_a_number_is_named(fresh, carrier, clock):
     _, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
     ready_as(ws, rep)
     answered_test_call(ws, Telnyx(ws, clock), NYC)
+    clock.now += timedelta(hours=24)
+    sign_in_again(ws)
     ready_as(ws)
     refused = call(ws, "POST", "/v1/queue/next", json={"campaign_id": ws["campaign_id"]}, status=409)
     assert "CA" in refused["detail"]["message"]
@@ -300,11 +310,13 @@ def test_every_setup_applies_the_daily_spend_cap(workspace, carrier):
     call(ws, "PUT", "/v1/admin/numbers/spend-cap", json={"daily_usd": 0}, status=422)
 
 
-def test_pausing_stops_a_number_and_keeps_it_listed(workspace, carrier):
+def test_pausing_stops_a_number_and_keeps_it_listed(workspace, carrier, clock):
     ws = workspace
     connect(ws)
     own_numbers(carrier)
     added = post(ws, "/v1/admin/numbers/add", {"phone": SF})
+    clock.now += timedelta(hours=24)
+    sign_in_again(ws)
     assert numbers(ws)[SF]["outbound_ready"]
     call(
         ws,

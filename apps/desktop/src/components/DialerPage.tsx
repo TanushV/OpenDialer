@@ -1001,17 +1001,44 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
           words: who you are, why you called, and your number. Then hang up.
         </p>
       )}
-      {call?.state === "VOICEMAIL_GREETING" && !call.voicemail_turn && (
+      {call &&
+        ["ANSWERED_UNCLASSIFIED", "VOICEMAIL_GREETING", "SCREENING"].includes(
+          call.state,
+        ) &&
+        !call.voicemail_turn &&
+        !call.stay_on_voicemail && (
+          <button
+            className="secondary small"
+            title="Keep this call open if Telnyx detects a voicemail beep"
+            onClick={() =>
+              void run(async () =>
+                setCall(await api<Call>(`/v1/calls/${call.id}/stay`, "POST")),
+              )
+            }
+          >
+            Stay
+          </button>
+        )}
+      {call?.stay_on_voicemail && !isTerminal(call) && (
         <p className="fine" role="status">
-          Mailbox or call screening. If you hear a prompt, say your name and why
-          you are calling. A voicemail beep ends the call.
+          Staying on this call.
         </p>
       )}
-      {call?.state === "VOICEMAIL_READY" && !call.voicemail_turn && (
-        <p className="fine" role="status">
-          Voicemail reached. Ending the call.
-        </p>
-      )}
+      {call?.state === "VOICEMAIL_GREETING" &&
+        !call.voicemail_turn &&
+        !call.stay_on_voicemail && (
+          <p className="fine" role="status">
+            Mailbox or call screening. If you hear a prompt, say your name and
+            why you are calling. A voicemail beep ends the call.
+          </p>
+        )}
+      {call?.state === "VOICEMAIL_READY" &&
+        !call.voicemail_turn &&
+        !call.stay_on_voicemail && (
+          <p className="fine" role="status">
+            Voicemail reached. Ending the call.
+          </p>
+        )}
       <label className="check-row">
         <input
           type="checkbox"

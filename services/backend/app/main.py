@@ -239,6 +239,7 @@ class PolicyUpdate(Strict):
 
 
 class ProviderSettings(Strict):
+    outbound_ring_seconds: int | None = Field(default=None, ge=5, le=600, strict=True)
     maximum_owned_numbers: int | None = Field(default=None, ge=0, le=1000)
     number_initial_limit_usd: float | None = Field(default=None, ge=0, le=10000, allow_inf_nan=False)
     number_monthly_limit_usd: float | None = Field(default=None, ge=0, le=10000, allow_inf_nan=False)
@@ -620,6 +621,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "rundown_status": derived["finalization"]["status"],
                 "suggested_outcome": suggested_outcome(derived),
             }
+
+    @app.post("/v1/calls/{call_id}/stay")
+    def stay_on_call(call_id: str, p=Depends(principal)):
+        return service.stay_on_call(p, call_id)
 
     @app.post("/v1/calls/{call_id}/hangup")
     async def hangup(call_id: str, p=Depends(principal)):

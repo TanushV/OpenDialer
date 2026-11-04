@@ -232,6 +232,8 @@ class NumberOperations:
                 errors.append("route_unconfirmed")
             if value.get("provider_recording_enabled") is not False:
                 errors.append("recording_not_disabled")
+        hold_until = dt(value.get("outbound_hold_until"))
+        holding = bool(hold_until and self.clock() < hold_until)
         tested = self.workspace_test_passed(s, p)
         external = assess_number_health(
             [],
@@ -243,7 +245,9 @@ class NumberOperations:
         return {
             "configuration_errors": errors,
             "workspace_test_passed": tested,
-            "outbound_ready": not errors
+            "holding_for_registration": holding,
+            "outbound_ready": not holding
+            and not errors
             and external["status"] != "investigating"
             and tested
             and number_ready(value),
@@ -595,7 +599,7 @@ class NumberOperations:
                             "phone": phone,
                             "region": phone[2:5] if phone.startswith("+1") else "general",
                             "lifecycle": "purchased",
-                            # The owner's maximum; warmup starts lower and grows only with evidence.
+                            # The owner's maximum; real use starts at the lower ramp allowance.
                             "daily_limit": OPTIMIZATION_DEFAULTS["daily_capacity_per_number"],
                             "capacity": 1,
                             "identity_configured": False,
@@ -909,7 +913,12 @@ class NumberOperations:
                 lifecycle = number.data["lifecycle"]
                 if lifecycle in {"purchased", "identity_configured"}:
                     lifecycle = "limited_real_use"
-                    update(number, warmup_started_at=self.clock().isoformat())
+                    now = self.clock()
+                    update(
+                        number,
+                        warmup_started_at=now.isoformat(),
+                        outbound_hold_until=(now + timedelta(hours=24)).isoformat(),
+                    )
                 update(
                     number,
                     connection_id=intent["connection_id"],

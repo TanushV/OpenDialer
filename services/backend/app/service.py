@@ -827,7 +827,8 @@ class Service(ReservationPlanner):
                 "link_to": agent,
                 "bridge_on_answer": True,
                 # Telnyx detection on every attempt; a mailbox beep ends non-final attempts.
-                "answering_machine_detection": "premium_ios_call_screening_detection",
+                "answering_machine_detection": "premium",
+                "timeout_secs": self.configs.read(p["tenant_id"]).get("outbound_ring_seconds", 40),
                 "park_after_unbridge": "self",
                 "prevent_double_bridge": True,
                 "time_limit_secs": self.settings.max_call_seconds,

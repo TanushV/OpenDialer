@@ -143,6 +143,7 @@ export interface Coach {
 export interface Call {
   /** Telnyx found a mailbox on the final attempt: the line stays open for the rep's message. */
   voicemail_turn?: boolean;
+  stay_on_voicemail?: boolean;
   machine_detected?: boolean;
   transcription_source?: string;
   transcription_layout?: string;

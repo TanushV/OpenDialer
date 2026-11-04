@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from app.optimization.numbering import WARMUP, adaptive_daily_limit, select_number, warmup_allowance
+from app.optimization.numbering import adaptive_daily_limit, select_number, warmup_allowance
 
 START = datetime(2026, 11, 2, 16, tzinfo=UTC)
 
@@ -26,35 +26,19 @@ def calls(days, per_day, leads=12):
 
 
 def test_a_new_number_starts_at_fifteen_and_waiting_alone_earns_nothing():
-    assert WARMUP["start"] == 15
     assert warmup_allowance(number(), [], START + timedelta(days=30)) == 15
 
 
-def test_growth_needs_enough_resolved_calls_leads_and_calling_days():
-    # After three calling days: 27 resolved attempts across 12 leads, and the day used its allowance.
-    history = calls(4, 9)
-    assert warmup_allowance(number(), history, START + timedelta(days=2, hours=23)) == 15
-    assert warmup_allowance(number(), history, START + timedelta(days=3)) == 18
-    assert warmup_allowance(number(), history, START + timedelta(days=4)) == 21
+def test_business_day_ramp_excludes_weekends_unresolved_calls_and_idle_days():
+    history = calls(30, 1)
+    assert warmup_allowance(number(), history, START + timedelta(days=1)) == 15
+    assert warmup_allowance(number(), history, START + timedelta(days=2)) == 25
+    assert warmup_allowance(number(), history, START + timedelta(days=5)) == 40
+    assert warmup_allowance(number(), history, START + timedelta(days=11)) == 40
+    assert warmup_allowance(number(), history, START + timedelta(days=12)) == 50
     unresolved = [(at, lead, False) for at, lead, _ in history]
-    assert warmup_allowance(number(), unresolved, START + timedelta(days=4)) == 15
-    few_leads = calls(4, 9, leads=3)
-    assert warmup_allowance(number(), few_leads, START + timedelta(days=4)) == 15
-
-
-def test_growth_is_at_most_twenty_percent_a_day_and_never_above_the_owners_maximum():
-    history = calls(30, 60)
-    grown = [warmup_allowance(number(), history, START + timedelta(days=d)) for d in range(1, 30)]
-    assert all(b - a <= max(1, int(a * 0.2)) for a, b in zip(grown, grown[1:], strict=False))
-    assert max(grown) == 60
+    assert warmup_allowance(number(), unresolved, START + timedelta(days=30)) == 15
     assert warmup_allowance(number(daily_limit=5), history, START + timedelta(days=30)) == 5
-
-
-def test_an_idle_day_holds_the_allowance():
-    history = calls(4, 9) + [(START + timedelta(days=6, minutes=i), f"lead-{i}", True) for i in range(5)]
-    assert warmup_allowance(number(), history, START + timedelta(days=4)) == 21
-    # The fifth day had no calls, so it adds nothing even though the totals already qualified.
-    assert warmup_allowance(number(), history, START + timedelta(days=5, hours=1)) == 21
 
 
 def test_the_effective_limit_uses_the_allowance_and_still_drops_on_trouble():

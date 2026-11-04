@@ -22,7 +22,6 @@ SCREENING_EVENTS = {
     "call.machine.premium.call_screening.detected:screening",
     "call.machine.premium.greeting.ended:prompt_ended",
 }
-MINIMUM_ANSWERED = timedelta(seconds=7)
 TRANSCRIPTION_ENGINE = "Soniox"
 
 
@@ -87,6 +86,24 @@ class TelephonyWorkflows:
         await self.dispatch_controls(p, command_id=command_id)
         return await asyncio.to_thread(self.keypad_status, p, call_id, request_id)
 
+    def stay_on_call(self, p, call_id):
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            call = self.required(s, "call_attempts", call_id, p, lock=True)
+            if call.data["rep_id"] != p["user_id"]:
+                fail(404, "Object not found")
+            if call.data["state"] in TERMINAL | {"ENDING"}:
+                fail(409, "The call has already ended")
+            command = self._by_key(s, p, "command_outbox", f"{call_id}:machine-hangup")
+            if command:
+                s.refresh(command, with_for_update=True)
+                if command.data["status"] not in {"pending", "cancelled"} or command.data.get("sent_at"):
+                    fail(409, "The voicemail hang-up has already been sent")
+                update(command, status="cancelled", reason="REP_STAY")
+            update(call, stay_on_voicemail=True)
+            emit(s, p["tenant_id"], "call.updated", call, self.clock())
+            return doc(call)
+
     def control_intent(self, s, p, call_id, action, payload, *, target=None, suffix=None):
         if action == "record_start":
             fail(403, "Call recording is disabled by the short-retention policy")
@@ -113,6 +130,36 @@ class TelephonyWorkflows:
             now=self.clock(),
         )
 
+    def record_carrier_block(self, s, p, call, number, code):
+        now = self.clock()
+        update(call, sip_block_code=code, carrier_outcome="temporary_failure")
+        s.refresh(number, with_for_update=True)
+        previous = dt(number.data.get("last_sip_block_at"))
+        count = (
+            number.data.get("recent_sip_blocks", 0) + 1
+            if previous and now - previous < timedelta(days=1)
+            else 1
+        )
+        update(number, last_sip_block_at=now.isoformat(), recent_sip_blocks=count)
+        if count >= 2 and number.data["lifecycle"] in {"healthy", "limited_real_use"}:
+            update(
+                number,
+                lifecycle="paused_for_outbound",
+                reason="Repeated SIP 603 or 603+ carrier blocks",
+                callback_retained=True,
+            )
+            audit(
+                s,
+                p["tenant_id"],
+                p["seller_id"],
+                p["user_id"],
+                "number.carrier_block_pause",
+                number.id,
+                now,
+                {"count": count, "last_code": code},
+            )
+        emit(s, p["tenant_id"], "number.updated", number, now)
+
     def event(self, p, event_id, event_type, call_id, payload=None, *, session=None):
         with self.db.transaction(session=session) as session:
             # An event can carry an opt-out; keep authorization before call locks.
@@ -131,7 +178,20 @@ class TelephonyWorkflows:
                 campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
                 policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
                 number = self.required(s, "number_inventory", call.data["number_id"], p)
-                if event_type == "call.hangup" and not call.data.get("human_answered_at"):
+                if event_type == "call.hangup":
+                    cause = str(payload.get("hangup_cause") or "")
+                    if cause:
+                        update(call, provider_hangup_cause=cause[:100])
+                    sip_code = re.fullmatch(
+                        r"(603\+?)(?:[ \t].*)?", str(payload.get("sip_hangup_cause") or "")
+                    )
+                    if sip_code and not call.data.get("sip_block_code") and not call.data.get("answered_at"):
+                        self.record_carrier_block(s, p, call, number, sip_code[1])
+                if (
+                    event_type == "call.hangup"
+                    and not call.data.get("human_answered_at")
+                    and not call.data.get("sip_block_code")
+                ):
                     outcome = {"no_answer": "no_answer", "timeout": "no_answer", "user_busy": "busy"}.get(
                         payload.get("hangup_cause")
                     )
@@ -150,13 +210,12 @@ class TelephonyWorkflows:
                     if final:
                         # The last attempt keeps the line open for the rep's own short message.
                         update(call, voicemail_turn=True)
-                    elif event_type in BEEP_EVENTS and call.data["state"] not in TERMINAL | {"ENDING"}:
-                        # Only a beep proves a mailbox: call screening and unclear results stay
-                        # with the rep. Telnyx surcharges answered calls of six seconds or less.
-                        hangup = self.control_intent(s, p, call_id, "hangup", {}, suffix="machine-hangup")
-                        answered = dt(call.data.get("answered_at")) or self.clock()
-                        update(hangup, not_before=(answered + MINIMUM_ANSWERED).isoformat())
-                        update(call, end_reason="machine_detected")
+                    elif (
+                        event_type in BEEP_EVENTS
+                        and not call.data.get("stay_on_voicemail")
+                        and call.data["state"] not in TERMINAL | {"ENDING"}
+                    ):
+                        self.control_intent(s, p, call_id, "hangup", {}, suffix="machine-hangup")
                     emit(s, p["tenant_id"], "call.updated", call, self.clock())
                 if event_type in SCREENING_EVENTS and not call.data.get("human_answered_at"):
                     update(call, screening_detected=True, machine_detected=False)

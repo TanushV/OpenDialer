@@ -20,6 +20,7 @@ type Order = Quote & {
 };
 type Limits = {
   version: number;
+  outbound_ring_seconds?: number;
   maximum_owned_numbers?: number;
   number_initial_limit_usd?: number;
   number_monthly_limit_usd?: number;
@@ -160,6 +161,23 @@ export function NumberPurchasing({
               </label>
             ))}
           </div>
+          <label>
+            Outbound ring timeout (seconds)
+            <input
+              type="number"
+              min={5}
+              max={600}
+              step={1}
+              value={settings.outbound_ring_seconds ?? 40}
+              disabled={busy}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  outbound_ring_seconds: Number(e.target.value),
+                })
+              }
+            />
+          </label>
           <p className="fine">
             Zero blocks new purchases. The count includes owned and pending
             numbers; pausing does not cancel rent. The monthly limit covers
@@ -177,6 +195,7 @@ export function NumberPurchasing({
                   maximum_owned_numbers = 0,
                   number_initial_limit_usd = 0,
                   number_monthly_limit_usd = 0,
+                  outbound_ring_seconds = 40,
                   telnyx_daily_spend_limit_usd,
                 } = settings;
                 try {
@@ -187,6 +206,7 @@ export function NumberPurchasing({
                       maximum_owned_numbers,
                       number_initial_limit_usd,
                       number_monthly_limit_usd,
+                      outbound_ring_seconds,
                     }),
                   );
                   if (

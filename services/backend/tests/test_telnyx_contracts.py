@@ -268,11 +268,12 @@ def test_revoked_transcription_permission_stops_both_streams(workspace, app, car
     assert stops == {call["provider_id"], "agent-test-id"}
 
 
-def test_every_attempt_detects_machines_and_screening_and_bridges_the_rep(workspace, app, carrier):
+def test_every_attempt_requests_voicemail_detection_and_bridges_the_rep(workspace, app, carrier):
     voicemail_policy(app, workspace, 1)
     start(workspace)
     dial = carrier.dials[-1]
-    assert dial["answering_machine_detection"] == "premium_ios_call_screening_detection"
+    assert dial["answering_machine_detection"] == "premium"
+    assert dial["timeout_secs"] == 40
     assert dial["bridge_on_answer"] is True and dial["link_to"] == "agent-test-id"
 
 
@@ -287,7 +288,7 @@ def test_a_machine_result_alone_never_hangs_up(workspace, app, carrier):
     assert saved["machine_detected"] is True and not saved.get("voicemail_turn")
 
 
-def test_a_voicemail_beep_ends_an_ordinary_attempt_after_seven_seconds(workspace, app, carrier, clock):
+def test_a_voicemail_beep_ends_an_ordinary_attempt_without_a_floor(workspace, carrier, clock):
     from datetime import timedelta
 
     call = start(workspace)
@@ -296,10 +297,26 @@ def test_a_voicemail_beep_ends_an_ordinary_attempt_after_seven_seconds(workspace
     clock.now += timedelta(seconds=3)
     event(workspace, call, "call.machine.premium.greeting.ended:beep_detected")
     run_controls(workspace)
-    assert carrier.hangups == []
-    clock.now += timedelta(seconds=4)
-    run_controls(workspace)
     assert [h["provider_id"] for h in carrier.hangups] == [call["provider_id"]]
+
+
+def test_a_rep_can_stay_before_the_beep(workspace, carrier):
+    call = start(workspace)
+    event(workspace, call, "call.answered")
+    response = workspace["client"].post(f"/v1/calls/{call['id']}/stay", headers=workspace["headers"])
+    assert response.status_code == 200
+    event(workspace, call, "call.machine.premium.greeting.ended:beep_detected")
+    run_controls(workspace)
+    assert carrier.hangups == []
+
+
+def test_outbound_ring_time_can_be_changed(workspace, carrier):
+    response = workspace["client"].put(
+        "/v1/admin/settings", headers=workspace["headers"], json={"outbound_ring_seconds": 45}
+    )
+    assert response.status_code == 200
+    start(workspace)
+    assert carrier.dials[-1]["timeout_secs"] == 45
 
 
 def test_a_late_beep_ends_the_call_at_once(workspace, carrier, clock):
@@ -733,3 +750,23 @@ def test_a_blank_caller_name_turns_the_listing_off():
 
     asyncio.run(run())
     assert patched == [{"cnam_listing": {"cnam_listing_enabled": False}}]
+
+
+def test_repeated_distinct_carrier_blocks_pause_outbound_and_keep_the_attempt(workspace, app):
+    call = start(workspace)
+    event(workspace, call, "call.hangup", {"sip_hangup_cause": "603+"})
+    event(workspace, call, "call.hangup", {"sip_hangup_cause": "603+"})
+    with app.state.db.transaction() as s:
+        saved = get(s, "call_attempts", call["id"])
+        assert saved.data["sip_block_code"] == "603+"
+        assert saved.data["attempt_ordinal"] == 1
+        number = get(s, "number_inventory", saved.data["number_id"])
+        assert number.data["lifecycle"] != "paused_for_outbound"
+        assert number.data["recent_sip_blocks"] == 1
+        # Seed one earlier distinct incident to exercise the same-number threshold.
+        update(saved, sip_block_code=None)
+    event(workspace, call, "call.hangup", {"sip_hangup_cause": "603"})
+    with app.state.db.transaction(False) as s:
+        number = get(s, "number_inventory", call["number_id"])
+        assert number.data["lifecycle"] == "paused_for_outbound"
+        assert number.data["callback_retained"] is True

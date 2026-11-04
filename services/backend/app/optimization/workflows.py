@@ -436,7 +436,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         warming = {
             v["id"]: v
             for v in result
-            if v.get("lifecycle") == "limited_real_use" and v.get("warmup_started_at")
+            if v.get("lifecycle") in {"limited_real_use", "healthy"} and v.get("warmup_started_at")
         }
         history = defaultdict(list)
         if warming:
