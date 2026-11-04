@@ -433,11 +433,18 @@ test("a session that cannot renew asks the rep to sign in again", async ({
   await enter(page);
   const pause = page.getByRole("button", { name: "Pause dialing" });
   if (await pause.isVisible()) await pause.click();
-  const reject = (route: import("@playwright/test").Route) =>
-    route.fulfill({
+  const reject = async (route: import("@playwright/test").Route) => {
+    if (
+      await page.evaluate(
+        () => document.body.dataset.testSignInClicked === "yes",
+      )
+    )
+      return route.continue();
+    return route.fulfill({
       status: 401,
       json: { detail: "Revoked or expired session" },
     });
+  };
   await page.route("**/v1/workspace", reject);
   await page.route("**/v1/local/session", reject);
   await page.getByRole("button", { name: "Go ready" }).click();
@@ -445,8 +452,14 @@ test("a session that cannot renew asks the rep to sign in again", async ({
     page.getByRole("alert").filter({ hasText: "Session expired" }),
   ).toBeVisible();
   await expect(page.getByText("Offline cache")).toHaveCount(0);
-  await page.unrouteAll({ behavior: "wait" });
-  await page.getByRole("button", { name: "Sign in again" }).click();
+  const signIn = page.getByRole("button", { name: "Sign in again" });
+  // Background renewal must keep failing until the rep actually clicks.
+  await signIn.evaluate((button) =>
+    button.addEventListener("click", () => {
+      document.body.dataset.testSignInClicked = "yes";
+    }),
+  );
+  await signIn.click();
   await expect(page.getByText("Session expired")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: /Go ready|Pause dialing/ }),

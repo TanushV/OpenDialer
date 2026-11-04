@@ -217,6 +217,12 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   before a rep hung up, the simulator skipped finalization and the optional next-call timer did not start.
   A regression reproduces that sequence through the HTTP control runner. The fix queues finalization on the
   simulated hangup receipt. Live Telnyx finalization continues to use the carrier's hangup webhook.
+- [0.8.11](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.11) was built from `449f263` and published
+  after both signed builds passed and the Mac archive matched the release checksum and passed deep signature
+  verification. Both full database suites passed. The browser run passed the number and voicemail journeys
+  and reported 178 of 179 passing overall. The remaining sign-in test let a background request renew the session
+  when its mock was removed before the click. With the mock in place until the click, all 14 rep-screen journeys
+  passed locally. The Mac locked before the update could be installed.
 
 ## Sources
 
