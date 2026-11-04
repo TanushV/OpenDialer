@@ -190,8 +190,10 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - [0.8.9](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.9) was built from `893e3c6` and passed all six
   [CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41903398877). This Mac installed it through the signed
   updater after the original idle rep audio leg was verified and ended at Telnyx. The existing workspace has three
-  leads, one number and zero outbound attempts. The Mac locked after the update. The live rep answer and audio retest
-  await an unlocked desktop.
+  leads, one number and zero outbound attempts. After the Mac was unlocked, **Go ready** succeeded. A call from the
+  Mac's Phone app rang in OpenDialer. Telnyx recorded a transfer timeout and no destination answer. OpenDialer correctly
+  withheld the workspace pass, played the fallback greeting and kept the callback task open. The live answer and two-way
+  audio retest from a separate phone remain open.
 
 ## Sources
 
