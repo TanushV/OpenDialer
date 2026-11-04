@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. One purchased number is active. A real call proved the inbound greeting and callback task on 0.8.8. The answered workspace test and live outbound proof are still open.
+Updated November 4, 2026. One purchased number is active. A real call proved the inbound greeting and callback task on 0.8.8. The 0.8.9 patch for answered-call verification is installed. The live retest and outbound proof are still open.
 
 ## Goal
 
@@ -181,8 +181,17 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   [CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41838308724) passed. The Mac and Windows builds signed,
   the Mac archive checksum matched, and this Mac installed through the signed updater and reopened the existing workspace.
   The 5:42 a.m. Pacific test call produced signed Telnyx answer, speech start, speech end and hangup events. OpenDialer
-  kept an open callback task and sent the hangup after the greeting. The answered rep test is waiting on macOS microphone
-  permission for the updated bundle. Direct confirmation of two-way audio, outbound checks and the 12% measurement remain open.
+  kept an open callback task and sent the hangup after the greeting.
+- After the owner allowed microphone access, **Go ready** showed the rep session ready. A live transfer produced
+  `call.bridged` while the rep leg was still ringing. The destination hung up with SIP 487 and no `call.answered`.
+  OpenDialer 0.8.8 had counted the early bridge as proof. The 0.8.9 patch disables early media on transfers and
+  requires both a signed answer and bridge on the same leg. It requires a fresh test for old live proofs without
+  answer evidence. The first number remains on its 24-hour outbound hold through November 5 at 3:26 a.m. Pacific.
+- [0.8.9](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.9) was built from `893e3c6` and passed all six
+  [CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41903398877). This Mac installed it through the signed
+  updater after the original idle rep audio leg was verified and ended at Telnyx. The existing workspace has three
+  leads, one number and zero outbound attempts. The Mac locked after the update. The live rep answer and audio retest
+  await an unlocked desktop.
 
 ## Sources
 
