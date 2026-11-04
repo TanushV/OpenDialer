@@ -54,11 +54,12 @@ class CallbackRoutingEdit(BaseModel):
 class InboundCallbacks:
     def workspace_test_passed(self, s, p):
         """One answered call proves the shared route; every number on it uses the same path."""
-        return bool(self.required(s, "sellers", p["seller_id"], p).data.get("callback_test"))
+        proof = self.required(s, "sellers", p["seller_id"], p).data.get("callback_test") or {}
+        return bool(proof.get("answer_confirmed") or (self.settings.simulation and proof.get("simulated")))
 
     def _pass_workspace_test(self, s, p, task):
         seller = self.required(s, "sellers", p["seller_id"], p)
-        if seller.data.get("callback_test"):
+        if self.workspace_test_passed(s, p):
             return
         update(
             seller,
@@ -66,6 +67,7 @@ class InboundCallbacks:
                 "number_id": task.data["number_id"],
                 "at": self.clock().isoformat(),
                 "simulated": self.settings.simulation,
+                "answer_confirmed": True,
             },
         )
         audit(
@@ -163,7 +165,7 @@ class InboundCallbacks:
         candidates.sort(key=lambda pair: (pair[0].id != task.data.get("responsible_rep_id"), pair[0].id))
         seller = self.required(s, "sellers", p["seller_id"], p)
         # Numbers on no lead hear the greeting; only the first test call can come from anyone.
-        known = bool(lead or task.data.get("ambiguous") or not seller.data.get("callback_test"))
+        known = bool(lead or task.data.get("ambiguous") or not self.workspace_test_passed(s, p))
         rep, sip = candidates[0] if known and candidates and len(attempts) < 3 else (None, None)
         config = task.data["routing_config"]
         target = f"sip:{sip}@sip.telnyx.com" if rep else config["destination"] if known else ""
@@ -220,6 +222,7 @@ class InboundCallbacks:
                     "from": task.data["called_phone"],
                     "timeout_secs": config["ring_seconds"],
                     "time_limit_secs": self.settings.max_call_seconds,
+                    "early_media": False,
                     "target_leg_client_state": context,
                 },
                 suffix="inbound-transfer:" + identity,
@@ -422,6 +425,11 @@ class InboundCallbacks:
                 attempt["provider_id"] = payload["call_control_id"]
                 if attempt["state"] in ENDED:
                     return True
+                if receipt and (receipt.get("signature_verified") or self.settings.simulation):
+                    if event_type == "call.answered":
+                        attempt["answer_confirmed"] = True
+                    elif event_type == "call.bridged":
+                        attempt["bridge_confirmed"] = True
                 if event_type == "call.hangup":
                     connected = attempt["state"] == "connected"
                     attempt["state"] = "ended"
@@ -446,7 +454,12 @@ class InboundCallbacks:
                         target=payload["call_control_id"],
                         suffix="inbound-leg-end:" + attempt_id,
                     )
-                elif event_type == "call.bridged":
+                elif (
+                    event_type in {"call.answered", "call.bridged"}
+                    and attempt.get("answer_confirmed")
+                    and attempt.get("bridge_confirmed")
+                    and attempt["state"] != "connected"
+                ):
                     attempt["state"] = "connected"
                     update(
                         task,
@@ -457,9 +470,8 @@ class InboundCallbacks:
                             self.clock() + timedelta(seconds=self.settings.max_call_seconds)
                         ).isoformat(),
                     )
-                    if receipt and (
-                        self.settings.simulation
-                        or (receipt.get("signature_verified") and task.data.get("inbound_verified"))
+                    if attempt.get("rep_id") and (
+                        self.settings.simulation or task.data.get("inbound_verified")
                     ):
                         self._pass_workspace_test(s, p, task)
                     if (

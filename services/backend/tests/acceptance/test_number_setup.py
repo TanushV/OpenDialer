@@ -7,6 +7,8 @@ from datetime import timedelta
 
 import httpx
 import pytest
+from app.db import get as db_get
+from app.db import update
 from journey import call, get, post, run_jobs
 from test_feature_calling import Telnyx, add_user, inbound, inbound_task, ready_as
 
@@ -77,6 +79,9 @@ def answered_test_call(ws, telnyx, to, tag="test-in", caller="+12025550123"):
     task = inbound_task(ws, tag)
     leg = {"inbound_task": task["id"], "attempt": task["routing_attempts"][0]["id"]}
     state = base64.b64encode(json.dumps(leg).encode()).decode()
+    telnyx.deliver(
+        "call.answered", {"call_control_id": tag + "-leg", "client_state": state}, "evt-answer-" + tag
+    )
     telnyx.deliver("call.bridged", {"call_control_id": tag + "-leg", "client_state": state}, "evt-leg-" + tag)
     run_jobs(ws)
     telnyx.deliver(
@@ -204,6 +209,52 @@ def test_until_the_test_call_passes_any_caller_rings_a_rep(fresh, carrier, clock
     Telnyx(ws, clock).deliver("call.initiated", inbound("first", "+12025550123", to=SF), "evt-first")
     run_jobs(ws)
     assert inbound_task(ws, "first")["routed_rep_id"]
+
+
+def test_a_saved_live_test_without_answer_evidence_needs_a_retest(fresh, app, clock):
+    ws = fresh
+    seller_id = get(ws, "/v1/workspace")["seller"]["id"]
+    with app.state.db.transaction() as s:
+        seller = db_get(s, "sellers", seller_id, ws["tenant_id"])
+        update(seller, callback_test={"at": clock().isoformat(), "simulated": False})
+
+    assert not get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"]
+
+
+@pytest.mark.parametrize("result", ["answered", "unanswered"])
+def test_an_early_transfer_bridge_is_not_an_answer(fresh, carrier, clock, result):
+    ws = fresh
+    connect(ws, sip_username="workspace-audio")
+    own_numbers(carrier)
+    post(ws, "/v1/admin/numbers/add", {"phone": SF})
+    ready_as(ws)
+    telnyx = Telnyx(ws, clock)
+    telnyx.deliver("call.initiated", inbound("early", "+12025550123", to=SF), "evt-early")
+    run_jobs(ws)
+    post(ws, "/v1/admin/control/run")
+    task = inbound_task(ws, "early")
+    leg = {"inbound_task": task["id"], "attempt": task["routing_attempts"][0]["id"]}
+    payload = {
+        "call_control_id": "early-leg",
+        "client_state": base64.b64encode(json.dumps(leg).encode()).decode(),
+    }
+    telnyx.deliver("call.bridged", payload, "evt-early-bridge")
+    run_jobs(ws)
+
+    assert inbound_task(ws, "early")["inbound_state"] == "ringing"
+    assert not get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"]
+    assert [a["payload"]["early_media"] for a in carrier.actions if a["action"] == "transfer"] == [False]
+
+    if result == "answered":
+        telnyx.deliver("call.answered", payload, "evt-early-answer")
+        run_jobs(ws)
+        assert inbound_task(ws, "early")["inbound_state"] == "connected"
+        assert get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"]
+    else:
+        telnyx.deliver("call.hangup", {**payload, "sip_hangup_cause": "487"}, "evt-early-hangup")
+        run_jobs(ws)
+        assert inbound_task(ws, "early")["route"] == "callback_queue"
+        assert not get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"]
 
 
 def test_first_inbound_call_uses_the_ready_owners_workspace_sip(fresh, carrier, clock):

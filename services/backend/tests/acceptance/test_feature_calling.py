@@ -427,6 +427,7 @@ def test_return_call_routes_to_the_rep_who_called_and_completes_the_callback(wor
     attempt = task["routing_attempts"][0]
     leg = {"inbound_task": task["id"], "attempt": attempt["id"]}
     state = base64.b64encode(json.dumps(leg).encode()).decode()
+    telnyx.deliver("call.answered", {"call_control_id": "leg-1", "client_state": state}, "evt-leg-answer")
     telnyx.deliver("call.bridged", {"call_control_id": "leg-1", "client_state": state}, "evt-leg-1")
     run_jobs(ws)
     done = task_row(ws, task["id"])
