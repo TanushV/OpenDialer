@@ -1,3 +1,30 @@
+# OpenDialer 0.8.3
+
+- **Numbers set themselves up.** Approving a purchase or adding a number now confirms its route, turns Telnyx recording
+  off, applies your daily spend cap and caller name, and starts warmup. There is no Set up route click unless something
+  failed.
+- **Add numbers you already own.** Numbers, Check my Telnyx numbers lists your whole account, and you add the ones you
+  want. A number on another Telnyx app shows a warning, because adding it moves its calls here. Nothing is used until
+  you add it. Pause outbound remains how you exclude one.
+- **One test call for the workspace.** One answered call proves the shared call path for every number, and it no longer
+  expires after 30 days. A number could previously stop dialing with no clear reason.
+- **Voicemail is the only automatic hang-up.** The system hangs up an ordinary attempt only at a voicemail beep Telnyx
+  detects, and never before 7 seconds, because Telnyx penalizes very short calls. The final attempt stays on the line so
+  the rep can leave a message. Call screening and unclear results stay with the rep. Detection is now Telnyx's iPhone
+  screening aware option.
+- **Search by city.** Each result shows its city, and naming a city tries the area code's overlays and keeps only that
+  city, so San Francisco finds San Francisco 628 numbers rather than Marin.
+- **Warmup and limits.** New numbers start at 15 real calls a day and rise to 60 with use. Numbers shows the real limit.
+- **Same metro first.** A lead gets a number from its metro before a less used one elsewhere in the state. Overlays count
+  as one metro (415 and 628; the New York City codes).
+- **Callbacks.** Numbers asks where returned calls should go. The spoken message names your business, and callers who are
+  not on a lead hear it without ringing a rep.
+- **Clearer refusals.** Next call says when a number is the problem: no number, the test call, paused numbers, a state
+  with no number, or today's limit.
+- **Caller name is optional.** One saved name applies to every number. Leave it blank for none.
+- **Daily spend cap.** Telnyx refuses new calls past the cap, $25 a day unless you change it.
+- **One transcription switch.** Live transcription and help are now one setting. The app still keeps no call audio.
+
 # OpenDialer 0.8.2
 
 - **Number search finds nearby numbers.** When an area code is sold out at Telnyx (415 is), the search now offers
