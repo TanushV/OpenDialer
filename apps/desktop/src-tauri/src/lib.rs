@@ -705,6 +705,27 @@ fn open_source(app: tauri::AppHandle, value: String) -> Result<(), String> {
         .map_err(|_| "Cannot open source link".into())
 }
 
+#[tauri::command]
+async fn save_registry_csv(app: tauri::AppHandle, csv: String) -> Result<String, String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let exports = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| err.to_string())?
+        .join("Exports");
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::create_dir_all(&exports).map_err(|err| err.to_string())?;
+        let path = exports.join(format!("opendialer-caller-registry-{}.csv", Uuid::new_v4()));
+        std::fs::write(&path, csv).map_err(|err| err.to_string())?;
+        // A failed Finder/Explorer reveal does not undo the local export.
+        let _ = app.opener().reveal_item_in_dir(&path);
+        Ok(path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
 /// Quit, mode change and updater cleanup: stop the owned SSH child and wait for it, then
 /// terminate the authority's process group (Unix) or job object (Windows) and wait for it.
 fn stop_owned_runtimes(tunnel: &WebhookTunnel, backend: &LocalBackend) {
@@ -773,6 +794,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backend_config,
             open_source,
+            save_registry_csv,
             webhook_tunnel_status,
             webhook_tunnel_set
         ])

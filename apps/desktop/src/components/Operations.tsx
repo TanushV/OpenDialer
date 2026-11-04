@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { NumberPurchasing } from "./NumberPurchasing";
 import { ConnectDelivery } from "./WorkTime";
 import { ProductKnowledge } from "./ProductKnowledge";
@@ -16,7 +17,7 @@ import { CallbackRouting } from "./CallbackRouting";
 import { useHistory } from "../state/useHistory";
 import { limits, useDefinitions } from "../state/definitions";
 import { HistoryMore } from "./HistoryMore";
-import { LONG_REQUEST_MS, openSource } from "../api/client";
+import { LONG_REQUEST_MS, native, openSource } from "../api/client";
 import { date, isAdmin, label, percent, useWorkspace } from "../context";
 import { parseCSV } from "../state/csv";
 import type { Lead, NumberRecord, Packet } from "../types";
@@ -873,6 +874,13 @@ export function NumbersPage() {
                 const { csv } = await api<{ csv: string }>(
                   "/v1/admin/numbers/registry-export",
                 );
+                if (native()) {
+                  const path = await invoke<string>("save_registry_csv", {
+                    csv,
+                  });
+                  notice(`Registry CSV saved to ${path}`);
+                  return;
+                }
                 const url = URL.createObjectURL(
                   new Blob([csv], { type: "text/csv" }),
                 );

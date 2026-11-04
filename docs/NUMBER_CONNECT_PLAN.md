@@ -52,7 +52,7 @@ are gone. Balance $15. No numbers owned.
 - [ ] Fund the calling balance and decide auto-recharge.
 - [ ] Set the callback destination and optional caller name. Review the applicable transcription and do-not-call rules.
 
-### B. Release 0.8.5
+### B. Releases 0.8.5 and 0.8.6
 
 - [ ] Request Telnyx voicemail AMD with the rep bridged on answer. End ordinary calls at a confirmed beep, remove the
   seven-second floor, and let the rep choose **Stay** before the beep. Keep final attempts open for a rep-spoken message.
@@ -80,6 +80,7 @@ are gone. Balance $15. No numbers owned.
 
   Plan four numbers per rep at 180 attempts per day. A paused number removes capacity from that plan.
 
+- [ ] Verify native registry CSV export on this Mac. The 0.8.5 WebKit download path stalled in the signed app.
 - [ ] Run acceptance on SQLite and PostgreSQL and the affected browser journeys.
 - [ ] Commit the changes, publish the signed release, update this Mac in the app, and verify the installed workspace in the UI.
 - [x] Remove extra desktop test copies from macOS app discovery while preserving workspace data.

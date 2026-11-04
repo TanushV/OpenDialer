@@ -719,3 +719,40 @@ test("number setup exposes ring time and the connect report", async ({
     page.getByText("Rolling 28 days", { exact: true }),
   ).toBeVisible();
 });
+
+test("registry export uses the native save command in the desktop", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  const simulate = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await simulate.isVisible()) await simulate.click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  const exportButton = page.getByRole("button", {
+    name: "Export registry CSV",
+  });
+  await expect(exportButton).toBeVisible();
+  await page.evaluate(() => {
+    Object.assign(window, {
+      __TAURI_INTERNALS__: {
+        invoke: async (command: string, args: unknown) => {
+          if (command === "save_registry_csv") {
+            document.documentElement.dataset.nativeExport =
+              JSON.stringify(args);
+            return "/test/Exports/opendialer-caller-registry.csv";
+          }
+        },
+      },
+    });
+  });
+  await exportButton.click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-native-export",
+    /phone_number/,
+  );
+  await expect(
+    page.getByText(/Registry CSV saved to.*opendialer-caller-registry\.csv/),
+  ).toBeVisible();
+});
