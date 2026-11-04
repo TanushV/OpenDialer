@@ -212,8 +212,9 @@ export function OperatingPolicySettings() {
           </label>
           <p className="fine">
             Hosted workspaces keep carrier transcription off without this
-            evidence. Local deletion cannot certify upstream deletion. Cerebras uses ZDR with
-            data collection denied and no alternate-provider fallback.
+            evidence. Local deletion cannot certify upstream deletion. Cerebras
+            uses ZDR with data collection denied and no alternate-provider
+            fallback.
           </p>
           <div className="two-column">
             <label>
