@@ -157,9 +157,10 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 ## Status
 
 - November 4 number order follow-up (0.8.11): Telnyx and OpenDialer confirm two active, routed numbers. Each has
-  reached the inbound callback queue in a live test. The order list now displays current inventory status after sync
-  and keeps order reconciliation available until setup finishes. Mac microphone permission, live rep answer, two-way
-  audio and outbound proof remain open. See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md).
+  reached the inbound callback queue in a live test. This Mac installed 0.8.11 through the signed updater, and both
+  orders show Active and ready. A live rep answer on 0.8.10 passed the shared workspace test. Each number reached
+  the approved test destination via Telnyx. Mac microphone permission for 0.8.11, two-way audio and a live call from
+  the Dialer remain open. See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md).
 
 - November 4 registration and answer update (0.8.10): OpenDialer's 24-hour timer no longer blocks numbers. The WebRTC
   return leg can use a clone of the ready agent's microphone stream. All six CI jobs passed and this Mac installed

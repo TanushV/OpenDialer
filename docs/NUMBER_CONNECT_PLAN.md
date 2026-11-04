@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. Both purchased numbers are active and routed to OpenDialer. Live calls reached the greeting and callback queue on both numbers. The live rep answer and outbound proof are still open.
+Updated November 4, 2026. Both numbers are active and ready in the installed 0.8.11 app. A live rep answer passed the shared callback test, and Telnyx confirmed outbound delivery from each number. Two-way audio and outbound through the Dialer still need live verification.
 
 ## Goal
 
@@ -99,9 +99,11 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Verify the greeting, hangup and callback task on a real inbound call when no rep is ready, using signed carrier events.
 - [x] Confirm both purchased numbers are active with recording disabled, and prove inbound routing to the callback queue on both.
 - [x] Fix the order list that kept showing Pending after a successful inventory sync. Cover the transition on SQLite and PostgreSQL.
-- [ ] Verify the signed order-status fix in the installed Mac app.
-- [ ] With **Go ready** complete before dialing, answer a live test call in OpenDialer and confirm both sides can hear.
-- [ ] Verify outbound delivery from each purchased number using an authorized test destination.
+- [x] Verify the signed order-status fix in the installed Mac app.
+- [x] With **Go ready** complete before dialing, answer a live test call in OpenDialer.
+- [ ] Confirm two-way audio on a live call with a separate phone.
+- [x] Verify carrier outbound delivery from each purchased number using an authorized test destination.
+- [ ] Start and complete a live test call from the Dialer without dialing a campaign lead.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -222,7 +224,20 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   verification. Both full database suites passed. The browser run passed the number and voicemail journeys
   and reported 178 of 179 passing overall. The remaining sign-in test let a background request renew the session
   when its mock was removed before the click. With the mock in place until the click, all 14 rep-screen journeys
-  passed locally. The Mac locked before the update could be installed.
+  passed locally, and [all six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41924282332) passed on
+  the follow-up commit, including the full browser suite.
+- After microphone access was granted to 0.8.10, the 3:22 p.m. Pacific inbound test on the first number rang and
+  connected in OpenDialer after **Accept return call**. Signed answer and bridge events on the rep leg passed the
+  shared workspace test. The return call ended normally. The idle rep leg remained connected after the app paused
+  and blocked the updater. Telnyx confirmed it was still live, accepted a hangup for that idle leg, and the updater proceeded.
+- This Mac installed 0.8.11 through the signed updater. The installed bundle passed deep strict verification, the
+  local service reported 0.8.11, and the existing workspace reopened. Both order receipts show **Ordered · Active**
+  and **Set up and in your numbers**, Numbers shows **2 Ready for outbound use**, and the Settings readiness check
+  shows **Ready to call**. macOS requested a fresh microphone grant for this build.
+- The two short Telnyx tests to the owner-authorized destination produced signed initiated, answered and normal
+  hangup events from each owned caller number. These calls used the carrier API and produced no campaign attempts.
+  An answer event proves delivery to an answering endpoint. A Dialer bridge and audible speech in both directions
+  still need separate proof.
 
 ## Sources
 
