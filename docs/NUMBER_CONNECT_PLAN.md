@@ -54,20 +54,20 @@ are gone. Balance $15. No numbers owned.
 
 ### B. Releases 0.8.5 and 0.8.6
 
-- [ ] Request Telnyx voicemail AMD with the rep bridged on answer. End ordinary calls at a confirmed beep, remove the
+- [x] Request Telnyx voicemail AMD with the rep bridged on answer. End ordinary calls at a confirmed beep, remove the
   seven-second floor, and let the rep choose **Stay** before the beep. Keep final attempts open for a rep-spoken message.
   Reps handle screening prompts on the open line. The iPhone-specific detection mode is outside this release.
-- [ ] Set the outbound ring timeout to 40 seconds by default and make it configurable. Keep it separate from connected call duration.
-- [ ] Report all initiated attempts by caller number and receiving carrier with daily totals, weekly and rolling 28-day views.
+- [x] Set the outbound ring timeout to 40 seconds by default and make it configurable. Keep it separate from connected call duration.
+- [x] Report all initiated attempts by caller number and receiving carrier with daily totals, weekly and rolling 28-day views.
   Separate network answer, human pickup, usable two-way audio, intended prospect, screening, voicemail, IVR, carrier block,
   failure, conversation and callback. Capture rep-reported audio problems and measure answer-to-bridge p95 against 0.5 seconds.
   A bridge event is a timing proxy. Two-way audio requires rep or media evidence.
-- [ ] Warn at 12% short answered calls (six seconds or less) and 15% pre-answer drops. Report ring timeouts
+- [x] Warn at 12% short answered calls (six seconds or less) and 15% pre-answer drops. Report ring timeouts
   separately from estimated drops. Confirm the billing treatment of ring timeouts with Telnyx during live proof.
-- [ ] Record SIP 603 and 603+ blocks against the original attempt, flag repeats, and pause the number while preserving callbacks.
-- [ ] Support a metered Telnyx carrier and line-type lookup with a saved result per lead and endpoint. Enable spend explicitly.
-- [ ] Export inventory for Free Caller Registry. Keep manual labels and their source, allow free checks, and show carrier dispute guidance.
-- [ ] Hold newly added numbers for at least 24 hours before outbound use. Ramp by completed business days with real use.
+- [x] Record SIP 603 and 603+ blocks against the original attempt, flag repeats, and pause the number while preserving callbacks.
+- [x] Support a metered Telnyx carrier and line-type lookup with a saved result per lead and endpoint. Enable spend explicitly.
+- [x] Export inventory for Free Caller Registry. Keep manual labels and their source, allow free checks, and show carrier dispute guidance.
+- [x] Hold newly added numbers for at least 24 hours before outbound use. Ramp by completed business days with real use.
   Use Pacific time for weekdays. An open label blocks outbound until explicitly cleared. A number under delivery review
   falls back to a maximum of 15 attempts per day. Preserve lower owner limits.
 
@@ -81,8 +81,9 @@ are gone. Balance $15. No numbers owned.
   Plan four numbers per rep at 180 attempts per day. A paused number removes capacity from that plan.
 
 - [ ] Verify native registry CSV export on this Mac. The 0.8.5 WebKit download path stalled in the signed app.
-- [ ] Run acceptance on SQLite and PostgreSQL and the affected browser journeys.
-- [ ] Commit the changes, publish the signed release, update this Mac in the app, and verify the installed workspace in the UI.
+- [x] Run acceptance on SQLite and PostgreSQL and the affected browser journeys.
+- [x] Commit the changes and publish signed Mac and Windows builds.
+- [ ] Install 0.8.6 through this Mac’s updater and verify the installed workspace in the UI.
 - [x] Remove extra desktop test copies from macOS app discovery while preserving workspace data.
 
 ### C. Buy and prove
@@ -150,6 +151,21 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - Mailbox calls with short greetings can still count as short calls. Without the floor, the 12% warning is the safeguard.
 - A low-risk reading is not proof of a clean display everywhere, so real-phone checks stay.
 - Display of caller name and branding varies by carrier and device. Nothing guarantees clean labels.
+
+## Verification checkpoint
+
+- The 0.8.6 runtime is commit `80ec1e1`. [CI](https://github.com/TanushV/OpenDialer/actions/runs/41815242317)
+  passed 820 SQLite tests, 821 PostgreSQL tests and 179 browser journeys. Mac and Windows packaging passed.
+  The Mac archive checksum and deep strict code signature verified. [Signed release](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.6)
+- This Mac installed 0.8.5 through the signed updater and reopened the existing Agite workspace. Computer use confirmed
+  the report loaded and outbound ringing defaulted to 40 seconds. The CSV export then stalled in WebKit’s download path.
+  After recovery the workspace reopened. 0.8.6 saves through the native shell. The regression passes and the Mac is locked,
+  so installing 0.8.6 and exercising that command in the installed app are still open.
+- Two extra OpenDialer Journeys bundles were moved to the Trash. macOS app discovery lists the single
+  `/Applications/OpenDialer.app` copy.
+- The console's Verified status is owner-confirmed. Carrier lookup is explicitly approved per endpoint in the lead packet.
+  Report time buckets use Pacific time. Bridge latency is a proxy and the billing warnings are estimates.
+  Number purchases, real calls, ring-timeout billing confirmation and measured lift remain open.
 
 ## Sources
 
