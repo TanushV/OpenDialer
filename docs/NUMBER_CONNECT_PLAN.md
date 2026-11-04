@@ -1,232 +1,165 @@
-# Numbers and connect rate plan (draft, November 3, 2026)
+# Numbers and connect rate plan
 
-Status: approved November 3, 2026. Step 1 shipped as 0.8.3 and 0.8.4 (a search fix), which also took the voicemail-only hang-up rule from step 2 at the owner's request (detection mode, beep rule, 7-second floor, final attempt stays). Steps 0 and 2 to 5 remain; no real number has been bought or called.
+Updated November 4, 2026. Software evidence only so far: no real number has been bought and no real call placed.
 
 ## Goal
 
-- Numbers bought in the app set themselves up.
-- Numbers already owned in Telnyx are easy to add and go through the same setup.
-- Everything beyond the list and calling habits is handled to best practice.
+- Numbers bought in the app set themselves up, and numbers already in Telnyx are easy to add.
+- Everything on the number and calling side is handled to best practice. Lists, timing and rep behavior stay out of scope.
+- Reach a sustained live connect rate we can measure honestly.
 
-## Answers to the direct questions
+## Target
 
-### Recording and transcription
+**Live connect rate = attempts reaching a live person with working two-way audio / all initiated outbound attempts.**
+An immediate "not interested" counts. Failed, blocked and unanswered attempts stay in the denominator.
 
-- "Recording off" in route setup only stops Telnyx saving audio of inbound calls (`providers/telnyx.py` `configure_number`).
-- The app keeps no audio recording, temporary or otherwise. `control_intent` refuses `record_start`.
-- Live transcription is separate and keeps working. On this Mac it streams speech directly (`transcription_source: direct`).
-- Raw transcript text expires within five minutes (`privacy.py` `RAW_TTL_SECONDS`). Notes and outcomes stay.
-- It is optional under Settings, "Allowed during calls" (Live and Transcription, both on by default).
-- Defect: unticking Transcription alone has no effect while Live stays on (`service.py:642-643`). From reading the code, not tested.
-- Stale text: "Production transcription stays disabled without this evidence" only applies to the webhook path, not this Mac's direct path.
-- Qwen Omni is not used and never shipped. `docs/STATUS.md:52` records it as explored and not adopted. Speech goes to Soniox through Telnyx and becomes text. The live helper reads that text (Cerebras, `openai/gpt-oss-120b`). Nothing analyzes the audio itself.
+| Case | Rate | At 180 attempts a day |
+|---|---|---|
+| Budget | 12% | about 22 connects |
+| Target | 15% | 27 connects |
+| Stretch, only once demonstrated | 20% | 36 connects |
 
-### No caller name
+These are planning judgments, assuming US B2B, verified direct numbers, healthy cadence and one call per rep. Infrastructure
+cannot guarantee them. Public reference points: Gong 5.4% average and 13.3% top quartile over 300M+ calls; Rasa 13 to 16%;
+Park Place about 21%. Definitions and dialing modes differ, so these show what is feasible, not what to expect. Vendor lifts
+overlap and must not be added together.
 
-- Fine. Nothing depends on it. Leave it blank and setup skips it.
-- Phones then show the number, sometimes the city, or "Unknown Caller".
-- Evidence that a name lifts answer rates is vendor-only.
-- Unconfirmed risk: a recycled number might still show a previous owner's name. The real-phone test would reveal it.
+Report separately: network answers, live human pickups, usable live connects (the main number), intended-prospect connects,
+screening, voicemail, IVR, blocked, failed, conversations and inbound callbacks. Voicemail, screening assistants and callbacks
+never count as connects.
 
-### Telnyx limit
+## Done
 
-- 10 calls an hour and 100 a day are Paid-tier Voice API limits. Paid also allows 5 calls at once.
-- Verified needs an identity check (KYC) and Telnyx's "AI agent evaluation".
-- Telnyx calls Verified the tier required for high-volume production traffic. Its page lists no call caps, and the automated-call notice stops there.
-- Telnyx does not state in words that the hourly cap is removed, so ask support to confirm.
-- An older Telnyx article says Level 2 allows 10 concurrent calls, with more on request to support@telnyx.com.
-- There is no workaround worth building. Moving to a second carrier is a real project and only makes sense if Telnyx refuses.
+Shipped in 0.8.3 and 0.8.4:
 
-### Call screening and voicemail
+- Buying or adding a number confirms its route, turns recording off, applies the spend cap and caller name, and starts warmup.
+- Telnyx numbers are listed and added one at a time, with a warning before moving one off another Telnyx app. Pause excludes a number.
+- One workspace test call with no expiry. Callers on no lead hear a greeting with the business name.
+- City search with each number's city, tried one area code at a time. Same metro first, one number per lead.
+- Telnyx iPhone-aware detection. Only a voicemail beep hangs up an ordinary attempt. The final attempt stays on the line.
+- The rep is bridged on answer, so detection does not hold up live audio.
+- Clear refusals, one transcription switch, optional caller name, $25 daily spend cap (set on the real account).
 
-- Today: any `machine` result on a non-final attempt hangs up immediately (`telephony/workflows.py:135-147`).
-- Standard detection decides within 3.5 seconds by default, so these calls probably last about 4 seconds. Not measured.
-- Telnyx's docs indicate an iPhone screening prompt first reads as `machine`. So screened calls are likely hung up today. Not tested.
-- Nooks measured 2.5% of calls reaching a voice assistant, so this is a small but real share.
+Telnyx account: the owner reports it is now Verified. Not yet proven on a real call that the hourly cap and the automated notice
+are gone. Balance $15. No numbers owned.
 
-### New finding: instant voicemail hang-ups break a Telnyx rule
+## Close-out order
 
-- Telnyx counts outbound calls of 6 seconds or less as Short Duration Calls.
-- If they exceed 15% of connected calls in a calendar month, a surcharge applies to all of them. Its terms list $0.01 per call.
-- Its terms also allow it to move or block that traffic, and it says it does not support use cases that require such calls.
-- Voicemail hang-ups at about 4 seconds would all count. I expect voicemails to be well over 15% of connected calls. [ASSUMPTION]
-- Separately, if more than 20% of calls are dropped by us before answer, there is a $0.005 per call surcharge. Calls to disconnected numbers count too.
+### A. Owner setup
 
-## What top teams do beyond lists and habits
+- [x] Confirm Telnyx shows Verified in the console. Check real calling limits and announcements during live proof.
+- [x] Decide number health scope. Use Free Caller Registry, manual reports and observed delivery. Skip Telnyx Number Reputation.
+- [ ] Fund the calling balance and decide auto-recharge.
+- [ ] Set the callback destination and optional caller name. Review the applicable transcription and do-not-call rules.
 
-| Practice | Nooks | Others | Us today | Plan |
-|---|---|---|---|---|
-| Register business with First Orion, Hiya and TNS | Yes, with legal name, website, industry, use case, EIN | Orum and Salesfinity claim carrier registration | Link only | Step 3 |
-| Wait after registering | At least 24 hours for its pool numbers | Not stated | None | Step 3 |
-| Spam test each number | About daily, plus every 60 dials | Orum and Salesfinity monitor | None | Step 3 |
-| Spread volume | Switches after 60 dials a day, 10 numbers per rep | Salesfinity rotates every 5 calls, others 70 to 250 a day | 40 a day max, least-used first | 60 a day cap, stable pool |
-| Drop flagged numbers | Auto on its pool, manual for your own | Similar claims | None | Step 3 |
-| Watch answer rate and short calls | Yes | Yes | Built (`assess_number_health`), hidden in review | Step 3 |
-| Remediate labels | Through vendor partners | Yes | None | Step 3 ($1 per number) |
-| Pick number by data | Smart Presence | Orum Boost Connect | Same state, area code as tie-break | Metro first now, data later |
-| Detect screening separately | Yes, with its own queue and talk track | Growing | No | Step 2 |
-| Callback handling | Rings app or mobile, greeting, voicemail, missed list | | App, message and task; no fallback saved | Step 1 |
-| Branded calling | Not named on its spam page | Sold separately | None | Later test |
+### B. Release 0.8.5
 
-Nooks data on assistant-answered calls: real context got through 11.6% of the time, concise keywords 8.7%, and evasive commands failed 99%.
+- [ ] Request Telnyx voicemail AMD with the rep bridged on answer. End ordinary calls at a confirmed beep, remove the
+  seven-second floor, and let the rep choose **Stay** before the beep. Keep final attempts open for a rep-spoken message.
+  Reps handle screening prompts on the open line. The iPhone-specific detection mode is outside this release.
+- [ ] Set the outbound ring timeout to 40 seconds by default and make it configurable. Keep it separate from connected call duration.
+- [ ] Report all initiated attempts by caller number and receiving carrier with daily totals, weekly and rolling 28-day views.
+  Separate network answer, human pickup, usable two-way audio, intended prospect, screening, voicemail, IVR, carrier block,
+  failure, conversation and callback. Capture rep-reported audio problems and measure answer-to-bridge p95 against 0.5 seconds.
+  A bridge event is a timing proxy. Two-way audio requires rep or media evidence.
+- [ ] Warn at 12% short answered calls (six seconds or less) and 15% pre-answer drops. Report ring timeouts separately
+  until their treatment is confirmed with Telnyx.
+- [ ] Record SIP 603 and 603+ blocks against the original attempt, flag repeats, and pause the number while preserving callbacks.
+- [ ] Support a metered Telnyx carrier and line-type lookup with a saved result per lead and endpoint. Enable spend explicitly.
+- [ ] Export inventory for Free Caller Registry. Keep manual labels and their source, allow free checks, and show carrier dispute guidance.
+- [ ] Hold newly added numbers for at least 24 hours before outbound use. Ramp by completed business days with real use.
+  Hold growth while a label or abnormal delivery remains unresolved. Preserve lower owner limits.
 
-Disagreement: Hiya advises against rotating, and scores "Maturity". Nooks, Orum and Salesfinity all rotate. This plan keeps a stable pool, gives each lead one number, and shares load. It does not rotate every few calls or replace numbers every 30 days.
+  | Business days of real use | Attempts per number per day |
+  |---|---|
+  | 1 to 2 | 15 |
+  | 3 to 5 | 25 |
+  | 6 to 10 | 40 |
+  | 11 onward | 50 |
 
-All of the above is vendor-reported. No independent study settles it.
+  Plan four numbers per rep at 180 attempts per day. A paused number removes capacity from that plan.
 
-## Order of work
+- [ ] Run acceptance on SQLite and PostgreSQL and the affected browser journeys.
+- [ ] Commit the changes, publish the signed release, update this Mac in the app, and verify the installed workspace in the UI.
+- [ ] Remove extra desktop test copies from macOS app discovery while preserving workspace data.
 
-### Step 0: you, now (runs alongside the builds)
+### C. Buy and prove
 
-1. Complete Telnyx Verified in Account > Levels. I can draft a support message that describes human reps calling businesses one at a time and asks them to confirm the hourly and daily caps are gone.
-2. Turn on auto-recharge and add funds. The balance is $15.
-3. Gather: legal name, trade name, EIN, website, address, contact person, industry, employee count, call purpose and a callback phone number.
-4. Decide the caller name, or none.
-5. Ask a lawyer two things:
-   - Is live AI transcription on calls into California acceptable, or should reps disclose it or turn it off for California? (*Ambriz v. Google* let a similar claim past dismissal in 2025.)
-   - Do cell phones in the list need do-not-call screening?
-6. Try Apple Business and see whether Business Caller ID is offered for your numbers. Apple publishes a caller ID API, but I could not confirm availability, eligibility or price.
-7. Make your business easy to find when someone searches a number: same legal and trade name everywhere, and your calling numbers on your website contact page. Low cost, weak evidence.
+- [ ] Set limits and obtain approval on exact live quotes. Search again at purchase time for two numbers per metro.
+  Prefer San Francisco 415, then San Francisco 628, then Marin 415. In New York prefer 212, 646, 917 or 332, then 929.
+- [ ] Check each proposed number and buy the four approved numbers. Submit the inventory once to Free Caller Registry,
+  wait at least 24 hours, and record the initial manual label checks.
+- [ ] Test unsaved caller IDs on AT&T, T-Mobile and Verizon on iPhone and Android. Include screening prompts,
+  voicemail beep and hang-up, the final rep-spoken voicemail, caller display, labels, two-way audio and answer-to-audio time.
+- [ ] Prove the workspace test call and both answered and missed callbacks. Confirm A attestation, absence of a carrier notice,
+  and more than ten calls in an hour. Exclude all proof calls from production metrics.
+- [ ] Resolve failures before ramping.
 
-### Step 1: release 0.8.3, easy numbers (no new paid services)
+### D. Ramp
 
-Tests first, on SQLite and PostgreSQL. Remove code where possible.
+- [ ] Ramp on real prospects for about 11 business days. Watch delivery, labels, callbacks and audio, and resolve any incidents.
+  Use actual prospect traffic and callbacks.
 
-1. **Search.** Show each number's city and allow search by city, so SF means San Francisco-located 628s. `search_numbers`, `/v1/admin/numbers/search`, `NumberPurchasing.tsx`. The price recheck must repeat the same search.
-2. **Buy.** Approving a quote also confirms the route, recording off and active status. No Set up route click. `purchase_number`, `reconcile_number_order`.
-3. **Add owned numbers.** List your Telnyx numbers with an Add button, running the same setup. Numbers on another Telnyx app need a confirmation, because adding moves them. Remove the "Add owned number" box, which can create an entry that can't be set up. `sync_numbers`, `_merge_inventory`, `Operations.tsx`.
-4. **Test call.** One real test per workspace, not per number, because every number shares one Telnyx app and call path. No 30-day expiry. Telnyx's route read-back qualifies each number. Replace the relay-list filter with the confirmed connection. `number_ready`, `number_readiness_in`, `_start_warmup`, `queue.py:250`, `service.py:775` and `905`.
-5. **Warmup.** Starts at setup. Starting at 15 a day, rising with clean real use to a 60 a day maximum. Show the real limit, such as "15 today, 60 max". `WARMUP`, `daily_capacity_per_number`, `adaptive_daily_limit`. [Judgment: 5 was our own guess, and Nooks uses 60 a day.]
-6. **Number choice.** Same metro first, then least used, treating overlays as the same (415 and 628; 212, 646, 332, 917, 718, 347 and 929). Each lead keeps its number. `select_number`, `geography.py`.
-7. **Caller name.** Optional, one saved value, applied automatically if set.
-8. **Callbacks.** Ask for the callback phone during setup so returned calls reach a person. Replace the generic "We cannot take your call" message with a short greeting naming the business. Callers you never dialed no longer ring reps (the workspace test call is the exception). `telephony/callbacks.py`. No in-app voicemail, because the app keeps no audio; the callback phone's voicemail covers it.
-9. **Clear errors.** Say when a number is the blocker, not "No one to call right now". Name states with no number. `client.ts`, queue reasons.
-10. **Settings.** One "Live transcription and help" switch, stale text removed.
-11. **Spend cap.** Set the Telnyx daily spend limit on the voice profile, with a saved amount.
-12. Ship, publish and update this Mac through the signed updater.
+### E. Validate and close
 
-### Step 2: release 0.8.5, voicemail, screening and short calls (before any real calling)
+- [ ] Run six to eight weeks at normal load and collect at least 5,000 post-ramp attempts.
+- [ ] Report overall, weekly and rolling 28-day connect rate, intended-prospect rate, number and carrier breakdowns,
+  labels and fixes, screening-to-human conversion, audio losses, conversations per rep-hour and cost per extra connect.
+- [ ] Close after live proof passes, the ramp has no unresolved labels, and the report shows a stable rate with no unexplained
+  number or carrier decline. Budget using the measured rate.
 
-1. Use `premium_ios_call_screening_detection` ($0.0065 instead of $0.002 per call). `service.py:827`.
-2. New rule (`workflows.py:135-147`, `reducer.py`):
-   - A `machine` result never hangs up by itself.
-   - A beep means voicemail: hang up, unless it's the final attempt or the rep pressed Stay.
-   - Never hang up before 7 seconds from answer.
-   - Screening prompt or tone means stay. Show "Say your name and reason" with the script's line.
-   - Machine with no beep or prompt: the rep decides, with an automatic end at about 30 seconds.
-   - A human result always cancels any pending hang-up.
-3. Add a Stay button on any voicemail. `DialerPage.tsx`.
-4. Handle the new Telnyx results, including `prompt_ended`. Android screeners have no special signal, but the beep rule should cover them. Not tested.
-5. Script: a short screening line using real context, name, company and specific reason, 12 to 18 words. Update the preparation prompt.
-6. Show on Numbers: short-call share (warn at 12%), pre-answer drop share (warn at 15%) and screening rate.
-7. **Carrier block signal.** Read `sip_hangup_cause` on hangups (`workflows.py:124-127` only reads `hangup_cause`). SIP 603+ has been the required notice of analytics-based blocking since March 25, 2026. Count it per number, don't use up the lead's attempt, pause the number on repeats and alert. It covers blocks only, not labels.
+### F. Optional experiments after the baseline
 
-Cost: about $0.0045 more per call, plus a few seconds of rep time per voicemail. Longer voicemail calls should also look better to the spam-label firms.
+Change one thing at a time, randomize prospects, and keep each prospect in one arm. Use several numbers per arm, since one against
+one only compares two numbers' histories.
 
-### Step 3: number health, also in 0.8.5
+- **Branded calling first.** Telnyx: $50, $50 a month, $0.075 per call, in beta, US mobiles on T-Mobile and Verizon only. First Orion
+  reportedly covers AT&T too, but its pages could not be opened for this review, so get coverage and price in writing. Fix reputation
+  first, because labels can override branding.
+- **Then** source-number choice, ring time at 30, 40 and 45 seconds, and a second carrier only if delivery data points there.
 
-**If Number Reputation is on (my recommendation once Verified):**
+Rough attempts per arm (80% power, 5% significance, optimistic because attempts cluster): 10% to 15% needs 700; 15% to 20% needs 910;
+10% to 12% needs 3,850; 10% to 11% needs 14,800.
 
-1. One business form in the app. It creates the Telnyx Enterprise, renders the authorization letter for you to sign, uploads it, and records your acceptance of the terms.
-2. Adding a number registers it and reads its spam risk. It shows "Registering, ready after [time]" for at least 24 hours.
-3. High risk: won't dial. Offer a replacement, which you approve.
-4. Check on business days, about $2.20 per number a month. Medium risk: lower the limit. High risk: pause and offer re-evaluation ($1).
-5. Show spam risk, answer rate, short-call rate and calls today per number. Reuse `external_reputation` and `assess_number_health`.
+## Incident handling
 
-Cost: $100 a month plus checks. Update the app text that says this subscription is blocked.
+| Observation | Response |
+|---|---|
+| One number labeled on one network | Reduce or pause it, keep callbacks working, inspect its traffic, request targeted review |
+| Several numbers worse on one network | Check route, attestation and that network's analytics treatment |
+| Several numbers worse everywhere | Examine the shared traffic pattern and recipient experience before adding volume |
+| Connects fall, labels normal | Check audio, screening handling and carrier failures |
+| One poor day on one number | Gather more evidence; do not replace it |
 
-**If not:** the app exports your numbers for the free registry form, links Hiya's free per-number report, and you enter results using the existing reputation import.
+Do not swap numbers as a reputation reset. Hiya can assess a new number from the business's other numbers, and no one-flag-kills-all
+rule is documented. A clean launch has no bad history to inherit, but company-wide behavior still counts.
 
-**Either way:**
+## Not in this plan
 
-1. **Per-carrier results.** Labels are separate per carrier (reported: AT&T uses Hiya, T-Mobile uses First Orion, Verizon uses TNS). Look up each lead's carrier and line type once through Telnyx Number Lookup, about $0.25 per 100 leads at listed prices. Show answer rate per number per carrier.
-2. **Early warning.** Alert when a number answers far worse than the others, or on one carrier. Run a fresh spam check on that alert.
-3. **Mobile first.** Use the line type in lead ranking. Nooks reports 45% higher connect rates on mobiles.
-4. **Disputes.** Link the free AT&T, T-Mobile and Verizon review forms and Hiya from a flagged number, in addition to the Telnyx re-evaluation.
+Timing, cadence, list buying, pickup-likelihood scoring, email or LinkedIn or SMS before calling, and parallel dialing (owner decision:
+manual, one line). Also no fake warmup calls, routine number rotation, shell companies, aged-number promises, paid whitelisting, or
+fresh reputation checks before each dial. No audio recording unless the owner asks.
 
-### Step 4: buy and prove it on real numbers
+## Risks
 
-1. Set limits: 2 numbers, $2 initial, $2 monthly.
-2. Optionally run each candidate through CallerAPI's free test first.
-3. Buy one San Francisco 628 and one New York City 929. $4 today, $2 a month.
-4. Register, then wait 24 hours.
-5. Allow the microphone. Go ready.
-6. Real calls to AT&T, T-Mobile and Verizon phones, and an iPhone with screening on. Check:
-   - any label or caller name shown
-   - voicemail behavior and call length over 6 seconds
-   - screening flow
-   - one callback, answered and missed
-   - time from answer to hearing the rep
-   - the "A" rating in the Telnyx report
-   - that no Telnyx notice plays
-7. Record evidence in `docs/evidence/`.
-
-### Step 5: call and tune
-
-- Weekly: answer rate per number, spam risk, short-call share, pre-answer drops.
-- Buy more numbers when the capacity plan says so: calls per day divided by 60, and at least one per rep calling at once in each state.
-- After a few hundred calls, test Telnyx Branded Calling on one number: $50, $50 a month, $0.075 per call, still in beta.
-- At steady volume, keep one registered spare number per metro so a flagged number doesn't stop calling.
-- With enough calls, test data-driven number choice using the existing comparison framework: reuse a number that has connected with that prospect, and try another in the same metro after two no-connects. This conflicts with one number per lead, so it stays an experiment.
-- If labels are hard to catch, add daily real-device testing from a vendor such as OptimalDial. Price unknown.
-- If Telnyx delivery itself looks poor, or Telnyx declines Verified, evaluate a second carrier.
-
-## Deliberately not doing
-
-- Parallel dialing (your decision: manual Space/Next).
-- Rotating every few calls, or replacing numbers every 30 days.
-- Fake warmup calls.
-- Separate companies to split reputation.
-- A paid pre-purchase spam API. A bad number costs $2 to find out.
-- Audio recording, unless you ask for it.
-- Telnyx Repeat Call Guard: it only applies to SIP connections, and the app already spaces retries.
-
-## Outside this plan
-
-- Email, LinkedIn or SMS before a call. Salesfinity claims 20% to 40% higher connect rates, with no source given. The app has no such channels, and SMS needs 10DLC, which the Paid tier can't use. Reps can do this outside the app. Your call.
-- Buying better lists or mobile numbers. This is likely the biggest remaining lever, but it is a data purchase, not app work.
-- What only large vendors have: private analytics partnerships for faster fixes, and connect data from millions of calls.
-
-## Open risks
-
-- Nothing is proven on a real number yet.
-- Telnyx may not confirm the cap removal, or may decline Verified. Then consider a second carrier.
-- No one can guarantee clean labels. Hiya scores businesses across their numbers, so behavior on one number can affect the others.
-- Vendor claims throughout are not independently verified.
+- Telnyx policy restricts unsolicited calls that provoke complaints, abandoned calls, dead air, repeated calling and low answer rates,
+  and registration is not approval. Telling Telnyx the use case is sensible. Enforcement would stop every number at once.
+- Voicemails now ring through the greeting, costing rep time. Measure it. The rep can always hang up sooner.
+- Mailbox calls with short greetings can still count as short calls. Without the floor, the 12% warning is the safeguard.
+- A low-risk reading is not proof of a clean display everywhere, so real-phone checks stay.
+- Display of caller name and branding varies by carrier and device. Nothing guarantees clean labels.
 
 ## Sources
 
-- Nooks: https://support.nooks.ai/articles/7296554284-how-nooks-protects-your-calls-from-spam
-- Nooks: https://support.nooks.ai/articles/8714570394-smart-presence
-- Nooks: https://support.nooks.ai/articles/3119124430-understanding-callbacks-within-nooks
-- Nooks: https://www.nooks.ai/blog-posts/how-nooks-keeps-your-numbers-spam-free
-- Nooks: https://www.nooks.ai/blog-posts/mastering-connect-rates
-- Nooks: https://www.nooks.ai/blog-posts/early-data-on-ios-call-screening-what-it-means-for-outbound
-- Orum: https://support.orum.com/en-US/orum/article/XKSKR_od-orum-101-quickstart-guide-for-sales-reps
-- Salesfinity: https://support.salesfinity.ai/articles/9577368303-what-is-smartguard-in-salesfinity
+- Gong: https://www.gong.io/blog/the-hidden-power-of-cold-calling-insights-from-300m-calls
+- Nooks: https://support.nooks.ai/articles/9595602343-strategies-to-increase-your-connect-rates
+- Nooks spam protection: https://support.nooks.ai/articles/7296554284-how-nooks-protects-your-calls-from-spam
+- Nooks screening data: https://www.nooks.ai/blog-posts/early-data-on-ios-call-screening-what-it-means-for-outbound
+- Free Caller Registry: https://freecallerregistry.com/fcr/
 - Telnyx short calls: https://support.telnyx.com/en/articles/1130707-what-are-short-duration-calls
-- Telnyx terms: https://telnyx.com/terms-and-conditions-of-service
 - Telnyx abandoned calls: https://support.telnyx.com/en/articles/12805746-surcharge-for-high-abandoned-call-rates
-- Telnyx repeat guard: https://support.telnyx.com/en/articles/12580667-configure-repeat-call-guard-on-outbound-voice-profiles-beta
-- Telnyx tiers: https://developers.telnyx.com/docs/account-setup/account-upgrade
-- Telnyx Paid: https://developers.telnyx.com/docs/account-setup/levels-and-capabilities/paid
-- Telnyx Verified: https://developers.telnyx.com/docs/account-setup/levels-and-capabilities/verified
-- Telnyx concurrency: https://support.telnyx.com/en/articles/1130717-limits-on-concurrent-outbound-calls
-- Telnyx machine detection: https://developers.telnyx.com/docs/voice/programmable-voice/answering-machine-detection
-- Telnyx Number Reputation: https://developers.telnyx.com/docs/number-reputation/overview
-- Telnyx Branded Calling: https://developers.telnyx.com/docs/branded-calling/pricing
-- Hiya labels: https://blog.hiya.com/how-carriers-label-spam-calls-and-how-businesses-can-support-a-healthy-call-reputation
-- Hiya checks: https://blog.hiya.com/how-to-check-phone-numbers-for-spam-labels
-- Hiya scoring: https://www.hiya.com/products/enterprise-caller-scoring
-- Twilio on iOS screening: https://www.twilio.com/en-us/blog/developers/tutorials/product/detect-ios-call-screening-amd-transcriptions
-- Screening guide: https://www.revenue.io/blog/getting-past-ai-phone-screeners-a-sales-dialer-guide
-- CallerAPI test: https://callerapi.com/caller-id-test
-- Ambriz v. Google: https://natlawreview.com/article/extension-vs-capability-google-learns-difference-hard-way
-- SIP 603+ deadline: https://www.acainternational.org/news/fcc-call-blocking-redress-final-compliance-deadline-is-march-25/
-- SIP 603+ order: https://docs.fcc.gov/public/attachments/FCC-25-15A1_Rcd.pdf
-- Telnyx Number Lookup pricing: https://telnyx.com/pricing/number-lookup
-- Per-carrier labels: https://www.twinsai.com/resources/caller-id-reputation
-- Real-device monitoring: https://optimaldial.com/spam-monitoring
-- Apple caller ID API: https://business.apple.com/docs/api/v1/caller_id/create
-- Apple announcement: https://www.apple.com/newsroom/2024/10/apple-expands-tools-to-help-businesses-connect-with-customers/
-- Pre-call touches claim: https://salesfinity.ai/blog/how-to-increase-cold-call-connect-rates-in-2026-a-data-driven-guide
+- Telnyx usage policy: https://telnyx.com/acceptable-use-policy
+- Telnyx branded calling: https://support.telnyx.com/en/articles/15138152-making-calls-with-branded-calling
+- Telnyx answering machine detection: https://developers.telnyx.com/docs/voice/programmable-voice/answering-machine-detection
+- Hiya reputation data: https://developer.hiya.com/docs/guides/voice-protection/number-reputation/use-reputation-data
+- SIP 603+: https://www.acainternational.org/news/fcc-call-blocking-redress-final-compliance-deadline-is-march-25/
