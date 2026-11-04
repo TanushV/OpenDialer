@@ -156,6 +156,10 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 4 connect-rate release (0.8.5): use [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md) as the checklist.
+  Telnyx Verified is owner-confirmed. Use Premium AMD for voicemail, with immediate bridge on answer and the rep handling
+  screening. Keep paid Number Reputation outside the scope. Software, signed update and live gates are tracked separately.
+
 - November 3 number setup (0.8.3, search fix 0.8.4): see [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md). Buying or adding a number runs
   setup; Telnyx numbers are listed and added one at a time; one workspace test call without expiry replaces per-number
   callback proof; only a detected voicemail beep hangs up automatically. Number registration, spam checks and per-carrier

@@ -37,13 +37,12 @@ Your workspace, leads and keys are kept. Do not uninstall or delete workspace da
 The updater checks the repository's pinned signing key; that verifies the download, separately from Apple
 notarization or Windows publisher trust. Versions before 0.7 show the same steps under **Settings → App updates**.
 
-**0.8.4** is the current version: numbers that set themselves up, one test call, voicemail-only hang-up, city search, nearby-number search, calling without approval paperwork (do-not-call checks optional), specific
-readiness steps, existing-number setup and warmup, machine detection, follow-up scripts from call history and
-conversational live help, on top of 0.7's one Markdown script and per-lead research. [What's new](RELEASE_NOTES.md). After updating from 0.6.x, paste
-your script again on the **Script** page in the new format ([example](examples/script.md)); the
-[setup guide](GETTING_STARTED.md#4-add-your-script) explains it. Updates from 0.4 to 0.6 keep your workspace.
-Upgrading from 0.6.0/0.6.1 may ask you to re-enter provider keys and re-import setup or login files; the old
-encrypted files are kept for recovery.
+**0.8.5** adds Telnyx voicemail-only auto hang-up with a Stay override, outbound ring-time controls,
+the Live connect report, free registry export and number-health controls. Updating from 0.8.4 keeps the workspace.
+After updating from 0.6.x, paste your script again in the new format on the **Script** page
+([example](examples/script.md), [setup guide](GETTING_STARTED.md#4-add-your-script)).
+Updates from 0.4 to 0.6 keep your workspace. Upgrading from 0.6.0 or 0.6.1 may require re-entering provider keys
+and re-importing setup or login files. The old encrypted files are kept for recovery.
 
 **Upgrading from 0.2/0.3:** 0.4 and later start fresh workspaces and leave the old data folders untouched;
 they do not migrate old workspaces. Keep backups and consult [recovery](../deploy/runbooks/recovery.md) before switching.
