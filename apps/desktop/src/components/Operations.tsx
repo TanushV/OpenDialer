@@ -1598,9 +1598,7 @@ function NumberRow({
                 : number.identity_configured &&
                     number.workspace_test_passed === false
                   ? "Waiting for your test call"
-                  : number.holding_for_registration
-                    ? `Registration hold until ${date(number.outbound_hold_until)}`
-                    : "Needs setup"}
+                  : "Needs setup"}
           </small>
         </td>
         <td>{number.region}</td>

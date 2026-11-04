@@ -279,8 +279,6 @@ class NumberOperations:
                 errors.append("route_unconfirmed")
             if value.get("provider_recording_enabled") is not False:
                 errors.append("recording_not_disabled")
-        hold_until = dt(value.get("outbound_hold_until"))
-        holding = bool(hold_until and self.clock() < hold_until)
         tested = self.workspace_test_passed(s, p)
         external = assess_number_health(
             [],
@@ -292,9 +290,7 @@ class NumberOperations:
         return {
             "configuration_errors": errors,
             "workspace_test_passed": tested,
-            "holding_for_registration": holding,
-            "outbound_ready": not holding
-            and not errors
+            "outbound_ready": not errors
             and external["status"] != "investigating"
             and tested
             and number_ready(value),
@@ -960,12 +956,7 @@ class NumberOperations:
                 lifecycle = number.data["lifecycle"]
                 if lifecycle in {"purchased", "identity_configured"}:
                     lifecycle = "limited_real_use"
-                    now = self.clock()
-                    update(
-                        number,
-                        warmup_started_at=now.isoformat(),
-                        outbound_hold_until=(now + timedelta(hours=24)).isoformat(),
-                    )
+                    update(number, warmup_started_at=self.clock().isoformat())
                 update(
                     number,
                     connection_id=intent["connection_id"],

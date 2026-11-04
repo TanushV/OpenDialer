@@ -86,8 +86,6 @@ export interface NumberRecord {
   version: number;
   outbound_ready?: boolean;
   workspace_test_passed?: boolean;
-  holding_for_registration?: boolean;
-  outbound_hold_until?: string;
   last_sip_block_at?: string;
   recent_sip_blocks?: number;
   reason?: string;

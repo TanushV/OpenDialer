@@ -34,7 +34,6 @@ NUMBER_BLOCKERS = {
     "NO_CALLER_NUMBER",
     "CALLER_NUMBER_ROUTE_REQUIRED",
     "CALLER_NUMBER_CALLBACK_TEST_REQUIRED",
-    "CALLER_NUMBER_REGISTRATION_HOLD",
     "CALLER_NUMBER_PAUSED",
 }
 NUMBER_REASONS = {"NUMBER_UNHEALTHY", "NUMBER_NOT_AUTHORIZED"}
@@ -45,7 +44,6 @@ NO_LEADS = (
 NUMBER_STEPS = {
     "NO_CALLER_NUMBER": "Add a caller number in Numbers: buy one, or add one you own in Telnyx.",
     "CALLER_NUMBER_ROUTE_REQUIRED": "Set up your caller number's route in Numbers.",
-    "CALLER_NUMBER_REGISTRATION_HOLD": "New caller numbers are on a 24-hour outbound hold. Register them in Free Caller Registry and check the hold in Numbers.",
     "CALLER_NUMBER_PAUSED": "Your caller numbers are paused. Resume one in Numbers.",
 }
 SETUP_REASONS = {"REP_NOT_READY", "AUDIO_NOT_READY", "LIVE_OBLIGATION", "RESERVATION_EXISTS"}
@@ -396,8 +394,6 @@ class Dialer(
             return "CALLER_NUMBER_ROUTE_REQUIRED"
         if not self.workspace_test_passed(s, p):
             return "CALLER_NUMBER_CALLBACK_TEST_REQUIRED"
-        if any(r["holding_for_registration"] for _, r in readiness):
-            return "CALLER_NUMBER_REGISTRATION_HOLD"
         return "CALLER_NUMBER_PAUSED"
 
     def no_lead_detail(self, s, p, campaign_id, reasons):

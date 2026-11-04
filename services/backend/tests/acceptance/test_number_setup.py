@@ -150,7 +150,7 @@ def test_a_number_that_arrives_late_is_set_up_when_the_order_is_checked(workspac
     assert numbers(ws)[quote["phone"]]["lifecycle"] == "limited_real_use"
 
 
-def test_one_answered_test_call_opens_every_number_and_never_expires(fresh, carrier, clock):
+def test_one_answered_test_call_opens_every_number_immediately_and_never_expires(fresh, app, carrier, clock):
     ws = fresh
     connect(ws)
     own_numbers(carrier)
@@ -158,6 +158,10 @@ def test_one_answered_test_call_opens_every_number_and_never_expires(fresh, carr
     post(ws, "/v1/admin/numbers/add", {"phone": NYC})
     board = numbers(ws)
     assert not board[SF]["outbound_ready"] and not board[NYC]["outbound_ready"]
+    # The upgrade must release numbers that already have an unexpired app hold.
+    with app.state.db.transaction() as s:
+        number = db_get(s, "number_inventory", board[SF]["id"], ws["tenant_id"])
+        update(number, outbound_hold_until=(clock() + timedelta(hours=24)).isoformat())
     assert get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"] is False
     assert "CALLER_NUMBER_CALLBACK_TEST_REQUIRED" in get(ws, "/v1/admin/preflight")["blockers"]
 
@@ -166,11 +170,7 @@ def test_one_answered_test_call_opens_every_number_and_never_expires(fresh, carr
     answered_test_call(ws, Telnyx(ws, clock), SF)
     assert get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"] is True
     board = numbers(ws)
-    assert all(not board[phone]["outbound_ready"] for phone in (SF, NYC))
-    assert board[SF]["outbound_hold_until"]
-    clock.now += timedelta(hours=24)
-    sign_in_again(ws)
-    assert all(numbers(ws)[phone]["outbound_ready"] for phone in (SF, NYC))
+    assert all(board[phone]["outbound_ready"] for phone in (SF, NYC))
 
     clock.now += timedelta(days=45)
     sign_in_again(ws)
