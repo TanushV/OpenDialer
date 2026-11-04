@@ -486,8 +486,10 @@ def test_return_calls_reach_a_teammate_then_the_fallback_line_then_a_spoken_mess
     run_jobs(ws)
     call(ws, "POST", "/v1/admin/control/run")
     assert inbound_task(ws, "in-3")["route"] == "callback_queue"
-    speech = [a["payload"]["payload"] for a in carrier.actions if a["action"] == "speak"]
-    assert "Goodbye" in speech[-1]
+    speech = [a["payload"] for a in carrier.actions if a["action"] == "speak"][-1]
+    assert speech["voice"] == "Telnyx.KokoroTTS.af"
+    assert speech["service_level"] == "premium"
+    assert "Sorry we missed you. We'll call you back." in speech["payload"]
     assert get(ws, routing)["version"] == 2
 
 
@@ -711,7 +713,9 @@ def test_unanswered_rep_leg_falls_through_to_the_business_line_then_a_spoken_mes
         call(ws, "POST", "/v1/admin/control/run")
         assert inbound_task(ws, "in-1")["route"] == route
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com", "sip:front-desk@pbx.example.test"]
-    assert "Goodbye" in [a["payload"]["payload"] for a in carrier.actions if a["action"] == "speak"][-1]
+    speech = [a["payload"] for a in carrier.actions if a["action"] == "speak"][-1]
+    assert speech["voice"] == "Telnyx.KokoroTTS.af"
+    assert "Sorry we missed you. We'll call you back." in speech["payload"]
 
 
 def test_return_call_nobody_answers_is_ended_by_the_watchdog_at_its_deadline(workspace, clock, carrier):

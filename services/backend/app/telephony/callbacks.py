@@ -15,7 +15,8 @@ from app.compliance.operating import COSTS
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
 
-GREETING = "Thanks for calling {name}. No one can take your call right now, and we will follow up. Goodbye."
+GREETING = "Hi, you've reached {name}. Sorry we missed you. We'll call you back. Thanks for calling."
+GREETING_VOICE = "Telnyx.KokoroTTS.af"
 DEFAULTS = {"version": 0, "destination": "", "ring_seconds": 20, "offline_reference": ""}
 ENDED = {"ended", "cancelled", "failed"}
 SETTLED = ENDED | {"orphaned"}
@@ -238,9 +239,9 @@ class InboundCallbacks:
                 {
                     "payload": GREETING.format(name=seller.data.get("name") or "us"),
                     "payload_type": "text",
-                    "voice": "female",
+                    "voice": GREETING_VOICE,
                     "language": "en-US",
-                    "service_level": "basic",
+                    "service_level": "premium",
                     "target_legs": "self",
                 },
                 suffix="inbound-message",
@@ -713,11 +714,17 @@ class InboundCallbacks:
                 ).isoformat(),
             )
         if data["action"] in {"transfer", "speak"}:
+            rates = COSTS["callbacks"]
+            # Existing queued greetings still carry the basic voice and its rate.
+            speech_rate = (
+                "telnyx_tts_per_character_usd"
+                if data["payload"].get("voice") == GREETING_VOICE
+                else "standard_tts_per_character_usd"
+            )
             estimate = (
-                COSTS["callbacks"]["transfer_per_invocation_usd"]
+                rates["transfer_per_invocation_usd"]
                 if data["action"] == "transfer"
-                else len(data["payload"].get("payload", ""))
-                * COSTS["callbacks"]["standard_tts_per_character_usd"]
+                else len(data["payload"].get("payload", "")) * rates[speech_rate]
             )
             key = "inbound:" + command.id
             hold = self._request_hold(s, p, key)

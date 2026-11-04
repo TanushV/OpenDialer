@@ -111,9 +111,10 @@ COSTS = {
     "callbacks": {
         "transfer_per_invocation_usd": 0.1,
         "standard_tts_per_character_usd": 0.000009,
-        "basis": "PAYG transfer invocation and basic speech, plus all actual inbound/destination leg minutes; account taxes/rounding may differ",
+        "telnyx_tts_per_character_usd": 0.000003,
+        "basis": "PAYG transfer and speech, plus inbound and destination leg minutes; account taxes and rounding may differ",
         "source": "https://telnyx.com/pricing/voice-api",
-        "checked_at": "2026-10-18",
+        "checked_at": "2026-11-04",
     },
     "number_rental": {
         "recurring": True,
@@ -168,7 +169,11 @@ COSTS = {
 
 RATE_FIELDS = {
     "voice": ["api_per_minute_usd"],
-    "callbacks": ["transfer_per_invocation_usd", "standard_tts_per_character_usd"],
+    "callbacks": [
+        "transfer_per_invocation_usd",
+        "telnyx_tts_per_character_usd",
+        "standard_tts_per_character_usd",
+    ],
     "number_rental": ["from_monthly_usd"],
     "dnc": ["estimated_per_query_usd"],
     "cerebras": ["input_per_million_usd", "output_per_million_usd"],

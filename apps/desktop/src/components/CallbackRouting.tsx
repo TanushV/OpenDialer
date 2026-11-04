@@ -10,6 +10,7 @@ type Routing = {
   costs?: {
     transfer_per_invocation_usd: number;
     standard_tts_per_character_usd: number;
+    telnyx_tts_per_character_usd?: number;
   };
 };
 
@@ -113,9 +114,10 @@ export function CallbackRouting() {
         <p className="fine">
           Published reference: $
           {value.costs.transfer_per_invocation_usd.toFixed(2)} per transfer; $
-          {value.costs.standard_tts_per_character_usd} per character for basic
-          speech, plus call-leg minutes and applicable carrier fees. Final
-          billing follows the account receipt.
+          {value.costs.telnyx_tts_per_character_usd ??
+            value.costs.standard_tts_per_character_usd}{" "}
+          per character for the callback greeting, plus call-leg minutes and
+          applicable carrier fees. Final billing follows the account receipt.
         </p>
       )}
       <button
