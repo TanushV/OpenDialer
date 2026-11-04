@@ -215,7 +215,7 @@ for (const cancel of [false, true]) {
     await page
       .getByRole("button", { name: "Mailbox beep", exact: true })
       .click();
-    await expect(page.getByText(/Mailbox reached\./)).toBeVisible();
+    await expect(page.getByText(/Voicemail reached\./)).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Start monitored voicemail" }),
     ).toHaveCount(0);
