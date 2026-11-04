@@ -653,7 +653,7 @@ def test_caller_hanging_up_before_a_rep_answers_ends_the_return_call_and_frees_t
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com"]
 
 
-def test_fresh_inbound_greeting_does_not_wait_for_carrier_status(workspace, clock, carrier, monkeypatch):
+def test_fresh_inbound_greeting_does_not_wait_for_carrier_status(workspace, app, clock, carrier, monkeypatch):
     checks = []
 
     async def reconcile(command_id, provider_id=None):
@@ -664,6 +664,13 @@ def test_fresh_inbound_greeting_does_not_wait_for_carrier_status(workspace, cloc
     ws = workspace
     Telnyx(ws, clock).deliver("call.initiated", inbound("in-1", "+12025550177"), "evt-in-1")
     run_jobs(ws)
+
+    # The production clock advances even between two reads in a single dispatch pass.
+    def ticking_clock():
+        clock.now += timedelta(microseconds=1)
+        return clock()
+
+    monkeypatch.setattr(app.state.service, "clock", ticking_clock)
     post(ws, "/v1/admin/recovery")
 
     assert checks == []

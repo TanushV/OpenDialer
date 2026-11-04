@@ -427,6 +427,7 @@ class TelephonyWorkflows:
 
     def _control_work(self, p):
         self.inbound_watchdog(p)
+        now = self.clock()
         with self.db.transaction(False) as s:
             model = MODELS["command_outbox"]
             commands = [
@@ -441,7 +442,7 @@ class TelephonyWorkflows:
                     )
                     .order_by(model.created_at, model.id)
                 )
-                if self.clock() >= (dt(r.data.get("not_before")) or self.clock())
+                if now >= (dt(r.data.get("not_before")) or now)
             ]
             model = MODELS["call_attempts"]
             orphan_vms = [
