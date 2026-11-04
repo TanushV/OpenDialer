@@ -1,9 +1,11 @@
 """Adding and buying numbers set them up; one workspace test call opens them all, over HTTP."""
 
+import asyncio
 import base64
 import json
 from datetime import timedelta
 
+import httpx
 import pytest
 from journey import call, get, post, run_jobs
 from test_feature_calling import Telnyx, add_user, inbound, inbound_task, ready_as
@@ -353,3 +355,57 @@ def test_new_york_finds_the_city_telnyx_calls_new_york_city(workspace, carrier, 
     found = post(workspace, "/v1/admin/numbers/search", {"region": "212", "city": "New York"})["numbers"]
     assert [q["phone"] for q in found] == ["+19295423176"]
     assert ("929", "New York City") in seen
+
+
+def priced(phone, place):
+    return {
+        "phone_number": phone,
+        "cost_information": {"currency": "USD", "upfront_cost": "1.00", "monthly_cost": "1.00"},
+        "region_information": [{"region_type": "location", "region_name": place}],
+    }
+
+
+def rate_limited():
+    request = httpx.Request("GET", "https://api.telnyx.com/v2/available_phone_numbers")
+    return httpx.HTTPStatusError("429", request=request, response=httpx.Response(429, request=request))
+
+
+def test_a_rate_limited_area_code_does_not_sink_a_city_search(workspace, carrier, monkeypatch):
+    async def search(region, city=None, limit=10):
+        if region == "347":
+            raise rate_limited()
+        return [priced("+19295423176", "NEW YORK CITY")] if region == "929" else []
+
+    monkeypatch.setattr(carrier, "search_numbers", search)
+    found = post(workspace, "/v1/admin/numbers/search", {"region": "212", "city": "New York"})["numbers"]
+    assert [q["phone"] for q in found] == ["+19295423176"]
+
+
+def test_a_city_search_asks_telnyx_one_area_code_at_a_time_and_stops_when_it_has_enough(
+    workspace, carrier, monkeypatch
+):
+    running, most, seen = [0], [0], []
+
+    async def search(region, city=None, limit=10):
+        running[0] += 1
+        most[0] = max(most[0], running[0])
+        await asyncio.sleep(0)
+        seen.append(region)
+        running[0] -= 1
+        if region != "646":
+            return []
+        return [priced(f"+1646555{i:04d}", "NEW YORK CITY") for i in range(10)]
+
+    monkeypatch.setattr(carrier, "search_numbers", search)
+    found = post(workspace, "/v1/admin/numbers/search", {"region": "212", "city": "New York"})["numbers"]
+    assert len(found) == 10 and most[0] == 1
+    assert seen == ["212", "332", "646"]
+
+
+def test_a_search_telnyx_refuses_everywhere_says_so(workspace, carrier, monkeypatch):
+    async def search(region, city=None, limit=10):
+        raise rate_limited()
+
+    monkeypatch.setattr(carrier, "search_numbers", search)
+    refused = post(workspace, "/v1/admin/numbers/search", {"region": "929"}, status=502)
+    assert "Telnyx" in refused["detail"]

@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -1176,11 +1177,32 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
         else:
             fail(422, "A US area code is required")
-        found = []
+
+        def place_of(candidate):
+            for where in candidate.get("region_information", []):
+                if where.get("region_type") == "location":
+                    return str(where.get("region_name", "")).title()
+            return None
+
+        def in_city(candidate):
+            # Telnyx's nearby results ignore the city, so hold them to it here.
+            place = place_of(candidate)
+            return not city or not place or place.casefold().startswith(city.casefold())
+
+        found, refused = [], 0
         carrier = service.carrier(p["tenant_id"])
-        results = await asyncio.gather(*(carrier.search_numbers(area, city=city) for area in areas))
-        for area, candidates in zip(areas, results, strict=True):
-            found.extend((area, candidate) for candidate in candidates[:10])
+        # One at a time: Telnyx rate limits bursts, and one refused area code must not lose the rest.
+        for area in areas:
+            try:
+                candidates = await carrier.search_numbers(area, city=city)
+            except httpx.HTTPError:
+                refused += 1
+                continue
+            found.extend((area, candidate) for candidate in candidates[:10] if in_city(candidate))
+            if city and len({c.get("phone_number") for _, c in found}) >= 10:
+                break
+        if refused == len(areas):
+            fail(502, "Telnyx did not answer this search. Try again in a moment.")
         found.sort(key=lambda item: str(item[1].get("phone_number", ""))[2:5] != item[0])
 
         def save_quotes():
@@ -1205,17 +1227,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                         or (state and AREA_STATES.get(phone[2:5]) != state)
                     ):
                         continue
-                    place = next(
-                        (
-                            str(where.get("region_name", "")).title()
-                            for where in candidate.get("region_information", [])
-                            if where.get("region_type") == "location"
-                        ),
-                        None,
-                    )
-                    # Telnyx's nearby results ignore the city, so hold them to it here.
-                    if city and place and not place.casefold().startswith(city.casefold()):
-                        continue
                     seen.add(phone)
                     value = {
                         "phone": phone,
@@ -1223,7 +1234,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                         "area_code": phone[2:5],
                         "state": AREA_STATES.get(area),
                         "searched_city": city,
-                        "city": place,
+                        "city": place_of(candidate),
                         "monthly_cost_usd": float(monthly),
                         "initial_commitment_usd": float(upfront + monthly),
                         "expires_at": (clock() + timedelta(minutes=5)).isoformat(),

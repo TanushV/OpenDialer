@@ -787,6 +787,9 @@ nav button.active svg {
   box-shadow: 0 1px 2px #263a2003;
   overflow: hidden;
 }
+.owned-numbers {
+  padding: 0 20px 12px;
+}
 .card.padded {
   padding: 24px;
   margin-bottom: 20px;

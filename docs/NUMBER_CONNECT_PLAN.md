@@ -1,6 +1,6 @@
 # Numbers and connect rate plan (draft, November 3, 2026)
 
-Status: approved November 3, 2026. Step 1 shipped as 0.8.3, which also took the voicemail-only hang-up rule from step 2 at the owner's request (detection mode, beep rule, 7-second floor, final attempt stays). Steps 0 and 2 to 5 remain; no real number has been bought or called.
+Status: approved November 3, 2026. Step 1 shipped as 0.8.3 and 0.8.4 (a search fix), which also took the voicemail-only hang-up rule from step 2 at the owner's request (detection mode, beep rule, 7-second floor, final attempt stays). Steps 0 and 2 to 5 remain; no real number has been bought or called.
 
 ## Goal
 
@@ -105,7 +105,7 @@ Tests first, on SQLite and PostgreSQL. Remove code where possible.
 11. **Spend cap.** Set the Telnyx daily spend limit on the voice profile, with a saved amount.
 12. Ship, publish and update this Mac through the signed updater.
 
-### Step 2: release 0.8.4, voicemail, screening and short calls (before any real calling)
+### Step 2: release 0.8.5, voicemail, screening and short calls (before any real calling)
 
 1. Use `premium_ios_call_screening_detection` ($0.0065 instead of $0.002 per call). `service.py:827`.
 2. New rule (`workflows.py:135-147`, `reducer.py`):
@@ -123,7 +123,7 @@ Tests first, on SQLite and PostgreSQL. Remove code where possible.
 
 Cost: about $0.0045 more per call, plus a few seconds of rep time per voicemail. Longer voicemail calls should also look better to the spam-label firms.
 
-### Step 3: number health, also in 0.8.4
+### Step 3: number health, also in 0.8.5
 
 **If Number Reputation is on (my recommendation once Verified):**
 

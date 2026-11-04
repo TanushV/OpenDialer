@@ -712,12 +712,20 @@ function OwnedNumbers({
   const waiting = owned.filter((number) => !number.added);
   if (!waiting.length)
     return (
-      <p className="fine" role="status">
-        Everything in your Telnyx account is already here.
-      </p>
+      <div className="owned-numbers">
+        <p className="fine" role="status">
+          {owned.length
+            ? "Everything in your Telnyx account is already here."
+            : "There are no numbers in your Telnyx account yet."}
+        </p>
+      </div>
     );
   return (
-    <div aria-label="Numbers in your Telnyx account" role="group">
+    <div
+      aria-label="Numbers in your Telnyx account"
+      className="owned-numbers"
+      role="group"
+    >
       {waiting.map((number) => (
         <div className="button-row" key={number.phone}>
           <span>

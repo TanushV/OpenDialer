@@ -156,10 +156,10 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
-- November 3 number setup (0.8.3): see [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md). Buying or adding a number runs
+- November 3 number setup (0.8.3, search fix 0.8.4): see [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md). Buying or adding a number runs
   setup; Telnyx numbers are listed and added one at a time; one workspace test call without expiry replaces per-number
   callback proof; only a detected voicemail beep hangs up automatically. Number registration, spam checks and per-carrier
-  results remain for 0.8.4. No number has been bought and no real call placed, so live calling stays an owner gate.
+  results remain for 0.8.5. No number has been bought and no real call placed, so live calling stays an owner gate.
 
 - November 2 calling completion implemented (0.8.0): see the checkpoint at the end of
   [CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md). Optional DNC and no approval paperwork, plausible-zone

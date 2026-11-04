@@ -1,5 +1,8 @@
-# OpenDialer 0.8.3
+# OpenDialer 0.8.4
 
+- **New York number search works.** Searching many area codes at once hit a Telnyx rate limit and failed with "Load
+  failed". Searches now ask one area code at a time, stop once there are enough numbers, and one refused area code no
+  longer loses the rest.
 - **Numbers set themselves up.** Approving a purchase or adding a number now confirms its route, turns Telnyx recording
   off, applies your daily spend cap and caller name, and starts warmup. There is no Set up route click unless something
   failed.
