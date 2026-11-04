@@ -156,11 +156,15 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 4 registration and answer update (0.8.10): OpenDialer's 24-hour timer no longer blocks numbers. The WebRTC
+  return leg can use a clone of the ready agent's microphone stream. All six CI jobs passed and this Mac installed
+  the signed update. The live answer retest awaits the updated app's microphone grant. See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md).
+
 - November 4 answered-call proof fix (0.8.9): a live test showed that a carrier bridge could arrive before the rep
   answered. The app now suppresses early transfer media and requires signed answer and bridge evidence on the same
   leg. All six CI jobs passed, and this Mac installed through the signed updater. The first 0.8.9 live retest rang and
   correctly withheld proof after a carrier timeout. The rep answer and audio retest from a separate phone remain open.
-  The number's registration hold still blocks outbound calls. See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md).
+  This version imposed a registration hold on new numbers. See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md).
 
 - November 4 inbound fixes (0.8.7 and 0.8.8): both patches were signed, published and installed through the Mac updater.
   0.8.7 aligned inbound SIP selection with **Go ready** and moved status reconciliation out of the initial answer path.

@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. One purchased number is active. A real call proved the inbound greeting and callback task on 0.8.8. The 0.8.9 patch for answered-call verification is installed. The live retest and outbound proof are still open.
+Updated November 4, 2026. One purchased number is active. A real call proved the inbound greeting and callback task. The signed 0.8.10 update removed the app's registration timer and changed how return calls acquire audio. The live answer and outbound proof are still open.
 
 ## Goal
 
@@ -66,7 +66,7 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Record SIP 603 and 603+ blocks against the original attempt, flag repeats, and pause the number while preserving callbacks.
 - [x] Support a metered Telnyx carrier and line-type lookup with a saved result per lead and endpoint. Enable spend explicitly.
 - [x] Export inventory for Free Caller Registry. Keep manual labels and their source, allow free checks, and show carrier dispute guidance.
-- [x] Hold newly added numbers for at least 24 hours before outbound use. Ramp by completed business days with real use.
+- [x] Ramp by completed business days with real use. The owner removed OpenDialer's 24-hour registration timer in 0.8.10.
   Use Pacific time for weekdays. An open label blocks outbound until explicitly cleared. A number under delivery review
   falls back to a maximum of 15 attempts per day. Preserve lower owner limits.
 
@@ -89,8 +89,8 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 
 - [ ] Set limits and obtain approval on exact live quotes. Search again at purchase time for two numbers per metro.
   Prefer San Francisco 415, then San Francisco 628, then Marin 415. In New York prefer 212, 646, 917 or 332, then 929.
-- [ ] Check each proposed number and buy the four approved numbers. Submit the inventory once to Free Caller Registry,
-  wait at least 24 hours, and record the initial manual label checks.
+- [ ] Check each proposed number and buy the four approved numbers. Submit the inventory once to Free Caller Registry
+  and record the initial manual label checks.
 - [ ] Test unsaved caller IDs on AT&T, T-Mobile and Verizon on iPhone and Android. Include screening prompts,
   voicemail beep and hang-up, the final rep-spoken voicemail, caller display, labels, two-way audio and answer-to-audio time.
 - [ ] Prove the workspace test call and both answered and missed callbacks. Confirm A attestation, absence of a carrier notice,
@@ -186,7 +186,7 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   `call.bridged` while the rep leg was still ringing. The destination hung up with SIP 487 and no `call.answered`.
   OpenDialer 0.8.8 had counted the early bridge as proof. The 0.8.9 patch disables early media on transfers and
   requires both a signed answer and bridge on the same leg. It requires a fresh test for old live proofs without
-  answer evidence. The first number remains on its 24-hour outbound hold through November 5 at 3:26 a.m. Pacific.
+  answer evidence. OpenDialer 0.8.9 also imposed its own 24-hour registration hold on the first number.
 - [0.8.9](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.9) was built from `893e3c6` and passed all six
   [CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41903398877). This Mac installed it through the signed
   updater after the original idle rep audio leg was verified and ended at Telnyx. The existing workspace has three
@@ -194,6 +194,14 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   Mac's Phone app rang in OpenDialer. Telnyx recorded a transfer timeout and no destination answer. OpenDialer correctly
   withheld the workspace pass, played the fallback greeting and kept the callback task open. The live answer and two-way
   audio retest from a separate phone remain open.
+- The owner asked to remove the app's registration hold. Version 0.8.10 ignores previously saved timers and stops setting
+  new ones. Carrier ownership, confirmed routing, the answered workspace test, number health and the warmup ramp still
+  determine readiness. The failed inbound answer reached the WebRTC remote offer but produced no local answer. At that
+  point the SDK tries to open another microphone stream. The patch gives it a clone of the rep's active stream instead.
+- [0.8.10](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.10) was built from `324c0ad` and passed all six
+  [CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41913771224). The Mac installed it through the signed
+  updater and the running local authority reported 0.8.10. macOS requested a fresh microphone grant after the update
+  changed the bundle signature. The live answer retest awaits that grant.
 
 ## Sources
 
