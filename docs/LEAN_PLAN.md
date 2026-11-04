@@ -159,8 +159,9 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 - November 4 connect-rate releases (0.8.5 and 0.8.6): use [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md) as the checklist.
   Telnyx Verified is owner-confirmed. Use Premium AMD for voicemail, with immediate bridge on answer and the rep handling
   screening. Keep paid Number Reputation outside the scope. Both signed releases are published. The 0.8.5 Mac update
-  passed its startup and reporting checks and exposed a native CSV download stall, fixed in 0.8.6. The 0.8.6 Mac
-  update, native export check and live gates are tracked separately.
+  passed its startup and reporting checks and exposed a native CSV download stall. This Mac installed 0.8.6 through
+  the signed updater, reopened the existing workspace and exported the empty inventory without a stall. Live carrier
+  proof and connect-rate measurement remain open.
 
 - November 3 number setup (0.8.3, search fix 0.8.4): see [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md). Buying or adding a number runs
   setup; Telnyx numbers are listed and added one at a time; one workspace test call without expiry replaces per-number

@@ -80,10 +80,10 @@ are gone. Balance $15. No numbers owned.
 
   Plan four numbers per rep at 180 attempts per day. A paused number removes capacity from that plan.
 
-- [ ] Verify native registry CSV export on this Mac. The 0.8.5 WebKit download path stalled in the signed app.
+- [x] Verify native registry CSV export on this Mac. The 0.8.5 WebKit download path stalled in the signed app.
 - [x] Run acceptance on SQLite and PostgreSQL and the affected browser journeys.
 - [x] Commit the changes and publish signed Mac and Windows builds.
-- [ ] Install 0.8.6 through this Mac’s updater and verify the installed workspace in the UI.
+- [x] Install 0.8.6 through this Mac’s updater and verify the installed workspace in the UI.
 - [x] Remove extra desktop test copies from macOS app discovery while preserving workspace data.
 
 ### C. Buy and prove
@@ -157,10 +157,11 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - The 0.8.6 runtime is commit `80ec1e1`. [CI](https://github.com/TanushV/OpenDialer/actions/runs/41815242317)
   passed 820 SQLite tests, 821 PostgreSQL tests and 179 browser journeys. Mac and Windows packaging passed.
   The Mac archive checksum and deep strict code signature verified. [Signed release](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.6)
-- This Mac installed 0.8.5 through the signed updater and reopened the existing Agite workspace. Computer use confirmed
-  the report loaded and outbound ringing defaulted to 40 seconds. The CSV export then stalled in WebKit’s download path.
-  After recovery the workspace reopened. 0.8.6 saves through the native shell. The regression passes and the Mac is locked,
-  so installing 0.8.6 and exercising that command in the installed app are still open.
+- This Mac installed 0.8.5 through the signed updater. The report loaded and outbound ringing defaulted to 40 seconds,
+  but CSV export stalled in WebKit’s download path. The Mac then installed 0.8.6 through the signed updater and passed
+  deep strict signature verification. The existing Agite workspace reopened with three leads and Telnyx still connected.
+  In Numbers, native export saved a valid CSV with the `phone_number` header and zero data rows, matching the empty
+  inventory. The rolling 28-day report opened after export, confirming the app stayed responsive.
 - Two extra OpenDialer Journeys bundles were moved to the Trash. macOS app discovery lists the single
   `/Applications/OpenDialer.app` copy.
 - The console's Verified status is owner-confirmed. Carrier lookup is explicitly approved per endpoint in the lead packet.
