@@ -28,5 +28,10 @@
     "consequence": "The 422 on POST /v2/calls proved the endpoint is reachable, not that leads can be dialed. Telnyx's trial limits (developers.telnyx.com/docs/account-setup/levels-and-capabilities/trial) allow outbound calls only to the one verified number, one number order per trial lifetime (reclaimed within 30 days unless upgraded), 2 concurrent calls, 10 minutes per call, 10 calls per hour and 100 per day.",
     "owner_step": "Upgrade to a paid account before buying a number or calling leads. Paid (L1) accounts still cap Programmable Voice at 10 outbound calls per hour and 100 per day with 5 concurrent; Level 2 verification is needed for campaign volume.",
     "number_search": "Area codes 415, 212 and 310 have no exact stock. With filter[best_effort]=true Telnyx returns nearby numbers: 415 -> 628, 310 -> 213, 212 -> none. 0.8.2 sends best effort and keeps same-state numbers."
+  },
+  "upgrade_20261103": {
+    "finding": "After the owner upgraded the account, the same starts_with search returns 400 code 10031 (no numbers) instead of 403 code 10039, so the trial restriction is gone. Balance $15.00, no credit limit. Outbound voice profile 'Default': enabled, US and CA, no concurrent-call or daily spend limit set. Owned numbers: 0.",
+    "number_search": "415 still has no exact stock on the paid account (10031); best effort returns ten 628 numbers. 628 exact and a San Francisco locality search (628, 650) both have stock. 212 has none even with best effort.",
+    "still_unproven": "Calling a lead needs an owned number. Whether the account is Level 1 (10 calls per hour, 100 per day) or Level 2 is not visible through the API; check it in the Telnyx portal."
   }
 }
