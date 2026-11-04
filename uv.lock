@@ -634,7 +634,7 @@ wheels = [
 
 [[package]]
 name = "opendialer"
-version = "0.8.9"
+version = "0.8.10"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
