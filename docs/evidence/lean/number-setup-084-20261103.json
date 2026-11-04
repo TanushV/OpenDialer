@@ -1,0 +1,34 @@
+{
+  "date": "2026-11-03",
+  "scope": "0.8.3 number setup and voicemail-only hang-up, with the 0.8.4 search fix. Software and read-only Telnyx evidence only: no number was bought and no call was placed.",
+  "software": {
+    "backend_sqlite": "820 passed, 4 skipped",
+    "backend_postgresql": "821 passed, 3 skipped",
+    "frontend": "81 passed",
+    "browser_postgresql": "177 passed",
+    "ci": "Verify OpenDialer 41786217567 success on 5e7c2b0"
+  },
+  "real_telnyx_account": {
+    "search_through_app_route": [
+      {"search": "212, New York", "found": ["332 New York City", "929 New York City"]},
+      {"search": "415, San Francisco", "found": ["415 San Francisco", "628 San Francisco"]},
+      {"search": "628, San Francisco", "found": ["628 San Francisco"]},
+      {"search": "929", "found": ["929 New York City"]}
+    ],
+    "defect_found_and_fixed": "0.8.3 searched seven area codes at once; Telnyx answered 429 and the search failed with Load failed. 0.8.4 searches one area code at a time.",
+    "daily_spend_cap": "Set to 25.00 and enabled on the Default voice profile; read-back showed no other field changed.",
+    "owned_numbers": 0
+  },
+  "installed_app": {
+    "checked_on_0_8_3": ["Search 415 with San Francisco shows San Francisco numbers and their city", "Check my Telnyx numbers", "Caller name marked optional", "Inbound callbacks on Numbers", "Daily spend cap field", "Check readiness: one thing left, add a caller number"],
+    "update_method": "The 0.8.3 and 0.8.4 updater bundles were verified against the updater public key and codesign, then installed outside the in-app button, because the window was on another Space and later the screen was locked.",
+    "running_when_recorded": "0.8.3 process with the 0.8.4 bundle on disk; the owner must quit and reopen."
+  },
+  "not_proven": [
+    "A real number order and automatic setup on a real number",
+    "The workspace test call on a real number",
+    "Telnyx premium detection, voicemail beep and iPhone screening on real calls",
+    "Go ready past the macOS microphone prompt",
+    "That the Verified tier removes the 10 calls an hour limit"
+  ]
+}
