@@ -15,7 +15,7 @@ from app.compliance.operating import COSTS
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
 
-GREETING = "Hi, you've reached {name}. Sorry we missed you. We'll call you back. Thanks for calling."
+GREETING = "The person you're trying to reach is unavailable. We'll return your call."
 GREETING_VOICE = "Telnyx.KokoroTTS.af"
 DEFAULTS = {"version": 0, "destination": "", "ring_seconds": 20, "offline_reference": ""}
 ENDED = {"ended", "cancelled", "failed"}
@@ -164,7 +164,6 @@ class InboundCallbacks:
             ):
                 candidates.append((user, sip))
         candidates.sort(key=lambda pair: (pair[0].id != task.data.get("responsible_rep_id"), pair[0].id))
-        seller = self.required(s, "sellers", p["seller_id"], p)
         # Numbers on no lead hear the greeting; only the first test call can come from anyone.
         known = bool(lead or task.data.get("ambiguous") or not self.workspace_test_passed(s, p))
         rep, sip = candidates[0] if known and candidates and len(attempts) < 3 else (None, None)
@@ -237,7 +236,7 @@ class InboundCallbacks:
                 task,
                 "speak",
                 {
-                    "payload": GREETING.format(name=seller.data.get("name") or "us"),
+                    "payload": GREETING,
                     "payload_type": "text",
                     "voice": GREETING_VOICE,
                     "language": "en-US",

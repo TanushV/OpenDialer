@@ -217,7 +217,7 @@ def test_callers_never_dialed_hear_the_greeting_and_do_not_ring_reps(workspace, 
     assert task["route"] == "callback_queue" and task["routed_rep_id"] is None
     assert not [a for a in carrier.actions if a["action"] == "transfer"]
     spoken = [a["payload"]["payload"] for a in carrier.actions if a["action"] == "speak"]
-    assert len(spoken) == 1 and "Example Seller" in spoken[0]
+    assert spoken == ["The person you're trying to reach is unavailable. We'll return your call."]
 
     lead = get(ws, "/v1/workspace/leads")["items"][0]
     telnyx.deliver("call.initiated", inbound("known", lead["phone"]), "evt-known")

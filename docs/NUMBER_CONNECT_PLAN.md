@@ -34,7 +34,7 @@ Shipped in 0.8.3 and 0.8.4:
 
 - Buying or adding a number confirms its route, turns recording off, applies the spend cap and caller name, and starts warmup.
 - Telnyx numbers are listed and added one at a time, with a warning before moving one off another Telnyx app. Pause excludes a number.
-- One workspace test call with no expiry. Callers on no lead hear a greeting with the business name.
+- One workspace test call with no expiry. Callers on no lead hear the fallback greeting.
 - City search with each number's city, tried one area code at a time. Same metro first, one number per lead.
 - Telnyx iPhone-aware detection. Only a voicemail beep hangs up an ordinary attempt. The final attempt stays on the line.
 - The rep is bridged on answer, so detection does not hold up live audio.
@@ -248,6 +248,8 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   for an owned-line test. Telnyx confirmed speech start, speech end and hangup, and the command receipt recorded
   the Kokoro voice. The affected suites passed 50 cases on SQLite and 50 on PostgreSQL. The owner declined
   Apple Developer ID signing, so new preview builds may still trigger a fresh macOS microphone grant.
+- The owner requested a plain fallback message. The final wording is “The person you're trying to reach is
+  unavailable. We'll return your call.” OpenDialer creates a callback task for this path.
 
 ## Sources
 
