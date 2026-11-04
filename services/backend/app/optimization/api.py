@@ -817,8 +817,8 @@ def register_optimization(app, service, principal, administrator):
             if body.decision in {"increase", "resume"}:
                 if not number.data.get("identity_configured") or view["configuration_errors"]:
                     fail(409, "Confirmed owned identity and disabled recording are required")
-                if not view["callback_evidence_current"]:
-                    fail(409, "Current connected callback evidence is required")
+                if not view["workspace_test_passed"]:
+                    fail(409, "Make the workspace test call first")
                 if view["health"]["status"] in {"blocked", "investigating"}:
                     fail(409, "Resolve the recorded health evidence before increasing or resuming")
                 if limit > service.number_workload_ceiling(config):
@@ -840,7 +840,6 @@ def register_optimization(app, service, principal, administrator):
                 "health_samples": view["health"]["samples"],
                 "health_policy_version": view["health"].get("policy_version"),
                 "health_as_of": view["health"].get("as_of"),
-                "callback_proof": number.data.get("callback_proof"),
                 "reviewed_at": service.clock().isoformat(),
                 "actor_id": p["user_id"],
             }

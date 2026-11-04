@@ -166,17 +166,25 @@ class TelnyxCarrier:
             number["call_recording_enabled"] = await self.number_recording(number["id"])
         return found
 
-    async def search_numbers(self, region):
+    async def search_numbers(self, region, city=None, limit=10):
         from urllib.parse import urlencode
+
+        from app.optimization.geography import AREA_STATES
 
         query = urlencode(
             {
                 "filter[country_code]": "US",
                 "filter[national_destination_code]": region,
                 "filter[features]": "voice",
-                "filter[limit]": 10,
+                "filter[limit]": limit,
                 # Without this a sold-out area code (415) finds nothing instead of its overlay (628).
                 "filter[best_effort]": "true",
+                # An area code spans several places; 628 is San Francisco and Marin.
+                **(
+                    {"filter[locality]": city, "filter[administrative_area]": AREA_STATES.get(region, "")}
+                    if city
+                    else {}
+                ),
             }
         )
         try:
@@ -239,11 +247,32 @@ class TelnyxCarrier:
         from urllib.parse import quote
 
         path = f"/phone_numbers/{quote(number_id, safe='')}/voice"
-        await self.request(
-            "PATCH", path, {"cnam_listing": {"cnam_listing_enabled": True, "cnam_listing_details": name}}
-        )
+        listing = {"cnam_listing_enabled": True, "cnam_listing_details": name} if name else None
+        await self.request("PATCH", path, {"cnam_listing": listing or {"cnam_listing_enabled": False}})
         response = await self.request("GET", path)
         return (response.get("data") or {}).get("cnam_listing") or {}
+
+    async def set_daily_spend_limit(self, amount):
+        """Telnyx refuses new calls past this amount; set on the voice profile this app dials through."""
+        from urllib.parse import quote
+
+        application = await self.request(
+            "GET", f"/call_control_applications/{quote(self.connection_id, safe='')}"
+        )
+        profile = ((application.get("data") or {}).get("outbound") or {}).get("outbound_voice_profile_id")
+        if not profile:
+            raise CarrierConfigurationError("The voice application has no outbound voice profile")
+        path = f"/outbound_voice_profiles/{quote(str(profile), safe='')}"
+        current = await self.request("GET", path)
+        await self.request(
+            "PATCH",
+            path,
+            {
+                "name": current["data"]["name"],
+                "daily_spend_limit": f"{float(amount):.2f}",
+                "daily_spend_limit_enabled": True,
+            },
+        )
 
     async def get_number(self, number_id):
         from urllib.parse import quote

@@ -129,6 +129,12 @@ def inbound(call_control_id, caller, to="+14155550100"):
     return {"call_control_id": call_control_id, "to": to, "from": caller, "direction": "incoming"}
 
 
+def known_callers(ws, *phones):
+    """Callers on a lead ring reps; anyone else hears the greeting once the test call has passed."""
+    rows = [{"name": "Caller", "phone": phone, "company": "Caller Co"} for phone in phones]
+    post(ws, "/v1/leads/import", {"campaign_id": ws["campaign_id"], "rows": rows})
+
+
 class Telnyx:
     """Signed provider webhooks through the public route, verified and processed by the job lanes."""
 
@@ -439,6 +445,7 @@ def test_return_calls_reach_a_teammate_then_the_fallback_line_then_a_spoken_mess
     workspace, clock, carrier
 ):
     ws = workspace
+    known_callers(ws, "+12025550177", "+12025550188", "+12025550199")
     rep_id, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
     ready_as(ws, rep)
     telnyx = Telnyx(ws, clock)
@@ -485,6 +492,7 @@ def test_return_calls_reach_a_teammate_then_the_fallback_line_then_a_spoken_mess
 
 def test_unsent_return_transfer_is_cancelled_and_a_stop_reaches_the_carrier(workspace, clock, carrier):
     ws = workspace
+    known_callers(ws, "+12025550166")
     _, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
     ready_as(ws, rep)
     Telnyx(ws, clock).deliver("call.initiated", inbound("in-9", "+12025550166"), "evt-in-9")
@@ -623,6 +631,7 @@ def test_caller_hanging_up_before_a_rep_answers_ends_the_return_call_and_frees_t
     workspace, clock, carrier
 ):
     ws = workspace
+    known_callers(ws, "+12025550177", "+12025550188")
     _, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
     ready_as(ws, rep)
     telnyx = Telnyx(ws, clock)
@@ -648,6 +657,7 @@ def test_unanswered_rep_leg_falls_through_to_the_business_line_then_a_spoken_mes
     workspace, clock, carrier
 ):
     ws = workspace
+    known_callers(ws, "+12025550177")
     _, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
     ready_as(ws, rep)
     telnyx = Telnyx(ws, clock)
@@ -675,6 +685,7 @@ def test_unanswered_rep_leg_falls_through_to_the_business_line_then_a_spoken_mes
 
 def test_return_call_nobody_answers_is_ended_by_the_watchdog_at_its_deadline(workspace, clock, carrier):
     ws = workspace
+    known_callers(ws, "+12025550177")
     _, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
     ready_as(ws, rep)
     Telnyx(ws, clock).deliver("call.initiated", inbound("in-1", "+12025550177"), "evt-in-1")
@@ -688,29 +699,3 @@ def test_return_call_nobody_answers_is_ended_by_the_watchdog_at_its_deadline(wor
     assert task["recovery_reason"] == "No terminal routing receipt before deadline"
     assert "in-1" in [h["provider_id"] for h in carrier.hangups]
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com"]
-
-
-def test_one_answered_inbound_test_call_starts_a_routed_numbers_limited_warmup(workspace, clock, carrier):
-    ws = workspace
-    number = next(n for n in get(ws, "/v1/workspace/numbers")["items"] if n["phone"] == "+14155550100")
-    body = {
-        "request_id": str(uuid4()),
-        "expected_version": number["version"],
-        "lifecycle": "identity_configured",
-    }
-    call(ws, "PATCH", f"/v1/admin/numbers/{number['id']}", json=body)
-    rep_id, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
-    ready_as(ws, rep)
-    telnyx = Telnyx(ws, clock)
-    telnyx.deliver("call.initiated", inbound("test-in", "+12025550123"), "evt-test-in")
-    run_jobs(ws)
-    call(ws, "POST", "/v1/admin/control/run")
-    task = inbound_task(ws, "test-in")
-    leg = {"inbound_task": task["id"], "attempt": task["routing_attempts"][0]["id"]}
-    state = base64.b64encode(json.dumps(leg).encode()).decode()
-    telnyx.deliver("call.bridged", {"call_control_id": "test-leg", "client_state": state}, "evt-test-leg")
-    run_jobs(ws)
-    promoted = next(n for n in get(ws, "/v1/workspace/numbers")["items"] if n["id"] == number["id"])
-    assert promoted["lifecycle"] == "limited_real_use"
-    assert promoted["callback_tested"] is True and promoted["callback_proof"]["number_id"] == number["id"]
-    assert promoted["warmup_started_at"] == clock.now.isoformat()

@@ -194,12 +194,13 @@ class Budget(Strict):
     number_purchase_limit_usd: float = Field(default=0, ge=0, le=10000)
 
 
-class NumberInput(Strict):
+class OwnedNumber(Strict):
     phone: str
-    region: str | None = None
-    lifecycle: str = "purchased"
-    daily_limit: int = Field(default=5, ge=1, le=10000)
-    capacity: int = Field(default=1, ge=1, le=20)
+    move_from_other_app: bool = Field(default=False, strict=True)
+
+
+class SpendCap(Strict):
+    daily_usd: float = Field(gt=0, le=10000, allow_inf_nan=False)
 
 
 class NumberPurchase(Strict):
@@ -208,8 +209,8 @@ class NumberPurchase(Strict):
 
 
 class CallerName(Strict):
-    # Telnyx lists up to 15 letters, digits and spaces for outbound caller name.
-    name: str = Field(pattern=r"^[A-Za-z0-9 ]{1,15}$")
+    # Telnyx lists up to 15 letters, digits and spaces for outbound caller name. None means no name.
+    name: str | None = Field(default=None, pattern=r"^[A-Za-z0-9 ]{1,15}$")
 
 
 class PolicyUpdate(Strict):
@@ -983,6 +984,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction() as s:
             db.authorize_stream(s, p)
             service._restore_operator(s, p)
+            previous_route = service.configs.read(p["tenant_id"]).get("telnyx_connection_id")
             service.configs.write(
                 p["tenant_id"],
                 values,
@@ -1000,6 +1002,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 clock(),
                 {"fields": sorted(values)},
             )
+        if previous_route and values.get("telnyx_connection_id") not in {None, previous_route}:
+            service.forget_workspace_test(p["tenant_id"])
         return read_settings(p)
 
     @app.put("/v1/admin/budget")
@@ -1010,9 +1014,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "budget.updated", obj.id, clock())
             return doc(obj)
 
-    @app.post("/v1/admin/numbers")
-    def number(data: NumberInput, p=Depends(administrator)):
-        return service.add_number(p, data.model_dump(exclude_none=True))
+    @app.post("/v1/admin/numbers/add")
+    async def add_owned_number(data: OwnedNumber, p=Depends(administrator)):
+        return await service.add_owned_number(p, data.phone, move_from_other_app=data.move_from_other_app)
+
+    @app.put("/v1/admin/numbers/spend-cap")
+    async def spend_cap(data: SpendCap, p=Depends(administrator)):
+        return await service.save_spend_cap(p, data.daily_usd)
+
+    @app.put("/v1/admin/caller-name")
+    async def caller_name(data: CallerName, p=Depends(administrator)):
+        return await service.save_caller_name(p, data.name)
 
     @app.get("/v1/admin/numbers/summary")
     def numbers_summary(list_name: str | None = None, p=Depends(administrator)):
@@ -1028,6 +1040,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             numbers = service.scoped(s, "number_inventory", p)
             lifecycles = Counter(n.data["lifecycle"] for n in numbers)
             ready = sum(bool(service.number_readiness_in(s, p, n)["outbound_ready"]) for n in numbers)
+            test_passed = service.workspace_test_passed(s, p)
             binding = MODELS["lead_number_bindings"]
             stable = s.scalar(
                 select(func.count())
@@ -1078,9 +1091,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "inventory": {
                 "total": len(numbers),
                 "ready": ready,
-                "pending_setup": sum(
-                    lifecycles[k] for k in ("purchased", "identity_configured", "callback_tested")
-                ),
+                "pending_setup": sum(lifecycles[k] for k in ("purchased", "identity_configured")),
+                "workspace_test_passed": test_passed,
                 "limited_use": lifecycles["limited_real_use"],
                 "paused_outbound": lifecycles["paused_for_outbound"] + lifecycles["retired_callback_only"],
                 "investigating": lifecycles["investigating"],
@@ -1098,13 +1110,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "daily_limit",
             "capacity",
             "identity_configured",
-            "callback_tested",
             "registration_reference",
-            "callback_test_reference",
             "real_use_review_reference",
             "request_id",
             "expected_version",
-            "callback_task_id",
             "external_reputation",
             "reassignment",
         }
@@ -1126,17 +1135,21 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def configure_number(number_id: str, data: dict | None = None, p=Depends(administrator)):
         return await service.configure_owned_number(p, number_id, data)
 
-    @app.post("/v1/admin/numbers/{number_id}/caller-name")
-    async def caller_name(number_id: str, data: CallerName, p=Depends(administrator)):
-        return await service.list_caller_name(p, number_id, data.name)
-
     @app.post("/v1/admin/numbers/search")
     async def search_numbers(data: dict, p=Depends(administrator)):
         from decimal import Decimal, InvalidOperation
 
-        from app.optimization.geography import AREA_STATES, normalize_state, suggested_codes
+        from app.optimization.geography import (
+            AREA_STATES,
+            CITY_NAMES,
+            METROS,
+            normalize_state,
+            suggested_codes,
+        )
 
         region = str(data.get("region", ""))
+        city = " ".join(str(data.get("city") or "").split())[:64] or None
+        city = CITY_NAMES.get((city or "").casefold(), city)
         state = normalize_state(data.get("state"))
         if data.get("state") and not state:
             fail(422, "A US state is required")
@@ -1157,12 +1170,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
             areas = await asyncio.to_thread(areas_for_list)
         elif re.fullmatch(r"[2-9][0-9]{2}", region):
-            areas = [region]
+            # A city's numbers may all sit in an overlay, so its area code alone can miss them.
+            areas = (
+                [region, *(c for c in METROS.get(region, "").split() if c != region)] if city else [region]
+            )
         else:
             fail(422, "A US area code is required")
         found = []
         carrier = service.carrier(p["tenant_id"])
-        results = await asyncio.gather(*(carrier.search_numbers(area) for area in areas))
+        results = await asyncio.gather(*(carrier.search_numbers(area, city=city) for area in areas))
         for area, candidates in zip(areas, results, strict=True):
             found.extend((area, candidate) for candidate in candidates[:10])
         found.sort(key=lambda item: str(item[1].get("phone_number", ""))[2:5] != item[0])
@@ -1189,12 +1205,25 @@ def create_app(settings=None, *, clock=None, carrier=None):
                         or (state and AREA_STATES.get(phone[2:5]) != state)
                     ):
                         continue
+                    place = next(
+                        (
+                            str(where.get("region_name", "")).title()
+                            for where in candidate.get("region_information", [])
+                            if where.get("region_type") == "location"
+                        ),
+                        None,
+                    )
+                    # Telnyx's nearby results ignore the city, so hold them to it here.
+                    if city and place and not place.casefold().startswith(city.casefold()):
+                        continue
                     seen.add(phone)
                     value = {
                         "phone": phone,
                         "region": area,
                         "area_code": phone[2:5],
                         "state": AREA_STATES.get(area),
+                        "searched_city": city,
+                        "city": place,
                         "monthly_cost_usd": float(monthly),
                         "initial_commitment_usd": float(upfront + monthly),
                         "expires_at": (clock() + timedelta(minutes=5)).isoformat(),
@@ -1217,7 +1246,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.get("/v1/admin/numbers/orders")
     def number_orders(p=Depends(administrator)):
         with db.transaction(False) as s:
-            return [doc(r) for r in service.purchase_orders_in(s, p)]
+            owned = {n.data["phone"] for n in service.scoped(s, "number_inventory", p)}
+            return [
+                {**doc(r), "ready": r.data.get("phone") in owned} for r in service.purchase_orders_in(s, p)
+            ]
 
     @app.post("/v1/admin/numbers/purchase")
     async def purchase_number(data: NumberPurchase, p=Depends(administrator)):

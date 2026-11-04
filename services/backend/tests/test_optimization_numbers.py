@@ -16,7 +16,6 @@ def number(identifier="n1", **overrides):
         "active_obligations": 0,
         "capacity": 1,
         "identity_configured": True,
-        "callback_tested": True,
         **overrides,
     }
 
@@ -165,7 +164,7 @@ def test_existing_inventory_waiting_for_setup_or_review_does_not_trigger_identit
         }
         for i in range(7)
     ]
-    for state in ["purchased", "identity_configured", "callback_tested"]:
+    for state in ["purchased", "identity_configured"]:
         result = capacity_forecast(
             leads,
             [number(lifecycle=state, daily_limit=20)],

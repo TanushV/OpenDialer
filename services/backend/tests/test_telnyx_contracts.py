@@ -268,26 +268,55 @@ def test_revoked_transcription_permission_stops_both_streams(workspace, app, car
     assert stops == {call["provider_id"], "agent-test-id"}
 
 
-def test_every_attempt_requests_standard_machine_detection_and_bridges_the_rep(workspace, app, carrier):
+def test_every_attempt_detects_machines_and_screening_and_bridges_the_rep(workspace, app, carrier):
     voicemail_policy(app, workspace, 1)
     start(workspace)
     dial = carrier.dials[-1]
-    assert dial["answering_machine_detection"] == "detect"
+    assert dial["answering_machine_detection"] == "premium_ios_call_screening_detection"
     assert dial["bridge_on_answer"] is True and dial["link_to"] == "agent-test-id"
 
 
-def test_a_machine_on_an_ordinary_attempt_ends_the_call(workspace, app, carrier):
+def test_a_machine_result_alone_never_hangs_up(workspace, app, carrier):
     call = start(workspace)
     event(workspace, call, "call.answered")
-    event(workspace, call, "call.machine.detection.ended:machine")
+    event(workspace, call, "call.machine.premium.detection.ended:machine")
     run_controls(workspace)
-    assert [h["provider_id"] for h in carrier.hangups] == [call["provider_id"]]
+    assert carrier.hangups == []
     with app.state.db.transaction(False) as s:
         saved = get(s, "call_attempts", call["id"]).data
     assert saved["machine_detected"] is True and not saved.get("voicemail_turn")
 
 
-def test_a_machine_on_the_final_attempt_keeps_the_line_for_the_reps_message(workspace, app, carrier):
+def test_a_voicemail_beep_ends_an_ordinary_attempt_after_seven_seconds(workspace, app, carrier, clock):
+    from datetime import timedelta
+
+    call = start(workspace)
+    event(workspace, call, "call.answered")
+    event(workspace, call, "call.machine.premium.detection.ended:machine")
+    clock.now += timedelta(seconds=3)
+    event(workspace, call, "call.machine.premium.greeting.ended:beep_detected")
+    run_controls(workspace)
+    assert carrier.hangups == []
+    clock.now += timedelta(seconds=4)
+    run_controls(workspace)
+    assert [h["provider_id"] for h in carrier.hangups] == [call["provider_id"]]
+
+
+def test_a_late_beep_ends_the_call_at_once(workspace, carrier, clock):
+    from datetime import timedelta
+
+    call = start(workspace)
+    event(workspace, call, "call.answered")
+    event(workspace, call, "call.machine.premium.detection.ended:machine")
+    clock.now += timedelta(seconds=12)
+    event(workspace, call, "call.machine.premium.greeting.ended:beep_detected")
+    run_controls(workspace)
+    assert [h["provider_id"] for h in carrier.hangups] == [call["provider_id"]]
+
+
+def test_the_final_attempt_stays_on_the_line_to_leave_a_voicemail(workspace, app, carrier, clock):
+    from datetime import timedelta
+
     from app.db import MODELS
     from sqlalchemy import select
 
@@ -296,7 +325,9 @@ def test_a_machine_on_the_final_attempt_keeps_the_line_for_the_reps_message(work
             update(lead, attempt_count=3)
     call = start(workspace)
     event(workspace, call, "call.answered")
-    event(workspace, call, "call.machine.detection.ended:machine")
+    event(workspace, call, "call.machine.premium.detection.ended:machine")
+    clock.now += timedelta(seconds=12)
+    event(workspace, call, "call.machine.premium.greeting.ended:beep_detected")
     run_controls(workspace)
     assert carrier.hangups == []
     with app.state.db.transaction(False) as s:
@@ -304,11 +335,44 @@ def test_a_machine_on_the_final_attempt_keeps_the_line_for_the_reps_message(work
     assert saved["voicemail_turn"] is True and saved["attempt_ordinal"] == 4
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "call.machine.premium.call_screening.detected:screening",
+        "call.machine.premium.greeting.ended:prompt_ended",
+        "call.machine.premium.greeting.ended:no_beep_detected",
+        "call.machine.premium.detection.ended:silence",
+        "call.machine.premium.detection.ended:not_sure",
+    ],
+)
+def test_screening_and_unclear_results_stay_on_the_line(workspace, carrier, clock, name):
+    from datetime import timedelta
+
+    call = start(workspace)
+    event(workspace, call, "call.answered")
+    event(workspace, call, "call.machine.premium.detection.ended:machine")
+    event(workspace, call, name)
+    clock.now += timedelta(seconds=60)
+    run_controls(workspace)
+    assert carrier.hangups == []
+
+
+def test_screening_is_not_counted_as_voicemail(workspace, app, carrier):
+    call = start(workspace)
+    event(workspace, call, "call.answered")
+    event(workspace, call, "call.machine.premium.detection.ended:machine")
+    event(workspace, call, "call.machine.premium.call_screening.detected:screening")
+    with app.state.db.transaction(False) as s:
+        saved = get(s, "call_attempts", call["id"]).data
+    assert saved["screening_detected"] is True and saved["machine_detected"] is False
+
+
 def test_a_human_answer_is_never_hung_up_by_a_late_machine_result(workspace, app, carrier):
     call = start(workspace)
     event(workspace, call, "call.answered")
     event(workspace, call, "call.machine.detection.ended:human")
     event(workspace, call, "call.machine.detection.ended:machine")
+    event(workspace, call, "call.machine.greeting.ended:beep_detected")
     run_controls(workspace)
     assert carrier.hangups == []
 
@@ -605,3 +669,67 @@ async def test_an_area_code_without_stock_is_an_empty_search_not_an_error():
     ) as http:
         with pytest.raises(httpx.HTTPStatusError):
             await TelnyxCarrier("key", "app", http=http).search_numbers("415")
+
+
+def test_number_search_can_filter_by_city_in_the_area_codes_state():
+    from urllib.parse import parse_qs, urlsplit
+
+    from app.providers.telnyx import TelnyxCarrier
+
+    seen = []
+
+    def handler(request):
+        seen.append(parse_qs(urlsplit(str(request.url)).query))
+        return httpx.Response(200, json={"data": []})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            carrier = TelnyxCarrier("synthetic", "route", http=http)
+            await carrier.search_numbers("628", city="San Francisco")
+            await carrier.search_numbers("929", limit=250)
+
+    asyncio.run(run())
+    assert seen[0]["filter[locality]"] == ["San Francisco"]
+    assert seen[0]["filter[administrative_area]"] == ["CA"]
+    assert seen[0]["filter[limit]"] == ["10"]
+    assert "filter[locality]" not in seen[1] and seen[1]["filter[limit]"] == ["250"]
+
+
+def test_the_daily_spend_cap_is_set_on_the_apps_voice_profile():
+    from app.providers.telnyx import TelnyxCarrier
+
+    patched = []
+
+    def handler(request):
+        if request.method == "GET" and request.url.path == "/v2/call_control_applications/route":
+            return httpx.Response(200, json={"data": {"outbound": {"outbound_voice_profile_id": "ovp"}}})
+        if request.method == "GET" and request.url.path == "/v2/outbound_voice_profiles/ovp":
+            return httpx.Response(200, json={"data": {"id": "ovp", "name": "Default"}})
+        assert request.method == "PATCH" and request.url.path == "/v2/outbound_voice_profiles/ovp"
+        patched.append(json.loads(request.content))
+        return httpx.Response(200, json={"data": {"id": "ovp"}})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            await TelnyxCarrier("synthetic", "route", http=http).set_daily_spend_limit(25)
+
+    asyncio.run(run())
+    assert patched == [{"name": "Default", "daily_spend_limit": "25.00", "daily_spend_limit_enabled": True}]
+
+
+def test_a_blank_caller_name_turns_the_listing_off():
+    from app.providers.telnyx import TelnyxCarrier
+
+    patched = []
+
+    def handler(request):
+        if request.method == "PATCH":
+            patched.append(json.loads(request.content))
+        return httpx.Response(200, json={"data": {"cnam_listing": {"cnam_listing_enabled": False}}})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            await TelnyxCarrier("synthetic", "route", http=http).list_caller_name("number", None)
+
+    asyncio.run(run())
+    assert patched == [{"cnam_listing": {"cnam_listing_enabled": False}}]

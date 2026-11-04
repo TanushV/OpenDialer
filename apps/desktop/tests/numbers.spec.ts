@@ -43,9 +43,6 @@ test("number review distinguishes operational evidence from unknown external rep
   await expect(
     page.getByRole("button", { name: "Advance stage", exact: true }),
   ).toBeHidden();
-  await expect(
-    page.getByText("A note alone cannot verify a callback.", { exact: true }),
-  ).toBeVisible();
 });
 
 for (const connected of [false, true]) {
@@ -127,7 +124,7 @@ for (const connected of [false, true]) {
     await page
       .getByText("Advanced number evidence policy", { exact: true })
       .click();
-    await page.getByLabel("Callback proof lifetime (days)").fill("17");
+    await page.getByLabel("Health observation window (days)").fill("17");
     const policy = page.waitForResponse(
       (r) =>
         r.url().endsWith("/v1/admin/optimization") &&
@@ -142,9 +139,9 @@ for (const connected of [false, true]) {
     await page
       .getByText("Advanced number evidence policy", { exact: true })
       .click();
-    await expect(page.getByLabel("Callback proof lifetime (days)")).toHaveValue(
-      "17",
-    );
+    await expect(
+      page.getByLabel("Health observation window (days)"),
+    ).toHaveValue("17");
   });
 }
 
@@ -612,3 +609,91 @@ async function clearStaffing(page: import("@playwright/test").Page) {
 async function openAdvanced(page: import("@playwright/test").Page) {
   await openMoreSettings(page, "Learning experiments and trackers");
 }
+
+test("numbers already in Telnyx are listed and added one at a time", async ({
+  page,
+}) => {
+  const added: unknown[] = [];
+  await page.route("**/v1/admin/numbers/sync", (route) =>
+    route.fulfill({
+      json: {
+        owned: [
+          { phone: "+16282564157", added: false, route: "unassigned" },
+          { phone: "+19293799649", added: false, route: "other_app" },
+          { phone: "+14155550100", added: true, route: "this_app" },
+        ],
+      },
+    }),
+  );
+  await page.route("**/v1/admin/numbers/add", (route) => {
+    added.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await expect(page.getByLabel("Existing owned phone number")).toHaveCount(0);
+  await page.getByRole("button", { name: "Check my Telnyx numbers" }).click();
+  const list = page.getByRole("group", {
+    name: "Numbers in your Telnyx account",
+  });
+  await expect(list).not.toContainText("+14155550100");
+  await expect(list).toContainText("On another Telnyx app");
+  await list.getByRole("button", { name: "Add +16282564157" }).click();
+  await list.getByRole("button", { name: "Move and add +19293799649" }).click();
+  await expect.poll(() => added.length).toBe(2);
+  expect(added).toEqual([
+    { phone: "+16282564157", move_from_other_app: false },
+    { phone: "+19293799649", move_from_other_app: true },
+  ]);
+});
+
+test("number search names a city and shows where each number is", async ({
+  page,
+}) => {
+  const searches: unknown[] = [];
+  await page.route("**/v1/admin/numbers/search", (route) => {
+    searches.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: {
+        numbers: [
+          {
+            id: "quote-city",
+            phone: "+16282564157",
+            region: "628",
+            area_code: "628",
+            city: "San Francisco",
+            initial_commitment_usd: 2,
+            monthly_cost_usd: 1,
+            expires_at: "2026-11-04T23:59:00Z",
+          },
+        ],
+      },
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  if (
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .isVisible()
+  )
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await page.getByText("Add numbers with approval", { exact: true }).click();
+  await page.getByLabel("Area code", { exact: true }).fill("628");
+  await page.getByLabel("City (optional)").fill("San Francisco");
+  await page.getByRole("button", { name: "Find available numbers" }).click();
+  await expect(page.getByText(/\+16282564157 · San Francisco/)).toBeVisible();
+  expect(searches).toEqual([{ region: "628", city: "San Francisco" }]);
+});

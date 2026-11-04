@@ -64,7 +64,10 @@ test("settings show the per-list budget and expose only supported treatments", a
     page.getByRole("checkbox", { name: "Messaging", exact: true }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("checkbox", { name: "Transcription", exact: true }),
+    page.getByRole("checkbox", {
+      name: "Live transcription and help",
+      exact: true,
+    }),
   ).toBeVisible();
 });
 

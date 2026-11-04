@@ -16,6 +16,7 @@ from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, put, rows, uid, upd
 from app.intelligence import Application
 from app.measurement import Measurement
 from app.number_operations import NumberOperations
+from app.optimization.geography import coverage_region
 from app.optimization.script_lab import ScriptLab
 from app.optimization.workflows import OptimizationWorkflows
 from app.rep_workflows import RepWorkflows
@@ -36,6 +37,15 @@ NUMBER_BLOCKERS = {
     "CALLER_NUMBER_PAUSED",
 }
 NUMBER_REASONS = {"NUMBER_UNHEALTHY", "NUMBER_NOT_AUTHORIZED"}
+NO_LEADS = (
+    "No one to call right now. Leads still being researched show on the Leads page; "
+    "others may be outside calling hours or already called today."
+)
+NUMBER_STEPS = {
+    "NO_CALLER_NUMBER": "Add a caller number in Numbers: buy one, or add one you own in Telnyx.",
+    "CALLER_NUMBER_ROUTE_REQUIRED": "Set up your caller number's route in Numbers.",
+    "CALLER_NUMBER_PAUSED": "Your caller numbers are paused. Resume one in Numbers.",
+}
 SETUP_REASONS = {"REP_NOT_READY", "AUDIO_NOT_READY", "LIVE_OBLIGATION", "RESERVATION_EXISTS"}
 TIMING_REASONS = {"OUTSIDE_CALLING_WINDOW", "NOT_DUE", "CADENCE_LIMIT", "ENDPOINT_CLAIMED"}
 REGISTRY_REASONS = {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"}
@@ -382,9 +392,47 @@ class Dialer(
             return "NO_CALLER_NUMBER"
         if all(r["configuration_errors"] or not n.data.get("identity_configured") for n, r in readiness):
             return "CALLER_NUMBER_ROUTE_REQUIRED"
-        if not any(r["callback_evidence_current"] for _, r in readiness):
+        if not self.workspace_test_passed(s, p):
             return "CALLER_NUMBER_CALLBACK_TEST_REQUIRED"
         return "CALLER_NUMBER_PAUSED"
+
+    def no_lead_detail(self, s, p, campaign_id, reasons):
+        """The refusal for Next call, naming the number problem when a number is part of it."""
+        detail = {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons), "message": NO_LEADS}
+        if not set(reasons) & NUMBER_REASONS:
+            return detail
+        numbers = self.scoped(s, "number_inventory", p)
+        blocker = self.number_setup_blocker(s, p, numbers)
+        if blocker == "CALLER_NUMBER_CALLBACK_TEST_REQUIRED":
+            phone = next(n.data["phone"] for n in numbers if n.data.get("identity_configured"))
+            detail["message"] = (
+                f"One test call left: go ready, call {phone} from your phone and answer it here."
+            )
+        elif blocker:
+            detail["message"] = NUMBER_STEPS[blocker]
+        else:
+            covered = {
+                coverage_region(n) for n in self.inventory_evidence(s, p, fast=True) if n["outbound_ready"]
+            }
+            model = MODELS["leads"]
+            leads = s.scalars(
+                select(model)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.op_campaign_id == campaign_id,
+                )
+                .limit(500)
+            )
+            missing = sorted({coverage_region(lead.data) for lead in leads} - covered)
+            detail["message"] = (
+                f"No caller number can reach leads in {', '.join(missing)}. Add one there in Numbers."
+                if missing and "general" not in covered
+                else "Your caller numbers are busy or at today's limit. Try again soon, or add one in Numbers."
+            )
+        if set(reasons) - NUMBER_REASONS:
+            detail["message"] += " Other leads may be outside calling hours or already called today."
+        return detail
 
     def _ingress_start(self, p, data):
         conf = self.configs.read(p["tenant_id"])
@@ -602,39 +650,6 @@ class Dialer(
             emit(s, p["tenant_id"], "policy.published", new, now)
             return doc(new)
 
-    def add_number(self, p, data):
-        from app.compliance.phone import normalize_phone
-
-        phone = normalize_phone(data["phone"])
-        if not phone.e164:
-            fail(422, "Valid owned number required")
-        if not self.settings.simulation and data.get("lifecycle", "purchased") != "purchased":
-            fail(409, "New inventory must pass identity/callback/warmup gates")
-        with self.db.transaction() as s:
-            # A lookup-key read finds any owner without decrypting other sellers' inventory.
-            if self.number_owners(s, [phone.e164]):
-                fail(409, "Number is already assigned to a seller")
-            number = put(
-                s,
-                "number_inventory",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "phone": phone.e164,
-                    "region": data.get("region", phone.e164[2:5]),
-                    "lifecycle": data.get("lifecycle", "purchased"),
-                    "daily_limit": data.get("daily_limit", 5),
-                    "capacity": data.get("capacity", 1),
-                    "identity_configured": False,
-                    "callback_tested": False,
-                    "synthetic": self.settings.simulation,
-                },
-                key=phone.e164,
-                now=self.clock(),
-            )
-            audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "number.added", number.id, self.clock())
-            return doc(number)
-
     def edit_number(self, p, number_id, body):
         from pydantic import ValidationError
 
@@ -647,7 +662,7 @@ class Dialer(
         for key, ceiling in (("daily_limit", 10000), ("capacity", 20)):
             if key in body and (type(body[key]) is not int or not 1 <= body[key] <= ceiling):
                 fail(422, "Positive integer workload limits are required")
-        if any(type(body[k]) is not bool for k in ("identity_configured", "callback_tested") if k in body):
+        if "identity_configured" in body and type(body["identity_configured"]) is not bool:
             fail(422, "Identity evidence flags must be booleans")
         if "external_reputation" in body:
             try:
@@ -673,26 +688,15 @@ class Dialer(
                 self.check_edit_version(number, body)
             if body.get("identity_configured") is True and not number.data.get("identity_configured"):
                 fail(409, "Configure the owned carrier route; an operator note cannot verify identity")
-            if body.get("callback_tested") is True and not body.get("callback_task_id"):
-                fail(409, "Select a matching inbound callback receipt; a note is not evidence")
-            if "callback_task_id" in body:
-                if not number.data.get("identity_configured"):
-                    fail(409, "Configure identity before verifying a callback")
-                self.confirm_callback_in(s, p, number, body["callback_task_id"])
             next_state = body.get("lifecycle", number.data["lifecycle"])
-            order = ["purchased", "identity_configured", "callback_tested", "limited_real_use", "healthy"]
+            order = ["purchased", "identity_configured", "limited_real_use", "healthy"]
             if next_state in order:
                 old = number.data["lifecycle"]
                 if old in order and order.index(next_state) > order.index(old) + 1:
-                    fail(409, "Onboarding requires identity and current callback evidence")
+                    fail(409, "Set up this number's route first")
                 if next_state in order[1:] and not number.data.get("identity_configured"):
                     fail(409, "Confirm the owned carrier connection before promotion")
-                if (
-                    next_state in order[2:]
-                    and not self.number_readiness_in(s, p, number)["callback_evidence_current"]
-                ):
-                    fail(409, "Current inbound callback proof is required")
-                if next_state in order[3:] and (
+                if next_state in order[2:] and (
                     next_state != old or any(k in body for k in ("daily_limit", "capacity"))
                 ):
                     fail(409, "Use the evidence and workload review to approve limited use")
@@ -706,14 +710,7 @@ class Dialer(
             values = {
                 k: v
                 for k, v in body.items()
-                if k
-                not in {
-                    "expected_version",
-                    "request_id",
-                    "callback_task_id",
-                    "identity_configured",
-                    "callback_tested",
-                }
+                if k not in {"expected_version", "request_id", "identity_configured"}
             }
             if "daily_limit" in values and values["daily_limit"] > number.data["daily_limit"]:
                 fail(409, "Use the evidence and workload review before increasing capacity")

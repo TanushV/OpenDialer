@@ -13,13 +13,9 @@ from sqlalchemy import delete, select
 
 from app.compliance.operating import COSTS
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
-from app.optimization.numbering import route_fingerprint
 from app.service import dt, fail
 
-DEFAULT_MESSAGE = (
-    "We cannot take your call right now. Your return call has been logged for review. "
-    "Please contact the business directly if your request is urgent. Goodbye."
-)
+GREETING = "Thanks for calling {name}. No one can take your call right now, and we will follow up. Goodbye."
 DEFAULTS = {"version": 0, "destination": "", "ring_seconds": 20, "offline_reference": ""}
 ENDED = {"ended", "cancelled", "failed"}
 SETTLED = ENDED | {"orphaned"}
@@ -55,37 +51,35 @@ class CallbackRoutingEdit(BaseModel):
         return valid_destination(value) if value is not None else value
 
 
-WARMUP_FROM = {"identity_configured", "callback_tested"}
-
-
 class InboundCallbacks:
-    def _start_warmup(self, s, p, task):
-        """A routed number whose own inbound call reached a rep starts its limited warmup use."""
-        number = get(s, "number_inventory", task.data["number_id"], p["tenant_id"])
-        if (
-            not number
-            or not number.data.get("identity_configured")
-            or number.data.get("lifecycle") not in WARMUP_FROM
-        ):
+    def workspace_test_passed(self, s, p):
+        """One answered call proves the shared route; every number on it uses the same path."""
+        return bool(self.required(s, "sellers", p["seller_id"], p).data.get("callback_test"))
+
+    def _pass_workspace_test(self, s, p, task):
+        seller = self.required(s, "sellers", p["seller_id"], p)
+        if seller.data.get("callback_test"):
             return
         update(
-            number,
-            callback_proof=task.data["callback_evidence"],
-            callback_tested=True,
-            lifecycle="limited_real_use",
-            warmup_started_at=self.clock().isoformat(),
-            inbound_retained=True,
+            seller,
+            callback_test={
+                "number_id": task.data["number_id"],
+                "at": self.clock().isoformat(),
+                "simulated": self.settings.simulation,
+            },
         )
         audit(
-            s,
-            p["tenant_id"],
-            p["seller_id"],
-            p.get("user_id"),
-            "number.warmup_started",
-            number.id,
-            self.clock(),
+            s, p["tenant_id"], p["seller_id"], p.get("user_id"), "number.test_call", seller.id, self.clock()
         )
-        emit(s, p["tenant_id"], "number.updated", number, self.clock())
+        for number in self.scoped(s, "number_inventory", p):
+            emit(s, p["tenant_id"], "number.updated", number, self.clock())
+
+    def forget_workspace_test(self, tenant_id):
+        """A different Telnyx app is a different path, so its first call has to prove it again."""
+        model = MODELS["sellers"]
+        with self.db.transaction() as s:
+            for seller in s.scalars(select(model).where(model.tenant_id == tenant_id)):
+                update(seller, callback_test=None)
 
     def callback_config(self, s, p):
         seller = self.required(s, "sellers", p["seller_id"], p)
@@ -96,7 +90,6 @@ class InboundCallbacks:
             return {
                 **self.callback_config(s, p),
                 "offline_status": "operator_configuration_required",
-                "default_message": DEFAULT_MESSAGE,
                 "costs": COSTS["callbacks"],
             }
 
@@ -110,21 +103,12 @@ class InboundCallbacks:
             if values["destination"] in {n.data["phone"] for n in self.scoped(s, "number_inventory", p)}:
                 fail(422, "Fallback cannot loop back to this seller's inbound numbers")
             update(seller, callback_routing=values)
-            for number in self.scoped(s, "number_inventory", p):
-                update(
-                    number,
-                    callback_tested=False,
-                    callback_review_reason="Callback route changed; verify a connected receipt",
-                    inbound_retained=True,
-                )
-                emit(s, p["tenant_id"], "number.updated", number, self.clock())
             audit(
                 s, p["tenant_id"], p["seller_id"], p["user_id"], "callback.routing", seller.id, self.clock()
             )
             return {
                 **values,
                 "offline_status": "operator_configuration_required",
-                "default_message": DEFAULT_MESSAGE,
                 "costs": COSTS["callbacks"],
             }
 
@@ -172,9 +156,18 @@ class InboundCallbacks:
             ):
                 candidates.append(user)
         candidates.sort(key=lambda u: (u.id != task.data.get("responsible_rep_id"), u.id))
-        rep = candidates[0] if candidates and len(attempts) < 3 else None
+        seller = self.required(s, "sellers", p["seller_id"], p)
+        # Numbers on no lead hear the greeting; only the first test call can come from anyone.
+        known = bool(lead or task.data.get("ambiguous") or not seller.data.get("callback_test"))
+        rep = candidates[0] if known and candidates and len(attempts) < 3 else None
         config = task.data["routing_config"]
-        target = f"sip:{rep.data['sip_username']}@sip.telnyx.com" if rep else config["destination"]
+        target = (
+            f"sip:{rep.data['sip_username']}@sip.telnyx.com"
+            if rep
+            else config["destination"]
+            if known
+            else ""
+        )
         if not rep and any(a.get("kind") == "business_fallback" for a in attempts):
             target = ""
         if target in {task.data.get("callback_phone"), task.data.get("called_phone")}:
@@ -241,7 +234,7 @@ class InboundCallbacks:
                 task,
                 "speak",
                 {
-                    "payload": DEFAULT_MESSAGE,
+                    "payload": GREETING.format(name=seller.data.get("name") or "us"),
                     "payload_type": "text",
                     "voice": "female",
                     "language": "en-US",
@@ -328,9 +321,6 @@ class InboundCallbacks:
                     "due_at": self.clock().isoformat(),
                     "event_id": event_id,
                     "routing_config": self.callback_config(s, p),
-                    "number_route_fingerprint": route_fingerprint(
-                        doc(number), self.callback_config(s, p)["version"]
-                    ),
                     "inbound_verified": bool(receipt and receipt.get("signature_verified")),
                     "routing_attempts": [],
                     "inbound_deadline": (
@@ -472,26 +462,7 @@ class InboundCallbacks:
                         self.settings.simulation
                         or (receipt.get("signature_verified") and task.data.get("inbound_verified"))
                     ):
-                        proof_days = self.optimization_config(s, p)["health_policy"]["callback_proof_days"]
-                        observed_at = (
-                            dt(receipt.get("occurred_at") or receipt.get("received_at")) or self.clock()
-                        )
-                        if observed_at <= self.clock():
-                            update(
-                                task,
-                                callback_evidence={
-                                    "number_id": task.data["number_id"],
-                                    "route_version": task.data["routing_config"]["version"],
-                                    "route_fingerprint": task.data["number_route_fingerprint"],
-                                    "inbound_event_id": task.data["event_id"],
-                                    "bridge_event_id": receipt["event_id"],
-                                    "destination": attempt["target"],
-                                    "observed_at": observed_at.isoformat(),
-                                    "expires_at": (observed_at + timedelta(days=proof_days)).isoformat(),
-                                    "simulated": self.settings.simulation,
-                                },
-                            )
-                            self._start_warmup(s, p, task)
+                        self._pass_workspace_test(s, p, task)
                     if (
                         attempt.get("rep_id")
                         and not task.data.get("human_edited")
@@ -734,7 +705,8 @@ class InboundCallbacks:
             estimate = (
                 COSTS["callbacks"]["transfer_per_invocation_usd"]
                 if data["action"] == "transfer"
-                else len(DEFAULT_MESSAGE) * COSTS["callbacks"]["standard_tts_per_character_usd"]
+                else len(data["payload"].get("payload", ""))
+                * COSTS["callbacks"]["standard_tts_per_character_usd"]
             )
             key = "inbound:" + command.id
             hold = self._request_hold(s, p, key)

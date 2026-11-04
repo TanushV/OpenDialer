@@ -10,7 +10,6 @@ export interface HealthPolicy {
   material_drop: number;
   confidence: number;
   window_days: number;
-  callback_proof_days: number;
 }
 export interface OptimizationSettings {
   conversion_goal: string;
@@ -494,7 +493,6 @@ function PlanningAssumptions({
                 ["material_drop", "Material pickup drop (fraction)"],
                 ["confidence", "Health interval confidence (fraction)"],
                 ["window_days", "Health observation window (days)"],
-                ["callback_proof_days", "Callback proof lifetime (days)"],
               ] as const
             ).map(([key, title]) => (
               <label key={key}>

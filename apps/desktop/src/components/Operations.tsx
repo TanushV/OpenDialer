@@ -4,7 +4,6 @@ import {
   ArrowRight,
   ChevronRight,
   Layers3,
-  Plus,
   Radio,
   RefreshCw,
   Search,
@@ -12,6 +11,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CallbackRouting } from "./CallbackRouting";
 import { useHistory } from "../state/useHistory";
 import { limits, useDefinitions } from "../state/definitions";
 import { HistoryMore } from "./HistoryMore";
@@ -527,6 +527,7 @@ interface NumbersSummary {
     total: number;
     ready: number;
     pending_setup: number;
+    workspace_test_passed: boolean;
     limited_use: number;
     paused_outbound: number;
     investigating: number;
@@ -622,27 +623,30 @@ function useNumbersSummary(listName: string | null) {
 }
 
 /** The business name carriers may show with outbound calls, and the free spam-label registry. */
-function CallerIdentity({
-  numbers,
-  onChanged,
-}: {
-  numbers: NumberRecord[];
-  onChanged: () => Promise<void>;
-}) {
+function CallerIdentity({ onChanged }: { onChanged: () => Promise<void> }) {
   const { api, run, notice } = useWorkspace();
-  const owned = numbers.filter(
-    (n) => n.provider_id && n.lifecycle !== "retired_callback_only",
-  );
-  const listed = owned.find((n) => n.caller_name?.listed)?.caller_name?.listed;
-  const [name, setName] = useState(listed ?? "");
-  const valid = /^[A-Za-z0-9 ]{1,15}$/.test(name.trim());
+  const [name, setName] = useState("");
+  useEffect(() => {
+    let mounted = true;
+    void api<{ caller_name?: string }>("/v1/admin/settings")
+      .then((saved) => {
+        if (mounted) setName(saved.caller_name ?? "");
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, [api]);
+  const trimmed = name.trim();
+  const valid = !trimmed || /^[A-Za-z0-9 ]{1,15}$/.test(trimmed);
   return (
     <section className="card padded">
-      <h3>Caller name</h3>
+      <h3>Caller name (optional)</h3>
       <p className="fine">
         The business name some phones show with your calls (15 letters, digits
-        or spaces). Telnyx lists it with carriers; phones update over days and
-        no carrier guarantees display.
+        or spaces). New numbers get it automatically. Leave it blank for none,
+        and phones show the number. Phones update over days and no carrier
+        guarantees display.
       </p>
       <div className="button-row">
         <input
@@ -654,23 +658,26 @@ function CallerIdentity({
         />
         <button
           className="secondary"
-          disabled={!valid || !owned.length}
+          disabled={!valid}
           onClick={() =>
             void run(async () => {
-              for (const number of owned)
-                await api(
-                  `/v1/admin/numbers/${number.id}/caller-name`,
-                  "POST",
-                  { name: name.trim() },
-                );
+              const saved = await api<{ name: string | null; failed: number }>(
+                "/v1/admin/caller-name",
+                "PUT",
+                { name: trimmed || null },
+              );
               await onChanged();
               notice(
-                `Caller name sent to Telnyx for ${owned.length} number(s).`,
+                saved.failed
+                  ? `Caller name saved, but Telnyx did not confirm ${saved.failed} number(s).`
+                  : saved.name
+                    ? "Caller name saved and sent to Telnyx."
+                    : "Caller name removed.",
               );
             })
           }
         >
-          List on {owned.length || "no"} number{owned.length === 1 ? "" : "s"}
+          Save caller name
         </button>
       </div>
       <p className="fine">
@@ -689,6 +696,48 @@ function CallerIdentity({
   );
 }
 
+type OwnedNumber = {
+  phone: string;
+  added: boolean;
+  route: "unassigned" | "this_app" | "other_app";
+};
+
+function OwnedNumbers({
+  owned,
+  onAdd,
+}: {
+  owned: OwnedNumber[];
+  onAdd: (phone: string, move: boolean) => void;
+}) {
+  const waiting = owned.filter((number) => !number.added);
+  if (!waiting.length)
+    return (
+      <p className="fine" role="status">
+        Everything in your Telnyx account is already here.
+      </p>
+    );
+  return (
+    <div aria-label="Numbers in your Telnyx account" role="group">
+      {waiting.map((number) => (
+        <div className="button-row" key={number.phone}>
+          <span>
+            {number.phone}
+            {number.route === "other_app" &&
+              " · On another Telnyx app. Adding it moves its calls here."}
+          </span>
+          <button
+            className="secondary small"
+            onClick={() => onAdd(number.phone, number.route === "other_app")}
+          >
+            {number.route === "other_app" ? "Move and add" : "Add"}{" "}
+            {number.phone}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function NumbersPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const history = useHistory("numbers", w.numbers);
@@ -700,7 +749,7 @@ export function NumbersPage() {
   const plan = useNumbersSummary(listName);
   const inventory = plan.summary?.inventory;
   const [planning, setPlanning] = useState(false);
-  const [phone, setPhone] = useState("");
+  const [owned, setOwned] = useState<OwnedNumber[] | null>(null);
   const requestPlan = async () => {
     setPlanning(true);
     try {
@@ -714,6 +763,21 @@ export function NumbersPage() {
     } finally {
       setPlanning(false);
     }
+  };
+  const testNumber = history.items.find((n) => n.identity_configured)?.phone;
+  const checkTelnyx = async () => {
+    const result = await api<{
+      owned: OwnedNumber[];
+      setup_failed?: number;
+    }>("/v1/admin/numbers/sync", "POST");
+    setOwned(result.owned);
+    await refresh();
+    await history.load();
+    await plan.load();
+    if (result.setup_failed)
+      notice(
+        `${result.setup_failed} number(s) did not finish setup. Use Set up route to retry.`,
+      );
   };
   return (
     <>
@@ -799,6 +863,14 @@ export function NumbersPage() {
             ))}
           </dl>
         )}
+        {inventory?.total &&
+        inventory.workspace_test_passed === false &&
+        testNumber ? (
+          <p className="alert" role="status">
+            One test call left: go ready, call {testNumber} from your phone and
+            answer it here. Every number opens after that.
+          </p>
+        ) : null}
         <p className="fine">
           Counts cover your whole inventory. Ready may include reviewed limited
           use. Inbound identities remain retained.
@@ -815,37 +887,38 @@ export function NumbersPage() {
         }}
       />
       <CallerIdentity
-        numbers={history.items}
         onChanged={async () => {
           await refresh();
           await history.load();
         }}
       />
+      <CallbackRouting />
       <section className="card table-card">
         <div className="table-toolbar">
           <h3>Your number inventory</h3>
           <button
             className="secondary small"
-            onClick={() =>
-              void run(async () => {
-                const r = await api<{
-                  added: number;
-                  updated: number;
-                  missing: number;
-                  on_other_connection?: number;
-                }>("/v1/admin/numbers/sync", "POST");
-                await refresh();
-                await plan.load();
-                notice(
-                  `${r.added} added, ${r.updated} updated, ${r.missing} missing at provider.${r.on_other_connection ? ` ${r.on_other_connection} routed to another Telnyx app were left alone.` : ""} Existing identities retained.`,
-                );
-              })
-            }
+            onClick={() => void run(checkTelnyx)}
           >
             <RefreshCw size={14} />
-            Sync existing Telnyx numbers
+            Check my Telnyx numbers
           </button>
         </div>
+        {owned && (
+          <OwnedNumbers
+            owned={owned}
+            onAdd={(number, move) =>
+              void run(async () => {
+                await api("/v1/admin/numbers/add", "POST", {
+                  phone: number,
+                  move_from_other_app: move,
+                });
+                await checkTelnyx();
+                notice(`${number} added and set up.`);
+              })
+            }
+          />
+        )}
         <table>
           <thead>
             <tr>
@@ -872,7 +945,7 @@ export function NumbersPage() {
         </table>
         <HistoryMore history={history} label="Load more numbers" />
         {!history.items.length && (
-          <Empty text="Connect Telnyx to sync your existing owned numbers." />
+          <Empty text="No numbers yet. Buy one above, or check your Telnyx numbers and add one." />
         )}
       </section>
       <section className="card import-card">
@@ -880,49 +953,19 @@ export function NumbersPage() {
           <span className="eyebrow">LEGITIMATE WARMUP</span>
           <h2>Start small. Stay reachable.</h2>
           <p className="muted">
-            Owned inventory moves through identity setup, a real inbound
-            callback test, and limited legitimate use. New rentals require an
-            exact quote and your approval.
+            A number you buy or add sets itself up: route confirmed and
+            recording off. It starts at 15 real calls a day and rises to 60 as
+            you use it. No fake calls are made.
           </p>
           <div className="lifecycle">
-            Purchased
+            Added
             <ChevronRight size={12} />
-            Identity
+            Route set
             <ChevronRight size={12} />
-            Callback tested
-            <ChevronRight size={12} />
-            Limited use
+            Warmup
             <ChevronRight size={12} />
             Healthy
           </div>
-        </div>
-        <div>
-          <label>
-            Existing owned phone number
-            <input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+14155550100"
-            />
-          </label>
-          <button
-            className="secondary"
-            disabled={!phone}
-            onClick={() =>
-              void run(async () => {
-                await api("/v1/admin/numbers", "POST", { phone });
-                await refresh();
-                await plan.load();
-                setPhone("");
-                notice(
-                  "Number added in purchased state. Complete its onboarding evidence.",
-                );
-              })
-            }
-          >
-            <Plus size={16} />
-            Add owned number
-          </button>
         </div>
       </section>
       <CapacityPlan
@@ -1378,14 +1421,6 @@ interface NumberEvidence {
     recommended_limit: number;
     reason: string;
   };
-  callback_candidates: {
-    id: string;
-    callback_evidence: {
-      destination: string;
-      observed_at: string;
-      simulated: boolean;
-    };
-  }[];
   binding: {
     id: string;
     version: number;
@@ -1453,59 +1488,59 @@ function NumberRow({
         <td>
           <strong>{number.phone}</strong>
           <small>
-            {number.callback_evidence_current
-              ? "Current callback evidence"
-              : "Callback verification required"}
+            {number.outbound_ready
+              ? "Ready to dial"
+              : number.lifecycle === "paused_for_outbound"
+                ? "Paused"
+                : number.identity_configured &&
+                    number.workspace_test_passed === false
+                  ? "Waiting for your test call"
+                  : "Needs setup"}
           </small>
         </td>
         <td>{number.region}</td>
         <td>
           <span className="pill subtle">{label(number.lifecycle)}</span>
         </td>
-        <td>{number.daily_limit}</td>
+        <td>
+          {number.today_limit ?? number.daily_limit} today ·{" "}
+          {number.daily_limit} max
+        </td>
         <td>{number.capacity} concurrent</td>
         <td>
           <div className="button-row">
-            {number.provider_id && (
-              <button
-                className="text-button small"
-                disabled={busy || number.provider_present === false}
-                onClick={() =>
-                  void run(async () => {
-                    setBusy(true);
-                    try {
-                      onSaved(
-                        await api<NumberRecord>(
-                          `/v1/admin/numbers/${number.id}/configure`,
-                          "POST",
-                        ),
-                      );
-                      await load();
-                      await refresh();
-                    } finally {
-                      setBusy(false);
-                    }
-                  })
-                }
-              >
-                {number.configuration_status === "uncertain"
-                  ? "Reconcile routing"
-                  : "Set up route"}
-              </button>
-            )}
-            {number.identity_configured &&
-              ["identity_configured", "callback_tested"].includes(
-                number.lifecycle,
-              ) && (
-                <small>
-                  Next: go ready, call this number from your own phone and
-                  answer it here. That starts its warmup at 5 calls a day.
-                </small>
+            {number.provider_id &&
+              number.configuration_status !== "confirmed" && (
+                <button
+                  className="text-button small"
+                  disabled={busy || number.provider_present === false}
+                  onClick={() =>
+                    void run(async () => {
+                      setBusy(true);
+                      try {
+                        onSaved(
+                          await api<NumberRecord>(
+                            `/v1/admin/numbers/${number.id}/configure`,
+                            "POST",
+                          ),
+                        );
+                        await load();
+                        await refresh();
+                      } finally {
+                        setBusy(false);
+                      }
+                    })
+                  }
+                >
+                  {number.configuration_status === "uncertain"
+                    ? "Reconcile routing"
+                    : "Set up route"}
+                </button>
               )}
             {number.provider_id && number.provider_present === false && (
               <small>
-                Not found in your Telnyx account. Sync existing numbers before
-                configuring its route.
+                Not found in your Telnyx account. Check your Telnyx numbers
+                before setting up its route.
               </small>
             )}
             <button
@@ -1638,45 +1673,6 @@ function NumberRow({
                     Verify and reapply saved configuration
                   </button>
                 </div>
-              )}
-              <p>A note alone cannot verify a callback.</p>
-              {current.callback_proof && (
-                <p className="fine">
-                  {current.callback_proof.simulated
-                    ? "Simulated"
-                    : "Signed provider"}{" "}
-                  callback to {current.callback_proof.destination} · expires{" "}
-                  {date(current.callback_proof.expires_at)}
-                </p>
-              )}
-              <div className="button-row">
-                {view.callback_candidates.map((t) => (
-                  <button
-                    key={t.id}
-                    disabled={busy}
-                    onClick={() =>
-                      void run(() =>
-                        save(
-                          `/v1/admin/numbers/${number.id}`,
-                          "PATCH",
-                          { callback_task_id: t.id },
-                          current.version,
-                        ),
-                      )
-                    }
-                  >
-                    Verify{" "}
-                    {t.callback_evidence.simulated ? "simulated" : "signed"}{" "}
-                    callback · {date(t.callback_evidence.observed_at)} ·{" "}
-                    {t.callback_evidence.destination}
-                  </button>
-                ))}
-              </div>
-              {!view.callback_candidates.length && (
-                <p className="fine">
-                  No recent connected callback receipt. Complete an authorized
-                  inbound test on this route, then reload evidence.
-                </p>
               )}
               <fieldset disabled={busy}>
                 <div className="optimization-fields">

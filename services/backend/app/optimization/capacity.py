@@ -29,7 +29,7 @@ MAX_SEARCH_NODES = 20000
 MAX_PLANNING_STEPS = 200000
 # Lifecycles still completing their declared setup. Paused or investigating
 # numbers are held for evidence and are never assumed to become ready.
-SETUP_PENDING = {"purchased", "identity_configured", "callback_tested"}
+SETUP_PENDING = {"purchased", "identity_configured"}
 
 
 @functools.cache
@@ -1235,7 +1235,6 @@ def time_forecast(
                     **n,
                     "lifecycle": "healthy",
                     "identity_configured": True,
-                    "callback_tested": True,
                     "daily_limit": n.get("daily_limit") or daily_capacity_per_number,
                     "ready_at": n.get("available_at") or n.get("ready_at") or ready_at.isoformat(),
                 }

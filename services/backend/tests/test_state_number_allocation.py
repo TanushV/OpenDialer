@@ -15,6 +15,8 @@ def number(identity, region, **values):
 def test_same_state_reuses_capacity_across_metros_without_rotating_bound_identity():
     lead = {"region": "213", "state": "CA"}
     inventory = [number("sf", "415"), number("ny", "212"), number("la", "213", used_today=19)]
+    assert select_number(lead, inventory)["number_id"] == "la"
+    inventory[2]["used_today"] = 20
     assert select_number(lead, inventory)["number_id"] == "sf"
     assert select_number(lead, inventory, bound_id="ny")["number_id"] == "ny"
     assert select_number(lead, [number("ny", "212")])["number_id"] is None

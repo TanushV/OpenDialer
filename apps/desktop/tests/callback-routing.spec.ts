@@ -95,7 +95,7 @@ test("callback fallback settings survive reload and explain offline routing", as
     .first()
     .click();
   await expect(
-    page.getByText("Outbound setup or evidence needs attention", {
+    page.getByText("Ready for reviewed outbound use", {
       exact: false,
     }),
   ).toBeVisible();

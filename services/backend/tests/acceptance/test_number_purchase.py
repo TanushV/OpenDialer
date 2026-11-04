@@ -64,7 +64,7 @@ def test_purchase_requires_limits_and_explicit_approval(workspace, carrier):
     assert len(carrier.purchases) == 1
     numbers = request(workspace, "GET", "/v1/workspace/numbers")["items"]
     new = next(n for n in numbers if n["phone"] == q["phone"])
-    assert new["lifecycle"] == "purchased" and not new["callback_tested"]
+    assert new["lifecycle"] == "limited_real_use" and new["configuration_status"] == "confirmed"
     approve(workspace, quote(workspace, "408"), 409)
 
 
@@ -248,7 +248,7 @@ def test_a_sold_out_area_code_offers_nearby_numbers_in_the_same_state(workspace,
 
     searched = []
 
-    async def nearby(region):
+    async def nearby(region, city=None, limit=10):
         searched.append(region)
         return [offer("+16285611507"), offer("+17755550100"), offer("+14155550142")]
 

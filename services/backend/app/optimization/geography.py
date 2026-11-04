@@ -114,6 +114,37 @@ def plausible_zones(record):
     return tuple(sorted({zone for state in states for zone in STATE_ZONES.get(state, ())}))
 
 
+# Area codes that cover the same place: a caller from one reads as local to the others.
+_METROS = """
+415 628
+212 332 646 917 718 347 929
+213 323 738 310 424 818 747 626
+510 341
+408 669
+619 858
+714 657
+916 279
+312 872 773
+617 857
+202 771
+206 564
+214 469 945 972
+281 346 713 832
+404 470 678 770 943
+305 786 645
+215 267 445
+303 720 983
+512 737
+"""
+METROS = {code: line for line in _METROS.split("\n") if line for code in line.split()}
+# What people type, for the place names Telnyx uses.
+CITY_NAMES = {"new york": "New York City", "nyc": "New York City", "sf": "San Francisco"}
+
+
+def metro(code):
+    return METROS.get(code, code)
+
+
 def area_code(record):
     region = str(record.get("region") or "")
     phone = str(record.get("phone") or "")

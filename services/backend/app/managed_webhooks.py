@@ -114,10 +114,19 @@ class ManagedConnection:
     def enabled(self, tenant_id):
         return self.service.settings.mode == "local" and self.config.get("tenant_id") == tenant_id
 
-    def require_number(self, tenant_id, phone):
+    def assigned(self, tenant_id, numbers):
+        """Numbers on this workspace's Telnyx app, or already seen by its relay."""
+        connection = self.service.configs.read(tenant_id).get("telnyx_connection_id")
+        return [
+            n
+            for n in numbers
+            if n.get("phone") in self.numbers or (connection and n.get("connection_id") == connection)
+        ]
+
+    def require_number(self, tenant_id, number):
         if self.enabled(tenant_id):
             self.require_ready(tenant_id)
-            if phone not in self.numbers:
+            if not self.assigned(tenant_id, [number]):
                 fail(409, "This number is not assigned to this workspace")
 
     def local_caught_up(self):
@@ -215,7 +224,10 @@ class ManagedConnection:
             {k: getattr(profile, k) for k in ("telnyx_api_key", "openrouter_api_key") if getattr(profile, k)}
         )
         configured["webhook_url"] = profile.url + "/functions/v1/telnyx-webhook"
+        previous = self.service.configs.read(tenant_id).get("telnyx_connection_id")
         self.service.configs.write(tenant_id, configured, advance_version=True)
+        if previous and configured.get("telnyx_connection_id") not in {None, previous}:
+            self.service.forget_workspace_test(tenant_id)
         self.speech_failed = False
         await self.start()
         return self.status()

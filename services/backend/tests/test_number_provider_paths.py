@@ -48,11 +48,16 @@ def test_number_configuration_confirms_reconciles_or_reports_rejection(workspace
         return response.json()
 
     try:
-        assert request("POST", "/v1/admin/numbers/sync")["added"] == 1
+        assert request("POST", "/v1/admin/numbers/sync")["added"] == 0
+        receipt = request(
+            "POST",
+            "/v1/admin/numbers/add",
+            {"success": 200, "timeout": 503, "rejected": 422}[result],
+            json={"phone": number["phone_number"]},
+        )
         items = request("GET", "/v1/workspace/numbers")["items"]
         row = next(n for n in items if n["phone"] == number["phone_number"])
         path = f"/v1/admin/numbers/{row['id']}/configure"
-        receipt = request("POST", path, {"success": 200, "timeout": 503, "rejected": 422}[result], json={})
         if result == "timeout":
             # Repeating the operation verifies the same submitted intent, without a second PATCH.
             patches = sum(method == "PATCH" for method, _ in seen)
@@ -61,7 +66,7 @@ def test_number_configuration_confirms_reconciles_or_reports_rejection(workspace
         if result != "rejected":
             assert receipt["configuration_status"] == "confirmed"
             assert receipt["provider_recording_enabled"] is False
-            assert receipt["identity_configured"] is True and receipt["callback_tested"] is False
+            assert receipt["identity_configured"] is True and receipt["lifecycle"] == "limited_real_use"
             before = len(seen)
             assert request("POST", path, json={})["configuration_status"] == "confirmed"
             assert len(seen) == before
@@ -73,7 +78,7 @@ def test_number_configuration_confirms_reconciles_or_reports_rejection(workspace
         client.portal.call(http.aclose)
 
 
-def test_shared_webhook_sync_finds_owned_numbers_not_yet_routed_anywhere(workspace, app, monkeypatch):
+def test_shared_webhook_sync_lists_every_owned_number_with_its_route(workspace, app, monkeypatch):
     from time import monotonic
 
     service = app.state.service
@@ -106,15 +111,12 @@ def test_shared_webhook_sync_finds_owned_numbers_not_yet_routed_anywhere(workspa
     try:
         response = workspace["client"].post("/v1/admin/numbers/sync", headers=workspace["headers"])
         assert response.status_code == 200, response.text
-        receipt = response.json()
-        assert receipt["added"] == 2 and receipt["on_other_connection"] == 1
-        phones = {
-            n["phone"]
-            for n in workspace["client"]
-            .get("/v1/workspace/numbers", headers=workspace["headers"])
-            .json()["items"]
+        assert {n["phone"]: n["route"] for n in response.json()["owned"]} == {
+            "+14155550901": "unassigned",
+            "+14155550902": "this_app",
+            "+14155550903": "other_app",
         }
-        assert {"+14155550901", "+14155550902"} <= phones and "+14155550903" not in phones
+        assert response.json()["added"] == 0
     finally:
         workspace["client"].portal.call(http.aclose)
 
@@ -145,16 +147,20 @@ def test_caller_name_lists_outbound_cnam_only_and_records_the_read_back(workspac
             get_row(s, "number_inventory", number["id"], workspace["tenant_id"]),
             provider_id="telnyx-number-1",
         )
-    path = f"/v1/admin/numbers/{number['id']}/caller-name"
+    path = "/v1/admin/caller-name"
     try:
-        assert (
-            client.post(path, headers=headers, json={"name": "Too long a business name"}).status_code == 422
-        )
-        assert client.post(path, headers=headers, json={"name": "Agite; DROP"}).status_code == 422
-        response = client.post(path, headers=headers, json={"name": "Agite  Systems"})
+        assert client.put(path, headers=headers, json={"name": "Too long a business name"}).status_code == 422
+        assert client.put(path, headers=headers, json={"name": "Agite; DROP"}).status_code == 422
+        response = client.put(path, headers=headers, json={"name": "Agite  Systems"})
         assert response.status_code == 200, response.text
-        assert response.json()["caller_name"]["listed"] == "AGITE SYSTEMS"
-        assert response.json()["caller_name"]["status"] == "submitted"
+        assert response.json() == {"name": "AGITE SYSTEMS", "failed": 0}
+        listed = next(
+            n
+            for n in client.get("/v1/workspace/numbers", headers=headers).json()["items"]
+            if n["id"] == number["id"]
+        )
+        assert listed["caller_name"]["listed"] == "AGITE SYSTEMS"
+        assert listed["caller_name"]["status"] == "submitted"
         assert sent == [
             {"cnam_listing": {"cnam_listing_enabled": True, "cnam_listing_details": "AGITE SYSTEMS"}}
         ]

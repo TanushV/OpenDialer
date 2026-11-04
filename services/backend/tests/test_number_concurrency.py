@@ -89,7 +89,6 @@ def add_california_number(app, ws, phone="+14155550109"):
                 "capacity": 1,
                 "daily_limit": 100,
                 "identity_configured": True,
-                "callback_tested": True,
                 "registration_reference": "SIMULATION",
                 "synthetic": True,
             },

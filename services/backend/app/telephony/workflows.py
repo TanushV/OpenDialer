@@ -13,6 +13,16 @@ from app.telephony.recovery import safe_stop, within_command_window
 from app.telephony.reducer import HUMAN_EVENTS, TERMINAL, owns_effect
 
 KEYPAD_STATES = {"DIALING", "RINGING", "ANSWERED_UNCLASSIFIED", "HUMAN", "SCREENING"}
+MACHINE_EVENTS = {"call.machine.detection.ended:machine", "call.machine.premium.detection.ended:machine"}
+BEEP_EVENTS = {
+    "call.machine.greeting.ended:beep_detected",
+    "call.machine.premium.greeting.ended:beep_detected",
+}
+SCREENING_EVENTS = {
+    "call.machine.premium.call_screening.detected:screening",
+    "call.machine.premium.greeting.ended:prompt_ended",
+}
+MINIMUM_ANSWERED = timedelta(seconds=7)
 TRANSCRIPTION_ENGINE = "Soniox"
 
 
@@ -20,7 +30,7 @@ TRANSCRIPTION_ENGINE = "Soniox"
 SECOND_ATTEMPT_WINDOW = timedelta(minutes=5)
 AGENT_STEPS = {
     "AUDIO_SETUP_MISSING": "This computer has no calling audio login. Import your calling setup in Settings.",
-    "NO_CALLER_NUMBER": "Add a caller number: sync a number you already own in Telnyx, or buy one in Numbers.",
+    "NO_CALLER_NUMBER": "Add a caller number in Numbers: buy one, or add one you own in Telnyx.",
     "CALLER_NUMBER_ROUTE_REQUIRED": "Set up your caller number's route in Numbers before going ready.",
 }
 
@@ -132,10 +142,7 @@ class TelephonyWorkflows:
                     if outcome:
                         update(call, carrier_outcome=outcome)
                         self._offer_second_attempt(s, call, lead, policy)
-                if event_type in {
-                    "call.machine.detection.ended:machine",
-                    "call.machine.premium.detection.ended:machine",
-                } and not call.data.get("human_answered_at"):
+                if event_type in MACHINE_EVENTS | BEEP_EVENTS and not call.data.get("human_answered_at"):
                     update(call, machine_detected=True)
                     final = call.data.get("attempt_ordinal", 0) >= call.data.get(
                         "attempt_allowance", policy.get("max_attempts", 4)
@@ -143,11 +150,21 @@ class TelephonyWorkflows:
                     if final:
                         # The last attempt keeps the line open for the rep's own short message.
                         update(call, voicemail_turn=True)
-                    elif call.data["state"] not in TERMINAL | {"ENDING"}:
-                        self.control_intent(s, p, call_id, "hangup", {}, suffix="machine-hangup")
+                    elif event_type in BEEP_EVENTS and call.data["state"] not in TERMINAL | {"ENDING"}:
+                        # Only a beep proves a mailbox: call screening and unclear results stay
+                        # with the rep. Telnyx surcharges answered calls of six seconds or less.
+                        hangup = self.control_intent(s, p, call_id, "hangup", {}, suffix="machine-hangup")
+                        answered = dt(call.data.get("answered_at")) or self.clock()
+                        update(hangup, not_before=(answered + MINIMUM_ANSWERED).isoformat())
                         update(call, end_reason="machine_detected")
                     emit(s, p["tenant_id"], "call.updated", call, self.clock())
+                if event_type in SCREENING_EVENTS and not call.data.get("human_answered_at"):
+                    update(call, screening_detected=True, machine_detected=False)
+                    emit(s, p["tenant_id"], "call.updated", call, self.clock())
                 if event_type in HUMAN_EVENTS | {"human.confirmed"}:
+                    waiting = self._by_key(s, p, "command_outbox", f"{call_id}:machine-hangup")
+                    if waiting and waiting.data["status"] == "pending":
+                        update(waiting, status="cancelled", reason="HUMAN_ANSWERED")
                     first_answer = not call.data.get("human_answered_at")
                     update(
                         call,
@@ -361,6 +378,7 @@ class TelephonyWorkflows:
                     )
                     .order_by(model.created_at, model.id)
                 )
+                if self.clock() >= (dt(r.data.get("not_before")) or self.clock())
             ]
             model = MODELS["call_attempts"]
             orphan_vms = [

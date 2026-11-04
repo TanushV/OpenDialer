@@ -20,6 +20,8 @@ class SimulatedCarrier:
         self.purchases = []
         self.calls = {}
         self.numbers = {}
+        self.caller_names = {}
+        self.spend_caps = []
         self.timeout_after_accept = False
 
     async def dial(self, payload):
@@ -67,14 +69,18 @@ class SimulatedCarrier:
         return dict(self.numbers[number_id])
 
     async def list_caller_name(self, number_id, name):
-        self.caller_names = {**getattr(self, "caller_names", {}), number_id: name}
-        return {"cnam_listing_enabled": True, "cnam_listing_details": name}
+        self.caller_names = {**self.caller_names, number_id: name}
+        return {"cnam_listing_enabled": bool(name), "cnam_listing_details": name}
 
-    async def search_numbers(self, region):
+    async def set_daily_spend_limit(self, amount):
+        self.spend_caps.append(amount)
+
+    async def search_numbers(self, region, city=None, limit=10):
         return [
             {
                 "phone_number": "+1" + region + "5550188",
                 "cost_information": {"currency": "USD", "upfront_cost": "0.00", "monthly_cost": "1.00"},
+                "region_information": [{"region_type": "location", "region_name": city or "Simulated City"}],
             }
         ]
 

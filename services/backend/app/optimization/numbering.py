@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.optimization.geography import area_code, coverage_region
+from app.optimization.geography import area_code, coverage_region, metro
 from app.scheduling.models import OPTIMIZATION_DEFAULTS, contact_labels
 from app.scheduling.models import wilson as wilson
 
@@ -14,12 +14,12 @@ from app.scheduling.models import wilson as wilson
 class HealthPolicy(BaseModel):
     """Versioned health review defaults; the domain owner, serialized by the settings API."""
 
-    model_config = ConfigDict(extra="forbid")
+    # Older saved policies carry fields that no longer exist; they are ignored, not refused.
+    model_config = ConfigDict(extra="ignore")
     min_comparable: int = Field(default=30, ge=10, le=1000, strict=True)
     material_drop: float = Field(default=0.20, gt=0, lt=1, allow_inf_nan=False)
     confidence: float = Field(default=0.95, ge=0.8, le=0.999, allow_inf_nan=False)
     window_days: int = Field(default=90, ge=1, le=365, strict=True)
-    callback_proof_days: int = Field(default=30, ge=1, le=90, strict=True)
 
 
 def timestamp(value):
@@ -87,7 +87,7 @@ def health_stratum(row):
 
 def health_from_counts(counts, *, now, policy, comparison_strata, next_expiry_at=None):
     """The same descriptive intervals for incremental and explicit offline reads."""
-    policy = HealthPolicy.model_validate(policy or {}).model_dump(exclude={"callback_proof_days"})
+    policy = HealthPolicy.model_validate(policy or {}).model_dump()
     fields = (
         "samples",
         "human_classified_samples",
@@ -179,7 +179,7 @@ def assess_number_health(observed, baseline, external, policy):
     Delivery deterioration is a drop relative to a supported comparable reference (other
     numbers' delivery in the same window), never the policy margin read as an absolute rate.
     """
-    policy = HealthPolicy.model_validate(policy or {}).model_dump(exclude={"callback_proof_days"})
+    policy = HealthPolicy.model_validate(policy or {}).model_dump()
     version = hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()[:16]
     now = timestamp(baseline["as_of"])
     cached = isinstance(observed, dict)
@@ -303,50 +303,14 @@ def number_health(
     )
 
 
-def route_fingerprint(number, route_version):
-    values = [number.get(k) for k in ("id", "provider_id", "connection_id", "provider_recording_enabled")]
-    return hashlib.sha256(json.dumps([*values, route_version], separators=(",", ":")).encode()).hexdigest()
-
-
-def callback_current(number, now, route_version=None):
-    proof = number.get("callback_proof")
-    if not proof:
-        return bool(
-            number.get("synthetic")
-            and number.get("registration_reference") == "SIMULATION"
-            and number.get("callback_tested")
-        )
+def number_ready(number):
+    """Routed, unpaused and not recording; the one workspace test call is checked by its caller."""
     return bool(
-        proof.get("number_id") == number["id"]
-        and timestamp(proof.get("expires_at"))
-        and timestamp(proof.get("observed_at"))
-        and timestamp(proof["observed_at"]) <= now < timestamp(proof["expires_at"])
-        and proof.get("route_fingerprint") == route_fingerprint(number, proof.get("route_version"))
-        and (route_version is None or proof.get("route_version") == route_version)
-        and (number.get("synthetic") or not proof.get("simulated"))
-    )
-
-
-def number_ready(number, *, now=None, strict=False, route_version=None):
-    if number.get("outbound_ready") is False:
-        return False
-    if strict or number.get("callback_proof"):
-        now = now or datetime.now(UTC)
-        if not callback_current(number, now, route_version):
-            return False
-    return (
-        number.get("lifecycle") in {"healthy", "limited_real_use"}
+        number.get("outbound_ready") is not False
+        and number.get("lifecycle") in {"healthy", "limited_real_use"}
         and number.get("provider_present") is not False
         and number.get("identity_configured") is not False
-        and number.get("callback_tested") is not False
         and not number.get("provider_recording_enabled")
-        and (
-            not strict
-            or (
-                number.get("configuration_status") == "confirmed"
-                and number.get("provider_recording_enabled") is False
-            )
-        )
     )
 
 
@@ -388,6 +352,7 @@ def select_number(lead, inventory, *, bound_id=None, strategy="regional_first"):
     selected = min(
         candidates,
         key=lambda n: (
+            metro(area_code(n)) != metro(area_code(lead)),
             n.get("active_obligations", 0) / max(1, n.get("capacity", 1)),
             n.get("used_today", 0) / max(1, n.get("daily_limit", 1)),
             -(n.get("health", {}).get("score") or 0),
@@ -460,10 +425,10 @@ def capacity_forecast(
     )
 
 
-# Warmup is a product assumption to qualify, not a carrier rule: a new number starts at five real
+# Warmup is a product assumption to qualify, not a carrier rule: a new number starts at fifteen real
 # attempts per rolling day and may grow at most 20% per day, only after enough resolved calls.
 WARMUP = {
-    "start": 5,
+    "start": 15,
     "attempts": 20,
     "leads": 10,
     "days": 3,

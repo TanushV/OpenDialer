@@ -85,14 +85,9 @@ export interface NumberRecord {
   id: string;
   version: number;
   outbound_ready?: boolean;
-  callback_evidence_current?: boolean;
+  workspace_test_passed?: boolean;
+  today_limit?: number;
   synthetic?: boolean;
-  callback_proof?: {
-    simulated: boolean;
-    observed_at: string;
-    expires_at: string;
-    destination: string;
-  };
   external_reputation?: {
     source: string;
     observed_at: string;
@@ -106,7 +101,6 @@ export interface NumberRecord {
   daily_limit: number;
   capacity: number;
   identity_configured: boolean;
-  callback_tested: boolean;
   provider_id?: string;
   provider_present?: boolean;
   connection_id?: string;

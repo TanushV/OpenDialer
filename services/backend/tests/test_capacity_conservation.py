@@ -72,7 +72,6 @@ def test_booked_hold_and_unknown_timezone_do_not_create_number_demand(clock):
     [
         {"provider_present": False},
         {"identity_configured": False},
-        {"callback_tested": False},
         {"provider_recording_enabled": True},
     ],
 )

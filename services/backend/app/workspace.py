@@ -156,6 +156,15 @@ class WorkspaceReads:
                 if len(selected) >= limit:
                     break
             more = len(records) > len(examined)
+            if section == "numbers" and selected:
+                evidence = {n["id"]: n for n in self.inventory_evidence(s, p, fast=True)}
+                for value in selected:
+                    row = evidence[value["id"]]
+                    value["today_limit"] = (
+                        row["daily_limit"]
+                        if value["outbound_ready"]
+                        else row.get("warmup_allowance", row["approved_daily_limit"])
+                    )
             if section == "leads":
                 self._mark_suppressed(s, p, selected)
             elif section in {"calls", "tasks"}:

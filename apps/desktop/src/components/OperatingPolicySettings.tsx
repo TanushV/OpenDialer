@@ -211,8 +211,8 @@ export function OperatingPolicySettings() {
             Provider processing retention has been verified for this account
           </label>
           <p className="fine">
-            Production transcription stays disabled without this evidence. Local
-            deletion cannot certify upstream deletion. Cerebras uses ZDR with
+            Hosted workspaces keep carrier transcription off without this
+            evidence. Local deletion cannot certify upstream deletion. Cerebras uses ZDR with
             data collection denied and no alternate-provider fallback.
           </p>
           <div className="two-column">

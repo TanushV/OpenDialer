@@ -58,15 +58,17 @@ export function CallbackRouting() {
     <section className="card padded" aria-label="Inbound callbacks">
       <h2>Inbound callbacks</h2>
       <p>
-        Try the available responsible rep, then an available teammate. If
-        neither can answer, transfer to your business destination or play a
-        neutral unavailable message and retain a review task.
+        Add a phone number here so returned calls reach a person when no rep is
+        ready. Calls try the responsible rep, then a teammate, then this number.
+        If nobody can answer, the caller hears a short greeting with your
+        business name and a review task is kept. Callers who are not on a lead
+        hear the greeting and do not ring anyone.
       </p>
       <label>
         Business fallback destination
         <input
           value={value.destination}
-          placeholder="sip:reception@your-business.example"
+          placeholder="+14155550123"
           onChange={(e) => {
             setSaved(false);
             setValue({ ...value, destination: e.target.value });

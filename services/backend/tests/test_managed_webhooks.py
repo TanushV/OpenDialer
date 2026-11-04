@@ -351,3 +351,48 @@ def test_first_import_blocks_dialing_before_profile_is_saved(workspace, app):
     )
     assert r.status_code == 409
     assert "setup" in r.text.lower()
+
+
+def test_a_number_on_this_app_can_dial_before_its_first_inbound_call(workspace, app, carrier):
+    from time import monotonic
+
+    from conftest import ready
+
+    client, headers = workspace["client"], workspace["headers"]
+    assert client.put(
+        "/v1/admin/settings", headers=headers, json={"telnyx_connection_id": "test-route"}
+    ).is_success
+    carrier.numbers = {
+        "sf": {
+            "id": "sf",
+            "phone_number": "+16282564157",
+            "connection_id": None,
+            "status": "active",
+            "call_recording_enabled": False,
+        }
+    }
+    added = client.post("/v1/admin/numbers/add", headers=headers, json={"phone": "+16282564157"})
+    assert added.is_success, added.text
+    board = client.get("/v1/workspace/numbers", headers=headers).json()["items"]
+    for number in board:
+        if number["phone"] != "+16282564157":
+            paused = client.patch(
+                f"/v1/admin/numbers/{number['id']}",
+                headers=headers,
+                json={"lifecycle": "paused_for_outbound", "reason": "Only the number under test"},
+            )
+            assert paused.is_success, paused.text
+    service = app.state.service
+    service.managed.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
+    service.managed.last_probe, service.managed.caught_up = monotonic(), True
+    service.managed.numbers = set()
+    ready(workspace)
+    offered = client.post("/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]})
+    assert offered.is_success, offered.text
+    assert offered.json()["number"]["phone"] == "+16282564157"
+    started = client.post(
+        "/v1/calls/start",
+        headers=headers,
+        json={"reservation_id": offered.json()["reservation_id"], "idempotency_key": "first-dial"},
+    )
+    assert started.is_success, started.text

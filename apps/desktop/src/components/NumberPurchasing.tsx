@@ -7,6 +7,7 @@ type Quote = {
   phone: string;
   region: string;
   area_code?: string;
+  city?: string | null;
   monthly_cost_usd: number;
   initial_commitment_usd: number;
   expires_at: string;
@@ -15,13 +16,16 @@ type Order = Quote & {
   status: string;
   provider_status?: string;
   error?: string;
+  ready?: boolean;
 };
 type Limits = {
   version: number;
   maximum_owned_numbers?: number;
   number_initial_limit_usd?: number;
   number_monthly_limit_usd?: number;
+  telnyx_daily_spend_limit_usd?: number;
 };
+const DEFAULT_DAILY_SPEND_USD = 25;
 
 export function NumberPurchasing({
   onChanged,
@@ -38,6 +42,8 @@ export function NumberPurchasing({
   const [settings, setSettings] = useState<Limits | null>(null);
   const [region, setRegion] = useState("");
   const [state, setState] = useState("");
+  const [city, setCity] = useState("");
+  const savedCap = useRef<number | undefined>(undefined);
   const [searchedAreas, setSearchedAreas] = useState<string[]>([]);
   const details = useRef<HTMLDetailsElement>(null);
   const searchVersion = useRef(0);
@@ -57,6 +63,7 @@ export function NumberPurchasing({
       ]);
       if (version !== loadVersion.current) return;
       setSettings((current) => current ?? config);
+      savedCap.current = config.telnyx_daily_spend_limit_usd;
       setOrders(pending);
       setError("");
     } catch (error) {
@@ -75,7 +82,7 @@ export function NumberPurchasing({
     setSelected(null);
     setApproved(false);
     setSearchedAreas([]);
-  }, [listName, state, region]);
+  }, [listName, state, region, city]);
   useEffect(() => {
     if (!stateSearch) return;
     setState(stateSearch.state);
@@ -99,9 +106,9 @@ export function NumberPurchasing({
       <summary>Add numbers with approval</summary>
       <p>
         Plan state coverage for a list, then open its state to find numbers in
-        preferred metros. Existing ready numbers serve the whole state
-        automatically. Buying requires your approval of each exact number and
-        its rental.
+        preferred metros. Ready numbers serve the whole state automatically.
+        Buying requires your approval of each exact number and its rental, and
+        setup then runs by itself.
       </p>
       {error && (
         <p role="alert">
@@ -125,6 +132,11 @@ export function NumberPurchasing({
                   "Monthly limit for app-ordered rentals (USD)",
                   10000,
                 ],
+                [
+                  "telnyx_daily_spend_limit_usd",
+                  "Daily Telnyx spend cap (USD)",
+                  10000,
+                ],
               ] as const
             ).map(([key, title, max]) => (
               <label key={key}>
@@ -134,7 +146,12 @@ export function NumberPurchasing({
                   min="0"
                   max={max}
                   step={key === "maximum_owned_numbers" ? 1 : 0.01}
-                  value={settings[key] ?? 0}
+                  value={
+                    settings[key] ??
+                    (key === "telnyx_daily_spend_limit_usd"
+                      ? DEFAULT_DAILY_SPEND_USD
+                      : 0)
+                  }
                   disabled={busy}
                   onChange={(e) =>
                     setSettings({ ...settings, [key]: Number(e.target.value) })
@@ -147,7 +164,8 @@ export function NumberPurchasing({
             Zero blocks new purchases. The count includes owned and pending
             numbers; pausing does not cancel rent. The monthly limit covers
             rentals ordered through this app; existing carrier bills, taxes and
-            call usage are separate.
+            call usage are separate. Telnyx refuses new calls past the daily
+            cap.
           </p>
           <button
             className="secondary"
@@ -159,6 +177,7 @@ export function NumberPurchasing({
                   maximum_owned_numbers = 0,
                   number_initial_limit_usd = 0,
                   number_monthly_limit_usd = 0,
+                  telnyx_daily_spend_limit_usd,
                 } = settings;
                 try {
                   setSettings(
@@ -170,6 +189,15 @@ export function NumberPurchasing({
                       number_monthly_limit_usd,
                     }),
                   );
+                  if (
+                    telnyx_daily_spend_limit_usd &&
+                    telnyx_daily_spend_limit_usd !== savedCap.current
+                  ) {
+                    await api("/v1/admin/numbers/spend-cap", "PUT", {
+                      daily_usd: telnyx_daily_spend_limit_usd,
+                    });
+                    savedCap.current = telnyx_daily_spend_limit_usd;
+                  }
                   notice("Number limits saved. No purchase was made.");
                 } catch (e) {
                   if (e instanceof ApiError && e.status === 409) {
@@ -220,6 +248,20 @@ export function NumberPurchasing({
               }}
             />
           </label>
+          <label>
+            City (optional)
+            <input
+              value={city}
+              disabled={busy}
+              maxLength={64}
+              placeholder="San Francisco"
+              onChange={(e) => setCity(e.target.value)}
+            />
+          </label>
+          <p className="fine">
+            An area code can span several places, so 628 includes Marin. Add a
+            city to get numbers located there.
+          </p>
           <button
             className="secondary"
             disabled={busy || (!state && !/^[2-9]\d{2}$/.test(region))}
@@ -229,11 +271,10 @@ export function NumberPurchasing({
                 const result = await api<{
                   numbers: Quote[];
                   searched_area_codes?: string[];
-                }>(
-                  "/v1/admin/numbers/search",
-                  "POST",
-                  state ? { state, list_name: listName } : { region },
-                );
+                }>("/v1/admin/numbers/search", "POST", {
+                  ...(state ? { state, list_name: listName } : { region }),
+                  ...(city.trim() ? { city: city.trim() } : {}),
+                });
                 if (version !== searchVersion.current) return;
                 setQuotes(result.numbers);
                 setSearchedAreas(result.searched_area_codes ?? []);
@@ -258,6 +299,7 @@ export function NumberPurchasing({
             <div className="button-row" key={q.id}>
               <span>
                 {q.phone}
+                {q.city ? ` · ${q.city}` : ""}
                 {q.area_code && q.area_code !== q.region
                   ? ` · near ${q.region}`
                   : ""}{" "}
@@ -319,7 +361,7 @@ export function NumberPurchasing({
                     await onChanged();
                     notice(
                       result.status === "ordered"
-                        ? "Order submitted. Complete routing and callback setup when the number arrives."
+                        ? "Order submitted. Setup runs by itself; check Number orders if it has not finished."
                         : result.error ||
                             "Check the saved order status before continuing.",
                     );
@@ -354,7 +396,10 @@ export function NumberPurchasing({
                   : ""}
               </p>
               {order.error && <p className="fine">{order.error}</p>}
-              {order.status !== "failed" && (
+              {order.ready && (
+                <p className="fine">Set up and in your numbers.</p>
+              )}
+              {order.status !== "failed" && !order.ready && (
                 <button
                   className="secondary"
                   disabled={busy}

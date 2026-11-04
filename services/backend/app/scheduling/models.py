@@ -60,7 +60,7 @@ OPTIMIZATION_DEFAULTS = {
     "horizon_hours": 24,
     "rep_minutes": 480,
     "handling_seconds": 120,
-    "daily_capacity_per_number": 40,
+    "daily_capacity_per_number": 60,
     "training_min_rows": 100,
     "staffed_windows": [],
     "additional_ready_after_hours": 0,

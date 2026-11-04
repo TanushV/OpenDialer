@@ -63,23 +63,21 @@ def call_entry(ws, call_id):
     return next(e for e in ledger_rows(ws) if e["kind"] == "call_authorization" and e["object_id"] == call_id)
 
 
-def test_inventory_sync_adds_flags_and_marks_missing_numbers(workspace, carrier):
-    carrier.numbers = {
-        "carrier-new": {
-            "id": "carrier-new",
-            "phone_number": "+15125550199",
-            "connection_id": "conn-1",
+def test_inventory_sync_flags_changes_and_marks_missing_numbers(workspace, carrier):
+    def owned(identity, phone, connection="simulated-connection"):
+        return {
+            "id": identity,
+            "phone_number": phone,
+            "connection_id": connection,
             "status": "active",
+            "call_recording_enabled": False,
         }
-    }
-    added = post(workspace, "/v1/admin/numbers/sync")
-    assert added["added"] == 1 and added["missing"] == 0 and added["provider_count"] == 1
-    carrier.numbers["carrier-415"] = {
-        "id": "carrier-415",
-        "phone_number": "+14155550100",
-        "connection_id": "conn-1",
-        "status": "active",
-    }
+
+    carrier.numbers = {"carrier-new": owned("carrier-new", "+15125550199")}
+    assert post(workspace, "/v1/admin/numbers/sync")["provider_count"] == 1
+    assert "+15125550199" not in numbers(workspace)
+    post(workspace, "/v1/admin/numbers/add", {"phone": "+15125550199"})
+    carrier.numbers["carrier-415"] = owned("carrier-415", "+14155550100")
     changed = post(workspace, "/v1/admin/numbers/sync")
     assert changed["updated"] == 1
     assert numbers(workspace)["+14155550100"]["lifecycle"] == "investigating"
@@ -95,12 +93,7 @@ def test_inventory_sync_adds_flags_and_marks_missing_numbers(workspace, carrier)
     assert get(workspace, "/v1/admin/numbers/summary")["inventory"]["paused_outbound"] == 2
 
 
-def test_owned_number_is_added_then_configured_on_the_carrier_route(workspace, carrier):
-    added = post(workspace, "/v1/admin/numbers", {"phone": "+16505550123", "region": "650"})
-    assert added["lifecycle"] == "purchased" and added["identity_configured"] is False
-    post(workspace, "/v1/admin/numbers", {"phone": "+16505550123"}, status=409)
-    post(workspace, "/v1/admin/numbers", {"phone": "not-a-number"}, status=422)
-    post(workspace, f"/v1/admin/numbers/{added['id']}/configure", status=409)
+def test_adding_an_owned_number_routes_it_and_refuses_bad_input(workspace, carrier):
     put_settings(workspace, telnyx_connection_id="conn-sim-route")
     carrier.numbers = {
         "carrier-650": {
@@ -110,8 +103,9 @@ def test_owned_number_is_added_then_configured_on_the_carrier_route(workspace, c
             "status": "active",
         }
     }
-    post(workspace, "/v1/admin/numbers/sync")
-    post(workspace, f"/v1/admin/numbers/{numbers(workspace)['+16505550123']['id']}/configure")
+    post(workspace, "/v1/admin/numbers/add", {"phone": "not-a-number"}, status=422)
+    post(workspace, "/v1/admin/numbers/add", {"phone": "+16505550124"}, status=404)
+    post(workspace, "/v1/admin/numbers/add", {"phone": "+16505550123"})
     row = numbers(workspace)["+16505550123"]
     assert row["identity_configured"] is True and row["configuration_status"] == "confirmed"
     assert carrier.numbers["carrier-650"]["connection_id"] == "conn-sim-route"
@@ -184,7 +178,7 @@ def test_external_reputation_flags_numbers_until_cleared_and_review_shows_it(wor
     assert get(workspace, "/v1/admin/numbers/summary")["inventory"]["ready"] == ready_before - 2
     review = get(workspace, f"/v1/admin/numbers/{numbers(workspace)['+14155550100']['id']}/review")
     assert review["health"]["status"] == "investigating" and review["number"]["outbound_ready"] is False
-    assert {"workload", "policy", "callback_candidates"} <= set(review)
+    assert {"workload", "policy"} <= set(review)
     assert review["workload"]["current_limit"] == 0
     assert review["workload"]["approved_daily_limit"] == numbers(workspace)["+14155550100"]["daily_limit"]
     assert "NUMBER_UNHEALTHY" in refused(workspace)
@@ -417,11 +411,14 @@ def test_provider_keys_are_stored_but_never_echoed_back(workspace):
     put_settings(workspace, status=422, webhook_url="http://ingress.example.test/webhooks/telnyx")
 
 
-def test_backup_and_restore_keep_business_data_and_hold_outbound_until_reconciled(workspace):
+def test_backup_and_restore_keep_business_data_and_hold_outbound_until_reconciled(workspace, carrier):
     leads = sorted(lead["phone"] for lead in get(workspace, "/v1/workspace/leads")["items"])
     backup = post(workspace, "/v1/admin/backup")
     assert len(backup["checksum"]) == 64
-    post(workspace, "/v1/admin/numbers", {"phone": "+16505550123", "region": "650"})
+    carrier.numbers = {
+        "n650": {"id": "n650", "phone_number": "+16505550123", "connection_id": None, "status": "active"}
+    }
+    post(workspace, "/v1/admin/numbers/add", {"phone": "+16505550123"})
     post(workspace, "/v1/suppressions", {"phone": PT, "reason": "opt_out"})
     restored = post(workspace, "/v1/admin/restore", {"backup_id": backup["backup_id"]})
     assert restored["restored"] is True and restored["outbound_paused"] is True

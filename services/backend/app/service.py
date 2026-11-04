@@ -311,6 +311,10 @@ class Service(ReservationPlanner):
                     },
                     now=now,
                 )
+            update(
+                self.required(s, "sellers", p["seller_id"], p),
+                callback_test={"at": now.isoformat(), "simulated": True},
+            )
             for phone, region in [("+14155550100", "415"), ("+12125550100", "212")]:
                 if not any(n.data["phone"] == phone for n in self.scoped(s, "number_inventory", p)):
                     put(
@@ -325,7 +329,6 @@ class Service(ReservationPlanner):
                             "capacity": 1,
                             "daily_limit": 100,
                             "identity_configured": True,
-                            "callback_tested": True,
                             "registration_reference": "SIMULATION",
                             "synthetic": True,
                         },
@@ -772,7 +775,7 @@ class Service(ReservationPlanner):
             agent = self.agent_ready_in(s, p)
             lead = self.required(s, "leads", reservation.data["lead_id"], p)
             number = self.required(s, "number_inventory", reservation.data["number_id"], p)
-            self.managed.require_number(p["tenant_id"], number.data["phone"])
+            self.managed.require_number(p["tenant_id"], number.data)
             decision = authorize(self.context(s, p, lead, number))
             self.record_decision(s, p, lead, decision)
             if not decision.allowed:
@@ -823,8 +826,8 @@ class Service(ReservationPlanner):
                 "from": number.data["phone"],
                 "link_to": agent,
                 "bridge_on_answer": True,
-                # Standard Telnyx detection on every attempt; a machine ends non-final attempts.
-                "answering_machine_detection": "detect",
+                # Telnyx detection on every attempt; a mailbox beep ends non-final attempts.
+                "answering_machine_detection": "premium_ios_call_screening_detection",
                 "park_after_unbridge": "self",
                 "prevent_double_bridge": True,
                 "time_limit_secs": self.settings.max_call_seconds,
@@ -902,7 +905,7 @@ class Service(ReservationPlanner):
                 return
             lead = self.required(s, "leads", call.data["lead_id"], p, lock=True)
             number = self.required(s, "number_inventory", call.data["number_id"], p)
-            self.managed.require_number(p["tenant_id"], number.data["phone"])
+            self.managed.require_number(p["tenant_id"], number.data)
             decision = authorize(self.context(s, p, lead, number))
             submission_decision = self.record_decision(s, p, lead, decision)
             if not decision.allowed:

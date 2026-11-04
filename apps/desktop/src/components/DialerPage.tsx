@@ -1001,9 +1001,15 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
           words: who you are, why you called, and your number. Then hang up.
         </p>
       )}
+      {call?.state === "VOICEMAIL_GREETING" && !call.voicemail_turn && (
+        <p className="fine" role="status">
+          Mailbox or call screening. If you hear a prompt, say your name and why
+          you are calling. A voicemail beep ends the call.
+        </p>
+      )}
       {call?.state === "VOICEMAIL_READY" && !call.voicemail_turn && (
         <p className="fine" role="status">
-          Mailbox reached. Hang up when ready.
+          Voicemail reached. Ending the call.
         </p>
       )}
       <label className="check-row">

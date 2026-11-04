@@ -193,7 +193,7 @@ class ReservationPlanner:
             if plan:
                 return plan
             if complete:
-                fail(409, {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons)})
+                fail(409, self.no_lead_detail(s, p, campaign_id, reasons))
             after = last
         cursors[key] = (after, frozenset(reasons))
         while len(cursors) > 256:
@@ -248,7 +248,7 @@ class ReservationPlanner:
             for n in self.inventory_evidence(s, p, fast=True)
         ]
         if self.managed.enabled(p["tenant_id"]):
-            inventory = [n for n in inventory if n["phone"] in self.managed.numbers]
+            inventory = self.managed.assigned(p["tenant_id"], inventory)
         claims = s.info["active_claims"]
         own = next((c for c in claims if c.rep_id == p["user_id"]), None)
         if own:

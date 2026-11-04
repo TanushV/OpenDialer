@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import logging
 from datetime import timedelta
 from decimal import Decimal
 
@@ -11,9 +12,12 @@ from sqlalchemy import select
 
 from app.compliance.phone import normalize_phone
 from app.db import MODELS, ActiveClaim, audit, doc, emit, put, uid, update
-from app.optimization.numbering import assess_number_health, callback_current, number_ready
+from app.optimization.numbering import assess_number_health, number_ready
 from app.scheduling.models import OPTIMIZATION_DEFAULTS
 from app.service import dt, fail
+
+DEFAULT_DAILY_SPEND_USD = 25
+logger = logging.getLogger(__name__)
 
 
 class ExternalReputation(BaseModel):
@@ -130,7 +134,10 @@ class NumberOperations:
         carrier = self.carrier(p["tenant_id"])
         # Recheck availability and price before the single charge-bearing submission.
         try:
-            candidates = await carrier.search_numbers(order["region"])
+            # Results can reorder between searches, so the recheck looks further down the same list.
+            candidates = await carrier.search_numbers(
+                order["region"], city=order.get("searched_city"), limit=250
+            )
             current = next((n for n in candidates if n.get("phone_number") == order["phone"]), {})
             cost = current.get("cost_information", {})
             same = (
@@ -215,7 +222,6 @@ class NumberOperations:
 
     def number_readiness_in(self, s, p, number):
         value = doc(number)
-        config = self.callback_config(s, p)
         errors = []
         if not self.settings.simulation:
             if not value.get("provider_id") or value.get("provider_present") is not True:
@@ -226,7 +232,7 @@ class NumberOperations:
                 errors.append("route_unconfirmed")
             if value.get("provider_recording_enabled") is not False:
                 errors.append("recording_not_disabled")
-        callback_valid = callback_current(value, self.clock(), config["version"])
+        tested = self.workspace_test_passed(s, p)
         external = assess_number_health(
             [],
             {"as_of": self.clock().isoformat()},
@@ -236,12 +242,11 @@ class NumberOperations:
 
         return {
             "configuration_errors": errors,
-            "callback_evidence_current": callback_valid,
+            "workspace_test_passed": tested,
             "outbound_ready": not errors
             and external["status"] != "investigating"
-            and callback_valid
-            and number_ready(value, now=self.clock()),
-            "route_version": config["version"],
+            and tested
+            and number_ready(value),
         }
 
     def number_review_view(self, p, number_id, lead_id=None):
@@ -249,19 +254,6 @@ class NumberOperations:
             self._configuration_actor(s, p)
             number = self.required(s, "number_inventory", number_id, p)
             view = next(n for n in self.inventory_evidence(s, p, fast=True) if n["id"] == number_id)
-            task = MODELS["followup_tasks"]
-            candidates = list(
-                s.scalars(
-                    select(task)
-                    .where(
-                        task.tenant_id == p["tenant_id"],
-                        task.seller_id == p["seller_id"],
-                        task.op_number_id == number_id,
-                    )
-                    .order_by(task.created_at.desc(), task.id)
-                    .limit(20)
-                )
-            )
             config = self.optimization_config(s, p)
             ceiling = self.number_workload_ceiling(config)
             binding = None
@@ -272,8 +264,6 @@ class NumberOperations:
                 "number": {**doc(number), **self.number_readiness_in(s, p, number)},
                 "health": view["health"],
                 "binding": doc(binding) if binding else None,
-                "callback_candidates": [doc(t) for t in candidates if t.data.get("callback_evidence")],
-                "callback_candidates_limit": 20,
                 "workload": {
                     "current_limit": view["daily_limit"],
                     "approved_daily_limit": number.data["daily_limit"],
@@ -296,35 +286,6 @@ class NumberOperations:
         slots, _, limited = staffed_slots(windows, now, end, config["handling_seconds"])
         # A bounded lower staffed count never promises capacity omitted by the planner.
         return min(config["daily_capacity_per_number"], sum(count for _, count in slots))
-
-    def confirm_callback_in(self, s, p, number, task_id):
-        task = self.required(s, "followup_tasks", task_id, p)
-        proof = task.data.get("callback_evidence")
-        if not proof or proof.get("number_id") != number.id:
-            fail(409, "A matching connected inbound callback receipt is required")
-        if not callback_current(
-            {**doc(number), "callback_proof": proof}, self.clock(), self.callback_config(s, p)["version"]
-        ):
-            fail(409, "Callback evidence expired or its route changed; verify the current route")
-        if not self.settings.simulation:
-            for identity in (proof["inbound_event_id"], proof["bridge_event_id"]):
-                inbox = self._by_key(s, {**p, "seller_id": ""}, "webhook_inbox", identity)
-                if (
-                    not inbox
-                    or not inbox.data.get("signature_verified")
-                    or inbox.data.get("status") != "processed"
-                ):
-                    fail(409, "A completed signed provider callback receipt is required")
-            if proof.get("simulated"):
-                fail(409, "Simulated callback evidence cannot verify live service")
-        update(
-            number,
-            callback_proof=proof,
-            callback_tested=True,
-            lifecycle="callback_tested"
-            if number.data["lifecycle"] == "identity_configured"
-            else number.data["lifecycle"],
-        )
 
     def reassign_number(self, p, number_id, body):
         change = body["reassignment"]
@@ -395,32 +356,136 @@ class NumberOperations:
         if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
             fail(403, "An active administrator must reconcile number configuration")
 
-    async def sync_numbers(self, p):
+    def _voice_connection(self, p):
+        connection = self.configs.read(p["tenant_id"]).get("telnyx_connection_id")
+        return connection or ("simulated-connection" if self.settings.simulation else None)
+
+    async def sync_numbers(self, p, adopt=()):
+        """Refresh added numbers, finish any that are waiting for setup, and list the whole account."""
         # Provider pagination must complete before any missing-inventory decisions.
         inventory = await self.carrier(p["tenant_id"]).list_numbers()
-        elsewhere = 0
-        if self.managed.enabled(p["tenant_id"]):
-            self.managed.require_ready(p["tenant_id"])
-            connection = self.configs.read(p["tenant_id"]).get("telnyx_connection_id")
-            # Owned numbers routed nowhere yet can be set up here; a number routed to another
-            # application belongs to that application and is only counted.
-            mine = [
-                n
-                for n in inventory
-                if n.get("phone_number") in self.managed.numbers
-                or str(n.get("connection_id") or "") in {"", connection}
-            ]
-            elsewhere = len(inventory) - len(mine)
-            inventory = mine
-        result = await asyncio.to_thread(self._merge_inventory, p, inventory)
-        return {**result, "on_other_connection": elsewhere}
+        self.managed.require_ready(p["tenant_id"])
+        result, pending = await asyncio.to_thread(self._merge_inventory, p, inventory, set(adopt))
+        failed = 0
+        for number_id in pending:
+            try:
+                await self.set_up_number(p, number_id)
+            except Exception as exc:  # The number stays listed with its Set up route action.
+                logger.warning("Number setup did not finish: %s", type(exc).__name__)
+                failed += 1
+        owned = await asyncio.to_thread(self._owned_numbers, p, inventory)
+        return {**result, "setup_failed": failed, "owned": owned}
+
+    def _owned_numbers(self, p, inventory):
+        connection = self._voice_connection(p)
+        with self.db.transaction(False) as s:
+            rows = {r.data["phone"]: doc(r) for r in self.scoped(s, "number_inventory", p)}
+        view = []
+        for item in inventory:
+            phone = normalize_phone(str(item.get("phone_number", ""))).e164
+            row = rows.get(phone)
+            current = str((row or item).get("connection_id") or "")
+            view.append(
+                {
+                    "phone": phone,
+                    "status": item.get("status"),
+                    "added": bool(row),
+                    "route": "unassigned"
+                    if not current
+                    else "this_app"
+                    if current == connection
+                    else "other_app",
+                }
+            )
+        return view
+
+    async def add_owned_number(self, p, phone, *, move_from_other_app=False):
+        """Bring one number already in the Telnyx account into use; setup runs straight away."""
+        phone = normalize_phone(phone).e164
+        if not phone:
+            fail(422, "Valid owned number required")
+        inventory = await self.carrier(p["tenant_id"]).list_numbers()
+        item = next(
+            (n for n in inventory if normalize_phone(str(n.get("phone_number", ""))).e164 == phone), None
+        )
+        if not item:
+            fail(404, "That number is not in your Telnyx account")
+        route = str(item.get("connection_id") or "")
+        if route not in {"", self._voice_connection(p)} and not move_from_other_app:
+            fail(
+                409,
+                {
+                    "code": "NUMBER_ON_ANOTHER_APP",
+                    "message": "This number is on another Telnyx app. Adding it moves its calls here.",
+                },
+            )
+        result, _ = await asyncio.to_thread(self._merge_inventory, p, inventory, {phone})
+        if result["assigned_elsewhere"]:
+            fail(409, "Number is already assigned to a seller")
+
+        def added():
+            with self.db.transaction(False) as s:
+                return self._by_key(s, p, "number_inventory", phone).id
+
+        return await self.set_up_number(p, await asyncio.to_thread(added))
+
+    async def set_up_number(self, p, number_id):
+        """Route, recording off, spend cap and caller name, so a new number needs nothing else."""
+        number = await self.configure_owned_number(p, number_id)
+        conf = self.configs.read(p["tenant_id"])
+        try:
+            await self.carrier(p["tenant_id"]).set_daily_spend_limit(
+                conf.get("telnyx_daily_spend_limit_usd", DEFAULT_DAILY_SPEND_USD)
+            )
+        except Exception as exc:  # The cap is a safeguard; the number's route is already confirmed.
+            logger.warning("Daily spend cap was not applied: %s", type(exc).__name__)
+        if conf.get("caller_name"):
+            try:
+                number = await self.list_caller_name(p, number_id, conf["caller_name"])
+            except Exception as exc:  # Optional, and it can be listed again from Numbers.
+                logger.warning("Caller name was not listed: %s", type(exc).__name__)
+        return number
+
+    async def save_spend_cap(self, p, daily_usd):
+        await asyncio.to_thread(self._require_configuration_actor, p)
+        await self.carrier(p["tenant_id"]).set_daily_spend_limit(daily_usd)
+        self.configs.write(p["tenant_id"], {"telnyx_daily_spend_limit_usd": daily_usd})
+        return {"daily_usd": daily_usd}
+
+    def _require_configuration_actor(self, p):
+        with self.db.transaction(False) as s:
+            self._configuration_actor(s, p)
+
+    async def save_caller_name(self, p, name):
+        """Blank means no caller name: nothing is listed and any existing listing is turned off."""
+        name = " ".join(name.split()).upper() if name else ""
+        await asyncio.to_thread(self._require_configuration_actor, p)
+        self.configs.write(p["tenant_id"], {"caller_name": name})
+
+        def targets():
+            with self.db.transaction(False) as s:
+                return [
+                    n.id
+                    for n in self.scoped(s, "number_inventory", p)
+                    if n.data.get("provider_id")
+                    and n.data.get("lifecycle") != "retired_callback_only"
+                    and (name or n.data.get("caller_name"))
+                ]
+
+        failed = 0
+        for number_id in await asyncio.to_thread(targets):
+            try:
+                await self.list_caller_name(p, number_id, name or None)
+            except Exception as exc:
+                logger.warning("Caller name was not updated: %s", type(exc).__name__)
+                failed += 1
+        return {"name": name or None, "failed": failed}
 
     async def list_caller_name(self, p, number_id, name):
         """Ask Telnyx to list the business name shown with this number's outbound calls.
 
         Read-back confirms Telnyx stored it; carriers' own databases update later and display
         on the called phone is never guaranteed."""
-        name = " ".join(name.split()).upper()
 
         def provider_id():
             with self.db.transaction(False) as s:
@@ -446,7 +511,9 @@ class NumberOperations:
                         "listed": stored,
                         "status": "submitted" if stored == name else "not_confirmed",
                         "at": self.clock().isoformat(),
-                    },
+                    }
+                    if name
+                    else None,
                 )
                 audit(
                     s,
@@ -462,7 +529,7 @@ class NumberOperations:
 
         return await asyncio.to_thread(save)
 
-    def _merge_inventory(self, p, inventory):
+    def _merge_inventory(self, p, inventory, adopt=frozenset()):
         normalized = {}
         for item in inventory:
             phone = normalize_phone(str(item.get("phone_number", ""))).e164
@@ -470,16 +537,24 @@ class NumberOperations:
                 fail(502, "Incomplete or conflicting carrier inventory; previous state retained")
             normalized[phone] = item
         added, changed, missing, assigned_elsewhere = 0, 0, 0, 0
+        connection = self._voice_connection(p)
+        pending = []
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             self._configuration_actor(s, p)
             # Only this seller's inventory is decrypted; other owners are found by lookup key.
             all_numbers = {r.data["phone"]: r for r in self.scoped(s, "number_inventory", p)}
             owners = self.number_owners(s, set(normalized) - set(all_numbers))
+            # A number ordered here is wanted; every other number waits for the owner to add it.
+            wanted = set(adopt) | {
+                r.data["phone"] for r in self.purchase_orders_in(s, p) if r.data.get("status") == "ordered"
+            }
             for phone, item in normalized.items():
                 row = all_numbers.get(phone)
                 if not row and phone in owners:
-                    assigned_elsewhere += 1
+                    assigned_elsewhere += phone in wanted
+                    continue
+                if not row and phone not in wanted:
                     continue
                 values = {
                     "provider_id": item["id"],
@@ -503,7 +578,6 @@ class NumberOperations:
                         or (not self.settings.simulation and item.get("call_recording_enabled") is not False)
                     ):
                         values.update(
-                            callback_tested=False,
                             identity_configured=False,
                             configuration_status="review_required",
                             lifecycle="investigating" if not unavailable else "paused_for_outbound",
@@ -525,7 +599,6 @@ class NumberOperations:
                             "daily_limit": OPTIMIZATION_DEFAULTS["daily_capacity_per_number"],
                             "capacity": 1,
                             "identity_configured": False,
-                            "callback_tested": False,
                             "synthetic": self.settings.simulation,
                             **values,
                         },
@@ -533,6 +606,12 @@ class NumberOperations:
                         now=self.clock(),
                     )
                     added += 1
+                if (
+                    row.data["lifecycle"] == "purchased"
+                    and item.get("status") == "active"
+                    and str(item.get("connection_id") or "") in {"", connection}
+                ):
+                    pending.append(row.id)
                 emit(s, p["tenant_id"], "number.updated", row, self.clock())
             for phone, row in all_numbers.items():
                 if (
@@ -567,7 +646,7 @@ class NumberOperations:
                 self.clock(),
                 result,
             )
-        return result
+        return result, pending
 
     def _claim_number_configuration(self, p, number_id, connection, expected_version=None):
         with self.db.transaction() as s:
@@ -641,7 +720,7 @@ class NumberOperations:
                 action = put(
                     s, "command_outbox", p["tenant_id"], p["seller_id"], values, key=key, now=self.clock()
                 )
-            update(number, configuration_status="pending", identity_configured=False, callback_tested=False)
+            update(number, configuration_status="pending", identity_configured=False)
             return {**doc(action), "reconcile": reconcile, "number_version": number.version}, None
 
     def _allow_configuration_retry(self, p, intent):
@@ -679,7 +758,7 @@ class NumberOperations:
         retry = body.get("retry_after_verification", False)
         if retry and (type(body.get("expected_version")) is not int or body["expected_version"] < 1):
             fail(422, "Explicit retry requires the current number version")
-        connection = self.configs.read(p["tenant_id"]).get("telnyx_connection_id")
+        connection = self._voice_connection(p)
         if not connection:
             fail(409, "Configure the authorized Telnyx voice connection first")
         intent, cached = await asyncio.to_thread(
@@ -788,7 +867,7 @@ class NumberOperations:
 
     def _finish_number_configuration(self, p, intent, confirmed, *, recovery=False, rejection=None):
         stale = False
-        connection = self.configs.read(p["tenant_id"]).get("telnyx_connection_id")
+        connection = self._voice_connection(p)
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             self._configuration_actor(s, p)
@@ -828,8 +907,9 @@ class NumberOperations:
             )
             if confirmed and not stale:
                 lifecycle = number.data["lifecycle"]
-                if lifecycle not in {"paused_for_outbound", "retired_callback_only", "investigating"}:
-                    lifecycle = "identity_configured"
+                if lifecycle in {"purchased", "identity_configured"}:
+                    lifecycle = "limited_real_use"
+                    update(number, warmup_started_at=self.clock().isoformat())
                 update(
                     number,
                     connection_id=intent["connection_id"],
@@ -840,7 +920,6 @@ class NumberOperations:
                     provider_present=True,
                     provider_status="active",
                     provider_recording_enabled=False,
-                    callback_tested=False,
                     lifecycle=lifecycle,
                     callback_retained=True,
                 )
@@ -849,7 +928,6 @@ class NumberOperations:
                     number,
                     configuration_status="failed" if rejection else "uncertain",
                     identity_configured=False,
-                    callback_tested=False,
                 )
             audit(
                 s,

@@ -120,11 +120,11 @@ const READINESS: Record<string, string> = {
   MANAGED_CONNECTION_UNAVAILABLE:
     "Call events are reconnecting. Keep OpenDialer open; reconnect under Calling if it stays off.",
   NO_CALLER_NUMBER:
-    "Add a caller number: in Numbers, sync a number you already own in Telnyx, or buy one.",
+    "Add a caller number in Numbers: buy one, or add one you own in Telnyx.",
   CALLER_NUMBER_ROUTE_REQUIRED:
     "In Numbers, choose Set up route on your caller number.",
   CALLER_NUMBER_CALLBACK_TEST_REQUIRED:
-    "Go ready, then call your caller number once from your own phone and answer it here. That proves callbacks reach you and starts its warmup.",
+    "One test call left: go ready, call one of your numbers from your own phone and answer it here. Every number opens after that.",
   CALLER_NUMBER_PAUSED:
     "Your caller numbers are paused. Review them in Numbers.",
   NO_LEADS: "Import a lead list.",
@@ -1106,22 +1106,23 @@ function CallingPolicySettings() {
         Also check state do-not-call lists
       </label>
       <p className="fine">Allowed during calls:</p>
-      {["live", "transcription"].map((permission) => (
-        <label className="check-label" key={permission}>
-          <input
-            type="checkbox"
-            checked={policy.permissions.includes(permission)}
-            onChange={(e) =>
-              change({
-                permissions: e.target.checked
-                  ? [...policy.permissions, permission]
-                  : policy.permissions.filter((p) => p !== permission),
-              })
-            }
-          />
-          {label(permission)}
-        </label>
-      ))}
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={policy.permissions.includes("live")}
+          onChange={(e) =>
+            change({
+              permissions: [
+                ...policy.permissions.filter(
+                  (p) => p !== "live" && p !== "transcription",
+                ),
+                ...(e.target.checked ? ["live", "transcription"] : []),
+              ],
+            })
+          }
+        />
+        Live transcription and help
+      </label>
       <button className="secondary" onClick={() => void run(editor.publish)}>
         Save checks
       </button>
