@@ -186,7 +186,25 @@ export class Telephony {
         ![this.expectedAgent, this.expectedReturn].includes(id)
       )
         throw new Error("Incoming call is no longer current.");
-      await call.answer({ remoteElement: this.audio!, video: false });
+      // Give the return leg its own tracks without reopening the microphone.
+      const source =
+        id === this.expectedReturn && this.agent?.state === "active"
+          ? this.agent.localStream
+          : null;
+      const microphone = source
+        ?.getAudioTracks()
+        .some((track) => track.readyState === "live")
+        ? source.clone()
+        : null;
+      if (microphone) call.options.localStream = microphone;
+      try {
+        await call.answer({ remoteElement: this.audio!, video: false });
+      } catch (error) {
+        microphone?.getTracks().forEach((track) => track.stop());
+        if (microphone && call.options.localStream === microphone)
+          delete call.options.localStream;
+        throw error;
+      }
     });
     this.answers.set(id, result);
     // A failed answer must not be remembered as accepted; the rep may retry.

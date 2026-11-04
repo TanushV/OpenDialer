@@ -26,6 +26,7 @@ function call(id: string, state = "ringing", providerId = id) {
     id,
     state,
     direction: "inbound",
+    options: {} as { localStream?: MediaStream },
     telnyxIDs: { telnyxCallControlId: providerId },
     answer: vi.fn(async () => {}),
     hangup: vi.fn(async () => {}),
@@ -122,6 +123,28 @@ test("return calls are accepted explicitly and controls target their SDK leg", a
   await phone.emergencyHangup("provider-return");
   expect(inbound.toggleAudioMute).toHaveBeenCalledTimes(1);
   expect(inbound.hangup).toHaveBeenCalledTimes(1);
+});
+
+test("an accepted return call uses a clone of the verified agent microphone", async () => {
+  const { phone, client } = await connected();
+  const clone = { getTracks: () => [] } as unknown as MediaStream;
+  const source = {
+    getAudioTracks: () => [{ readyState: "live" }],
+    clone: vi.fn(() => clone),
+  };
+  const agent = { ...call("agent"), localStream: source };
+  phone.expectAgentLeg("agent");
+  client.emit(agent);
+  client.emit({ ...agent, state: "active" });
+  const inbound = call("return");
+  inbound.answer.mockImplementation(async () => {
+    expect(inbound.options.localStream).toBe(clone);
+  });
+  client.emit(inbound);
+  phone.expectReturnLeg("return");
+  await phone.acceptIncoming("return");
+  await phone.acceptIncoming("return");
+  expect(source.clone).toHaveBeenCalledTimes(1);
 });
 
 test("a stale return-call control cannot stop a newly active agent", async () => {
