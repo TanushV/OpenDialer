@@ -353,7 +353,9 @@ def test_first_import_blocks_dialing_before_profile_is_saved(workspace, app):
     assert "setup" in r.text.lower()
 
 
-def test_a_number_on_this_app_can_dial_before_its_first_inbound_call(workspace, app, carrier):
+def test_after_registration_hold_a_number_can_dial_before_its_first_inbound_call(
+    workspace, app, carrier, clock
+):
     from time import monotonic
 
     from conftest import ready
@@ -386,6 +388,16 @@ def test_a_number_on_this_app_can_dial_before_its_first_inbound_call(workspace, 
     service.managed.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
     service.managed.last_probe, service.managed.caught_up = monotonic(), True
     service.managed.numbers = set()
+    ready(workspace)
+    waiting = client.post("/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]})
+    assert waiting.status_code == 409 and "24-hour" in waiting.json()["detail"]["message"]
+    clock.now += timedelta(hours=24)
+    session = client.post(
+        "/v1/auth/session",
+        json={"email": "operator@example.test", "password": "a-test-only-password-123"},
+    )
+    assert session.is_success, session.text
+    headers = workspace["headers"] = {"Authorization": "Bearer " + session.json()["access_token"]}
     ready(workspace)
     offered = client.post("/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]})
     assert offered.is_success, offered.text

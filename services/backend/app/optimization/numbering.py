@@ -173,6 +173,11 @@ def _observed_health(observed, now, policy):
     )
 
 
+def unresolved_label(external):
+    label = (external or {}).get("spam_label")
+    return bool(isinstance(label, str) and label.strip().casefold() not in {"", "clear", "not_flagged"})
+
+
 def assess_number_health(observed, baseline, external, policy):
     """Assess observations or saved statistics; current metadata never reuses an old green badge.
 
@@ -221,10 +226,14 @@ def assess_number_health(observed, baseline, external, policy):
         and timestamp(external.get("expires_at"))
         and now < timestamp(external["expires_at"])
     )
-    flag = (
-        fresh
-        and external.get("spam_label") is not None
-        and external.get("spam_label") not in {"clear", "not_flagged"}
+    # Expiration changes the freshness of the observation. An open label still needs a clear check.
+    flag = bool(
+        external
+        and external.get("source")
+        and external.get("ownership_reference")
+        and timestamp(external.get("observed_at"))
+        and timestamp(external["observed_at"]) <= now
+        and unresolved_label(external)
     )
     reasons = (
         errors
@@ -451,5 +460,7 @@ def adaptive_daily_limit(number, health):
     if health.get("recommended_action") == "review_workload":
         rate = health.get("delivery_success_rate")
         if isinstance(rate, (int, float)) and health.get("delivery_samples", 0):
-            return int(maximum * max(0, min(1, rate)))
+            maximum = int(maximum * max(0, min(1, rate)))
+        if "warmup_allowance" in number:
+            maximum = min(maximum, 15)
     return maximum

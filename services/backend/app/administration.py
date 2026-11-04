@@ -658,6 +658,7 @@ class Dialer(
         from pydantic import ValidationError
 
         from app.number_operations import ExternalReputation
+        from app.optimization.numbering import unresolved_label
 
         if "reassignment" in body:
             if set(body) != {"reassignment", "request_id", "expected_version"}:
@@ -690,6 +691,12 @@ class Dialer(
                 return {**doc(number), "receipt": identity[2]}
             if identity:
                 self.check_edit_version(number, body)
+            if (
+                "external_reputation" in body
+                and not (evidence.spam_label or "").strip()
+                and unresolved_label(number.data.get("external_reputation"))
+            ):
+                fail(422, "An open label requires an explicit clear observation")
             if body.get("identity_configured") is True and not number.data.get("identity_configured"):
                 fail(409, "Configure the owned carrier route; an operator note cannot verify identity")
             next_state = body.get("lifecycle", number.data["lifecycle"])

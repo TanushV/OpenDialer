@@ -62,13 +62,14 @@ are gone. Balance $15. No numbers owned.
   Separate network answer, human pickup, usable two-way audio, intended prospect, screening, voicemail, IVR, carrier block,
   failure, conversation and callback. Capture rep-reported audio problems and measure answer-to-bridge p95 against 0.5 seconds.
   A bridge event is a timing proxy. Two-way audio requires rep or media evidence.
-- [ ] Warn at 12% short answered calls (six seconds or less) and 15% pre-answer drops. Report ring timeouts separately
-  until their treatment is confirmed with Telnyx.
+- [ ] Warn at 12% short answered calls (six seconds or less) and 15% pre-answer drops. Report ring timeouts
+  separately from estimated drops. Confirm the billing treatment of ring timeouts with Telnyx during live proof.
 - [ ] Record SIP 603 and 603+ blocks against the original attempt, flag repeats, and pause the number while preserving callbacks.
 - [ ] Support a metered Telnyx carrier and line-type lookup with a saved result per lead and endpoint. Enable spend explicitly.
 - [ ] Export inventory for Free Caller Registry. Keep manual labels and their source, allow free checks, and show carrier dispute guidance.
 - [ ] Hold newly added numbers for at least 24 hours before outbound use. Ramp by completed business days with real use.
-  Hold growth while a label or abnormal delivery remains unresolved. Preserve lower owner limits.
+  Use Pacific time for weekdays. An open label blocks outbound until explicitly cleared. A number under delivery review
+  falls back to a maximum of 15 attempts per day. Preserve lower owner limits.
 
   | Business days of real use | Attempts per number per day |
   |---|---|
@@ -81,7 +82,7 @@ are gone. Balance $15. No numbers owned.
 
 - [ ] Run acceptance on SQLite and PostgreSQL and the affected browser journeys.
 - [ ] Commit the changes, publish the signed release, update this Mac in the app, and verify the installed workspace in the UI.
-- [ ] Remove extra desktop test copies from macOS app discovery while preserving workspace data.
+- [x] Remove extra desktop test copies from macOS app discovery while preserving workspace data.
 
 ### C. Buy and prove
 

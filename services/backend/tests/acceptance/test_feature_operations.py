@@ -201,6 +201,38 @@ def test_external_reputation_flags_numbers_until_cleared_and_review_shows_it(wor
     assert restored["workload"]["current_limit"] == restored["workload"]["approved_daily_limit"] == 100
 
 
+def test_expired_label_evidence_requires_an_explicit_clear(workspace, clock):
+    phone = "+14155550100"
+    number = numbers(workspace)[phone]
+
+    def save_label(label, status=200):
+        current = numbers(workspace)[phone]
+        return call(
+            workspace,
+            "PATCH",
+            f"/v1/admin/numbers/{number['id']}",
+            status=status,
+            json={
+                "request_id": str(uuid4()),
+                "expected_version": current["version"],
+                "external_reputation": {
+                    "source": "carrier display",
+                    "ownership_reference": "same number",
+                    "observed_at": clock.now.isoformat(),
+                    "expires_at": (clock.now + timedelta(minutes=1)).isoformat(),
+                    "spam_label": label,
+                },
+            },
+        )
+
+    save_label("Spam Likely")
+    clock.now += timedelta(minutes=2)
+    assert not numbers(workspace)[phone]["outbound_ready"]
+    save_label(None, status=422)
+    save_label("Clear")
+    assert numbers(workspace)[phone]["outbound_ready"]
+
+
 def test_reassignment_moves_an_existing_lead_identity_to_a_verified_number(workspace):
     packet = reserve(workspace).json()
     post(workspace, "/v1/rep/presence", {"status": "paused"})

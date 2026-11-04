@@ -45,6 +45,14 @@ def test_the_effective_limit_uses_the_allowance_and_still_drops_on_trouble():
     value = {**number(), "warmup_allowance": 6}
     assert adaptive_daily_limit(value, {"recommended_action": "continue"}) == 6
     assert adaptive_daily_limit(value, {"recommended_action": "hold_outbound"}) == 0
+    assert (
+        adaptive_daily_limit(
+            {**value, "warmup_allowance": 40},
+            {"recommended_action": "review_workload", "delivery_success_rate": 0.9, "delivery_samples": 100},
+        )
+        <= 15
+    )
+
     healthy = {"lifecycle": "healthy", "daily_limit": 40}
     assert warmup_allowance(healthy, [], START) == 40
 
