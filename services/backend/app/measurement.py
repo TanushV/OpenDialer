@@ -1,6 +1,9 @@
 """Shared outcome definitions and transparent, heartbeat-supported working intervals."""
 
-from datetime import timedelta
+from collections import Counter, defaultdict
+from datetime import UTC, timedelta
+from math import ceil
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
@@ -95,6 +98,98 @@ def connect_health_counts(values, *, min_support=30):
     }
 
 
+def delivery_values(row):
+    from app.scheduling.models import derive_labels
+
+    outcome = row.get("outcome") or row.get("carrier_outcome")
+    label = derive_labels({**row, "outcome": outcome})
+    disposition = row.get("disposition_input") or {}
+    audio = disposition.get("audio_result")
+    human = label["human"] is True or (label["human"] is None and bool(row.get("human_answered_at")))
+    screened = bool(disposition.get("screened") or row.get("screening_detected") or outcome == "screening")
+    connect = human and audio == "two_way"
+    answer = timestamp(row.get("answered_at"))
+    bridge = timestamp(row.get("bridged_at"))
+    latency = (
+        (bridge - answer).total_seconds()
+        if answer and bridge and bridge >= answer and row.get("answer_timing_source") == "provider"
+        else None
+    )
+    cause, duration = row.get("provider_hangup_cause"), row.get("connected_seconds")
+    ended = bool(row.get("ended_at"))
+    return Counter(
+        attempts=1,
+        network_answers=int(bool(answer)),
+        human_pickups=int(human),
+        connects=int(connect),
+        intended_prospect=int(connect and label["right_party"] is True),
+        screened=int(screened),
+        screened_to_human=int(screened and human),
+        voicemail=int(outcome == "voicemail"),
+        ivr=int(outcome == "ivr"),
+        carrier_blocks=int(bool(row.get("sip_block_code"))),
+        failures=int(
+            outcome in {"temporary_failure", "invalid_endpoint"}
+            or row.get("end_reason") == "provider_rejected"
+        ),
+        conversations=int(
+            connect
+            and outcome
+            in {
+                "right_party",
+                "qualified_conversation",
+                "callback_requested",
+                "meeting_booked",
+                "meeting_held",
+                "sale_won",
+            }
+        ),
+        audio_problems=int(audio == "problem"),
+        audio_unconfirmed=int(human and audio not in {"two_way", "problem"}),
+        timed_answered=int(duration is not None),
+        short_answered=int(duration is not None and duration <= 6),
+        ended_attempts=int(ended),
+        pre_answer_drops=int(
+            ended
+            and not answer
+            and cause not in {"timeout", "no_answer", "user_busy"}
+            and row.get("provider_hangup_source") == "caller"
+        ),
+        ring_timeouts=int(cause == "timeout"),
+        no_answer=int(outcome == "no_answer"),
+    ), latency
+
+
+def delivery_summary(counts, latencies):
+    attempts = counts["attempts"]
+    short = counts["short_answered"] / counts["timed_answered"] if counts["timed_answered"] else None
+    drops = counts["pre_answer_drops"] / counts["ended_attempts"] if counts["ended_attempts"] else None
+    p95 = sorted(latencies)[ceil(len(latencies) * 0.95) - 1] if latencies else None
+    return {
+        **counts,
+        "attempts": attempts,
+        "connects": counts["connects"],
+        "inbound_callbacks": counts["inbound_callbacks"],
+        "connect_rate": counts["connects"] / attempts if attempts else None,
+        "short_answered_rate": short,
+        "pre_answer_drop_rate": drops,
+        "answer_to_bridge_p95_seconds": p95,
+        "answer_to_bridge_samples": len(latencies),
+        "warnings": [
+            message
+            for exceeded, message in (
+                (
+                    short is not None and short >= 0.12,
+                    "Short answered calls reached the 12% warning threshold.",
+                ),
+                (drops is not None and drops >= 0.15, "Pre-answer drops reached the 15% warning threshold."),
+                (p95 is not None and p95 >= 0.5, "Answer-to-bridge p95 is 0.5 seconds or more."),
+            )
+            if exceeded
+        ],
+    }
+
+
 class WorkEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1)
@@ -114,6 +209,115 @@ class WorkEdit(BaseModel):
 
 
 class Measurement:
+    def connect_report(self, p, days):
+        now = self.clock()
+        start = now - timedelta(days=days)
+        rolling = now - timedelta(days=28)
+        zone = ZoneInfo("America/Los_Angeles")
+        aggregates = defaultdict(Counter)
+        latencies = defaultdict(list)
+        with self.db.transaction(False) as s:
+            calls, tasks = MODELS["call_attempts"], MODELS["followup_tasks"]
+            numbers = {n.id: n.data["phone"] for n in self.scoped(s, "number_inventory", p)}
+            attempts = list(
+                s.scalars(
+                    select(calls).where(
+                        calls.tenant_id == p["tenant_id"],
+                        calls.seller_id == p["seller_id"],
+                        calls.op_at >= start,
+                    )
+                )
+            )
+            endpoint_ids = sorted({row.data.get("endpoint_id") for row in attempts} - {None})
+            endpoints = MODELS["phone_endpoints"]
+            carrier_by_endpoint = {}
+            for offset in range(0, len(endpoint_ids), 500):
+                batch = endpoint_ids[offset : offset + 500]
+                for endpoint_id, data in s.execute(
+                    select(endpoints.id, endpoints.data).where(
+                        endpoints.tenant_id == p["tenant_id"],
+                        endpoints.seller_id == p["seller_id"],
+                        endpoints.id.in_(batch),
+                    )
+                ):
+                    carrier_by_endpoint[endpoint_id] = (data.get("carrier_lookup") or {}).get("carrier")
+            callbacks = list(
+                s.execute(
+                    select(tasks.created_at, tasks.data).where(
+                        tasks.tenant_id == p["tenant_id"],
+                        tasks.seller_id == p["seller_id"],
+                        tasks.created_at >= start,
+                    )
+                )
+            )
+        test_attempts = set()
+        for row in attempts:
+            data = row.data
+            disposition = data.get("disposition_input") or {}
+            if disposition.get("delivery_test"):
+                test_attempts.add(row.id)
+                continue
+            if data.get("synthetic") and not self.settings.simulation:
+                continue
+            at = timestamp(
+                data.get("submitted_at") or (data.get("started_at") if data.get("provider_id") else None)
+            )
+            if not at or not start <= at <= now:
+                continue
+            number = numbers.get(data.get("number_id"), "Unknown")
+            carrier = carrier_by_endpoint.get(data.get("endpoint_id")) or "Unknown"
+            day = at.astimezone(zone).date()
+            week = day - timedelta(days=day.weekday())
+            keys = [("daily", str(day)), ("weekly", str(week)), ("overall", "total")]
+            if at >= rolling:
+                keys += [
+                    ("rolling", "total"),
+                    ("by_number", number),
+                    ("by_carrier", carrier),
+                    ("by_number_and_carrier", f"{number} · {carrier}"),
+                ]
+            counts, latency = delivery_values(data)
+            for key in keys:
+                aggregates[key].update(counts)
+                if latency is not None:
+                    latencies[key].append(latency)
+        for created, data in callbacks:
+            prior_attempt = data.get("previous_call_id")
+            if (
+                not data.get("inbound")
+                or not prior_attempt
+                or prior_attempt in test_attempts
+                or not (data.get("inbound_verified") or self.settings.simulation)
+            ):
+                continue
+            at = created if created.tzinfo else created.replace(tzinfo=UTC)
+            if at > now:
+                continue
+            day = at.astimezone(zone).date()
+            week = day - timedelta(days=day.weekday())
+            keys = [("daily", str(day)), ("weekly", str(week)), ("overall", "total")]
+            if at >= rolling:
+                keys += [("rolling", "total"), ("by_number", numbers.get(data.get("number_id"), "Unknown"))]
+            for key in keys:
+                aggregates[key]["inbound_callbacks"] += 1
+
+        def summary(key):
+            return delivery_summary(aggregates[key], latencies[key])
+
+        return {
+            "simulation": self.settings.simulation,
+            "overall": summary(("overall", "total")),
+            "rolling_28_days": summary(("rolling", "total")),
+            **{
+                group: [
+                    {"key": label, **summary((group, label))}
+                    for kind, label in sorted(aggregates)
+                    if kind == group
+                ]
+                for group in ("daily", "weekly", "by_number", "by_carrier", "by_number_and_carrier")
+            },
+        }
+
     def record_attempt_work_in(self, s, p, call, *, closing=False):
         """A call-scoped wrap-up union, separate from call edit versions and ready time."""
         model = MODELS["outcomes"]
@@ -363,6 +567,10 @@ def call_timing(call, event_type, payload, *, now):
         answered = timestamp(call.get("answered_at"))
         values["answered_at"] = min(answered, at).isoformat() if answered else at.isoformat()
         values["answer_timing_source"] = payload.get("timing_source", "receipt")
+    elif event_type == "call.bridged" and (not ended or at <= ended):
+        if payload.get("timing_source") == "provider":
+            bridged = timestamp(call.get("bridged_at"))
+            values["bridged_at"] = min(bridged, at).isoformat() if bridged else at.isoformat()
     elif event_type == "call.hangup":
         values["ended_at"] = min(ended, at).isoformat() if ended else at.isoformat()
     answered = timestamp(values.get("answered_at") or call.get("answered_at"))

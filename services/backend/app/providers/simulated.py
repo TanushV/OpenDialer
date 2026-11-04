@@ -72,6 +72,9 @@ class SimulatedCarrier:
         self.caller_names = {**self.caller_names, number_id: name}
         return {"cnam_listing_enabled": bool(name), "cnam_listing_details": name}
 
+    async def lookup_number(self, phone):
+        return {"carrier": "Simulation carrier", "line_type": "mobile"}
+
     async def set_daily_spend_limit(self, amount):
         self.spend_caps.append(amount)
 

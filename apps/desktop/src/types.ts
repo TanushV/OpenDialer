@@ -86,6 +86,11 @@ export interface NumberRecord {
   version: number;
   outbound_ready?: boolean;
   workspace_test_passed?: boolean;
+  holding_for_registration?: boolean;
+  outbound_hold_until?: string;
+  last_sip_block_at?: string;
+  recent_sip_blocks?: number;
+  reason?: string;
   today_limit?: number;
   synthetic?: boolean;
   external_reputation?: {
@@ -156,6 +161,9 @@ export interface Call {
     contact_role: string;
     callback_at: string | null;
     callback_note: string;
+    audio_result?: "unknown" | "two_way" | "problem";
+    screened?: boolean;
+    delivery_test?: boolean;
   };
   rundown_status?: "pending" | "partial" | "ready" | "unavailable";
   /** Set on a saved outcome whose callback time was not applied to a task. */

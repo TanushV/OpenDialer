@@ -91,6 +91,16 @@ class TelnyxCarrier:
                 raise UncertainCarrierResult("Carrier server response uncertain") from e
             raise
 
+    async def lookup_number(self, phone):
+        from urllib.parse import quote
+
+        response = await self.request("GET", f"/number_lookup/{quote(phone, safe='')}?type=carrier")
+        carrier = (response.get("data") or {}).get("carrier") or {}
+        return {
+            "carrier": carrier.get("normalized_carrier") or carrier.get("name"),
+            "line_type": carrier.get("type"),
+        }
+
     async def token(self, credential_id):
         from urllib.parse import quote
 

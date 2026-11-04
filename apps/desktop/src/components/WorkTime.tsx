@@ -221,3 +221,135 @@ export function CallingHealth() {
     </section>
   );
 }
+
+const DELIVERY_COLUMNS = [
+  ["attempts", "Attempts"],
+  ["network_answers", "Network answers"],
+  ["human_pickups", "Human pickups"],
+  ["connects", "Two-way connects"],
+  ["intended_prospect", "Intended prospect"],
+  ["screened", "Screened"],
+  ["screened_to_human", "Screened to human"],
+  ["voicemail", "Voicemail"],
+  ["ivr", "IVR"],
+  ["carrier_blocks", "Carrier blocks"],
+  ["failures", "Failed"],
+  ["no_answer", "No answer"],
+  ["ring_timeouts", "Ring timeouts"],
+  ["conversations", "Conversations"],
+  ["inbound_callbacks", "Callbacks"],
+  ["audio_problems", "Audio problems"],
+  ["audio_unconfirmed", "Audio unconfirmed"],
+] as const;
+type Delivery = Partial<
+  Record<(typeof DELIVERY_COLUMNS)[number][0], number>
+> & {
+  key?: string;
+  connect_rate: number | null;
+  short_answered_rate: number | null;
+  pre_answer_drop_rate: number | null;
+  answer_to_bridge_p95_seconds: number | null;
+  answer_to_bridge_samples: number;
+  warnings: string[];
+};
+const GROUPS = [
+  ["daily", "Company by day"],
+  ["weekly", "Company by week"],
+  ["by_number", "28 days by caller number"],
+  ["by_carrier", "28 days by receiving carrier"],
+  ["by_number_and_carrier", "28 days by number and carrier"],
+] as const;
+type DeliveryReport = {
+  simulation: boolean;
+  overall: Delivery;
+  rolling_28_days: Delivery;
+} & Record<(typeof GROUPS)[number][0], Delivery[]>;
+
+function DeliveryTable({ name, rows }: { name: string; rows: Delivery[] }) {
+  return (
+    <div className="table-scroll">
+      <table aria-label={name}>
+        <thead>
+          <tr>
+            <th>Group</th>
+            <th>Connect rate</th>
+            {DELIVERY_COLUMNS.map(([key, title]) => (
+              <th key={key}>{title}</th>
+            ))}
+            <th>Short calls</th>
+            <th>Pre-answer drops</th>
+            <th>Answer-to-bridge p95</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              <th scope="row">{row.key}</th>
+              <td>{percent(row.connect_rate)}</td>
+              {DELIVERY_COLUMNS.map(([key]) => (
+                <td key={key}>{row[key] ?? 0}</td>
+              ))}
+              <td>{percent(row.short_answered_rate)}</td>
+              <td>{percent(row.pre_answer_drop_rate)}</td>
+              <td>
+                {row.answer_to_bridge_p95_seconds == null
+                  ? "Unmeasured"
+                  : `${Math.round(row.answer_to_bridge_p95_seconds * 1000)} ms (${row.answer_to_bridge_samples})`}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function ConnectDelivery() {
+  const { api, run } = useWorkspace();
+  const [report, setReport] = useState<DeliveryReport | null>(null);
+  const load = async () =>
+    setReport(await api<DeliveryReport>("/v1/admin/connect-report?days=56"));
+  return (
+    <details
+      className="card padded"
+      onToggle={(event) => {
+        if (event.currentTarget.open && !report) void run(load);
+      }}
+    >
+      <summary>Live connect report</summary>
+      <p>
+        Two-way connects divide rep-confirmed two-way live pickups by all
+        initiated attempts. Test calls marked in wrap-up are excluded. Bridge
+        time is a carrier timing proxy. Days and weeks use Pacific time.
+      </p>
+      <button onClick={() => void run(load)}>Refresh connect report</button>
+      {report && (
+        <>
+          {report.simulation && <p>Simulation data</p>}
+          {report.rolling_28_days.warnings.map((warning) => (
+            <p role="status" key={warning}>
+              {warning}
+            </p>
+          ))}
+          <DeliveryTable
+            name="Connect totals"
+            rows={[
+              { ...report.overall, key: "Last 56 days" },
+              { ...report.rolling_28_days, key: "Rolling 28 days" },
+            ]}
+          />
+          {GROUPS.map(([key, title]) => (
+            <details key={key}>
+              <summary>{title}</summary>
+              {report[key].length ? (
+                <DeliveryTable name={title} rows={report[key]} />
+              ) : (
+                <p>No attempts yet.</p>
+              )}
+            </details>
+          ))}
+        </>
+      )}
+    </details>
+  );
+}

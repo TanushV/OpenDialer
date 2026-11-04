@@ -56,6 +56,53 @@ def carrier_rejection(exc):
 
 
 class NumberOperations:
+    def registry_export(self, p):
+        import csv
+        import io
+
+        with self.db.transaction(False) as s:
+            phones = sorted(
+                n.data["phone"]
+                for n in self.scoped(s, "number_inventory", p)
+                if n.data.get("provider_present") is not False
+                and (self.settings.simulation or not n.data.get("synthetic"))
+            )
+        stream = io.StringIO(newline="")
+        writer = csv.writer(stream)
+        writer.writerow(["phone_number"])
+        writer.writerows((phone,) for phone in phones)
+        return {"csv": stream.getvalue()}
+
+    async def lookup_lead_carrier(self, p, lead_id):
+        def claim():
+            with self.db.transaction() as s:
+                self.db.authorize_stream(s, p)
+                self._configuration_actor(s, p)
+                lead = self.required(s, "leads", lead_id, p, lock=True)
+                endpoint = self.required(s, "phone_endpoints", lead.data["endpoint_id"], p, lock=True)
+                if saved := endpoint.data.get("carrier_lookup"):
+                    return endpoint.id, saved, False
+                update(endpoint, carrier_lookup={"status": "requested", "at": self.clock().isoformat()})
+                return endpoint.id, {"phone": lead.data["phone"]}, True
+
+        def save(endpoint_id, result):
+            with self.db.transaction() as s:
+                endpoint = self.required(s, "phone_endpoints", endpoint_id, p, lock=True)
+                receipt = {**result, "at": self.clock().isoformat()}
+                update(endpoint, carrier_lookup=receipt)
+                return receipt
+
+        provider = self.carrier(p["tenant_id"])
+        endpoint_id, data, send = await asyncio.to_thread(claim)
+        if not send:
+            return data
+        try:
+            result = {"status": "completed", **await provider.lookup_number(data["phone"])}
+        except (httpx.HTTPError, TypeError, ValueError, AttributeError):
+            # The carrier may have processed the billable request. Keep the receipt and avoid a second charge.
+            result = {"status": "unconfirmed"}
+        return await asyncio.to_thread(save, endpoint_id, result)
+
     def purchase_orders_in(self, s, p):
         model = MODELS["command_outbox"]
         return list(

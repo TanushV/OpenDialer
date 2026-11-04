@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -163,6 +163,9 @@ class NoteEdit(Strict):
 
 
 class Disposition(Strict):
+    audio_result: Literal["unknown", "two_way", "problem"] | None = None
+    screened: bool | None = None
+    delivery_test: bool | None = None
     request_id: UUID | None = None
     contact_role: ContactRole = "unknown"
     outcome: OutcomeCode
@@ -236,6 +239,10 @@ class PolicyUpdate(Strict):
     detached_topology_verified: bool | None = None
     topology_test_reference: str | None = None
     late_human_recovery_destination: str | None = None
+
+
+class CarrierLookup(Strict):
+    approve_charge: Literal[True]
 
 
 class ProviderSettings(Strict):
@@ -1031,6 +1038,18 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.put("/v1/admin/caller-name")
     async def caller_name(data: CallerName, p=Depends(administrator)):
         return await service.save_caller_name(p, data.name)
+
+    @app.get("/v1/admin/connect-report")
+    def connect_report(days: int = Query(default=28, ge=28, le=56), p=Depends(administrator)):
+        return service.connect_report(p, days)
+
+    @app.get("/v1/admin/numbers/registry-export")
+    def registry_export(p=Depends(administrator)):
+        return service.registry_export(p)
+
+    @app.post("/v1/admin/leads/{lead_id}/carrier-lookup")
+    async def carrier_lookup(lead_id: str, data: CarrierLookup, p=Depends(administrator)):
+        return await service.lookup_lead_carrier(p, lead_id)
 
     @app.get("/v1/admin/numbers/summary")
     def numbers_summary(list_name: str | None = None, p=Depends(administrator)):

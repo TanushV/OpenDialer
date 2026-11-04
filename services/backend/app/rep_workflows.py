@@ -967,6 +967,13 @@ class RepWorkflows:
                 "callback_note": data.get("callback_note", ""),
                 "contact_role": data.get("contact_role", "unknown"),
             }
+            previous_disposition = call.data.get("disposition_input") or {}
+            for key in ("audio_result", "screened", "delivery_test"):
+                value = data.get(key)
+                if value is not None:
+                    canonical[key] = value
+                elif key in previous_disposition:
+                    canonical[key] = previous_disposition[key]
             duplicate = (
                 call.data.get("disposition_input") == canonical and call.data.get("outcome_source") == source
             )

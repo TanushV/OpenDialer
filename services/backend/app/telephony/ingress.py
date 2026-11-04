@@ -100,7 +100,11 @@ class WebhookIngress:
         return {"received": True, "receipt_id": receipt_id, "status": receipt.data["status"]}
 
     async def process_webhook(self, tenant_id, receipt_id):
-        return await asyncio.to_thread(self._process_webhook, tenant_id, receipt_id)
+        result = await asyncio.to_thread(self._process_webhook, tenant_id, receipt_id)
+        if control := result.pop("voicemail_control", None):
+            principal, command_id = control
+            await self.dispatch_controls(principal, command_id=command_id)
+        return result
 
     def _process_webhook(self, tenant_id, receipt_id):
         owner = uid()

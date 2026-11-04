@@ -66,6 +66,13 @@ export function WrapUp({
       "",
   );
   const [more, setMore] = useState(!!outcome && !primary.has(outcome));
+  const [audioResult, setAudioResult] = useState(
+    call.disposition_input?.audio_result || "unknown",
+  );
+  const [screened, setScreened] = useState(!!call.disposition_input?.screened);
+  const [deliveryTest, setDeliveryTest] = useState(
+    !!call.disposition_input?.delivery_test,
+  );
   const [contactRole, setContactRole] = useState(
     call.disposition_input?.contact_role || "unknown",
   );
@@ -88,6 +95,9 @@ export function WrapUp({
     const body = {
       outcome,
       contact_role: contactRole,
+      audio_result: audioResult,
+      screened,
+      delivery_test: deliveryTest,
       callback_note: wrapNote,
       expected_version: call.version,
       // Background bookkeeping bumps call.version; only rep edits move edit_version.
@@ -205,6 +215,33 @@ export function WrapUp({
           <option value="gatekeeper">Gatekeeper</option>
           <option value="wrong_party">Wrong person</option>
         </select>
+      </label>
+      <label>
+        Two-way audio
+        <select
+          value={audioResult}
+          onChange={(e) => setAudioResult(e.target.value as typeof audioResult)}
+        >
+          <option value="unknown">Unconfirmed</option>
+          <option value="two_way">Both people could hear each other</option>
+          <option value="problem">Audio problem</option>
+        </select>
+      </label>
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={screened}
+          onChange={(e) => setScreened(e.target.checked)}
+        />
+        Encountered a screening prompt
+      </label>
+      <label className="check-row">
+        <input
+          type="checkbox"
+          checked={deliveryTest}
+          onChange={(e) => setDeliveryTest(e.target.checked)}
+        />
+        Delivery test (exclude from connect rate)
       </label>
       <label>
         Wrap-up note

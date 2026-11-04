@@ -697,3 +697,25 @@ test("number search names a city and shows where each number is", async ({
   await expect(page.getByText(/\+16282564157 · San Francisco/)).toBeVisible();
   expect(searches).toEqual([{ region: "628", city: "San Francisco" }]);
 });
+
+test("number setup exposes ring time and the connect report", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  const simulate = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await simulate.isVisible()) await simulate.click();
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Export registry CSV" }),
+  ).toBeVisible();
+  await page.getByText("Live connect report", { exact: true }).click();
+  await expect(
+    page.getByRole("table", { name: "Connect totals" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Rolling 28 days", { exact: true }),
+  ).toBeVisible();
+});

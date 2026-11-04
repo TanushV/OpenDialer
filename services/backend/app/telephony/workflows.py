@@ -182,6 +182,8 @@ class TelephonyWorkflows:
                     cause = str(payload.get("hangup_cause") or "")
                     if cause:
                         update(call, provider_hangup_cause=cause[:100])
+                    if payload.get("hangup_source") in {"caller", "callee", "unknown"}:
+                        update(call, provider_hangup_source=payload["hangup_source"])
                     sip_code = re.fullmatch(
                         r"(603\+?)(?:[ \t].*)?", str(payload.get("sip_hangup_cause") or "")
                     )
@@ -215,7 +217,9 @@ class TelephonyWorkflows:
                         and not call.data.get("stay_on_voicemail")
                         and call.data["state"] not in TERMINAL | {"ENDING"}
                     ):
-                        self.control_intent(s, p, call_id, "hangup", {}, suffix="machine-hangup")
+                        command = self.control_intent(s, p, call_id, "hangup", {}, suffix="machine-hangup")
+                        if session is not None:
+                            result["voicemail_control"] = (p, command.id)
                     emit(s, p["tenant_id"], "call.updated", call, self.clock())
                 if event_type in SCREENING_EVENTS and not call.data.get("human_answered_at"):
                     update(call, screening_detected=True, machine_detected=False)

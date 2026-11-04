@@ -1,4 +1,5 @@
 import { NumberPurchasing } from "./NumberPurchasing";
+import { ConnectDelivery } from "./WorkTime";
 import { ProductKnowledge } from "./ProductKnowledge";
 import {
   ArrowRight,
@@ -43,6 +44,8 @@ export function LeadsPage({
     invalid: number;
   } | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
+  const [lookupLead, setLookupLead] = useState("");
+  const [lookupStatus, setLookupStatus] = useState<Record<string, string>>({});
   const history = useHistory("leads", w.leads);
   const leads = history.items;
   return (
@@ -274,6 +277,49 @@ export function LeadsPage({
               {packet.lead.company} · {packet.lead.phone}
             </p>
             <div className="section-rule" />
+            {admin && (
+              <div>
+                {lookupStatus[packet.lead.id] && (
+                  <p role="status">{lookupStatus[packet.lead.id]}</p>
+                )}
+                {lookupLead === packet.lead.id ? (
+                  <div className="button-row">
+                    <button
+                      onClick={() => {
+                        const id = packet.lead.id;
+                        setLookupLead("");
+                        void run(async () => {
+                          const result = await api<{
+                            status: string;
+                            carrier?: string;
+                            line_type?: string;
+                          }>(`/v1/admin/leads/${id}/carrier-lookup`, "POST", {
+                            approve_charge: true,
+                          });
+                          const status =
+                            result.status === "completed"
+                              ? `${result.carrier || "Unknown carrier"} · ${result.line_type || "Unknown line type"}`
+                              : "No confirmed carrier receipt. The original lookup will not be charged again by this action.";
+                          setLookupStatus((previous) => ({
+                            ...previous,
+                            [id]: status,
+                          }));
+                        });
+                      }}
+                    >
+                      Approve one metered Telnyx lookup
+                    </button>
+                    <button onClick={() => setLookupLead("")}>
+                      Cancel lookup
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setLookupLead(packet.lead.id)}>
+                    Check carrier and line type
+                  </button>
+                )}
+              </div>
+            )}
             <h3>Script for this lead</h3>
             <p className="fine">
               {packet.script.fallback
@@ -810,6 +856,45 @@ export function NumbersPage() {
           Plan state coverage
         </button>
       </div>
+      <ConnectDelivery />
+      <section
+        className="card padded"
+        aria-label="Free Caller Registry and label checks"
+      >
+        <h3>Free Caller Registry and label checks</h3>
+        <p>
+          Export the owned inventory and submit it once. Check caller display on
+          real phones and record any label in Number evidence.
+        </p>
+        <div className="button-row">
+          <button
+            onClick={() =>
+              void run(async () => {
+                const { csv } = await api<{ csv: string }>(
+                  "/v1/admin/numbers/registry-export",
+                );
+                const url = URL.createObjectURL(
+                  new Blob([csv], { type: "text/csv" }),
+                );
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = "opendialer-caller-registry.csv";
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              })
+            }
+          >
+            Export registry CSV
+          </button>
+          <button
+            onClick={() =>
+              void run(() => openSource("https://freecallerregistry.com/fcr/"))
+            }
+          >
+            Open Free Caller Registry
+          </button>
+        </div>
+      </section>
       <label className="card padded">
         Plan numbers for list
         <select
@@ -1447,6 +1532,8 @@ function NumberRow({
   const bounds = useDefinitions();
   const [view, setView] = useState<NumberEvidence | null>(null);
   const [reference, setReference] = useState("");
+  const [labelSource, setLabelSource] = useState("");
+  const [observedLabel, setObservedLabel] = useState("");
   const [limit, setLimit] = useState(String(number.daily_limit));
   const [decision, setDecision] = useState("resume");
   const [leadId, setLeadId] = useState("");
@@ -1503,7 +1590,9 @@ function NumberRow({
                 : number.identity_configured &&
                     number.workspace_test_passed === false
                   ? "Waiting for your test call"
-                  : "Needs setup"}
+                  : number.holding_for_registration
+                    ? `Registration hold until ${date(number.outbound_hold_until)}`
+                    : "Needs setup"}
           </small>
         </td>
         <td>{number.region}</td>
@@ -1649,6 +1738,100 @@ function NumberRow({
                   observation, not a live carrier certification.
                 </p>
               )}
+              {current.last_sip_block_at && (
+                <p role="status">
+                  Recent SIP 603 or 603+ blocks: {current.recent_sip_blocks}.
+                  Last observed {date(current.last_sip_block_at)}.
+                  {current.lifecycle === "paused_for_outbound" &&
+                    ` ${current.reason || "Outbound paused."} Callbacks remain enabled.`}
+                </p>
+              )}
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const now = new Date();
+                  void run(() =>
+                    save(
+                      `/v1/admin/numbers/${number.id}`,
+                      "PATCH",
+                      {
+                        external_reputation: {
+                          source: labelSource.trim(),
+                          observed_at: now.toISOString(),
+                          expires_at: new Date(
+                            now.getTime() + 28 * 86_400_000,
+                          ).toISOString(),
+                          ownership_reference:
+                            number.provider_id || number.phone,
+                          spam_label: observedLabel.trim() || null,
+                        },
+                      },
+                      current.version,
+                    ),
+                  );
+                }}
+              >
+                <label>
+                  Label evidence source
+                  <input
+                    value={labelSource}
+                    onChange={(e) => setLabelSource(e.target.value)}
+                    placeholder="Carrier, device, or report"
+                    minLength={3}
+                    maxLength={300}
+                    required
+                  />
+                </label>
+                <label>
+                  Observed label (enter clear for a resolved label)
+                  <input
+                    value={observedLabel}
+                    onChange={(e) => setObservedLabel(e.target.value)}
+                    maxLength={100}
+                  />
+                </label>
+                <button disabled={busy || labelSource.trim().length < 3}>
+                  Save label check
+                </button>
+              </form>
+              <details>
+                <summary>Delivery incident guidance</summary>
+                <p>
+                  For a label on one network, pause or reduce the number,
+                  preserve callbacks, and request a targeted review. If several
+                  numbers drop on one network, verify routing and attestation.
+                  If several drop across networks, review shared traffic
+                  patterns. If labels look clear, check audio, screening and
+                  failed calls. Gather more evidence after one poor day.
+                </p>
+                <div className="button-row">
+                  {[
+                    [
+                      "AT&T label review",
+                      "https://www.att.com/reviewmycalllabel",
+                    ],
+                    [
+                      "T-Mobile call reporting",
+                      "https://callreporting.t-mobile.com/",
+                    ],
+                    [
+                      "Verizon voice spam feedback",
+                      "https://spamalerts.verizon.com/vsf/",
+                    ],
+                    [
+                      "Hiya free report and support",
+                      "https://www.hiya.com/products/registration",
+                    ],
+                  ].map(([title, url]) => (
+                    <button
+                      key={title}
+                      onClick={() => void run(() => openSource(url))}
+                    >
+                      {title}
+                    </button>
+                  ))}
+                </div>
+              </details>
               {current.configuration_status === "uncertain" && (
                 <div className="button-row">
                   <p className="fine">

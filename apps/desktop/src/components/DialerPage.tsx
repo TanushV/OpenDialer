@@ -1011,9 +1011,10 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
             className="secondary small"
             title="Keep this call open if Telnyx detects a voicemail beep"
             onClick={() =>
-              void run(async () =>
-                setCall(await api<Call>(`/v1/calls/${call.id}/stay`, "POST")),
-              )
+              void run(async () => {
+                await api(`/v1/calls/${call.id}/stay`, "POST");
+                await reloadCall(call.id);
+              })
             }
           >
             Stay
