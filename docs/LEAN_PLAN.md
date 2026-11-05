@@ -156,6 +156,16 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 5 owner-requested 0.9.0 release is in progress. This is a version promotion of the verified
+  0.8.14 calling runtime, with no dialing-policy or audio-path change. Release TODOs:
+  - [x] Inspect the saved workspace, finalized human audio result and background jobs.
+  - [x] Update the version contract first and observe both identity/manifest checks fail before changing release inputs.
+  - [ ] Pass the full SQLite/PostgreSQL, browser, frontend and native CI checks on the release source.
+  - [ ] Build both signed desktop packages and verify the Mac archive and public update manifest.
+  - [ ] Publish 0.9.0, install through this Mac's updater and verify retained data and installed UI.
+  - [ ] Record the final verification and commit the release evidence.
+
+
 - Late November 4 human microphone check passed on installed 0.8.14. The owner explicitly confirmed both
   directions were clear. The app received rep and remote speech, and five real Cerebras helper events supplied
   text guidance, including a polite ending response to the spoken stop request. Carrier answer and bridge were
