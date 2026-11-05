@@ -156,6 +156,14 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 4 audio-test correction: the owner confirmed answering and hearing silence. Outbound calls carry
+  the human rep's microphone; the live assistant produces text guidance. The agent's local speaker playback
+  was an invalid test of that microphone path and establishes neither an audio fault nor two-way success.
+  No automated outbound voice feature was added. The answered call is now finalized in the app, marked as
+  a delivery test, with audio still unconfirmed and the owner's report in its note. The synthetic local test
+  file was removed. A proper remaining test requires human speech into the Mac microphone and phone-side
+  confirmation, followed by an actual spoken objection. Normal hours, the test hold and paused dialing remain.
+
 - November 4 installed 0.8.14 live check after unlock: both numbers show ready, pending setup is zero, and
   capacity refresh succeeds with the new fallback column. Microphone permission was granted; the first audio
   session timed out and **Go ready** passed after restarting the same build. The installed Dialer called the

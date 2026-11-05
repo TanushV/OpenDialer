@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. Signed 0.8.14 is published and installed. Both numbers show ready with zero pending setup, and capacity refresh succeeds. A call from the installed Dialer reached the owner's phone; incoming speech produced real Cerebras guidance using the Agite opening. Phone-side hearing, two-way audio and spoken objection guidance still need confirmation. The test is excluded from connect-rate metrics, normal controls are restored and dialing is paused. The plan remains open.
+Updated November 4, 2026. Signed 0.8.14 is published and installed. Both numbers show ready with zero pending setup, and capacity refresh succeeds. The owner confirmed answering the installed Dialer's test and hearing silence; incoming speech produced real Cerebras text guidance using the Agite opening. Local speaker playback was an invalid microphone-path test. Two-way human audio and spoken objection guidance still need verification. The test is finalized and excluded from connect-rate metrics, normal controls are restored and dialing is paused. The plan remains open.
 
 ## Goal
 
@@ -119,7 +119,8 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Publish and install the signed 0.8.14 update and verify the installed executables and preserved workspace counts.
 - [x] Verify the installed live helper transcribes incoming speech and displays script-based guidance from real Cerebras.
 - [ ] Verify stage changes and objection guidance during a real spoken conversation.
-- [ ] Confirm phone-side hearing and finish the 0.8.14 test wrap-up with the owner's audio result.
+- [x] Record the owner's answer/silence report and finalize the 0.8.14 delivery test with audio unconfirmed.
+- [ ] Verify actual human speech through the Mac microphone to the phone and speech from the phone back to the rep.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -178,6 +179,13 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 
 ## Verification checkpoint
 
+- The owner confirmed answering the 0.8.14 test and hearing silence. The local synthetic phrase was played
+  through Mac speakers, not supplied as a valid microphone test signal. Its failure to be heard proves neither
+  a microphone-path fault nor successful two-way audio. Outbound calls use the human rep's microphone; the live
+  helper only displays text, and no automated outbound voice feature was added. The local test file was removed.
+  In the installed app, the call is now finalized as owner-answered, marked as a delivery test, with audio
+  unconfirmed and the silence report recorded. The remaining check requires human speech into the Mac microphone,
+  phone-side confirmation, and a spoken objection so the rep can inspect the assistant's response.
 - After unlock, the installed 0.8.14 UI showed two ready numbers and zero pending setup. Capacity refresh
   completed at 10:21 p.m. Pacific, including the new out-of-state fallback column. The microphone grant's
   initial agent leg timed out; **Go ready** passed after restarting the same build with permission granted.
