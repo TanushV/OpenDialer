@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app import priority
 from app.compliance.policy import retry_seconds
-from app.optimization.geography import plausible_zones
+from app.optimization.geography import planning_zones
 from app.optimization.numbering import number_ready, timestamp, wilson
 from app.scheduling.models import OPTIMIZATION_DEFAULTS
 
@@ -200,11 +200,7 @@ def work_items(leads, now, end, policy, handling_seconds=OPTIMIZATION_DEFAULTS["
         ):
             continue
         # The same zones the call check uses: a confirmed zone, else every plausible one.
-        zones = (
-            (lead["timezone"],)
-            if lead.get("timezone") and lead.get("timezone_confidence", "confirmed") in {"confirmed", "high"}
-            else plausible_zones(lead)
-        )
+        zones = planning_zones(lead)
         try:
             if not zones or not all(ZoneInfo(zone) for zone in zones):
                 raise ValueError("no zone")

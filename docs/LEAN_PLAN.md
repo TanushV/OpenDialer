@@ -160,6 +160,9 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   workspace setting in **Numbers** and **Settings → More Settings → Callbacks**. Clearing it restores the
   standard greeting and voice. The callback and number journeys passed on SQLite and PostgreSQL (50 each),
   as did four callback browser journeys. The installed 0.8.12 still uses its original greeting logic.
+  Both numbers show ready with zero pending, and **Go ready** passed after reopening 0.8.12. A failed capacity
+  job was reproduced on a private workspace copy. The source fix reuses the planner's time zones in the summary,
+  and the same calculation now completes on the copy. The signed update and separate-phone audio check remain open.
 
 - November 4 live calling and greeting follow-up (0.8.12): the Dialer made and bridged a real call between the
   owned numbers. The saved outcome excludes it from connect-rate metrics. This Mac installed 0.8.12 and the

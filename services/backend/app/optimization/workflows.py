@@ -8,6 +8,7 @@ from sqlalchemy import func, or_, select
 
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
 from app.optimization.experiments import ComparisonWorkflows
+from app.optimization.geography import planning_zones
 from app.optimization.learning import training_rows
 from app.optimization.numbering import (
     HealthPolicy,
@@ -72,7 +73,8 @@ def next_attempts(leads, schedule, estimate, *, limit=100):
         if len(rows) == limit:
             continue
         lead = by_id[row["lead_id"]]
-        local = timestamp(row["at"]).astimezone(ZoneInfo(lead["timezone"]))
+        # The allocator scores scheduled slots in the first of the same plausible zones.
+        local = timestamp(row["at"]).astimezone(ZoneInfo(planning_zones(lead)[0]))
         features = {
             "segment": str(lead.get("segment", "unknown")),
             "attempt_count": lead.get("attempt_count", 0),

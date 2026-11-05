@@ -108,6 +108,8 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Install the signed 0.8.12 update with the new greeting on the Mac.
 - [x] Store the Agite greeting in its workspace and verify the standard greeting for workspaces without a custom one.
 - [ ] Ship the workspace greeting setting and verify the saved Agite greeting on the signed update.
+- [x] Fix capacity planning for leads without an explicit time zone and verify the calculation on a private workspace copy.
+- [ ] Retry the failed capacity job in the signed app after updating.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp

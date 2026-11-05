@@ -114,6 +114,12 @@ def plausible_zones(record):
     return tuple(sorted({zone for state in states for zone in STATE_ZONES.get(state, ())}))
 
 
+def planning_zones(lead):
+    if lead.get("timezone") and lead.get("timezone_confidence", "confirmed") in {"confirmed", "high"}:
+        return (lead["timezone"],)
+    return plausible_zones(lead)
+
+
 # Area codes that cover the same place: a caller from one reads as local to the others.
 _METROS = """
 415 628

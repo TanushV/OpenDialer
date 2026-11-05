@@ -1,5 +1,8 @@
 """List-scoped, state-first planning; quoting never authorizes a carrier order."""
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from journey import call, get, post, run_jobs
 
 
@@ -16,7 +19,6 @@ def test_list_import_and_state_plan_reuse_owned_numbers(workspace, carrier):
                     "phone": "+14155550191",
                     "region": "213",
                     "state": "California",
-                    "timezone": "America/Los_Angeles",
                 },
                 {"name": "Moved", "phone": "+12125550192", "state": "CA", "timezone": "America/Los_Angeles"},
             ],
@@ -42,6 +44,12 @@ def test_list_import_and_state_plan_reuse_owned_numbers(workspace, carrier):
     assert forecast["imported_leads"] == 2
     assert [r["region"] for r in forecast["regions"]] == ["CA"]
     assert forecast["existing_only_capacity"] == 2
+    inferred_lead = next(lead for lead in imported["leads"] if not lead["timezone"])
+    attempt = next(row for row in forecast["next_attempts"] if row["lead_id"] == inferred_lead["id"])
+    assert (
+        attempt["local_hour"]
+        == datetime.fromisoformat(attempt["at"]).astimezone(ZoneInfo("America/Los_Angeles")).hour
+    )
     assert forecast["proposed_additional_numbers"] == 0
     assert forecast["regions"][0]["suggested_area_codes"]
     assert carrier.purchases == []
