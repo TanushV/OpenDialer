@@ -14,6 +14,8 @@ INSTRUCTIONS = (
     "You coach a human sales rep live, during a phone call, in a private side panel. You see the "
     "call's script, approved facts and what has just been said. Reply with what the rep could say "
     "or ask next, or one short tip, in one or two plain sentences addressed to the rep. "
+    "Use the current stage to choose the relevant script section, following the latest dialogue "
+    "when the conversation has moved on. "
     "Use only the facts listed under Facts, Research and Product knowledge for prices, capabilities, "
     "results or commitments; if a fact is missing, suggest asking or offering to follow up instead. "
     "Never suggest anything listed under Never say. Do not invent relationships, agreements or what "
@@ -34,17 +36,17 @@ def _lines(title, items):
 
 
 def script_text(script):
-    """The rep's prepared script as readable text: the picked options of each section."""
+    """The rep's prepared script with picked options and every objection response."""
     lines = []
     for section in (script or {}).get("sections", []):
         if section.get("text"):
             lines.append(f"{section.get('title', '')}: {section['text']}")
             continue
-        options = [o for o in section.get("options", []) if o.get("picked", True)] or section.get(
-            "options", []
-        )
+        options = section.get("options", [])
         # Every objection response stays available; other sections show the lead's picked options.
-        for option in options if section.get("key") == "objections" else options[:4]:
+        if section.get("key") != "objections":
+            options = ([o for o in options if o.get("picked", True)] or options)[:4]
+        for option in options:
             label = f"{section.get('title', '')}" + (f" ({option['title']})" if option.get("title") else "")
             lines.append(f"{label}: {option.get('text', '')}")
     return lines
@@ -56,7 +58,8 @@ def messages(request):
     template = script.get("template") or {}
     lead = request.get("lead_context") or {}
     seller = request.get("seller") or {}
-    body = [f"Seller: {seller.get('name', '')}"]
+    stage = (request.get("state") or {}).get("stage") or "not yet interpreted"
+    body = [f"Seller: {seller.get('name', '')}", f"Current stage: {stage}"]
     if seller.get("knowledge"):
         body.append(f"Product knowledge: {seller['knowledge']}")
     body.append("Prospect: " + ", ".join(f"{k}: {v}" for k, v in lead.items() if v and k != "prospect_brief"))

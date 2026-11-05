@@ -1,6 +1,7 @@
 """What the live helper sees when a prospect objects: every scripted response, approved talk
 tracks, reviewed examples, research and the lead's history."""
 
+import pytest
 from app.coaching.conversation import INSTRUCTIONS, messages
 
 
@@ -69,6 +70,21 @@ def test_every_scripted_objection_and_the_approved_context_reach_the_helper():
 
 def test_the_helper_is_told_how_to_handle_an_objection():
     assert "objection" in INSTRUCTIONS.casefold()
+
+
+def test_unpicked_objection_responses_remain_available_to_the_helper():
+    request = request_with(["Have a vendor", "Too expensive"])
+    request["prepared_script"]["sections"][1]["options"][1]["picked"] = False
+    prompt = messages(request)[1]["content"]
+    assert "Objections (Have a vendor): Response to Have a vendor." in prompt
+    assert "Objections (Too expensive): Response to Too expensive." in prompt
+
+
+@pytest.mark.parametrize("stage", ["introduction", "discovery", "objection", "next_step", "declined"])
+def test_current_stage_reaches_the_live_helper(stage):
+    request = request_with(["Have a vendor"])
+    request["state"] = {"stage": stage}
+    assert f"Current stage: {stage}" in messages(request)[1]["content"]
 
 
 def test_a_stray_quiet_marker_never_reaches_the_rep():

@@ -156,6 +156,13 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 4 live-helper review: the conversational prompt now receives the tracked call stage and every
+  scripted objection response, including options not picked during lead preparation. Regression tests failed
+  before each correction. The affected helper and acceptance suites pass on SQLite and PostgreSQL (51 each).
+  Source publication does not update the installed 0.8.13 app. Signed desktop verification and a real spoken
+  conversation with live guidance remain open. The installed Numbers screen still shows both lines ready,
+  zero pending setup, and a current capacity plan after refreshing at 9:04 p.m. Pacific.
+
 - November 4. The owner allows out-of-state calls as a last resort. The Dialer preserves
   assigned caller IDs and prefers in-state numbers for new assignments. The capacity planner reports the fallback
   separately from local capacity. The full backend suites passed on SQLite (836) and PostgreSQL (837), and all

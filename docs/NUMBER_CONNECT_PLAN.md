@@ -115,6 +115,8 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Place the owner-authorized phone test from the installed OpenDialer UI and save it as a delivery test.
 - [x] Allow eligible out-of-state caller IDs as a last resort and show their capacity separately in the state plan.
 - [ ] Verify out-of-state fallback in a signed desktop release.
+- [x] Pass the tracked call stage and all scripted objection responses to the conversational live helper.
+- [ ] Verify the helper corrections in a signed desktop release and during a real spoken conversation.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -283,6 +285,11 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - The Dialer now prefers same-state caller IDs, then the general pool, then an eligible owned number from another
   US state. Existing assignments take priority. The state plan reports out-of-state capacity separately and
   includes it when deciding whether current inventory can cover the list. Signed desktop verification is open.
+- The live-helper source review found that its conversational prompt omitted the tracked stage and filtered
+  out unpicked scripted objection responses. Both now reach the model alongside the lead's script, facts and
+  recent dialogue. Regression-first helper tests and affected acceptance journeys pass on SQLite and PostgreSQL
+  (51 each). These changes are pending a signed desktop release. At 9:04 p.m. Pacific, the installed 0.8.13
+  Numbers screen showed both lines ready, zero pending setup and a current capacity plan after refresh.
 
 ## Sources
 

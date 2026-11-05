@@ -1,6 +1,12 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.8.0 calling completion**, November 2, 2026. Earlier sections are history.
+> **Status: CURRENT — 0.8.13 installed**, November 4, 2026. Both numbers are ready and pending setup is zero.
+> The installed Dialer delivered the owner's answered phone test; the owner heard silence and the Mac sent no
+> speech, so two-way audio remains unverified. The current capacity calculation succeeds. Out-of-state fallback
+> and live-helper stage/all-objection corrections are committed source work pending a signed desktop release.
+> See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md) and the Status in [LEAN_PLAN.md](LEAN_PLAN.md).
+>
+> Historical 0.8.0 calling-completion checkpoint, November 2, 2026.
 > [CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md) section 14 lists what 0.8.0 implemented and verified:
 > optional DNC without approval paperwork, follow-up sections, streamed conversational live help, specific readiness,
 > number onboarding and warmup, machine detection and the final-stage second attempt. The Telnyx account owns no
