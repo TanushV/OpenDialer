@@ -156,6 +156,16 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- Late November 4 human microphone check passed on installed 0.8.14. The owner explicitly confirmed both
+  directions were clear. The app received rep and remote speech, and five real Cerebras helper events supplied
+  text guidance, including a polite ending response to the spoken stop request. Carrier answer and bridge were
+  380 ms apart. The call is finalized with `audio_result=two_way` and delivery-test exclusion. Normal 08:00–21:00
+  hours and original lead controls are restored; dialing is paused, with no reservation or active agent leg.
+  Background audio setup waited or failed, then completed when the owner foregrounded the app; no new permission
+  prompt was present. The specific vendor/email objection and tracked-stage checkpoint were not exercised by
+  this short test and remain open with the number plan's traffic/measurement gates. See the updated
+  [receipt](evidence/lean/calling-0814-20261104.json).
+
 - November 4 audio-test correction: the owner confirmed answering and hearing silence. Outbound calls carry
   the human rep's microphone; the live assistant produces text guidance. The agent's local speaker playback
   was an invalid test of that microphone path and establishes neither an audio fault nor two-way success.

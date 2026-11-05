@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. Signed 0.8.14 is published and installed. Both numbers show ready with zero pending setup, and capacity refresh succeeds. The owner confirmed answering the installed Dialer's test and hearing silence; incoming speech produced real Cerebras text guidance using the Agite opening. Local speaker playback was an invalid microphone-path test. Two-way human audio and spoken objection guidance still need verification. The test is finalized and excluded from connect-rate metrics, normal controls are restored and dialing is paused. The plan remains open.
+Updated November 5, 2026. Signed 0.8.14 is published and installed. Both numbers show ready with zero pending setup, and capacity refresh succeeds. The late November 4 human microphone test passed: the owner confirmed both audio directions were clear, and real Cerebras text guidance responded to the spoken stop request. The test is finalized and excluded from connect-rate metrics, normal controls are restored and dialing is paused. The vendor/email objection, tracked-stage checkpoint and the wider carrier/traffic/measurement gates remain open.
 
 ## Goal
 
@@ -101,7 +101,7 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Fix the order list that kept showing Pending after a successful inventory sync. Cover the transition on SQLite and PostgreSQL.
 - [x] Verify the signed order-status fix in the installed Mac app.
 - [x] With **Go ready** complete before dialing, answer a live test call in OpenDialer.
-- [ ] Confirm two-way audio on a live call with a separate phone.
+- [x] Confirm two-way audio on a live call with a separate phone.
 - [x] Verify carrier outbound delivery from each purchased number using an authorized test destination.
 - [x] Start and complete a live test call from the Dialer without dialing a campaign lead.
 - [x] Verify the new callback greeting plays and ends on a live Telnyx call.
@@ -118,9 +118,10 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Pass the tracked call stage and all scripted objection responses to the conversational live helper.
 - [x] Publish and install the signed 0.8.14 update and verify the installed executables and preserved workspace counts.
 - [x] Verify the installed live helper transcribes incoming speech and displays script-based guidance from real Cerebras.
-- [ ] Verify stage changes and objection guidance during a real spoken conversation.
+- [x] Verify live text guidance responds to a spoken stop/refusal request.
+- [ ] Verify the tracked-stage checkpoint and vendor/email objection guidance during a real spoken conversation.
 - [x] Record the owner's answer/silence report and finalize the 0.8.14 delivery test with audio unconfirmed.
-- [ ] Verify actual human speech through the Mac microphone to the phone and speech from the phone back to the rep.
+- [x] Verify actual human speech through the Mac microphone to the phone and speech from the phone back to the rep.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -179,6 +180,17 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 
 ## Verification checkpoint
 
+- The late November 4 human microphone test passed in installed 0.8.14. The owner confirmed **both directions
+  were clear**, and the app received speech from rep and remote audio streams. Five real Cerebras helper
+  events supplied text guidance, including an appropriate polite ending response to the spoken stop request.
+  The signed carrier timestamps put bridge 380 ms after answer. The call was finalized in the UI as an
+  owner-answered delivery test with **Both people could hear each other**; the saved result is `two_way` and
+  the test is excluded from connect-rate metrics. Normal 08:00–21:00 hours and the original lead controls
+  were restored, the test contact is held, dialing is paused, and no reservation or active audio leg remains.
+  Automated background readiness attempts failed or waited; audio completed when the owner foregrounded
+  OpenDialer, with no additional permission prompt. This short call exercised stop/refusal guidance, while
+  the tracked stage remained introduction. The requested vendor/email phrase was not spoken. Those specific
+  live checks remain open. [Verification receipt](evidence/lean/calling-0814-20261104.json).
 - The owner confirmed answering the 0.8.14 test and hearing silence. The local synthetic phrase was played
   through Mac speakers, not supplied as a valid microphone test signal. Its failure to be heard proves neither
   a microphone-path fault nor successful two-way audio. Outbound calls use the human rep's microphone; the live

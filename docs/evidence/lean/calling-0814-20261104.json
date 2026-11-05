@@ -66,7 +66,32 @@
     "other_lead_controls_restored": true
   },
   "remaining": [
-    "Verify human speech from the Mac microphone reaches the phone, and phone speech reaches the rep",
-    "Verify stage changes and objection guidance during that spoken conversation"
-  ]
+    "Exercise the tracked stage checkpoint and a vendor/email objection in a live conversation",
+    "Complete the number plan real-traffic ramp and measurement gates"
+  ],
+  "human_microphone_test": {
+    "started_from_installed_dialer": true,
+    "answered": true,
+    "bridged": true,
+    "answer_to_bridge_ms": 380,
+    "stream_sides_observed": [
+      "remote",
+      "rep"
+    ],
+    "owner_report": "Both directions were clear",
+    "audio_result": "two_way",
+    "outcome": "right_party",
+    "delivery_test_excluded": true,
+    "finalized": true,
+    "actual_helper_providers": [
+      "Cerebras"
+    ],
+    "helper_events": 5,
+    "live_guidance_observed": "Polite ending guidance in response to a spoken request to end the call; advice changed as further speech arrived.",
+    "stage_observed_during_call": "introduction",
+    "vendor_email_objection_exercised": false,
+    "foreground_note": "Background readiness attempts failed or waited; audio became ready after the owner foregrounded OpenDialer. No permission prompt was present.",
+    "controls_restored": true,
+    "idle_agent_legs_remaining": 0
+  }
 }

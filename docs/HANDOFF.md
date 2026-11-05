@@ -1,12 +1,11 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.8.14 installed**, November 4, 2026. Both numbers show ready with zero pending setup;
-> capacity refresh succeeds with out-of-state fallback. **Go ready** passed after microphone permission and a restart.
-> The installed Dialer reached the owner's phone, transcribed incoming “Hello?” and displayed the Agite opening
-> from real Cerebras. The owner confirmed answering and hearing silence. The synthetic local speaker test was
-> invalid for the rep microphone path; it establishes neither a fault nor two-way success. Outbound speech is
-> the human rep's voice and the assistant is text-only. The test is finalized and excluded from connect metrics;
-> audio remains unconfirmed. Human microphone speech and a spoken objection are the remaining live checks.
+> **Status: CURRENT — 0.8.14 installed**, November 5, 2026. Both numbers show ready with zero pending setup;
+> capacity refresh succeeds with out-of-state fallback. The late November 4 human microphone test passed:
+> the owner confirmed both directions were clear, and rep/remote speech reached the app. Real Cerebras text
+> guidance responded to the spoken stop request. The saved delivery-test result is `two_way`, finalized and
+> excluded from connect metrics. Outbound speech is the human rep's voice; the assistant is text-only.
+> The short call did not exercise the tracked-stage checkpoint or vendor/email objection; those remain open.
 > Normal hours and lead controls are restored; the test contact is held and dialing is paused. A private simulated
 > fixture using the installed signed backend verified one NY attempt served with owned out-of-state capacity.
 > The app updater, archive/executable/signature checks and preserved workspace counts passed.
