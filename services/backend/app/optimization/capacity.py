@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app import priority
 from app.compliance.policy import retry_seconds
-from app.optimization.geography import planning_zones
+from app.optimization.geography import caller_region_rank, planning_zones
 from app.optimization.numbering import number_ready, timestamp, wilson
 from app.scheduling.models import OPTIMIZATION_DEFAULTS
 
@@ -549,15 +549,21 @@ class Assignment:
             )
         state = {"account": sum(1 << i for i, c in account_count.items() if c >= account_limit)}
         assigned, start_times, cache = {}, defaultdict(list), {}
+        by_region = {}
+        for region in {w.region for w in self.work}:
+            # Hypothetical purchases serve their proposed state or general pool.
+            ranked = [
+                (rank, n.proposed, n.number_id, n)
+                for n in numbers.values()
+                if (rank := caller_region_rank(region, n.region)) < (2 if n.proposed else 3)
+            ]
+            by_region[region] = [n for _, _, _, n in sorted(ranked)]
         compatible = []
         for w in self.work:
             if w.bound_number_id and not ignore_bindings and not w.reassignment_approved:
                 choices = [numbers[w.bound_number_id]] if w.bound_number_id in numbers else []
             else:
-                choices = sorted(
-                    (n for n in numbers.values() if n.region in {w.region, "general"}),
-                    key=lambda n: (n.region == "general", n.proposed, n.number_id),
-                )
+                choices = by_region[w.region]
             compatible.append(choices)
 
         def capacity(n, day):
@@ -654,15 +660,15 @@ class Assignment:
                 continuing = w.lead_id in self.continuing_leads and w.previous_attempt_index is None
                 candidates.append(
                     (
+                        caller_region_rank(w.region, n.region),
                         -value,
                         start,
-                        n.region == "general",
                         -remaining(n, day) if continuing else 0,
                         n.proposed,
                         n.number_id,
                     )
                 )
-            for _, start, _, _, _, identifier in sorted(candidates):
+            for _, _, start, _, _, identifier in sorted(candidates):
                 yield start, identifier, next(rep for rep in reps if (free.get(rep, 0) >> start) & 1)
 
         def change(index, option, delta):
@@ -752,12 +758,9 @@ class Assignment:
             for day in self.days
         )
         if all(
-            not w.bound_number_id
-            or ignore_bindings
-            or w.reassignment_approved
-            or not numbers.get(w.bound_number_id)
-            or numbers[w.bound_number_id].region in {w.region, "general"}
-            for w in self.work
+            n.region in {w.region, "general"}
+            for w, choices in zip(self.work, compatible, strict=True)
+            for n in choices
         ):
             region_work = Counter(self.work[i].region for i in individually_feasible)
             region_capacity = Counter()
@@ -1274,7 +1277,9 @@ def time_forecast(
     regions = []
     for region in sorted({w.region for w in work}):
         old, new = [r for r in existing if r["region"] == region], [r for r in best if r["region"] == region]
-        regional = sum(ready[r["number_id"]].region != "general" for r in old)
+        allocation_regions = Counter(ready[r["number_id"]].region for r in old)
+        regional = allocation_regions[region] if region != "general" else 0
+        general = allocation_regions["general"]
         regions.append(
             {
                 "region": region,
@@ -1283,7 +1288,8 @@ def time_forecast(
                 "planned_attempts": len(new),
                 "healthy_existing": sum(n.region == region for n in ready.values()),
                 "usable_existing_capacity": regional,
-                "general_fallback_capacity": len(old) - regional,
+                "general_fallback_capacity": general,
+                "out_of_state_capacity": len(old) - regional - general,
                 "capacity_waiting_for_review": sum(
                     r["region"] == region and r["number_id"] in waiting_ids for r in pending_schedule
                 ),

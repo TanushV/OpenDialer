@@ -3,7 +3,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from journey import call, get, post, run_jobs
+from journey import call, get, post, run_jobs, start
 
 
 def test_list_import_and_state_plan_reuse_owned_numbers(workspace, carrier):
@@ -118,6 +118,13 @@ def test_corrected_phone_refreshes_only_inferred_state(workspace):
 
 
 def test_list_expansion_proposes_a_state_not_a_generic_pool(workspace, carrier):
+    for number in get(workspace, "/v1/workspace/numbers")["items"]:
+        call(
+            workspace,
+            "PATCH",
+            f"/v1/admin/numbers/{number['id']}",
+            json={"lifecycle": "paused_for_outbound", "reason": "Inventory unavailable for this plan"},
+        )
     post(
         workspace,
         "/v1/leads/import",
@@ -137,4 +144,38 @@ def test_list_expansion_proposes_a_state_not_a_generic_pool(workspace, carrier):
     assert forecast["regions"][0]["region"] == "FL"
     assert forecast["regions"][0]["proposed_additional"] == 1
     assert forecast["proposed_general_additional_numbers"] == 0
+    assert carrier.purchases == []
+
+
+def test_dialer_and_planner_use_owned_out_of_state_capacity(workspace, carrier):
+    remote, _ = post(
+        workspace,
+        "/v1/leads/import",
+        {
+            "campaign_id": workspace["campaign_id"],
+            "list_name": "Coast to coast",
+            "rows": [
+                {"phone": "+12035550198", "timezone": "America/New_York", "requested_contact": True},
+                {"phone": "+14155550198", "timezone": "America/Los_Angeles"},
+            ],
+        },
+    )["leads"]
+    post(
+        workspace,
+        "/v1/admin/numbers/proposal",
+        {"campaign_id": workspace["campaign_id"], "list_name": "Coast to coast"},
+    )
+    run_jobs(workspace, 3)
+    forecast = get(workspace, "/v1/admin/numbers/summary", params={"list_name": "Coast to coast"})["forecast"]
+    regions = {r["region"]: r for r in forecast["regions"]}
+    assert forecast["existing_only_capacity"] == 2
+    assert regions["CA"]["usable_existing_capacity"] == 1
+    assert regions["CA"]["out_of_state_capacity"] == 0
+    assert regions["CT"]["usable_existing_capacity"] == regions["CT"]["general_fallback_capacity"] == 0
+    assert regions["CT"]["out_of_state_capacity"] == 1
+    assert forecast["minimum_additional_numbers"] == 0
+    attempt = start(workspace)
+    assert attempt["lead_id"] == remote["id"]
+    assert attempt["number_id"] in {n["id"] for n in get(workspace, "/v1/workspace/numbers")["items"]}
+    assert [dial["to"] for dial in carrier.dials] == [remote["phone"]]
     assert carrier.purchases == []

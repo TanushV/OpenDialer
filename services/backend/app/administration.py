@@ -16,7 +16,6 @@ from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, put, rows, uid, upd
 from app.intelligence import Application
 from app.measurement import Measurement
 from app.number_operations import NumberOperations
-from app.optimization.geography import coverage_region
 from app.optimization.script_lab import ScriptLab
 from app.optimization.workflows import OptimizationWorkflows
 from app.rep_workflows import RepWorkflows
@@ -396,7 +395,7 @@ class Dialer(
             return "CALLER_NUMBER_CALLBACK_TEST_REQUIRED"
         return "CALLER_NUMBER_PAUSED"
 
-    def no_lead_detail(self, s, p, campaign_id, reasons):
+    def no_lead_detail(self, s, p, reasons):
         """The refusal for Next call, naming the number problem when a number is part of it."""
         detail = {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons), "message": NO_LEADS}
         if not set(reasons) & NUMBER_REASONS:
@@ -411,24 +410,9 @@ class Dialer(
         elif blocker:
             detail["message"] = NUMBER_STEPS[blocker]
         else:
-            covered = {
-                coverage_region(n) for n in self.inventory_evidence(s, p, fast=True) if n["outbound_ready"]
-            }
-            model = MODELS["leads"]
-            leads = s.scalars(
-                select(model)
-                .where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.op_campaign_id == campaign_id,
-                )
-                .limit(500)
-            )
-            missing = sorted({coverage_region(lead.data) for lead in leads} - covered)
             detail["message"] = (
-                f"No caller number can reach leads in {', '.join(missing)}. Add one there in Numbers."
-                if missing and "general" not in covered
-                else "Your caller numbers are busy or at today's limit. Try again soon, or add one in Numbers."
+                "No eligible caller number is available now. Check assigned numbers, active calls, "
+                "and daily limits in Numbers."
             )
         if set(reasons) - NUMBER_REASONS:
             detail["message"] += " Other leads may be outside calling hours or already called today."

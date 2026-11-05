@@ -295,13 +295,14 @@ test("incomplete allocation remains readable with unknown costs and bottlenecks"
     schedule_scope: "declared_staffed_windows",
     regions: [
       {
-        region: "general",
+        region: "CT",
         eligible_leads: 100,
         forecast_attempts: 100,
         planned_attempts: 20,
         healthy_existing: 1,
-        usable_existing_capacity: 20,
+        usable_existing_capacity: 0,
         general_fallback_capacity: 0,
+        out_of_state_capacity: 20,
         capacity_waiting_for_review: 0,
         proposed_additional: null,
       },
@@ -337,6 +338,12 @@ test("incomplete allocation remains readable with unknown costs and bottlenecks"
   ).toBeVisible();
   const proposal = page.getByTestId("capacity-proposal");
   await expect(proposal).toBeVisible();
+  await expect(
+    proposal.getByRole("columnheader", { name: "Out-of-state fallback" }),
+  ).toBeVisible();
+  await expect(
+    proposal.getByRole("row").nth(1).getByRole("cell").nth(5),
+  ).toHaveText("20");
   await expect(
     proposal.getByText("Indicative monthly rental: Not established.", {
       exact: false,

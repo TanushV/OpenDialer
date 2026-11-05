@@ -67,7 +67,7 @@ def dial(ws):
 
 
 def california_only(ws, extra=1):
-    """Leave only California leads, which only the 415 number (or another California one) can serve."""
+    """Leave only California leads to make caller ID selection predictable."""
     for lead in get(ws, "/v1/workspace/leads")["items"]:
         if not lead["phone"].startswith("+1415"):
             post(ws, "/v1/suppressions", {"phone": lead["phone"], "reason": "opt_out"})
@@ -112,6 +112,13 @@ def test_two_reps_calling_at_once_use_different_numbers(workspace, app):
 
 def test_a_number_on_a_call_is_not_used_until_that_call_ends(workspace, app, carrier):
     california_only(workspace)
+    spare = next(n for n in get(workspace, "/v1/workspace/numbers")["items"] if n["phone"] != CALIFORNIA)
+    call(
+        workspace,
+        "PATCH",
+        f"/v1/admin/numbers/{spare['id']}",
+        {"lifecycle": "paused_for_outbound", "reason": "Leave only one available caller number"},
+    )
     other = rep(workspace, "second@example.test", "agent-second")
     first = dial(workspace)
     go_ready(other, "agent-second")

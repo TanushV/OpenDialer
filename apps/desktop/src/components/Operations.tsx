@@ -555,6 +555,7 @@ interface Forecast {
     planned_attempts?: number;
     usable_existing_capacity?: number;
     general_fallback_capacity?: number;
+    out_of_state_capacity?: number;
     capacity_waiting_for_review?: number;
     proposed_additional: number | null;
   }[];
@@ -1188,8 +1189,9 @@ function CapacityPlan({
             ? "All campaign leads"
             : forecast.list_name || "Unnamed imports"}
           . Owned numbers are shared across lists; this preview does not reserve
-          them. Keep existing caller identities and reuse state capacity before
-          adding numbers.
+          them. The Dialer keeps existing caller identities. For new leads it
+          prefers numbers in the same state and uses out-of-state capacity as a
+          last resort.
         </p>
         {!!forecast.estimated_state_leads && (
           <p className="fine">
@@ -1205,8 +1207,9 @@ function CapacityPlan({
                 <th>State</th>
                 <th>Due attempts</th>
                 <th>Rep capacity allocated</th>
-                <th>Existing capacity</th>
+                <th>In-state capacity</th>
                 <th>General fallback</th>
+                <th>Out-of-state fallback</th>
                 <th>Awaiting review</th>
                 <th>Additional proposed</th>
                 <th>Preferred metros</th>
@@ -1220,6 +1223,7 @@ function CapacityPlan({
                   <td>{r.planned_attempts ?? "Unknown"}</td>
                   <td>{r.usable_existing_capacity ?? "Unknown"}</td>
                   <td>{r.general_fallback_capacity ?? "Unknown"}</td>
+                  <td>{r.out_of_state_capacity ?? "Unknown"}</td>
                   <td>{r.capacity_waiting_for_review ?? "Unknown"}</td>
                   <td>{r.proposed_additional ?? "Not established"}</td>
                   <td>

@@ -167,6 +167,15 @@ def coverage_region(record):
     return normalize_state(region) or AREA_STATES.get(area_code(record)) or region or "general"
 
 
+def caller_region_rank(lead_region, number_region):
+    """Same region, general pool, another US state, or incompatible geography."""
+    if number_region == lead_region:
+        return 0
+    if number_region == "general":
+        return 1
+    return 2 if lead_region in STATES and number_region in STATES else 3
+
+
 def suggested_codes(state, leads=()):
     """Prefer familiar metros represented in the list, then other in-state defaults."""
     if state not in STATES:

@@ -296,11 +296,23 @@ def test_capacity_proposal_is_advisory_and_follows_the_declared_staffing(workspa
     )
     window = {
         "start_at": (clock.now - timedelta(hours=1)).isoformat(),
-        "end_at": (clock.now + timedelta(hours=8)).isoformat(),
+        "end_at": (clock.now + timedelta(hours=5)).isoformat(),
         "reps": 1,
         "rep_ids": [rep["id"]],
     }
     call(workspace, "PUT", "/v1/admin/optimization", json={"staffed_windows": [window]})
+    for number in numbers(workspace).values():
+        post(
+            workspace,
+            f"/v1/admin/numbers/{number['id']}/review",
+            {
+                "request_id": str(uuid4()),
+                "expected_version": number["version"],
+                "decision": "reduce",
+                "review_reference": "One attempt per number for the staffing example",
+                "daily_limit": 1,
+            },
+        )
     post(workspace, "/v1/admin/numbers/proposal", {"campaign_id": campaign})
     run_jobs(workspace)
     named = post(workspace, "/v1/admin/numbers/proposal", {"campaign_id": campaign})

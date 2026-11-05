@@ -156,6 +156,12 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 4. The owner allows out-of-state calls as a last resort. The Dialer preserves
+  assigned caller IDs and prefers in-state numbers for new assignments. The capacity planner reports the fallback
+  separately from local capacity. The full backend suites passed on SQLite (836) and PostgreSQL (837), and all
+  19 Numbers and optimization browser tests passed. Signed desktop verification is open.
+  See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md).
+
 - November 4 signed 0.8.13 release: workspace greetings and the inferred-time-zone planner fix shipped from
   `0426c68`. All six CI jobs passed (828 SQLite, 829 PostgreSQL, 179 browser). The Mac archive checksum and
   deep strict signature verified. The signed backend retried the failed capacity job on a private copy of

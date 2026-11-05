@@ -113,6 +113,8 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Retry the saved capacity job on a private copy with the signed 0.8.13 backend and confirm a fresh forecast.
 - [x] Retry the failed capacity job in the signed app after updating.
 - [x] Place the owner-authorized phone test from the installed OpenDialer UI and save it as a delivery test.
+- [x] Allow eligible out-of-state caller IDs as a last resort and show their capacity separately in the state plan.
+- [ ] Verify out-of-state fallback in a signed desktop release.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -278,6 +280,9 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   the answer by 200 ms in the recorded timestamps. The owner confirmed answering and hearing silence. The test
   sent no speech from the Mac. Wrap-up excluded the test from connect-rate metrics and left two-way audio
   unconfirmed. The test contact is on a lead-only outreach hold.
+- The Dialer now prefers same-state caller IDs, then the general pool, then an eligible owned number from another
+  US state. Existing assignments take priority. The state plan reports out-of-state capacity separately and
+  includes it when deciding whether current inventory can cover the list. Signed desktop verification is open.
 
 ## Sources
 

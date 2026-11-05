@@ -320,9 +320,10 @@ or credential replacement is not needed merely because there are no caller numbe
 
 ### Number lifecycle
 
-Keep search, exact quotes, explicit rental approval, count/spend caps and stable lead/caller bindings. Reuse
-same-state capacity, with familiar area codes as a preference; do not rotate an existing lead's identity to evade
-limits. Configure supported voice settings and route automatically as part of onboarding, with recording off.
+Keep search, exact quotes, explicit rental approval, count/spend caps and stable lead/caller bindings. For new
+assignments, prefer same-state capacity and familiar area codes. Use eligible out-of-state capacity after the
+same-state and general pools. Keep a lead's assigned number through its normal workload limits. Configure supported
+voice settings and route automatically as part of onboarding, with recording off.
 
 Add a compact checklist for outbound business-name listing and external reputation enrollment. Automate a
 supported outbound CNAM listing update with real owner-supplied business text and provider read-back. Do not

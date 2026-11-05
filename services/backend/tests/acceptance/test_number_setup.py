@@ -364,7 +364,7 @@ def test_a_refused_next_call_asks_for_the_test_call(fresh, carrier):
     assert "test call" in refused["detail"]["message"] and SF in refused["detail"]["message"]
 
 
-def test_a_state_without_a_number_is_named(fresh, carrier, clock):
+def test_queue_uses_another_state_after_the_workspace_test_passes(fresh, carrier, clock):
     ws = fresh
     connect(ws)
     own_numbers(carrier)
@@ -375,8 +375,9 @@ def test_a_state_without_a_number_is_named(fresh, carrier, clock):
     clock.now += timedelta(hours=24)
     sign_in_again(ws)
     ready_as(ws)
-    refused = call(ws, "POST", "/v1/queue/next", json={"campaign_id": ws["campaign_id"]}, status=409)
-    assert "CA" in refused["detail"]["message"]
+    assert get(ws, "/v1/admin/preflight")["screening"]["dialable_queue_count"] == 1
+    selected = post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"]})
+    assert selected["lead"]["state"] == "CA" and selected["number"]["phone"] == NYC
 
 
 def test_number_search_can_name_a_city_and_shows_each_numbers_city(workspace, carrier, monkeypatch):

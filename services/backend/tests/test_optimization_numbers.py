@@ -81,7 +81,9 @@ def test_forecast_subtracts_existing_used_reserved_and_warmup_capacity(clock):
     region = result["regions"][0]
     assert region["forecast_attempts"] == 7
     assert region["usable_existing_capacity"] == 2
-    assert region["proposed_additional"] == 1
+    assert region["out_of_state_capacity"] == 0
+    assert region["proposed_additional"] == 0
+    assert sum(row["number_id"] == "new" for row in result["conditional_pending_schedule"]) == 5
     assert result["purchased"] is False and result["approval_required"] is True
     assert result["estimate_requires_provider_quote"] is True
 
@@ -113,9 +115,8 @@ def test_allocation_retains_binding_and_explains_health_reassignment():
     assert approved["number_id"] == "other" and approved["reason"] == "existing_binding"
 
 
-def test_allocation_never_falls_back_to_an_unrelated_region_and_honors_detached_lease():
+def test_allocation_honors_detached_lease():
     lead = {"id": "lead", "region": "415"}
-    assert select_number(lead, [number("ny", region="212")])["number_id"] is None
     assert select_number(lead, [number(active_obligations=1)])["number_id"] is None
     assert select_number(lead, [number("general", region="general")])["number_id"] == "general"
 

@@ -322,10 +322,16 @@ def test_promised_callback_has_priority_even_when_skipping_it_would_fit_more_cal
         lead(
             "callback",
             region="212",
+            bound_number_id="shared",
             callback_due_at=NOW.isoformat(),
             callback_window_end=(NOW + timedelta(minutes=2)).isoformat(),
         ),
-        lead("later", region="212", next_attempt_at=(NOW + timedelta(minutes=2)).isoformat()),
+        lead(
+            "later",
+            region="212",
+            bound_number_id="shared",
+            next_attempt_at=(NOW + timedelta(minutes=2)).isoformat(),
+        ),
         lead("early", callback_window_end=(NOW + timedelta(minutes=2)).isoformat()),
     ]
     result = forecast(
@@ -334,7 +340,7 @@ def test_promised_callback_has_priority_even_when_skipping_it_would_fit_more_cal
         staffed_windows=[window(minutes=4)],
     )
     assert {item["lead_id"] for item in result["existing_schedule"]} == {"callback"}
-    assert result["minimum_additional_numbers"] == 1
+    assert result["minimum_additional_numbers"] == 0
     assert any(item["lead_id"] == "callback" for item in result["expanded_schedule"])
 
 

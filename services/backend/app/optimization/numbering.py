@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.optimization.geography import area_code, coverage_region, metro
+from app.optimization.geography import area_code, caller_region_rank, coverage_region, metro
 from app.scheduling.models import OPTIMIZATION_DEFAULTS, contact_labels
 from app.scheduling.models import wilson as wilson
 
@@ -339,9 +339,10 @@ def select_number(lead, inventory, *, bound_id=None, strategy="regional_first"):
     lead_region = coverage_region(lead)
     regional = [n for n in usable if coverage_region(n) == lead_region]
     general = [n for n in usable if n.get("region") == "general"]
-    candidates = (
-        [bound] if bound else (general or regional) if strategy == "general_first" else regional or general
-    )
+    preferred = (general or regional) if strategy == "general_first" else (regional or general)
+    candidates = [bound] if bound else preferred
+    if not candidates and not waiting_for_bound:
+        candidates = [n for n in usable if caller_region_rank(lead_region, coverage_region(n)) == 2]
     if not candidates or waiting_for_bound:
         return {
             "number_id": None,
@@ -354,7 +355,7 @@ def select_number(lead, inventory, *, bound_id=None, strategy="regional_first"):
             if reassignment_required
             else "Wait for capacity on the bound identity"
             if waiting_for_bound
-            else "No usable bound, regional or general capacity",
+            else "No eligible caller number has capacity",
             "previous_number_id": bound_id,
             "reassignment_reason": None,
         }
@@ -370,7 +371,13 @@ def select_number(lead, inventory, *, bound_id=None, strategy="regional_first"):
         ),
     )
     reason = (
-        "existing_binding" if bound else "general_capacity" if selected in general else "regional_capacity"
+        "existing_binding"
+        if bound
+        else "general_capacity"
+        if selected in general
+        else "regional_capacity"
+        if selected in regional
+        else "out_of_state_fallback"
     )
     return {
         "number_id": selected["id"],

@@ -193,7 +193,7 @@ class ReservationPlanner:
             if plan:
                 return plan
             if complete:
-                fail(409, self.no_lead_detail(s, p, campaign_id, reasons))
+                fail(409, self.no_lead_detail(s, p, reasons))
             after = last
         cursors[key] = (after, frozenset(reasons))
         while len(cursors) > 256:
