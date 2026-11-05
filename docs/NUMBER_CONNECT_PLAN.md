@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. Both numbers were ready in the installed 0.8.13 app, and Telnyx confirmed outbound delivery from each number. The signed 0.8.14 update is published and installed with workspace counts preserved. It adds out-of-state fallback and the live-helper stage/all-objection corrections. The Mac locked during restart; the new in-app checks and two-way spoken phone test await unlock. The plan remains open.
+Updated November 4, 2026. Signed 0.8.14 is published and installed. Both numbers show ready with zero pending setup, and capacity refresh succeeds. A call from the installed Dialer reached the owner's phone; incoming speech produced real Cerebras guidance using the Agite opening. Phone-side hearing, two-way audio and spoken objection guidance still need confirmation. The test is excluded from connect-rate metrics, normal controls are restored and dialing is paused. The plan remains open.
 
 ## Goal
 
@@ -114,10 +114,12 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Retry the failed capacity job in the signed app after updating.
 - [x] Place the owner-authorized phone test from the installed OpenDialer UI and save it as a delivery test.
 - [x] Allow eligible out-of-state caller IDs as a last resort and show their capacity separately in the state plan.
-- [ ] Verify out-of-state fallback in a signed desktop release.
+- [x] Verify out-of-state fallback in the signed desktop planner using an isolated simulated fixture.
 - [x] Pass the tracked call stage and all scripted objection responses to the conversational live helper.
 - [x] Publish and install the signed 0.8.14 update and verify the installed executables and preserved workspace counts.
-- [ ] Verify the helper corrections in a signed desktop release and during a real spoken conversation.
+- [x] Verify the installed live helper transcribes incoming speech and displays script-based guidance from real Cerebras.
+- [ ] Verify stage changes and objection guidance during a real spoken conversation.
+- [ ] Confirm phone-side hearing and finish the 0.8.14 test wrap-up with the owner's audio result.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -176,6 +178,19 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 
 ## Verification checkpoint
 
+- After unlock, the installed 0.8.14 UI showed two ready numbers and zero pending setup. Capacity refresh
+  completed at 10:21 p.m. Pacific, including the new out-of-state fallback column. The microphone grant's
+  initial agent leg timed out; **Go ready** passed after restarting the same build with permission granted.
+  The 10:28 p.m. owner-authorized call started from the Dialer and reached an answering endpoint. Carrier
+  timestamps place the bridge 480 ms after answer. The app transcribed incoming “Hello?” and displayed the
+  Agite opening from real Cerebras at the introduction stage. Model generation took 454 ms, with first text
+  at 417 ms; server coalescing added about 3.25 seconds before generation. No objection was spoken. A local
+  test phrase played through the Mac speakers, but phone-side hearing and two-way speech remain unconfirmed.
+  The test flag is saved for metric exclusion; the outcome remains pending. Normal 08:00–21:00 hours and the
+  other lead controls are restored, the test contact is held and dialing is paused. The installed signed
+  planner also served one NY fixture attempt using owned out-of-state capacity, proposing zero additions.
+  That fixture was isolated and simulated; it placed no carrier call and used no provider credentials.
+  [Verification receipt](evidence/lean/calling-0814-20261104.json).
 - [0.8.14](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.14) shipped from `7b2124c` after both signed
   builds and [all six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41974301053) passed. SQLite
   passed 836 tests, PostgreSQL 837, and the browser suite all 179. The public manifest matches the verified release.

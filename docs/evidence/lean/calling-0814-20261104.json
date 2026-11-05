@@ -1,0 +1,69 @@
+{
+  "version": "0.8.14",
+  "source_commit": "7b2124c727e85ba67a141619d8c57ce98d4a5fcf",
+  "release_url": "https://github.com/TanushV/OpenDialer/releases/tag/v0.8.14",
+  "ci": {
+    "sqlite_passed": 836,
+    "postgres_passed": 837,
+    "browser_passed": 179,
+    "all_six_jobs_passed": true
+  },
+  "installed_ui": {
+    "numbers_ready": 2,
+    "pending_setup": 0,
+    "capacity_refresh_passed": true,
+    "go_ready_passed": true,
+    "audio_setup_note": "Initial permission-grant attempt timed out; Go ready passed after restarting the same installed build."
+  },
+  "live_test": {
+    "started_from_installed_dialer": true,
+    "caller_number_suffix": "8693",
+    "answered": true,
+    "bridged": true,
+    "answer_to_bridge_ms": 480,
+    "remote_speech_transcribed": true,
+    "rep_speech_transcript_observed": false,
+    "local_test_phrase_played": true,
+    "phone_side_audio_confirmation": "pending",
+    "spoken_objection_test": "pending",
+    "classified_outcome": null,
+    "delivery_test_excluded": true
+  },
+  "live_helper": {
+    "displayed_script_opening": true,
+    "stage": "introduction",
+    "actual_provider": "Cerebras",
+    "model": "openai/gpt-oss-120b",
+    "latency": {
+      "coalescing_ms": 3245.289,
+      "oldest_pending_ms": 3245.313,
+      "state_ms": 19.773124950006604,
+      "retrieval_ms": 0.10012497659772635,
+      "state_retrieval_ms": 19.87324992660433,
+      "generation_ms": 453.5728329792619,
+      "first_text_ms": 416.75,
+      "review_ms": 0.0,
+      "inference_ms": 453.5728329792619,
+      "total_server_ms": 3718.7350829058664,
+      "stt_ms": null,
+      "first_useful_ms": 433.8911670492962
+    }
+  },
+  "signed_planner_fixture": {
+    "owned_out_of_state_capacity": 1,
+    "ny_attempts_served": 1,
+    "proposed_additional_numbers": 0,
+    "boundary": "Isolated simulated fixture using installed signed backend; no carrier call or provider credentials."
+  },
+  "restoration": {
+    "normal_calling_end_hour": 21,
+    "dialing_paused": true,
+    "test_contact_held": true,
+    "other_lead_controls_restored": true
+  },
+  "remaining": [
+    "Confirm phone-side speech and two-way audio",
+    "Verify objection guidance during a real spoken conversation",
+    "Finish the test wrap-up after owner confirmation"
+  ]
+}

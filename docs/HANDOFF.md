@@ -1,12 +1,13 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.8.14 installed**, November 4, 2026. Both numbers were ready in 0.8.13 and pending setup was zero.
-> The installed Dialer delivered the owner's answered phone test; the owner heard silence and the Mac sent no
-> speech, so two-way audio remains unverified. The capacity calculation succeeded in 0.8.13. Out-of-state fallback
-> and live-helper stage/all-objection corrections shipped in signed 0.8.14. It installed through the app updater,
-> passed archive/executable/signature checks and preserved workspace counts. The Mac locked during restart;
-> manual unlock is needed for the new installed UI and spoken-call checks. A separate real Cerebras request
-> returned stage/script-aware guidance; in-call verification remains open.
+> **Status: CURRENT — 0.8.14 installed**, November 4, 2026. Both numbers show ready with zero pending setup;
+> capacity refresh succeeds with out-of-state fallback. **Go ready** passed after microphone permission and a restart.
+> The installed Dialer reached the owner's phone, transcribed incoming “Hello?” and displayed the Agite opening
+> from real Cerebras. Phone-side hearing, two-way audio and a spoken objection remain unconfirmed. The local test
+> phrase played from the Mac, the test flag is saved for metric exclusion, and the outcome awaits owner feedback.
+> Normal hours and lead controls are restored; the test contact is held and dialing is paused. A private simulated
+> fixture using the installed signed backend verified one NY attempt served with owned out-of-state capacity.
+> The app updater, archive/executable/signature checks and preserved workspace counts passed.
 > See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md) and the Status in [LEAN_PLAN.md](LEAN_PLAN.md).
 >
 > Historical 0.8.0 calling-completion checkpoint, November 2, 2026.

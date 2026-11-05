@@ -156,6 +156,17 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 4 installed 0.8.14 live check after unlock: both numbers show ready, pending setup is zero, and
+  capacity refresh succeeds with the new fallback column. Microphone permission was granted; the first audio
+  session timed out and **Go ready** passed after restarting the same build. The installed Dialer called the
+  owner's authorized phone. Carrier answer and bridge arrived 480 ms apart, incoming “Hello?” was transcribed,
+  and the real Cerebras helper displayed the Agite opening at the introduction stage. No objection was spoken.
+  A local test phrase played from the Mac, but phone-side hearing and two-way speech await owner confirmation.
+  The call is marked as a delivery test; its outcome remains unconfirmed. Normal hours and other lead controls
+  were restored, the test contact is held and dialing is paused. The installed signed planner separately
+  served one NY fixture attempt using out-of-state owned capacity with no addition; that fixture was isolated
+  and simulated, with no carrier action. See [receipt](evidence/lean/calling-0814-20261104.json).
+
 - November 4 signed 0.8.14 update: published from `7b2124c` after both signed builds and all six CI jobs passed
   (836 SQLite, 837 PostgreSQL, 179 browser journeys). The public manifest matches the verified release. The Mac
   archive checksum and deep strict signature pass. This Mac installed through OpenDialer's signed updater;
