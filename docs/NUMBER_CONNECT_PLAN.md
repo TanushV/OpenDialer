@@ -248,8 +248,9 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   for an owned-line test. Telnyx confirmed speech start, speech end and hangup, and the command receipt recorded
   the Kokoro voice. The affected suites passed 50 cases on SQLite and 50 on PostgreSQL. The owner declined
   Apple Developer ID signing, so new preview builds may still trigger a fresh macOS microphone grant.
-- The owner requested a plain fallback message. The final wording is “The person you're trying to reach is
-  unavailable. We'll return your call.” OpenDialer creates a callback task for this path.
+- Telnyx's stock greeting is for its SIP voicemail mailbox. On the existing Voice API route, Telnyx speaks
+  “You've reached Agite. We're unavailable right now. We'll return your call.” The greeting uses the
+  workspace's business name and OpenDialer creates a callback task.
 
 ## Sources
 

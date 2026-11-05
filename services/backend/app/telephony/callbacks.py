@@ -15,7 +15,7 @@ from app.compliance.operating import COSTS
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
 
-GREETING = "The person you're trying to reach is unavailable. We'll return your call."
+GREETING = "You've reached {name}. We're unavailable right now. We'll return your call."
 GREETING_VOICE = "Telnyx.KokoroTTS.af"
 DEFAULTS = {"version": 0, "destination": "", "ring_seconds": 20, "offline_reference": ""}
 ENDED = {"ended", "cancelled", "failed"}
@@ -230,13 +230,14 @@ class InboundCallbacks:
                 attempt=identity,
             )
         else:
+            seller = self.required(s, "sellers", p["seller_id"], p)
             self._inbound_command(
                 s,
                 p,
                 task,
                 "speak",
                 {
-                    "payload": GREETING,
+                    "payload": GREETING.format(name=seller.data.get("name") or "us"),
                     "payload_type": "text",
                     "voice": GREETING_VOICE,
                     "language": "en-US",
