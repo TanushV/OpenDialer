@@ -452,11 +452,17 @@ def test_return_calls_reach_a_teammate_then_the_fallback_line_then_a_spoken_mess
     telnyx = Telnyx(ws, clock)
     assert get(ws, "/v1/admin/callback-routing")["version"] == 0
     routing = "/v1/admin/callback-routing"
+    greeting = "You've reached Agite. We're unavailable right now. We'll return your call."
     saved = call(
         ws,
         "PUT",
         routing,
-        json={"expected_version": 0, "destination": "sip:front-desk@pbx.example.test", "ring_seconds": 15},
+        json={
+            "expected_version": 0,
+            "destination": "sip:front-desk@pbx.example.test",
+            "ring_seconds": 15,
+            "greeting": greeting,
+        },
     )
     assert saved["version"] == 1 and saved["ring_seconds"] == 15
     call(
@@ -489,8 +495,9 @@ def test_return_calls_reach_a_teammate_then_the_fallback_line_then_a_spoken_mess
     speech = [a["payload"] for a in carrier.actions if a["action"] == "speak"][-1]
     assert speech["voice"] == "Telnyx.KokoroTTS.af"
     assert speech["service_level"] == "premium"
-    assert "We'll return your call." in speech["payload"]
-    assert get(ws, routing)["version"] == 2
+    assert speech["payload"] == greeting
+    assert get(ws, routing)["greeting"] == greeting
+    assert call(ws, "PUT", routing, json={"expected_version": 2, "greeting": "  "})["greeting"] == ""
 
 
 def test_unsent_return_transfer_is_cancelled_and_a_stop_reaches_the_carrier(workspace, clock, carrier):
@@ -714,8 +721,9 @@ def test_unanswered_rep_leg_falls_through_to_the_business_line_then_a_spoken_mes
         assert inbound_task(ws, "in-1")["route"] == route
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com", "sip:front-desk@pbx.example.test"]
     speech = [a["payload"] for a in carrier.actions if a["action"] == "speak"][-1]
-    assert speech["voice"] == "Telnyx.KokoroTTS.af"
-    assert "We'll return your call." in speech["payload"]
+    assert speech["voice"] == "female"
+    assert speech["service_level"] == "basic"
+    assert speech["payload"].startswith("Thanks for calling Example Seller.")
 
 
 def test_return_call_nobody_answers_is_ended_by_the_watchdog_at_its_deadline(workspace, clock, carrier):

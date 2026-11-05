@@ -106,6 +106,8 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Start and complete a live test call from the Dialer without dialing a campaign lead.
 - [x] Verify the new callback greeting plays and ends on a live Telnyx call.
 - [x] Install the signed 0.8.12 update with the new greeting on the Mac.
+- [x] Store the Agite greeting in its workspace and verify the standard greeting for workspaces without a custom one.
+- [ ] Ship the workspace greeting setting and verify the saved Agite greeting on the signed update.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -256,6 +258,9 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   passed deep strict signature and checksum verification. The Mac updated through the signed updater. A call between
   the owned numbers exercised the installed backend, and the command receipt contained the exact Agite greeting.
   Telnyx signed the speech start, speech end and normal hangup. The test callback was closed.
+- The Agite greeting is now saved in the Agite workspace. The workspace setting is available in source under
+  **Numbers** and **Settings → More Settings → Callbacks**. All numbers in that workspace share the setting.
+  A blank field uses the standard greeting and voice. This change still needs a signed release and live retest.
 
 ## Sources
 

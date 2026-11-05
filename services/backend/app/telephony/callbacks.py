@@ -15,9 +15,11 @@ from app.compliance.operating import COSTS
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
 
-GREETING = "You've reached {name}. We're unavailable right now. We'll return your call."
-GREETING_VOICE = "Telnyx.KokoroTTS.af"
-DEFAULTS = {"version": 0, "destination": "", "ring_seconds": 20, "offline_reference": ""}
+DEFAULT_GREETING = (
+    "Thanks for calling {name}. No one can take your call right now, and we will follow up. Goodbye."
+)
+CUSTOM_GREETING_VOICE = "Telnyx.KokoroTTS.af"
+DEFAULTS = {"version": 0, "destination": "", "ring_seconds": 20, "offline_reference": "", "greeting": ""}
 ENDED = {"ended", "cancelled", "failed"}
 SETTLED = ENDED | {"orphaned"}
 
@@ -45,11 +47,17 @@ class CallbackRoutingEdit(BaseModel):
     destination: str | None = Field(default=None, max_length=400)
     ring_seconds: int | None = Field(default=None, ge=5, le=30)
     offline_reference: str | None = Field(default=None, max_length=500)
+    greeting: str | None = Field(default=None, max_length=500)
 
     @field_validator("destination")
     @classmethod
     def destination_valid(cls, value):
         return valid_destination(value) if value is not None else value
+
+    @field_validator("greeting")
+    @classmethod
+    def trim_greeting(cls, value):
+        return value.strip() if value is not None else value
 
 
 class InboundCallbacks:
@@ -231,17 +239,18 @@ class InboundCallbacks:
             )
         else:
             seller = self.required(s, "sellers", p["seller_id"], p)
+            greeting = config.get("greeting")
             self._inbound_command(
                 s,
                 p,
                 task,
                 "speak",
                 {
-                    "payload": GREETING.format(name=seller.data.get("name") or "us"),
+                    "payload": greeting or DEFAULT_GREETING.format(name=seller.data.get("name") or "us"),
                     "payload_type": "text",
-                    "voice": GREETING_VOICE,
+                    "voice": CUSTOM_GREETING_VOICE if greeting else "female",
                     "language": "en-US",
-                    "service_level": "premium",
+                    "service_level": "premium" if greeting else "basic",
                     "target_legs": "self",
                 },
                 suffix="inbound-message",
@@ -715,10 +724,9 @@ class InboundCallbacks:
             )
         if data["action"] in {"transfer", "speak"}:
             rates = COSTS["callbacks"]
-            # Existing queued greetings still carry the basic voice and its rate.
             speech_rate = (
                 "telnyx_tts_per_character_usd"
-                if data["payload"].get("voice") == GREETING_VOICE
+                if data["payload"].get("voice") == CUSTOM_GREETING_VOICE
                 else "standard_tts_per_character_usd"
             )
             estimate = (

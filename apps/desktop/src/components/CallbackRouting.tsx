@@ -7,6 +7,7 @@ type Routing = {
   destination: string;
   ring_seconds: number;
   offline_reference: string;
+  greeting?: string;
   costs?: {
     transfer_per_invocation_usd: number;
     standard_tts_per_character_usd: number;
@@ -55,15 +56,20 @@ export function CallbackRouting() {
         )}
       </section>
     );
+  const speechRate =
+    value.greeting === undefined || value.greeting.trim()
+      ? (value.costs?.telnyx_tts_per_character_usd ??
+        value.costs?.standard_tts_per_character_usd)
+      : value.costs?.standard_tts_per_character_usd;
   return (
     <section className="card padded" aria-label="Inbound callbacks">
       <h2>Inbound callbacks</h2>
       <p>
         Add a phone number here so returned calls reach a person when no rep is
         ready. Calls try the responsible rep, then a teammate, then this number.
-        If nobody can answer, the caller hears a short greeting with your
-        business name and a review task is kept. Callers who are not on a lead
-        hear the greeting and do not ring anyone.
+        If nobody can answer, the caller hears a short greeting and a review
+        task is kept. Callers who are not on a lead hear the greeting and do not
+        ring anyone.
       </p>
       <label>
         Business fallback destination
@@ -88,6 +94,24 @@ export function CallbackRouting() {
           }}
         />
       </label>
+      {value.greeting !== undefined && (
+        <label>
+          Missed-call greeting
+          <textarea
+            aria-describedby="callback-greeting-help"
+            maxLength={500}
+            value={value.greeting}
+            onChange={(e) => {
+              setSaved(false);
+              setValue({ ...value, greeting: e.target.value });
+            }}
+          />
+          <small id="callback-greeting-help">
+            This applies to all numbers in this workspace. Leave blank to use
+            the standard greeting with your business name.
+          </small>
+        </label>
+      )}
       {w.mode === "local" && (
         <p>
           Carrier-side fallback is required while this computer is offline. This
@@ -114,18 +138,22 @@ export function CallbackRouting() {
         <p className="fine">
           Published reference: $
           {value.costs.transfer_per_invocation_usd.toFixed(2)} per transfer; $
-          {value.costs.telnyx_tts_per_character_usd ??
-            value.costs.standard_tts_per_character_usd}{" "}
-          per character for the callback greeting, plus call-leg minutes and
-          applicable carrier fees. Final billing follows the account receipt.
+          {speechRate} per character for the callback greeting, plus call-leg
+          minutes and applicable carrier fees. Final billing follows the account
+          receipt.
         </p>
       )}
       <button
         className="secondary"
         onClick={() =>
           void run(async () => {
-            const { version, destination, ring_seconds, offline_reference } =
-              value;
+            const {
+              version,
+              destination,
+              ring_seconds,
+              offline_reference,
+              greeting,
+            } = value;
             try {
               setValue(
                 await api("/v1/admin/callback-routing", "PUT", {
@@ -133,6 +161,7 @@ export function CallbackRouting() {
                   destination,
                   ring_seconds,
                   offline_reference,
+                  greeting,
                 }),
               );
               setSaved(true);

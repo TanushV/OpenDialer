@@ -156,6 +156,11 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 4 missed-call greeting scope: the custom greeting is saved in Agite's workspace. The source adds a
+  workspace setting in **Numbers** and **Settings → More Settings → Callbacks**. Clearing it restores the
+  standard greeting and voice. The callback and number journeys passed on SQLite and PostgreSQL (50 each),
+  as did four callback browser journeys. The installed 0.8.12 still uses its original greeting logic.
+
 - November 4 live calling and greeting follow-up (0.8.12): the Dialer made and bridged a real call between the
   owned numbers. The saved outcome excludes it from connect-rate metrics. This Mac installed 0.8.12 and the
   installed backend played the shorter Agite greeting through Telnyx on a live owned-line call. The owner chose

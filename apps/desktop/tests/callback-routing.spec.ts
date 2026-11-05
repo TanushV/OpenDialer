@@ -77,6 +77,9 @@ test("callback fallback settings survive reload and explain offline routing", as
   await panel
     .getByLabel("Business fallback destination")
     .fill("sip:reception@example.test");
+  const greeting = panel.getByRole("textbox", { name: /Missed-call greeting/ });
+  await expect(greeting).toHaveValue("");
+  await greeting.fill("You've reached our reception. We'll return your call.");
   await panel.getByRole("button", { name: "Save callback routing" }).click();
   await expect(panel).toContainText("Callback routing saved");
   await expect(panel).toContainText("$0.10 per transfer");
@@ -86,7 +89,11 @@ test("callback fallback settings survive reload and explain offline routing", as
   await expect(panel.getByLabel("Business fallback destination")).toHaveValue(
     "sip:reception@example.test",
   );
+  await expect(greeting).toHaveValue(
+    "You've reached our reception. We'll return your call.",
+  );
   await panel.getByLabel("Business fallback destination").fill("");
+  await greeting.clear();
   await panel.getByRole("button", { name: "Save callback routing" }).click();
   await expect(panel).toContainText("Callback routing saved");
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
