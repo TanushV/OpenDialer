@@ -24,10 +24,14 @@
     "remote_speech_transcribed": true,
     "rep_speech_transcript_observed": false,
     "local_test_phrase_played": true,
-    "phone_side_audio_confirmation": "pending",
+    "phone_side_audio_confirmation": "Owner confirmed answering and hearing silence",
     "spoken_objection_test": "pending",
-    "classified_outcome": null,
-    "delivery_test_excluded": true
+    "classified_outcome": "right_party",
+    "delivery_test_excluded": true,
+    "contact_role": "right_party",
+    "wrapup_finalized": true,
+    "two_way_audio": "unverified",
+    "test_method_assessment": "Local speaker playback did not provide a valid rep microphone test. This test proves neither a microphone fault nor successful rep-to-phone audio."
   },
   "live_helper": {
     "displayed_script_opening": true,
@@ -62,8 +66,7 @@
     "other_lead_controls_restored": true
   },
   "remaining": [
-    "Confirm phone-side speech and two-way audio",
-    "Verify objection guidance during a real spoken conversation",
-    "Finish the test wrap-up after owner confirmation"
+    "Verify human speech from the Mac microphone reaches the phone, and phone speech reaches the rep",
+    "Verify stage changes and objection guidance during that spoken conversation"
   ]
 }
