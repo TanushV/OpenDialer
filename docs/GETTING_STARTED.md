@@ -197,6 +197,22 @@ called until its script is done. Expect a minute or two per small group.
 
 Contacts at the same company are never called back to back, and when one books a meeting the others are held.
 
+### Lists and lead management
+
+Open **Lists** to review each imported list's preparation, callable-now, held, completed and due-callback counts.
+Use **Pause / Resume** for ordinary outbound or **Archive / Restore** to take a list out of the calling pool.
+A contact in another active list can still be reached through that membership. Rename keeps history and the
+preparation budget scope. The same phone imported into another list in the campaign links to the existing contact.
+
+In **Leads**, filter by list and select rows. **Lead action** offers pause/resume, archive/restore, move, add to
+another list, remove from a list and state/time-zone corrections. Archiving a contact stops all its outbound calls
+and keeps its history, notes, tasks, opt-outs and caller assignments. Removing the final list membership leaves
+its history available in All lists but takes the contact out of ordinary dialing.
+
+In **Dialer → Dial from**, choose **All active lists** or check one or several lists. The scheduler works within
+that pool. Due callbacks outside it are shown separately; **Review callback** reserves that specific contact
+without changing the ordinary pool. It never bypasses calling hours, opt-outs or contact-level holds.
+
 ## 6. Get phone numbers ready
 
 Open **Numbers**. Each number goes through the same short path before it is used: **Owned → Route set up →
@@ -240,7 +256,7 @@ Open **Dialer**.
 7. Tick **Pause after call** to stop after this one, or click **Pause dialing** any time.
 
 The scheduler only calls within calling hours, respects attempts, opt-outs and (when on) the do-not-call check,
-and waits at least a day between ordinary tries. Requested callbacks come first at their time. When the next-to-last
+and waits at least a day between ordinary tries. New outbound calls stop at 17:00 in the lead’s local time, even if an older policy saved a later end. Existing conversations can finish; returned inbound calls remain answerable. Requested callbacks come first at their time. When the next-to-last
 try goes unanswered, your next **Space** offers that lead once more right away; nothing dials by itself. Telnyx
 detects answering machines: an ordinary try ends at the machine, and on the final try the screen shows the voicemail
 to leave. Calls after the first open with a **This call** section from the lead's history.
