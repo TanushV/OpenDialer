@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. Both numbers are active and ready. A live rep answer passed the shared callback test, and Telnyx confirmed outbound delivery from each number. The Dialer completed a live call between the owned numbers. The installed 0.8.12 release plays the short Agite greeting through Telnyx. Two-way speech between people still needs verification.
+Updated November 4, 2026. Both numbers are active and ready. A live rep answer passed the shared callback test, and Telnyx confirmed outbound delivery from each number. The Dialer completed a live call between the owned numbers. The installed 0.8.13 release kept Agite's greeting and recalculated the failed capacity plan. Two-way speech between people still needs verification.
 
 ## Goal
 
@@ -108,10 +108,10 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Install the signed 0.8.12 update with the new greeting on the Mac.
 - [x] Store the Agite greeting in its workspace and verify the standard greeting for workspaces without a custom one.
 - [x] Publish the workspace greeting setting and read back the saved Agite greeting with the signed backend.
-- [ ] Install 0.8.13 through the Mac updater and verify the saved greeting in Callbacks.
+- [x] Install 0.8.13 through the Mac updater and verify the saved greeting in Callbacks.
 - [x] Fix capacity planning for leads without an explicit time zone and verify the calculation on a private workspace copy.
 - [x] Retry the saved capacity job on a private copy with the signed 0.8.13 backend and confirm a fresh forecast.
-- [ ] Retry the failed capacity job in the signed app after updating.
+- [x] Retry the failed capacity job in the signed app after updating.
 - [ ] Place the owner-authorized phone test from the installed OpenDialer UI and save it as a delivery test.
 - [ ] Resolve failures before ramping.
 
@@ -269,8 +269,9 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - [0.8.13](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.13) shipped from `0426c68` after both signed
   builds and [all six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41956589830) passed. The Mac
   archive checksum and deep strict signature verified. The packaged backend read the Agite greeting and retried
-  the failed capacity job on a private workspace copy. The job published a fresh forecast. The installed UI
-  retry and live outbound test remain open.
+  the failed capacity job on a private workspace copy. The Mac then installed 0.8.13 through the signed updater
+  after **Run recovery sweep** cleared a leftover audio leg. Numbers retained the Agite greeting and showed
+  **Capacity plan is current** after retry. The live outbound test remains open.
 
 ## Sources
 

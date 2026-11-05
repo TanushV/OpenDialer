@@ -159,8 +159,10 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 - November 4 signed 0.8.13 release: workspace greetings and the inferred-time-zone planner fix shipped from
   `0426c68`. All six CI jobs passed (828 SQLite, 829 PostgreSQL, 179 browser). The Mac archive checksum and
   deep strict signature verified. The signed backend retried the failed capacity job on a private copy of
-  Agite's workspace, published a fresh forecast and read back the saved greeting. The installed app retest
-  and owner-authorized outbound call remain open. See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md).
+  Agite's workspace, published a fresh forecast and read back the saved greeting. This Mac then installed
+  the signed update after the recovery sweep cleared an idle audio leg. Numbers showed a current forecast
+  after retry and displayed the saved Agite greeting. The owner-authorized outbound call remains open.
+  See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md).
 
 - November 4 missed-call greeting scope: the custom greeting is saved in Agite's workspace. The source adds a
   workspace setting in **Numbers** and **Settings → More Settings → Callbacks**. Clearing it restores the
