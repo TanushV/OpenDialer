@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "opendialer-desktop"
-version = "0.8.13"
+version = "0.8.14"
 dependencies = [
  "libc",
  "serde",
