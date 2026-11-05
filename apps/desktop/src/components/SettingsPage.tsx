@@ -952,6 +952,7 @@ function CallingWindow() {
           <input
             type="number"
             {...limits(p?.local_end_hour)}
+            max={17}
             value={draft.local_end_hour}
             onChange={(e) => change({ local_end_hour: Number(e.target.value) })}
           />

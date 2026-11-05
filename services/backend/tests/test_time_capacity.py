@@ -189,7 +189,7 @@ def test_staffed_windows_persist_and_forecast_reads_real_binding(workspace, app,
         for item in leads:
             update(item, status="suppressed")
         target = leads[0]
-        update(target, status="eligible", timezone="UTC", region="415", attempt_count=0)
+        update(target, status="eligible", timezone="America/Los_Angeles", region="415", attempt_count=0)
         for inventory in service.scoped(s, "number_inventory", p):
             update(inventory, lifecycle="paused_for_outbound")
         owned_data = number("n", daily_limit=0)

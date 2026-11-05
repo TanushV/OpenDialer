@@ -11,12 +11,13 @@ export function countLabel(total: number, capped?: boolean) {
 export function useHistory<T extends { id: string; version?: number }>(
   section: string,
   initial: T[],
+  parameters: Record<string, string> = {},
 ) {
   const { api, snapshot, session } = useWorkspace();
   const [loaded, setLoaded] = useState<HistoryPage<T> | null>(null);
   const [busy, setBusy] = useState(false);
   const generation = useRef(0);
-  const identity = `${snapshot.mode}:${snapshot.simulation}:${session.tenant_id}:${session.seller_id}:${session.user_id}:${session.access_token}`;
+  const identity = `${snapshot.mode}:${snapshot.simulation}:${session.tenant_id}:${session.seller_id}:${session.user_id}:${session.access_token}:${JSON.stringify(parameters)}`;
   const current = useRef(identity);
   current.current = identity;
   useEffect(() => {
@@ -47,6 +48,7 @@ export function useHistory<T extends { id: string; version?: number }>(
     setBusy(true);
     try {
       const params = new URLSearchParams({
+        ...parameters,
         q: append ? loaded?.query || "" : query,
         filter: append ? loaded?.filter || "all" : filter,
       });

@@ -27,6 +27,7 @@ from app.compliance.consent import record as record_consent
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.config import Settings
 from app.db import Database, Event, audit, doc, put, rows, update
+from app.lead_lists import memberships
 from app.measurement import WorkEdit
 from app.preparation.templates import PreparationPolicy
 from app.providers.telnyx import verify_webhook
@@ -105,6 +106,23 @@ class Heartbeat(Strict):
 
 class QueueNext(Strict):
     campaign_id: str
+    list_names: list[str] | None = Field(default=None, max_length=200)
+    callback_lead_id: str | None = None
+
+
+class ListEdit(Strict):
+    campaign_id: str
+    list_name: str = Field(max_length=120)
+    action: Literal["pause", "resume", "archive", "restore", "rename"]
+    name: str | None = Field(default=None, max_length=120)
+
+
+class BulkLeadEdit(Strict):
+    lead_ids: list[str] = Field(min_length=1, max_length=1000)
+    action: Literal["pause", "resume", "archive", "restore", "move", "add", "remove", "location"]
+    list_name: str | None = Field(default=None, max_length=120)
+    timezone: str | None = Field(default=None, max_length=100)
+    state: str | None = Field(default=None, max_length=100)
 
 
 class CallStart(Strict):
@@ -568,9 +586,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.get("/v1/workspace/{section}")
     def workspace_page(
-        section: str, cursor: str | None = None, q: str = "", filter: str = "all", p=Depends(principal)
+        section: str,
+        cursor: str | None = None,
+        q: str = "",
+        filter: str = "all",
+        list_name: str | None = None,
+        p=Depends(principal),
     ):
-        return service.workspace_page(p, section, cursor=cursor, q=q, filter=filter)
+        return service.workspace_page(p, section, cursor=cursor, q=q, filter=filter, list_name=list_name)
 
     @app.get("/v1/metrics")
     def metrics(p=Depends(principal)):
@@ -596,9 +619,16 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def edit_work(interval_id: str, data: WorkEdit, p=Depends(principal)):
         return service.edit_work(p, interval_id, data.model_dump())
 
+    @app.post("/v1/queue/release")
+    def release_reservation(p=Depends(principal)):
+        with db.transaction() as s:
+            db.authorize_stream(s, p)
+            service.release_unused_reservation_in(s, p)
+        return {"released": True}
+
     @app.post("/v1/queue/next")
     def next_lead(data: QueueNext, p=Depends(principal)):
-        return service.reserve(p, data.campaign_id)
+        return service.reserve(p, data.campaign_id, data.list_names, data.callback_lead_id)
 
     @app.post("/v1/calls/start")
     async def start_call(data: CallStart, p=Depends(principal)):
@@ -654,6 +684,20 @@ def create_app(settings=None, *, clock=None, carrier=None):
         from app.compliance.suppressions import release_hold
 
         return release_hold(service, p, data.phone, data.reason)
+
+    @app.get("/v1/lists")
+    def lists(
+        list_names: list[str] | None = Query(default=None), selected: bool = False, p=Depends(principal)
+    ):
+        return service.list_summary(p, ([] if selected else None) if list_names is None else list_names)
+
+    @app.patch("/v1/lists")
+    def manage_list(data: ListEdit, p=Depends(administrator)):
+        return service.manage_list(p, data.model_dump())
+
+    @app.post("/v1/leads/bulk")
+    def bulk_leads(data: BulkLeadEdit, p=Depends(administrator)):
+        return service.bulk_leads(p, data.model_dump())
 
     @app.post("/v1/leads/import")
     def import_leads(data: ImportLeads, p=Depends(administrator)):
@@ -1086,6 +1130,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     .distinct()
                 )
             )
+            lists = sorted(set(lists) | set(campaign.data.get("lists", {})))
             key = planning_key(campaign.id, list_name=list_name)
             job = s.scalar(
                 select(Job)
@@ -1187,9 +1232,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                         r.data
                         for r in service.scoped(s, "leads", p)
                         if r.data["campaign_id"] == campaign.id
-                        and (
-                            data.get("list_name") is None or r.data.get("list_name", "") == data["list_name"]
-                        )
+                        and (data.get("list_name") is None or data["list_name"] in memberships(r.data))
                     ]
                     return suggested_codes(state, leads)[:3]
 

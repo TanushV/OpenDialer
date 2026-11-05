@@ -156,6 +156,15 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 5: owner approved list controls and a hard 17:00 lead-local cutoff for 0.9.1.
+  [Active feature checklist](LIST_DIALING_PLAN.md). Regression tests first reproduced six missing behaviors;
+  initial 47 focused policy/list cases pass on SQLite and PostgreSQL. Implementation adds reversible list/lead
+  states, shared membership for duplicate imports, selected-list dialing and explicit outside callbacks.
+  Frontend controls and browser journeys are under verification. Broader suite fixtures are being adjusted
+  to the shorter workday without weakening their capacity/publication assertions. Signed publication and
+  native verification remain TODOs. Existing installed 0.9.0 and workspace are unchanged so far.
+
+
 - November 5 owner-requested 0.9.0 release is published and installed from `4d1888b`. This is a version
   promotion of the verified 0.8.14 calling runtime, with no dialing-policy or audio-path change.
   [Verification receipt](evidence/lean/release-090-20261105.json). Release TODOs:

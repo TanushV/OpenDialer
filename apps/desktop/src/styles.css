@@ -2414,3 +2414,32 @@ details.transcript-card {
   line-height: 1.6;
   font-size: 12px;
 }
+
+/* List controls share the existing cards and table vocabulary. */
+.table-scroll {
+  overflow-x: auto;
+}
+.bulk-leads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-leads label {
+  min-width: 150px;
+}
+.dial-lists {
+  margin-bottom: 16px;
+}
+.dial-lists .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 16px;
+}
+.dial-lists input[type="checkbox"],
+.bulk-leads input[type="checkbox"] {
+  width: auto;
+}

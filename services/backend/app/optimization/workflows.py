@@ -7,6 +7,7 @@ from datetime import UTC, timedelta
 from sqlalchemy import func, or_, select
 
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
+from app.lead_lists import in_list
 from app.optimization.experiments import ComparisonWorkflows
 from app.optimization.geography import planning_zones
 from app.optimization.learning import training_rows
@@ -653,8 +654,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
     def forecast_input(self, s, p, *, campaign_id=None, capacity=None, lead_ids=None, list_name=None):
         from collections import Counter
 
-        from sqlalchemy import func
-
         from app.compliance.operating import screening_page
         from app.optimization.geography import STATES, coverage_region, suggested_codes
 
@@ -722,11 +721,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         model.tenant_id == p["tenant_id"],
                         model.seller_id == p["seller_id"],
                         model.op_campaign_id == campaign.id,
-                        *(
-                            [func.coalesce(model.data["list_name"].as_string(), "") == list_name]
-                            if list_name is not None
-                            else []
-                        ),
+                        *([in_list(model, list_name, self.db.sqlite)] if list_name is not None else []),
                         *([model.id.in_(lead_ids)] if lead_ids is not None else []),
                         *([model.id > cursor] if cursor else []),
                     )
@@ -769,7 +764,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             leads.extend(
                 {
                     **doc(row),
-                    "suppressed": row.data["phone"] in denied,
+                    "suppressed": row.data["phone"] in denied or not self.list_permitted(s, p, row),
                     "bound_number_id": bindings.get(row.id),
                     "active_obligation": row.id in claimed_leads,
                     **({"screening": screening[row.data["phone"]]} if row.data["phone"] in screening else {}),

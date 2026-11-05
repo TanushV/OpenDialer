@@ -17,6 +17,7 @@ from app.compliance.policy import CallContext, authorize, retry_seconds
 from app.config import LIMITS
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.jobs.queue import JobQueue
+from app.lead_lists import LeadLists, memberships
 from app.optimization.geography import plausible_zones
 from app.privacy import event_metadata
 from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
@@ -46,7 +47,7 @@ def imported_row(raw, columns=60, size=8000):
     return row
 
 
-class Service(ReservationPlanner):
+class Service(LeadLists, ReservationPlanner):
     def __init__(self, db, settings, clock, carrier=None):
         self.db, self.settings, self.clock = db, settings, clock
         self.injected_carrier = carrier
@@ -194,7 +195,7 @@ class Service(ReservationPlanner):
                     "state_registry_required": False,
                     "permissions": ["live", "transcription"],
                     "local_start_hour": 8,
-                    "local_end_hour": 21,
+                    "local_end_hour": 17,
                     "max_attempts": 4,
                     "min_retry_seconds": 86400,
                     "allowed_country_codes": ["1"],
@@ -400,9 +401,11 @@ class Service(ReservationPlanner):
             fail(413, "Import row limit exceeded")
         now = self.clock()
         with self.db.transaction() as s:
-            self.required(s, "campaigns", body["campaign_id"], p)
+            campaign = self.required(s, "campaigns", body["campaign_id"], p)
+            name = body.get("list_name", "").strip()
+            update(campaign, lists={name: {}, **campaign.data.get("lists", {})})
             endpoints = {r.data["phone"]: r for r in self.scoped(s, "phone_endpoints", p)}
-            existing = {(r.data["campaign_id"], r.data["endpoint_id"]) for r in self.scoped(s, "leads", p)}
+            existing = {(r.data["campaign_id"], r.data["endpoint_id"]): r for r in self.scoped(s, "leads", p)}
             for index, raw in enumerate(body["rows"]):
                 phone = normalize_phone(str(raw.get("phone", "")))
                 if not phone.e164:
@@ -435,6 +438,13 @@ class Service(ReservationPlanner):
                     endpoints[phone.e164] = endpoint
                 if (body["campaign_id"], endpoint.id) in existing:
                     result["duplicates"] += 1
+                    duplicate = existing[(body["campaign_id"], endpoint.id)]
+                    names = list(
+                        dict.fromkeys([*memberships(duplicate.data), body.get("list_name", "").strip()])
+                    )
+                    update(duplicate, list_names=names)
+                    emit(s, p["tenant_id"], "lead.updated", duplicate, self.clock())
+                    result["leads"].append(doc(duplicate))
                     continue
                 timezone = raw.get("timezone") or None
                 if timezone:
@@ -471,6 +481,7 @@ class Service(ReservationPlanner):
                         if AREA_STATES.get(phone.e164[2:5])
                         else "unknown",
                         "list_name": body.get("list_name", "").strip(),
+                        "list_names": [body.get("list_name", "").strip()],
                         "segment": raw.get("segment", "general"),
                         "jurisdiction": raw.get("jurisdiction"),
                         "originally_eligible": not self.suppressed(s, p, phone.e164),
@@ -485,7 +496,7 @@ class Service(ReservationPlanner):
                     key=body["campaign_id"] + ":" + endpoint.id,
                     now=now,
                 )
-                existing.add((body["campaign_id"], endpoint.id))
+                existing[(body["campaign_id"], endpoint.id)] = lead
                 result["imported"] += 1
                 created.append(lead)
                 result["leads"].append({**doc(lead), "suppressed": self.suppressed(s, p, phone.e164)})
@@ -493,6 +504,7 @@ class Service(ReservationPlanner):
                 result["preparing"] = self.request_preparation_in(s, p, created)
                 update(self.required(s, "sellers", p["seller_id"], p), preparation_user_id=p["user_id"])
             self.ensure_experiment_cohort(s, p, body["campaign_id"])
+            emit(s, p["tenant_id"], "campaign.updated", campaign, self.clock())
             audit(
                 s,
                 p["tenant_id"],
@@ -597,8 +609,13 @@ class Service(ReservationPlanner):
         )
         return CallContext(
             now=self.clock(),
+            continuing_call=active,
             authorization_reconciled=not seller.data.get("restore_hold", False),
-            outreach_hold=bool(lead.data.get("outreach_hold") or lead.data.get("conversion_goal_achieved"))
+            outreach_hold=bool(
+                lead.data.get("outreach_hold")
+                or lead.data.get("conversion_goal_achieved")
+                or not self.list_permitted(s, p, lead)
+            )
             and not active,
             callback_owner_matches=active
             or not lead.data.get("callback_due_at")
@@ -639,7 +656,7 @@ class Service(ReservationPlanner):
             route_allowed=lead.data["phone"].startswith("+1")
             and "1" in config.get("allowed_country_codes", []),
             local_start_hour=config.get("local_start_hour", 8),
-            local_end_hour=config.get("local_end_hour", 21),
+            local_end_hour=min(17, config.get("local_end_hour", 17)),
             permission=permission,
             # Live calls carry the speech-to-text the live helper needs; nothing is recorded.
             permitted_permissions=set(config.get("permissions", []))
@@ -776,7 +793,8 @@ class Service(ReservationPlanner):
             lead = self.required(s, "leads", reservation.data["lead_id"], p)
             number = self.required(s, "number_inventory", reservation.data["number_id"], p)
             self.managed.require_number(p["tenant_id"], number.data)
-            decision = authorize(self.context(s, p, lead, number))
+            scoped_p = {**p, **reservation.data.get("dial_scope", {})}
+            decision = authorize(self.context(s, scoped_p, lead, number))
             self.record_decision(s, p, lead, decision)
             if not decision.allowed:
                 fail(403, {"code": "CALL_DENIED", "reasons": decision.reasons})
@@ -796,6 +814,7 @@ class Service(ReservationPlanner):
                     "endpoint_id": lead.data["endpoint_id"],
                     "number_id": number.id,
                     "reservation_id": reservation.id,
+                    "dial_scope": reservation.data.get("dial_scope", {}),
                     "treatment_variant_id": reservation.data.get("treatment_variant_id"),
                     "feature_snapshot_id": reservation.data.get("feature_snapshot_id"),
                     "decision_id": reservation.data.get("policy_decision_id"),
@@ -907,7 +926,7 @@ class Service(ReservationPlanner):
             lead = self.required(s, "leads", call.data["lead_id"], p, lock=True)
             number = self.required(s, "number_inventory", call.data["number_id"], p)
             self.managed.require_number(p["tenant_id"], number.data)
-            decision = authorize(self.context(s, p, lead, number))
+            decision = authorize(self.context(s, {**p, **call.data.get("dial_scope", {})}, lead, number))
             submission_decision = self.record_decision(s, p, lead, decision)
             if not decision.allowed:
                 update(command, status="cancelled", reasons=decision.reasons)

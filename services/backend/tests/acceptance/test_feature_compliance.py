@@ -368,7 +368,7 @@ def test_calling_needs_no_approval_paperwork_and_screening_is_optional(workspace
 def test_a_lead_without_a_time_zone_uses_every_zone_its_state_and_area_code_allow(workspace, clock):
     for phone in PHONES:
         post(workspace, "/v1/suppressions", {"phone": phone, "reason": "opt_out"})
-    # A New York area code with a California address: calls only when both are inside 8:00-21:00.
+    # A New York area code with a California address: calls only when both are inside 8:00-17:00.
     import_leads(workspace, [{"name": "Rowan Moved", "phone": "+12125550189", "state": "CA"}])
     assert offered(workspace) == "+12125550189"  # 11:00 Los Angeles, 14:00 New York
     clock.now += timedelta(hours=7, minutes=30)  # 18:30 Los Angeles, 21:30 New York

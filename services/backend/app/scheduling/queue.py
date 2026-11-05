@@ -140,16 +140,20 @@ class ReservationPlanner:
         if not key or lead.data.get("requested_contact") or lead.data.get("callback_due_at"):
             return False
         model = MODELS["leads"]
-        siblings = list(
-            s.scalars(
-                select(model).where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.op_lead_id == key,
-                    model.id != lead.id,
+        siblings = s.info.get("list_company_siblings", {}).get(key)
+        if siblings is None:
+            siblings = list(
+                s.scalars(
+                    select(model).where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.op_lead_id == key,
+                        model.id != lead.id,
+                    )
                 )
             )
-        )
+        else:
+            siblings = [sibling for sibling in siblings if sibling.id != lead.id]
         if not siblings:
             return False
         if {c.lead_id for c in claims} & {sibling.id for sibling in siblings}:
@@ -184,7 +188,14 @@ class ReservationPlanner:
         # reports exhaustion, and the next request starts a fresh pass at the head, so newly due
         # or changed work there is never skipped.
         cursors = self.__dict__.setdefault("_queue_cursors", OrderedDict())
-        key = (p["tenant_id"], p["seller_id"], p["user_id"], campaign_id)
+        key = (
+            p["tenant_id"],
+            p["seller_id"],
+            p["user_id"],
+            campaign_id,
+            tuple(p.get("dial_lists") or ()),
+            p.get("callback_lead_id"),
+        )
         after, reasons = cursors.pop(key, (None, frozenset()))
         reasons = set(reasons)
         for _ in range(PAGES):
@@ -401,10 +412,13 @@ class ReservationPlanner:
             False,
         )
 
-    def reserve(self, p, campaign_id):
+    def reserve(self, p, campaign_id, list_names=None, callback_lead_id=None):
         """Rank and claim in one transaction; a lost uniqueness race ranks again."""
         from app.service import fail
 
+        p = {**p, "dial_lists": list_names, "callback_lead_id": callback_lead_id}
+        if list_names == [] and not callback_lead_id:
+            fail(409, "Choose at least one list")
         reasons = set()
         for _ in range(3):
             plan = None
@@ -474,6 +488,10 @@ class ReservationPlanner:
                 "number_id": number.id,
                 "expires_at": (now + timedelta(minutes=2)).isoformat(),
                 "status": "reserved",
+                "dial_scope": {
+                    "dial_lists": p.get("dial_lists"),
+                    "callback_lead_id": p.get("callback_lead_id"),
+                },
                 "policy_id": campaign.data["policy_id"],
                 "coaching_comparison": coach_comparison,
                 "script_comparison": script_comparison,

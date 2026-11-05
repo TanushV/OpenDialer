@@ -22,6 +22,7 @@ import { date, isAdmin, label, percent, useWorkspace } from "../context";
 import { parseCSV } from "../state/csv";
 import type { Lead, NumberRecord, Packet } from "../types";
 import { ProspectBrief } from "./ProspectBrief";
+import { BulkLeadActions, leadLists, listLabel, useLists } from "./LeadLists";
 import { PreparationPanel } from "./PreparationPanel";
 import { ConversationLearning } from "./ConversationLearning";
 import { ScriptEditor } from "./ScriptEditor";
@@ -47,8 +48,19 @@ export function LeadsPage({
   const [packet, setPacket] = useState<Packet | null>(null);
   const [lookupLead, setLookupLead] = useState("");
   const [lookupStatus, setLookupStatus] = useState<Record<string, string>>({});
-  const history = useHistory("leads", w.leads);
+  const [filterList, setFilterList] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const lists = useLists();
+  const history = useHistory(
+    "leads",
+    w.leads,
+    filterList === null ? {} : { list_name: filterList },
+  );
   const leads = history.items;
+  useEffect(() => {
+    setSelected([]);
+    void run(() => history.load(false, query));
+  }, [filterList]);
   return (
     <>
       <div className="page-heading">
@@ -62,6 +74,37 @@ export function LeadsPage({
       </div>
       <PreparationPanel onNavigate={onNavigate} />
       <section className="card table-card">
+        <label>
+          Filter leads by list
+          <select
+            aria-label="Filter leads by list"
+            value={filterList ?? "__all_lists__"}
+            onChange={(e) =>
+              setFilterList(
+                e.target.value === "__all_lists__" ? null : e.target.value,
+              )
+            }
+          >
+            <option value="__all_lists__">All lists</option>
+            {lists.data?.lists.map((list) => (
+              <option key={list.name} value={list.name}>
+                {listLabel(list.name)}
+                {list.archived ? " · archived" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        {admin && (
+          <BulkLeadActions
+            selected={selected}
+            updated={async () => {
+              setSelected([]);
+              await refresh();
+              await history.load(false, query);
+              await lists.reload();
+            }}
+          />
+        )}
         <div className="table-toolbar">
           <h3>
             {history.totalLabel ?? w.leads.length} leads{" "}
@@ -92,6 +135,23 @@ export function LeadsPage({
         <table>
           <thead>
             <tr>
+              {admin && (
+                <th>
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible leads"
+                    checked={
+                      leads.length > 0 &&
+                      leads.every((lead) => selected.includes(lead.id))
+                    }
+                    onChange={(e) =>
+                      setSelected(
+                        e.target.checked ? leads.map((lead) => lead.id) : [],
+                      )
+                    }
+                  />
+                </th>
+              )}
               <th>PERSON / COMPANY</th>
               <th>PHONE</th>
               <th>STATUS</th>
@@ -103,10 +163,28 @@ export function LeadsPage({
           <tbody>
             {leads.map((lead) => (
               <tr key={lead.id}>
+                {admin && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${lead.name}`}
+                      checked={selected.includes(lead.id)}
+                      onChange={(e) =>
+                        setSelected(
+                          e.target.checked
+                            ? [...selected, lead.id]
+                            : selected.filter((id) => id !== lead.id),
+                        )
+                      }
+                    />
+                  </td>
+                )}
                 <td>
                   <strong>{lead.name}</strong>
                   <small>{lead.company || "Company not provided"}</small>
-                  {lead.list_name && <small>{lead.list_name}</small>}
+                  <small>
+                    {leadLists(lead).map(listLabel).join(", ") || "No list"}
+                  </small>
                 </td>
                 <td>
                   {lead.phone}
@@ -124,13 +202,17 @@ export function LeadsPage({
                   <span
                     className={`pill ${lead.suppressed ? "red" : lead.status === "preparing" ? "amber" : lead.outreach_hold ? "subtle" : "green"}`}
                   >
-                    {lead.suppressed
-                      ? "Suppressed"
-                      : lead.status === "preparing"
-                        ? "Being prepared"
-                        : lead.outreach_hold === "company_booked"
-                          ? "Company booked"
-                          : label(lead.status)}
+                    {lead.archived
+                      ? "Archived"
+                      : lead.dial_paused
+                        ? "Paused"
+                        : lead.suppressed
+                          ? "Suppressed"
+                          : lead.status === "preparing"
+                            ? "Being prepared"
+                            : lead.outreach_hold === "company_booked"
+                              ? "Company booked"
+                              : label(lead.status)}
                   </span>
                 </td>
                 <td>{date(lead.coverage_due_at)}</td>

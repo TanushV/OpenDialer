@@ -25,6 +25,9 @@ export interface Lead {
   state?: string | null;
   state_source?: string;
   list_name?: string;
+  list_names?: string[];
+  dial_paused?: boolean;
+  archived?: boolean;
   status: string;
   suppressed: boolean;
   coverage_due_at: string;

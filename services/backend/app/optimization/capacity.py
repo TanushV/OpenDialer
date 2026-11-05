@@ -242,7 +242,7 @@ def work_items(leads, now, end, policy, handling_seconds=OPTIMIZATION_DEFAULTS["
                 ),
                 (
                     policy.get("local_start_hour", 8),
-                    policy.get("local_end_hour", 21),
+                    min(17, policy.get("local_end_hour", 17)),
                     tuple(policy.get("calling_weekdays", range(7))),
                     tuple(sorted(policy.get("closed_dates", []))),
                 ),

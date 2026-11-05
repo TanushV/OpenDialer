@@ -706,7 +706,7 @@ def test_published_retry_schedule_conserves_the_whole_inventory(workspace, app):
             optimization={**campaign.data.get("optimization", {}), "horizon_hours": 1, "rep_minutes": 60},
         )
         for row in service.scoped(s, "leads", p):
-            update(row, timezone="UTC")
+            update(row, timezone="America/Los_Angeles")
     assert service.build_forecast(p, workspace["campaign_id"])["status"] == "ready"
     report = service.optimization_report(p)
     assert len(report["plans"]) == 1, "Per-lead suggestions spent the same number capacity repeatedly"
@@ -828,10 +828,13 @@ def test_retry_budget_exhaustion_cannot_erase_a_known_work_proof(monkeypatch):
 
 def test_full_internal_schedule_does_not_truncate_retry_publication():
     rows = [lead(str(i), predicted_work_seconds=30) for i in range(1002)]
+    # Keep all 1,002 half-minute attempts inside the owner's 08:00–17:00 workday.
+    start = NOW - timedelta(hours=1)
     options = dict(
-        staffed_windows=[window(minutes=600)],
-        rep_minutes=600,
-        policy={"max_attempts": 1, "local_start_hour": 9, "local_end_hour": 20},
+        now=start,
+        staffed_windows=[window(start, minutes=540)],
+        rep_minutes=540,
+        policy={"max_attempts": 1, "local_start_hour": 8, "local_end_hour": 17},
     )
     public = plan(rows, [number(daily_limit=2000)], **options)
     assert len(public["existing_schedule"]) == 1000

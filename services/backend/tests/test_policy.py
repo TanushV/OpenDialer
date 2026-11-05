@@ -130,8 +130,8 @@ def test_the_offered_second_attempt_skips_cooldown_but_not_the_attempt_budget(co
     [
         (datetime(2026, 10, 14, 14, tzinfo=UTC), True),  # 10:00 New York, 9:00 Chicago
         (datetime(2026, 10, 14, 13, 30, tzinfo=UTC), False),  # 8:30 in Chicago
-        (datetime(2026, 10, 14, 23, 30, tzinfo=UTC), True),  # 19:30 New York, 18:30 Chicago
-        (datetime(2026, 10, 15, 0, 30, tzinfo=UTC), False),  # 20:30 in New York
+        (datetime(2026, 10, 14, 20, 30, tzinfo=UTC), True),  # 16:30 New York, 15:30 Chicago
+        (datetime(2026, 10, 14, 21, 30, tzinfo=UTC), False),  # 17:30 New York, 16:30 Chicago
     ],
 )
 def test_inferred_zones_must_all_be_inside_the_calling_window(context, now, allowed):
@@ -173,3 +173,27 @@ def test_exact_registry_bitmap_roundtrip_and_checksum():
     assert RegistryBitmap.load(bitmap.dump(), checksum).contains("+12125550103")
     with pytest.raises(RegistryError):
         RegistryBitmap.load(bitmap.dump(), "wrong-checksum")
+
+
+def test_five_pm_is_a_hard_local_cutoff_even_for_older_policies_and_callbacks(context):
+    from zoneinfo import ZoneInfo
+
+    before = datetime(2026, 11, 5, 16, 59, tzinfo=ZoneInfo("America/New_York"))
+    legacy = replace(
+        context, timezone="America/New_York", local_end_hour=21, next_attempt_at=None, callback_due=True
+    )
+    assert authorize(replace(legacy, now=before)).allowed
+    assert authorize(replace(legacy, now=before.replace(hour=17, minute=0))).reasons == [
+        "OUTSIDE_CALLING_WINDOW"
+    ]
+    assert CallContext(now=NOW).local_end_hour == 17
+
+
+def test_an_active_conversation_can_finish_after_the_new_dialing_cutoff(context):
+    from zoneinfo import ZoneInfo
+
+    after = datetime(2026, 11, 5, 17, 1, tzinfo=ZoneInfo("America/New_York"))
+    continuing = replace(
+        context, now=after, timezone="America/New_York", next_attempt_at=None, continuing_call=True
+    )
+    assert authorize(continuing).allowed

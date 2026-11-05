@@ -166,7 +166,7 @@ def test_ten_thousand_work_items_complete_within_default_caps():
         leads,
         inventory,
         horizon_hours=96,
-        staffed_windows=[window(day, minutes=600, reps=10) for day in days],
+        staffed_windows=[window(day, minutes=480, reps=12) for day in days],
     )
     elapsed = time.monotonic() - started
     assert result["planning_limited"] is False, result["search_operations"]

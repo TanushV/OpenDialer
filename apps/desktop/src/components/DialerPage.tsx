@@ -25,6 +25,7 @@ import { InboundCall } from "./InboundCall";
 import { CallControls } from "./CallControls";
 import { CallbackReviewNotice, WrapUp } from "./WrapUp";
 import { nextLeadWithRetry } from "../state/queue";
+import { DialLists } from "./LeadLists";
 import { DueTasks } from "./FollowupTasks";
 import type { Call, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
@@ -45,6 +46,18 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
     subscribe,
     liveStatus,
   } = useWorkspace();
+  const scopeKey = `dial-lists:${session.tenant_id}:${session.seller_id}:${session.user_id}`;
+  const [dialLists, setDialLists] = useState<string[] | null>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(scopeKey) || "null");
+      return Array.isArray(saved) &&
+        saved.every((name) => typeof name === "string")
+        ? saved
+        : null;
+    } catch {
+      return null;
+    }
+  });
   const [reservation, setReservation] = useState<Reservation | null>(
     w.reservation ?? null,
   );
@@ -388,7 +401,7 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
     }
     await refresh();
   }
-  async function getNext() {
+  async function getNext(callbackId?: string) {
     if (inbound || telephony.current.hasIncoming)
       throw new Error(
         "Complete the incoming call before selecting another lead.",
@@ -399,10 +412,13 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
       );
     if (owesWrapUp(currentCall.current))
       throw new Error("Save this call's outcome before the next lead.");
+    if (reservation) await api("/v1/queue/release", "POST", {});
     const next = await nextLeadWithRetry(
       () =>
         api<Reservation>("/v1/queue/next", "POST", {
           campaign_id: w.campaign.id,
+          list_names: dialLists,
+          ...(callbackId ? { callback_lead_id: callbackId } : {}),
         }),
       { onWaiting: setFinding },
     );
@@ -587,6 +603,29 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
   return (
     <>
       <audio ref={audio} autoPlay />
+      <DialLists
+        names={dialLists}
+        disabled={active || dialing || finding || owesWrapUp(call)}
+        change={async (names) => {
+          const previous = dialLists;
+          setDialLists(names);
+          setFinding(true);
+          try {
+            await api("/v1/queue/release", "POST", {});
+            setReservation(null);
+            setPacket(null);
+            setCall(null);
+            localStorage.setItem(scopeKey, JSON.stringify(names));
+            await refresh();
+          } catch (error) {
+            setDialLists(previous);
+            throw error;
+          } finally {
+            setFinding(false);
+          }
+        }}
+        callback={getNext}
+      />
       {inbound && (
         <InboundCall
           key={inbound.id + ":" + (returnProvider || "waiting")}

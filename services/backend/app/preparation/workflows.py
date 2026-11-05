@@ -14,6 +14,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 
 from app.db import MODELS, Job, doc, emit, put, uid, update
+from app.lead_lists import budget_scope, memberships
 from app.preparation.agent import INSTRUCTIONS, TOOLS, SimulatedAgent, ThreadWork, simulated_page
 from app.preparation.templates import PreparationPolicy, fill_fields, render, template_version
 from app.service import dt
@@ -433,7 +434,7 @@ class Preparation:
             leads = [
                 lead
                 for lead in s.scalars(query)
-                if list_name is None or lead_ids is not None or lead.data.get("list_name", "") == list_name
+                if list_name is None or lead_ids is not None or list_name in memberships(lead.data)
             ]
             marked = self.request_preparation_in(s, p, leads)
             update(self.required(s, "sellers", p["seller_id"], p), preparation_user_id=p["user_id"])
@@ -458,7 +459,7 @@ class Preparation:
                     model.op_status == "preparing",
                 )
             ):
-                if lead.data.get("list_name", "") == list_name and lead.id not in pending:
+                if list_name in memberships(lead.data) and lead.id not in pending:
                     update(lead, status="eligible", prepare_requested=False)
                     released += 1
             return {"released": released}
@@ -555,33 +556,34 @@ class Preparation:
             ):
                 if not lead.data.get("prepare_requested"):
                     continue
-                entry = lists.setdefault(
-                    lead.data.get("list_name", ""),
-                    {
-                        "list_name": lead.data.get("list_name", ""),
-                        "total": 0,
-                        "ready": 0,
-                        "skipped": 0,
-                        "failed": 0,
-                        "working": 0,
-                        "waiting": 0,
-                        "skipped_leads": [],
-                    },
-                )
-                entry["total"] += 1
                 state = self.preparation_state(s, p, lead)
-                if lead.id in pending:
-                    entry["working"] += 1
-                elif state["status"] in {"ready", "skipped"}:
-                    entry[state["status"]] += 1
-                    if state["status"] == "skipped" and len(entry["skipped_leads"]) < 20:
-                        entry["skipped_leads"].append(
-                            {"name": lead.data.get("name", ""), "reason": state.get("reason", "")}
-                        )
-                elif state["status"] == "failed" and not retry_due(state, now):
-                    entry["failed"] += 1
-                else:
-                    entry["waiting"] += 1
+                for name in memberships(lead.data):
+                    entry = lists.setdefault(
+                        name,
+                        {
+                            "list_name": name,
+                            "total": 0,
+                            "ready": 0,
+                            "skipped": 0,
+                            "failed": 0,
+                            "working": 0,
+                            "waiting": 0,
+                            "skipped_leads": [],
+                        },
+                    )
+                    entry["total"] += 1
+                    if lead.id in pending:
+                        entry["working"] += 1
+                    elif state["status"] in {"ready", "skipped"}:
+                        entry[state["status"]] += 1
+                        if state["status"] == "skipped" and len(entry["skipped_leads"]) < 20:
+                            entry["skipped_leads"].append(
+                                {"name": lead.data.get("name", ""), "reason": state.get("reason", "")}
+                            )
+                    elif state["status"] == "failed" and not retry_due(state, now):
+                        entry["failed"] += 1
+                    else:
+                        entry["waiting"] += 1
             seller = self.required(s, "sellers", p["seller_id"], p)
             paused = seller.data.get("preparation_paused_until")
             config = self.preparation_settings(s, p)["preparation"]
@@ -604,8 +606,9 @@ class Preparation:
                 if job.payload.get("seller_id") == p["seller_id"]
             ]
             budget = self.scoped(s, "budgets", p)[0].data
+            campaign = self.selected_campaign(s, p)
             for entry in lists.values():
-                entry["spent_usd"] = self.scope_spend(s, p, "list:" + entry["list_name"])
+                entry["spent_usd"] = self.scope_spend(s, p, budget_scope(campaign.data, entry["list_name"]))
                 entry["budget_usd"] = budget.get("per_list_usd", 25.0)
             return {
                 "lists": sorted(lists.values(), key=lambda e: e["list_name"]),
@@ -719,7 +722,9 @@ class Preparation:
                 }
         metered = getattr(agent, "billing", "openai") not in {"chatgpt_plan", "simulation"}
         request_key = "prepare:" + owner
-        scope = "list:" + (claimed[0]["lead"].get("list_name") or "")
+        scope = await asyncio.to_thread(
+            self.preparation_budget_scope, p, claimed[0]["lead"].get("list_name") or ""
+        )
         if metered and not await asyncio.to_thread(
             self.reserve_optional_budget,
             p,

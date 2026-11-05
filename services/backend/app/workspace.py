@@ -3,6 +3,7 @@
 from sqlalchemy import func, literal_column, or_, select
 
 from app.db import MODELS, ActiveClaim, Event, Job, after_key, doc
+from app.lead_lists import in_list
 from app.operational_schema import PAGE_TABLES
 from app.service import fail
 
@@ -79,7 +80,9 @@ class WorkspaceReads:
                 reasons.append(reason)
         return {"can_disconnect": not reasons, "reasons": reasons}
 
-    def workspace_page(self, p, section, *, cursor=None, q="", filter="all", limit=PAGE_SIZE, session=None):
+    def workspace_page(
+        self, p, section, *, cursor=None, q="", filter="all", list_name=None, limit=PAGE_SIZE, session=None
+    ):
         if section not in PAGE_TABLES and section != "jobs":
             fail(404, "Workspace section not found")
         if len(q) > 200 or len(cursor or "") > 100 or (q and section != "leads"):
@@ -101,6 +104,8 @@ class WorkspaceReads:
                 return self._job_page(s, p, cursor, limit)
             model = MODELS[PAGE_TABLES[section]]
             query = scoped_query(model, p)
+            if section == "leads" and list_name is not None:
+                query = query.where(in_list(model, list_name, self.db.sqlite))
             if section in {"calls", "tasks"} and p["role"] == "rep":
                 query = query.where(model.op_owner_id == p["user_id"])
             if section == "tasks":
@@ -322,7 +327,7 @@ class WorkspaceReads:
                 "simulation": self.settings.simulation,
                 "seller": doc(self.required(s, "sellers", p["seller_id"], p)),
                 "campaign": doc(campaign),
-                "policy": doc(policy),
+                "policy": {**doc(policy), "local_end_hour": min(17, policy.data.get("local_end_hour", 17))},
                 "user": {
                     "id": user.id,
                     "name": user.data["name"],

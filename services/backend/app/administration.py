@@ -612,6 +612,7 @@ class Dialer(
                 "publisher_id": p["user_id"],
                 "parent_id": current.id,
             }
+            config["local_end_hour"] = min(17, config["local_end_hour"])
             if not 0 <= config["local_start_hour"] < config["local_end_hour"] <= 24:
                 fail(422, "Invalid reviewed local calling window")
             if config.get("detached_topology_verified") and not self.settings.simulation:

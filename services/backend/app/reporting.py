@@ -18,6 +18,7 @@ from app.service import dt, fail
 # (None means every field). Presence renewals and transcript churn never invalidate.
 REPORT_FIELDS = {
     "campaigns": {
+        "lists",
         "optimization",
         "optimization_epoch",
         "optimization_trial",
@@ -34,6 +35,11 @@ REPORT_FIELDS = {
         "state_source",
         "region",
         "list_name",
+        "list_names",
+        "dial_paused",
+        "archived",
+        "timezone",
+        "timezone_confidence",
         "originally_eligible",
         "status",
         "outreach_hold",

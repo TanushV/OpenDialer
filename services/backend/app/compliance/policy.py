@@ -15,6 +15,7 @@ def retry_seconds(policy):
 @dataclass
 class CallContext:
     now: datetime
+    continuing_call: bool = False
     authorization_reconciled: bool = True
     outreach_hold: bool = False
     callback_owner_matches: bool = True
@@ -50,7 +51,7 @@ class CallContext:
     budget_available: bool = False
     route_allowed: bool = False
     local_start_hour: int = 8
-    local_end_hour: int = 21
+    local_end_hour: int = 17
     permission: str = "live"
     permitted_permissions: set[str] | None = None
 
@@ -96,13 +97,13 @@ def authorize(c: CallContext) -> Decision:
     zones = calling_zones(c)
     if not zones:
         reasons.append("TIMEZONE_UNCERTAIN")
-    for zone in zones:
+    for zone in () if c.continuing_call else zones:
         try:
             local = c.now.astimezone(ZoneInfo(zone))
         except (ZoneInfoNotFoundError, ValueError):
             reasons.append("TIMEZONE_UNCERTAIN")
             break
-        if not c.local_start_hour <= local.hour < c.local_end_hour:
+        if not c.local_start_hour <= local.hour < min(17, c.local_end_hour):
             reasons.append("OUTSIDE_CALLING_WINDOW")
             break
     require(c.rep_ready, "REP_NOT_READY")

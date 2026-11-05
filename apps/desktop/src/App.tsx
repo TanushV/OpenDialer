@@ -41,6 +41,7 @@ import {
 } from "./api/client";
 import { DialerPage } from "./components/DialerPage";
 import { LiveConnection, type LiveEvent } from "./api/live";
+import { ListsPage } from "./components/LeadLists";
 import { ScriptPage, LeadsPage, NumbersPage } from "./components/Operations";
 import { ReviewPage } from "./components/ReviewPage";
 import { SettingsPage } from "./components/SettingsPage";
@@ -52,10 +53,18 @@ import {
   type Workspace,
 } from "./types";
 
-type View = "Dialer" | "Leads" | "Review" | "Numbers" | "Script" | "Settings";
+type View =
+  | "Dialer"
+  | "Lists"
+  | "Leads"
+  | "Review"
+  | "Numbers"
+  | "Script"
+  | "Settings";
 const navigation = [
   { title: "Dialer", icon: Phone, admin: false },
   { title: "Leads", icon: Users, admin: false },
+  { title: "Lists", icon: Users, admin: false },
   { title: "Review", icon: BookOpen, admin: false },
   { title: "Numbers", icon: Radio, admin: true },
   { title: "Script", icon: FileText, admin: false },
@@ -911,7 +920,9 @@ export function App() {
             <div hidden={view !== "Dialer"}>
               <DialerPage visible={view === "Dialer"} />
             </div>
-            {view === "Dialer" ? null : view === "Leads" ? (
+            {view === "Dialer" ? null : view === "Lists" ? (
+              <ListsPage />
+            ) : view === "Leads" ? (
               <LeadsPage onNavigate={setView} />
             ) : view === "Review" ? (
               <ReviewPage />
