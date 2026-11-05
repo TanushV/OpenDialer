@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 5, 2026. Signed 0.8.14 is published and installed. Both numbers show ready with zero pending setup, and capacity refresh succeeds. The late November 4 human microphone test passed: the owner confirmed both audio directions were clear, and real Cerebras text guidance responded to the spoken stop request. The test is finalized and excluded from connect-rate metrics, normal controls are restored and dialing is paused. The vendor/email objection, tracked-stage checkpoint and the wider carrier/traffic/measurement gates remain open.
+Updated November 5, 2026. Signed 0.9.0 is published and installed as a version promotion of 0.8.14; no calling behavior changed. Both numbers show ready with zero pending setup, and capacity refresh succeeds. The late November 4 human microphone test passed: the owner confirmed both audio directions were clear, and real Cerebras text guidance responded to the spoken stop request. The test is finalized and excluded from connect-rate metrics, normal controls are restored and dialing is paused. The vendor/email objection, tracked-stage checkpoint and the wider carrier/traffic/measurement gates remain open.
 
 ## Goal
 
@@ -120,6 +120,9 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Verify the installed live helper transcribes incoming speech and displays script-based guidance from real Cerebras.
 - [x] Verify live text guidance responds to a spoken stop/refusal request.
 - [ ] Verify the tracked-stage checkpoint and vendor/email objection guidance during a real spoken conversation.
+- [ ] Verify a complete post-call rundown during a fresh spoken test while raw speech is still available. The saved
+  owner delivery test has a partial rundown; human outcome, audio evidence and notes are retained.
+- [x] Publish and install 0.9.0, pass full CI and verify its installed version, retained workspace and both ready numbers.
 - [x] Record the owner's answer/silence report and finalize the 0.8.14 delivery test with audio unconfirmed.
 - [x] Verify actual human speech through the Mac microphone to the phone and speech from the phone back to the rep.
 - [ ] Resolve failures before ramping.
@@ -179,6 +182,15 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - Display of caller name and branding varies by carrier and device. Nothing guarantees clean labels.
 
 ## Verification checkpoint
+
+- November 5: [0.9.0](https://github.com/TanushV/OpenDialer/releases/tag/v0.9.0) is published and installed
+  from `4d1888b`. All six CI jobs and both signed builds passed. The public manifest matches the verified
+  release, the archive checksum and deep strict signatures pass, and all installed executables match the archive.
+  The installed UI and local service report 0.9.0. Both numbers are ready with zero pending setup; capacity refresh,
+  saved provider configuration, normal hours and the Agite greeting pass installed UI checks. All original record
+  IDs and counts are retained. Dialing is paused with no active audio leg. This update changes only the version;
+  no new phone call or microphone session was opened. Prior two-way audio proof remains dated to 0.8.14.
+  [Verification receipt](evidence/lean/release-090-20261105.json).
 
 - The late November 4 human microphone test passed in installed 0.8.14. The owner confirmed **both directions
   were clear**, and the app received speech from rep and remote audio streams. Five real Cerebras helper

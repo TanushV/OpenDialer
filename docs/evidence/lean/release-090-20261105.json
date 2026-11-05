@@ -1,0 +1,135 @@
+{
+  "version": "0.9.0",
+  "date": "2026-11-05",
+  "source_commit": "4d1888b4d4f187cc3da54a65e6f9a1f1f3b16077",
+  "scope": "Version promotion of 0.8.14; no dialing-policy, audio-path, preparation or live-helper behavior change.",
+  "ci": {
+    "run_id": 41999303420,
+    "status": "passed",
+    "jobs": 6,
+    "sqlite": {
+      "passed": 836,
+      "skipped": 10
+    },
+    "postgres": {
+      "passed": 837,
+      "skipped": 9
+    },
+    "browser_passed": 179,
+    "frontend_passed": 82,
+    "native_packaging_passed": 25,
+    "rust_passed": 7,
+    "url": "https://github.com/TanushV/OpenDialer/actions/runs/41999303420"
+  },
+  "signed_release": {
+    "run_id": 41999317859,
+    "status": "published",
+    "url": "https://github.com/TanushV/OpenDialer/releases/tag/v0.9.0",
+    "mac_build": "passed",
+    "windows_build": "passed",
+    "public_manifest_matches": true,
+    "archive_sha256": "8ddb119342720cbbaecb5af74aa27dd8e21bd7b096d06f08b4aa856df42ca0e6",
+    "archive_checksum": "passed",
+    "archive_bundle_signature": "deep strict passed",
+    "installed_bundle_signature": "deep strict passed"
+  },
+  "version_contract": {
+    "red_before_inputs": 2,
+    "passing_distribution_checks": 16,
+    "lint_format": "passed"
+  },
+  "installed_before": {
+    "version": "0.8.14",
+    "database_quick_check": "ok",
+    "workspace_counts": {
+      "users": 1,
+      "leads": 5,
+      "number_inventory": 2,
+      "call_attempts": 4,
+      "followup_tasks": 11
+    },
+    "numbers_ready": 2,
+    "pending_setup": 0,
+    "telnyx_inventory_sync": "Everything in your Telnyx account is already here.",
+    "capacity_plan": "current after UI refresh",
+    "calling": "connected",
+    "chatgpt": "connected",
+    "live_help_key": "configured",
+    "normal_calling_hours": "08:00-21:00",
+    "readiness_blockers": "Existing lead holds and do-not-call exclusions retained."
+  },
+  "saved_jobs_review": {
+    "active_or_pending_jobs": 0,
+    "unmatched_receipts": 51,
+    "unmatched_event_types": [
+      "call.initiated",
+      "call.answered",
+      "call.hangup"
+    ],
+    "private_copy_replay": "All 51 return unmatched; no processing exception. Their payloads have no OpenDialer client_state identity. Original receipts retained for review.",
+    "latest_delivery_test_ai_rundown": "partial; 10 accepted segments, none interpreted; expired raw speech cannot be reconstructed."
+  },
+  "prior_live_evidence": {
+    "version": "0.8.14",
+    "receipt": "calling-0814-20261104.json",
+    "human_two_way_audio": "owner confirmed clear both directions",
+    "answer_to_bridge_ms": 380,
+    "live_text_helper_events": 5,
+    "new_phone_call_for_version_only_release": false
+  },
+  "remaining_gates": [
+    "Live tracked-stage checkpoint and vendor/email objection scenario.",
+    "Verify a complete post-call rundown during a fresh spoken test while raw speech remains available; the saved delivery-test rundown is partial.",
+    "Broader carrier/device labels, AMD and final rep-spoken voicemail qualification.",
+    "Real prospect ramp and 5000-attempt connect-rate measurement; 12 percent is a planning target, not a demonstrated outcome.",
+    "Apple Developer ID/notarization and Windows publisher trust remain outside current signing setup."
+  ],
+  "installed_after": {
+    "version": "0.9.0",
+    "backend_health": {
+      "status": "ok",
+      "simulation": false,
+      "initialized": true
+    },
+    "workspace_counts_and_id_hashes_match": true,
+    "database_quick_check": "ok",
+    "numbers_ready": 2,
+    "pending_setup": 0,
+    "capacity_plan": "current after installed UI refresh at 01:22 Pacific",
+    "agite_greeting": "retained in workspace",
+    "calling": "connected",
+    "chatgpt": "connected",
+    "live_help_key": "configured",
+    "normal_calling_hours": "08:00-21:00",
+    "dialing": "paused",
+    "new_microphone_session_or_phone_call": false,
+    "active_call_legs": 0,
+    "ui_version": "0.9.0"
+  },
+  "installed_executables": {
+    "codex-code-mode-host": {
+      "sha256": "0ed9f44319f46ed749653281c35b6706ab272916b6ed8290add6b61524f04416",
+      "matches_archive": true
+    },
+    "opendialer-backend": {
+      "sha256": "eb8b53af0719eb03039ee13fbbd797f77900377eabfc40c03edf224242659529",
+      "matches_archive": true
+    },
+    "opendialer-codex": {
+      "sha256": "0ec7469699bf2f4ee54d543b911313d7319a3beb55e91e0b2c9919f5da6dd393",
+      "matches_archive": true
+    },
+    "opendialer-desktop": {
+      "sha256": "c1cba4de4611da08d38dc3c0b2b1c6b4727afc48bc4649a2fdf81bfdf33cf74a",
+      "matches_archive": true
+    },
+    "opendialer-trainer": {
+      "sha256": "420e19b3c1f4e8f3ce68be77d8d771b6724e5355aaad4977684e018cb48f60d2",
+      "matches_archive": true
+    }
+  },
+  "cleanup": {
+    "temporary_extracted_app_removed": true,
+    "verification_auth_session_created": false
+  }
+}

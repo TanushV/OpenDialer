@@ -1,6 +1,20 @@
 # OpenDialer lean build validation
 
-**Current software verification: October 30, 2026, 0.6.0.** The [release receipt](evidence/lean/security-release-20261030.json) records backend SQLite/PostgreSQL, browser, frontend, native credential/runtime, frozen restart and Mac packaging checks, dependency audits and release status. The [handoff](HANDOFF.md) explains the current implementation and remaining live/security gates. Earlier results below are historical.
+**Current software verification: November 5, 2026, 0.9.0.** Published and installed from `4d1888b`.
+[All six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41999303420) passed: SQLite 836,
+PostgreSQL 837, browser 179, frontend 82, native/package 25 and Rust 7; lint, format, typecheck and Clippy pass.
+Both signed desktop builds pass. The Mac archive checksum and deep strict signature pass; this Mac installed
+through the signed updater and reopened. Its UI and running authority report 0.9.0, installed executables match
+the archive, original record IDs/counts remain, both numbers show ready with zero pending setup, and capacity
+refresh succeeds. Saved calling/AI configuration and Agite's greeting remain. Dialing is paused.
+[Verification receipt](evidence/lean/release-090-20261105.json).
+
+This release changes only the version. The owner-confirmed human two-way audio and real Cerebras text-guidance
+result is from 0.8.14, not a new 0.9.0 phone test. Live tracked-stage/vendor scenarios, a complete fresh post-call
+rundown, broader carrier/device coverage and connect-rate measurement remain open in the
+[number plan](NUMBER_CONNECT_PLAN.md). The saved test rundown is partial. Older snapshots below are historical.
+
+**Historical software verification: October 30, 2026, 0.6.0.** The [release receipt](evidence/lean/security-release-20261030.json) records backend SQLite/PostgreSQL, browser, frontend, native credential/runtime, frozen restart and Mac packaging checks, dependency audits and release status. The [handoff](HANDOFF.md) explains the current implementation and remaining live/security gates. Earlier results below are historical.
 
 Release source `1cd538a` passes [all six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41137559225). Published 0.6.0 is installed on this Mac through the signed updater; version, signature seal and reopened workspace verified. Provider setup and live carrier/audio gates remain open.
 

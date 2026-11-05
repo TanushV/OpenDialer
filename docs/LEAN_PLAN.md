@@ -156,15 +156,24 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
-- November 5 owner-requested 0.9.0 release is in progress. This is a version promotion of the verified
-  0.8.14 calling runtime, with no dialing-policy or audio-path change. Release TODOs:
+- November 5 owner-requested 0.9.0 release is published and installed from `4d1888b`. This is a version
+  promotion of the verified 0.8.14 calling runtime, with no dialing-policy or audio-path change.
+  [Verification receipt](evidence/lean/release-090-20261105.json). Release TODOs:
   - [x] Inspect the saved workspace, finalized human audio result and background jobs.
   - [x] Update the version contract first and observe both identity/manifest checks fail before changing release inputs.
-  - [ ] Pass the full SQLite/PostgreSQL, browser, frontend and native CI checks on the release source.
-  - [ ] Build both signed desktop packages and verify the Mac archive and public update manifest.
-  - [ ] Publish 0.9.0, install through this Mac's updater and verify retained data and installed UI.
-  - [ ] Record the final verification and commit the release evidence.
-
+  - [x] Pass all six CI jobs: 836 SQLite, 837 PostgreSQL, 179 browser, 82 frontend, 25 native/package and 7 Rust tests.
+  - [x] Build both signed desktop packages and verify the Mac archive and public update manifest.
+  - [x] Publish 0.9.0, install through this Mac's updater and verify retained data and installed UI.
+  - [x] Record final verification and commit the release evidence.
+  Installed executables match the verified archive and deep strict bundle verification passes. The running local
+  authority and app UI report 0.9.0. All original IDs remain: 1 user, 5 leads, 2 numbers, 4 calls and 11 tasks.
+  Both numbers are ready with zero pending setup, capacity refresh succeeds, provider configuration and Agite's
+  greeting remain, normal hours/lead controls are preserved and dialing is paused with no active audio leg.
+  No new microphone session or phone call was opened for this version-only update. The prior human two-way
+  result remains live evidence from 0.8.14, not a fresh 0.9.0 phone test. The number plan remains open, including
+  the live stage/vendor scenario and a fresh complete post-call rundown check. The saved delivery-test rundown
+  is partial. All 51 failed webhook jobs replayed as unmatched events without an OpenDialer call identity,
+  rather than throwing a processing exception; original receipts remain for review.
 
 - Late November 4 human microphone check passed on installed 0.8.14. The owner explicitly confirmed both
   directions were clear. The app received rep and remote speech, and five real Cerebras helper events supplied
