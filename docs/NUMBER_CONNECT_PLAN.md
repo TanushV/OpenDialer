@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. Both numbers are active and ready. A live rep answer passed the shared callback test, and Telnyx confirmed outbound delivery from each number. The Dialer also completed a live call between the owned numbers. Two-way speech between people still needs verification.
+Updated November 4, 2026. Both numbers are active and ready. A live rep answer passed the shared callback test, and Telnyx confirmed outbound delivery from each number. The Dialer completed a live call between the owned numbers. The installed 0.8.12 release plays the short Agite greeting through Telnyx. Two-way speech between people still needs verification.
 
 ## Goal
 
@@ -105,7 +105,7 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Verify carrier outbound delivery from each purchased number using an authorized test destination.
 - [x] Start and complete a live test call from the Dialer without dialing a campaign lead.
 - [x] Verify the new callback greeting plays and ends on a live Telnyx call.
-- [ ] Install the signed 0.8.12 update with the new greeting on the Mac.
+- [x] Install the signed 0.8.12 update with the new greeting on the Mac.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -251,6 +251,11 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - Telnyx's stock greeting is for its SIP voicemail mailbox. On the existing Voice API route, Telnyx speaks
   “You've reached Agite. We're unavailable right now. We'll return your call.” The greeting uses the
   workspace's business name and OpenDialer creates a callback task.
+- [0.8.12](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.12) was built from `648b177`. Both installers
+  built and all six [CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41938477022) passed. The Mac archive
+  passed deep strict signature and checksum verification. The Mac updated through the signed updater. A call between
+  the owned numbers exercised the installed backend, and the command receipt contained the exact Agite greeting.
+  Telnyx signed the speech start, speech end and normal hangup. The test callback was closed.
 
 ## Sources
 

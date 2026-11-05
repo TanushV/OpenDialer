@@ -156,6 +156,11 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 4 live calling and greeting follow-up (0.8.12): the Dialer made and bridged a real call between the
+  owned numbers. The saved outcome excludes it from connect-rate metrics. This Mac installed 0.8.12 and the
+  installed backend played the shorter Agite greeting through Telnyx on a live owned-line call. The owner chose
+  to keep the current signing setup. Two-way speech between people remains open. See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md).
+
 - November 4 number order follow-up (0.8.11): Telnyx and OpenDialer confirm two active, routed numbers. Each has
   reached the inbound callback queue in a live test. This Mac installed 0.8.11 through the signed updater, and both
   orders show Active and ready. A live rep answer on 0.8.10 passed the shared workspace test. Each number reached
