@@ -29,7 +29,7 @@ test("manage lists and archive/restore selected leads without losing records", a
   page,
 }) => {
   await enter(page);
-  await add(page, "Managed list 091", "+14155550891");
+  await add(page, "Managed list 091", "+14155550961");
   await page.getByRole("button", { name: "Lists", exact: true }).click();
   const list = page
     .getByRole("row")
