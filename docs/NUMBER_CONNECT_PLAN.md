@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. Both numbers are active and ready. A live rep answer passed the shared callback test, and Telnyx confirmed outbound delivery from each number. The Dialer completed a live call between the owned numbers. The installed 0.8.13 release kept Agite's greeting and recalculated the failed capacity plan. Two-way speech between people still needs verification.
+Updated November 4, 2026. Both numbers are active and ready. A live rep answer passed the shared callback test, and Telnyx confirmed outbound delivery from each number. The installed 0.8.13 release kept Agite's greeting, recalculated the failed capacity plan, and placed an answered delivery test to the owner's phone. Two-way speech between people still needs verification.
 
 ## Goal
 
@@ -112,7 +112,7 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Fix capacity planning for leads without an explicit time zone and verify the calculation on a private workspace copy.
 - [x] Retry the saved capacity job on a private copy with the signed 0.8.13 backend and confirm a fresh forecast.
 - [x] Retry the failed capacity job in the signed app after updating.
-- [ ] Place the owner-authorized phone test from the installed OpenDialer UI and save it as a delivery test.
+- [x] Place the owner-authorized phone test from the installed OpenDialer UI and save it as a delivery test.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -271,7 +271,13 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   archive checksum and deep strict signature verified. The packaged backend read the Agite greeting and retried
   the failed capacity job on a private workspace copy. The Mac then installed 0.8.13 through the signed updater
   after **Run recovery sweep** cleared a leftover audio leg. Numbers retained the Agite greeting and showed
-  **Capacity plan is current** after retry. The live outbound test remains open.
+  **Capacity plan is current** after retry.
+- At 8:32 p.m. Pacific, the installed 0.8.13 Dialer called the owner from the 628 number ending in 8693.
+  The test contact was assigned that owned caller ID because its area code initially put it outside both numbers'
+  coverage. Telnyx signed the initiated, answered, bridged, human detection and hangup events. The bridge followed
+  the answer by 200 ms in the recorded timestamps. The owner confirmed answering and hearing silence. The test
+  sent no speech from the Mac. Wrap-up excluded the test from connect-rate metrics and left two-way audio
+  unconfirmed. The test contact is on a lead-only outreach hold.
 
 ## Sources
 

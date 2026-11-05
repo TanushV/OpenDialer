@@ -161,7 +161,9 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
   deep strict signature verified. The signed backend retried the failed capacity job on a private copy of
   Agite's workspace, published a fresh forecast and read back the saved greeting. This Mac then installed
   the signed update after the recovery sweep cleared an idle audio leg. Numbers showed a current forecast
-  after retry and displayed the saved Agite greeting. The owner-authorized outbound call remains open.
+  after retry and displayed the saved Agite greeting. The installed Dialer placed the owner-authorized call
+  and saved it as a delivery test. The owner confirmed answering and hearing silence. The test sent no speech
+  from the Mac, so two-way speech remains open.
   See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md).
 
 - November 4 missed-call greeting scope: the custom greeting is saved in Agite's workspace. The source adds a
