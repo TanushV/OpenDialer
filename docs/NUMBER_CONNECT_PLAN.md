@@ -107,9 +107,12 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Verify the new callback greeting plays and ends on a live Telnyx call.
 - [x] Install the signed 0.8.12 update with the new greeting on the Mac.
 - [x] Store the Agite greeting in its workspace and verify the standard greeting for workspaces without a custom one.
-- [ ] Ship the workspace greeting setting and verify the saved Agite greeting on the signed update.
+- [x] Publish the workspace greeting setting and read back the saved Agite greeting with the signed backend.
+- [ ] Install 0.8.13 through the Mac updater and verify the saved greeting in Callbacks.
 - [x] Fix capacity planning for leads without an explicit time zone and verify the calculation on a private workspace copy.
+- [x] Retry the saved capacity job on a private copy with the signed 0.8.13 backend and confirm a fresh forecast.
 - [ ] Retry the failed capacity job in the signed app after updating.
+- [ ] Place the owner-authorized phone test from the installed OpenDialer UI and save it as a delivery test.
 - [ ] Resolve failures before ramping.
 
 ### D. Ramp
@@ -262,7 +265,12 @@ fresh reputation checks before each dial. No audio recording unless the owner as
   Telnyx signed the speech start, speech end and normal hangup. The test callback was closed.
 - The Agite greeting is now saved in the Agite workspace. The workspace setting is available in source under
   **Numbers** and **Settings → More Settings → Callbacks**. All numbers in that workspace share the setting.
-  A blank field uses the standard greeting and voice. This change still needs a signed release and live retest.
+  A blank field uses the standard greeting and voice.
+- [0.8.13](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.13) shipped from `0426c68` after both signed
+  builds and [all six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41956589830) passed. The Mac
+  archive checksum and deep strict signature verified. The packaged backend read the Agite greeting and retried
+  the failed capacity job on a private workspace copy. The job published a fresh forecast. The installed UI
+  retry and live outbound test remain open.
 
 ## Sources
 
