@@ -156,6 +156,14 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 4 signed 0.8.14 update: published from `7b2124c` after both signed builds and all six CI jobs passed
+  (836 SQLite, 837 PostgreSQL, 179 browser journeys). The public manifest matches the verified release. The Mac
+  archive checksum and deep strict signature pass. This Mac installed through OpenDialer's signed updater;
+  installed executables match the archive, the bundle passes deep strict verification, and workspace counts
+  are unchanged. The Mac locked during restart, so installed UI, two-way speech and in-call helper verification
+  await manual unlock. A separate real Cerebras request with the Agite script and objection stage returned
+  guidance in 791 ms, first text in 718 ms; it does not prove live phone audio. The number plan remains open.
+
 - November 4 live-helper review: the conversational prompt now receives the tracked call stage and every
   scripted objection response, including options not picked during lead preparation. Regression tests failed
   before each correction. The affected helper and acceptance suites pass on SQLite and PostgreSQL (51 each).

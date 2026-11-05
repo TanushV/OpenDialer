@@ -1,9 +1,12 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.8.13 installed**, November 4, 2026. Both numbers are ready and pending setup is zero.
+> **Status: CURRENT — 0.8.14 installed**, November 4, 2026. Both numbers were ready in 0.8.13 and pending setup was zero.
 > The installed Dialer delivered the owner's answered phone test; the owner heard silence and the Mac sent no
-> speech, so two-way audio remains unverified. The current capacity calculation succeeds. Out-of-state fallback
-> and live-helper stage/all-objection corrections are committed source work pending a signed desktop release.
+> speech, so two-way audio remains unverified. The capacity calculation succeeded in 0.8.13. Out-of-state fallback
+> and live-helper stage/all-objection corrections shipped in signed 0.8.14. It installed through the app updater,
+> passed archive/executable/signature checks and preserved workspace counts. The Mac locked during restart;
+> manual unlock is needed for the new installed UI and spoken-call checks. A separate real Cerebras request
+> returned stage/script-aware guidance; in-call verification remains open.
 > See [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md) and the Status in [LEAN_PLAN.md](LEAN_PLAN.md).
 >
 > Historical 0.8.0 calling-completion checkpoint, November 2, 2026.

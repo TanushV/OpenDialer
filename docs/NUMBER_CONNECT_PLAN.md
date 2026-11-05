@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 4, 2026. Both numbers are active and ready. A live rep answer passed the shared callback test, and Telnyx confirmed outbound delivery from each number. The installed 0.8.13 release kept Agite's greeting, recalculated the failed capacity plan, and placed an answered delivery test to the owner's phone. Two-way speech between people still needs verification.
+Updated November 4, 2026. Both numbers were ready in the installed 0.8.13 app, and Telnyx confirmed outbound delivery from each number. The signed 0.8.14 update is published and installed with workspace counts preserved. It adds out-of-state fallback and the live-helper stage/all-objection corrections. The Mac locked during restart; the new in-app checks and two-way spoken phone test await unlock. The plan remains open.
 
 ## Goal
 
@@ -116,6 +116,7 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [x] Allow eligible out-of-state caller IDs as a last resort and show their capacity separately in the state plan.
 - [ ] Verify out-of-state fallback in a signed desktop release.
 - [x] Pass the tracked call stage and all scripted objection responses to the conversational live helper.
+- [x] Publish and install the signed 0.8.14 update and verify the installed executables and preserved workspace counts.
 - [ ] Verify the helper corrections in a signed desktop release and during a real spoken conversation.
 - [ ] Resolve failures before ramping.
 
@@ -175,6 +176,15 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 
 ## Verification checkpoint
 
+- [0.8.14](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.14) shipped from `7b2124c` after both signed
+  builds and [all six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/41974301053) passed. SQLite
+  passed 836 tests, PostgreSQL 837, and the browser suite all 179. The public manifest matches the verified release.
+  The Mac archive and DMG match the release checksums; the extracted bundle passes deep strict signature verification.
+  The Mac installed through OpenDialer's updater. Installed executables match the verified archive and the installed
+  bundle passes deep strict verification. Counts remain one user, five leads, two numbers, two outbound attempts and
+  eleven follow-up tasks. The Mac locked during restart, so the new installed UI and spoken-call checks await unlock.
+  A separate real configured Cerebras request received the Agite script and objection stage and returned guidance
+  in 791 ms (718 ms to first text). This verifies the model route and source prompt, not live phone audio.
 - The 0.8.6 runtime is commit `80ec1e1`. [CI](https://github.com/TanushV/OpenDialer/actions/runs/41815242317)
   passed 820 SQLite tests, 821 PostgreSQL tests and 179 browser journeys. Mac and Windows packaging passed.
   The Mac archive checksum and deep strict code signature verified. [Signed release](https://github.com/TanushV/OpenDialer/releases/tag/v0.8.6)
