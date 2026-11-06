@@ -929,7 +929,7 @@ export function App() {
             ) : view === "Numbers" && isAdmin(snapshot.user.role) ? (
               <NumbersPage />
             ) : view === "Script" ? (
-              <ScriptPage />
+              <ScriptPage onNavigate={setView} />
             ) : (
               <SettingsPage
                 onDisconnect={() => void run(disconnect)}

@@ -657,6 +657,7 @@ class Preparation:
         with self.db.transaction(False) as s:
             model = MODELS["leads"]
             lists, now = {}, self.clock()
+            summary = dict.fromkeys(("total", "ready", "skipped", "failed", "working", "waiting"), 0)
             pending = self.pending_preparation(s, p)
             for lead in s.scalars(
                 select(model).where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
@@ -666,7 +667,21 @@ class Preparation:
                 if not self.preparation_permitted(s, p, lead):
                     continue
                 state = self.preparation_state(s, p, lead)
+                category = (
+                    "working"
+                    if lead.id in pending
+                    else state["status"]
+                    if state["status"] in {"ready", "skipped"}
+                    else "failed"
+                    if state["status"] == "failed" and not retry_due(state, now)
+                    else "waiting"
+                )
+                summary["total"] += 1
+                summary[category] += 1
+                catalog = self.required(s, "campaigns", lead.data["campaign_id"], p).data.get("lists", {})
                 for name in memberships(lead.data):
+                    if catalog.get(name, {}).get("archived"):
+                        continue
                     entry = lists.setdefault(
                         name,
                         {
@@ -720,6 +735,8 @@ class Preparation:
                 entry["spent_usd"] = self.scope_spend(s, p, budget_scope(campaign.data, entry["list_name"]))
                 entry["budget_usd"] = budget.get("per_list_usd", 25.0)
             return {
+                "master_version": self.script_base(s, p, campaign)["version"],
+                "summary": summary,
                 "lists": sorted(lists.values(), key=lambda e: e["list_name"]),
                 "threads": threads,
                 "paused_until": paused if paused and dt(paused) > now else None,

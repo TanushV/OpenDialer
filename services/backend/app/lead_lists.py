@@ -33,6 +33,21 @@ def in_list(model, name, sqlite):
     )
 
 
+def active_membership(model, removed_names, sqlite):
+    values = (
+        func.json_each(model.data, "$.list_names")
+        if sqlite
+        else func.json_array_elements_text(model.data["list_names"])
+    ).table_valued("value")
+    return or_(
+        exists(select(1).select_from(values).where(values.c.value.not_in(removed_names))),
+        and_(
+            model.data["list_names"].as_string().is_(None),
+            func.coalesce(model.data["list_name"].as_string(), "").not_in(removed_names),
+        ),
+    )
+
+
 def set_memberships(lead, names):
     names = list(dict.fromkeys(names))
     update(lead, list_names=names, list_name=next(iter(names), ""))
@@ -246,6 +261,12 @@ class LeadLists:
                 self.required(s, "leads", identity, p, lock=True)
                 for identity in dict.fromkeys(body["lead_ids"])
             ]
+            requested = len(leads)
+            if action == "remove":
+                name = body["list_name"].strip()
+                leads = [lead for lead in leads if name in memberships(lead.data)]
+                if not leads:
+                    fail(422, "None of the selected leads belong to that list. Choose a list they belong to.")
             for lead in leads:
                 if action in {"pause", "resume", "archive", "restore"}:
                     update(
@@ -285,4 +306,8 @@ class LeadLists:
                 self.clock(),
                 {"count": len(leads)},
             )
-            return {"updated": len(leads), "leads": [doc(lead) for lead in leads]}
+            return {
+                "updated": len(leads),
+                "unchanged": requested - len(leads),
+                "leads": [doc(lead) for lead in leads],
+            }

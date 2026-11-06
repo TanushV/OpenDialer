@@ -1,9 +1,9 @@
 """Bounded workspace previews and resumable encrypted history; no new search store."""
 
-from sqlalchemy import func, literal_column, or_, select
+from sqlalchemy import and_, func, literal_column, or_, select
 
 from app.db import MODELS, ActiveClaim, Event, Job, after_key, doc
-from app.lead_lists import in_list
+from app.lead_lists import active_membership, in_list
 from app.operational_schema import PAGE_TABLES
 from app.service import fail
 
@@ -92,6 +92,8 @@ class WorkspaceReads:
             valid |= {"unconfirmed", "wrong_party", "callback_requested", "meeting_held"}
         elif section == "tasks":
             valid |= {"open", "closed", "overdue"}
+        elif section == "leads":
+            valid |= {"active", "removed"}
         if filter not in valid:
             fail(422, "Invalid history filter")
         with self.db.transaction(False, session=session) as s:
@@ -106,6 +108,25 @@ class WorkspaceReads:
             query = scoped_query(model, p)
             if section == "leads" and list_name is not None:
                 query = query.where(in_list(model, list_name, self.db.sqlite))
+            if section == "leads" and filter != "all":
+                memberships = []
+                for campaign in self.scoped(s, "campaigns", p):
+                    removed = [
+                        name
+                        for name, state in campaign.data.get("lists", {}).items()
+                        if state.get("archived")
+                    ]
+                    memberships.append(
+                        and_(
+                            model.op_campaign_id == campaign.id,
+                            active_membership(model, removed, self.db.sqlite),
+                        )
+                    )
+                active = and_(
+                    func.coalesce(model.data["archived"].as_boolean(), False).is_(False),
+                    or_(*memberships),
+                )
+                query = query.where(active if filter == "active" else ~active)
             if section in {"calls", "tasks"} and p["role"] == "rep":
                 query = query.where(model.op_owner_id == p["user_id"])
             if section == "tasks":

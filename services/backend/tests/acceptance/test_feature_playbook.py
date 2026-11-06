@@ -50,6 +50,31 @@ def test_new_master_never_reuses_old_personalized_output(workspace):
     assert after["preparation_status"] == "ready"
 
 
+def test_script_save_reports_refresh_and_unique_progress(workspace):
+    ws = workspace
+    save_script(ws)
+    identity = add(ws)
+    import_leads(ws, [{"phone": "+14155557941"}], list_name="Shared script progress")
+    run_jobs(ws, 3)
+    saved = save_script(ws, SCRIPT.replace("Would Tuesday work?", "Can we discuss the new scope?"))
+    assert saved["refresh_required"] is True
+    state = saved["preparation"]
+    assert state["master_version"] == saved["version"]
+    assert state["summary"]["total"] == 1
+    assert state["summary"]["ready"] == 0
+    assert state["summary"]["waiting"] + state["summary"]["working"] == 1
+    run_jobs(ws, 3)
+    script = get(ws, f"/v1/leads/{identity}/packet")["script"]
+    assert script["base_version"] == saved["version"]
+    formatted = save_script(
+        ws, SCRIPT.replace("Would Tuesday work?", "Can we discuss the new scope?").replace("\n\n", "\n\n\n")
+    )
+    assert formatted["refresh_required"] is False
+    assert formatted["preparation"]["summary"]["ready"] == 1
+    run_jobs(ws, 3)
+    assert get(ws, f"/v1/leads/{identity}/packet")["script"]["script_version"] == script["script_version"]
+
+
 def test_subscription_usage_is_persisted_once_and_scoped_to_generation(workspace, app):
     class Agent(SimulatedAgent):
         billing = "chatgpt_plan"
@@ -291,3 +316,19 @@ def test_master_edit_does_not_research_inactive_contacts(workspace, app, action)
     run_jobs(ws, 3)
     assert not seen
     assert not any(x["working"] or x["waiting"] for x in get(ws, "/v1/preparation")["lists"])
+
+
+def test_removed_list_does_not_reappear_in_shared_lead_preparation(workspace):
+    ws = workspace
+    save_script(ws)
+    add(ws)
+    import_leads(ws, [{"phone": "+14155557941"}], list_name="Keep preparation")
+    call(
+        ws,
+        "PATCH",
+        "/v1/lists",
+        json={"campaign_id": ws["campaign_id"], "list_name": "Playbook rewrites", "action": "archive"},
+    )
+    state = get(ws, "/v1/preparation")
+    assert state["summary"]["total"] == 1
+    assert {entry["list_name"] for entry in state["lists"]} == {"Keep preparation"}

@@ -27,7 +27,9 @@ export function useHistory<T extends { id: string; version?: number }>(
       generation.current++;
     };
   }, [identity]);
-  const preview = snapshot.pages?.[section];
+  const preview = Object.keys(parameters).length
+    ? undefined
+    : snapshot.pages?.[section];
   const initialById = new Map(initial.map((row) => [row.id, row]));
   const items =
     loaded?.items.map((row) => {

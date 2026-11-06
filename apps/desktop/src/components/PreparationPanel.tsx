@@ -15,6 +15,15 @@ interface ListProgress {
   skipped_leads: { name: string; reason: string }[];
 }
 export interface PreparationStatus {
+  master_version: number;
+  summary: {
+    total: number;
+    ready: number;
+    skipped: number;
+    failed: number;
+    working: number;
+    waiting: number;
+  };
   lists: ListProgress[];
   threads: { id: string; status: string; leads: number }[];
   paused_until: string | null;
@@ -30,8 +39,10 @@ const money = (value: number) => `$${value.toFixed(2)}`;
 /** Research and per-lead scripts run before calling; this shows how far each list has got. */
 export function PreparationPanel({
   onNavigate,
+  compact = false,
 }: {
   onNavigate: (view: "Script" | "Settings") => void;
+  compact?: boolean;
 }) {
   const { api, run, notice, subscribe, snapshot } = useWorkspace();
   const admin = isAdmin(snapshot.user.role);
@@ -52,7 +63,14 @@ export function PreparationPanel({
   useEffect(
     () =>
       subscribe((events) => {
-        if (events.some((e) => e.type.startsWith("lead.")))
+        if (
+          events.some(
+            (e) =>
+              e.type.startsWith("lead.") ||
+              e.type === "optimization.updated" ||
+              e.type === "campaign.updated",
+          )
+        )
           void load().catch(() => {});
       }),
     [load, subscribe],
@@ -66,13 +84,17 @@ export function PreparationPanel({
   if (!status) return null;
   const lists = status.lists;
   return (
-    <section className="card padded prep-panel" aria-label="Lead preparation">
+    <section
+      className="card padded prep-panel"
+      aria-label={compact ? "Script refresh" : "Lead preparation"}
+    >
       <div className="section-heading">
         <div>
-          <h2>Research and scripts</h2>
+          <h2>{compact ? "Prepared scripts" : "Research and scripts"}</h2>
           <p className="muted small">
-            Before a lead can be called, an AI agent researches it and writes
-            its script from yours.
+            {compact
+              ? `Master version ${status.master_version}. ${status.summary.ready} of ${status.summary.total} leads prepared for the current script.`
+              : "Before a lead can be called, an AI agent researches it and writes its script from yours."}
           </p>
         </div>
         {status.threads.length > 0 && (
@@ -82,6 +104,19 @@ export function PreparationPanel({
           </span>
         )}
       </div>
+      {compact && (
+        <p role="status">
+          {status.summary.waiting + status.summary.working > 0
+            ? `Refreshing ${status.summary.waiting + status.summary.working} lead scripts: ${status.summary.working} in progress, ${status.summary.waiting} waiting.`
+            : "No script refresh is pending."}
+          {status.summary.failed
+            ? ` ${status.summary.failed} failed; current base script remains available.`
+            : ""}
+          {status.summary.skipped
+            ? ` ${status.summary.skipped} skipped; current base script remains available.`
+            : ""}
+        </p>
+      )}
       {!status.has_script && (
         <div className="info-note">
           <p>
@@ -125,97 +160,98 @@ export function PreparationPanel({
           )}
         </div>
       )}
-      {lists.length === 0 ? (
-        <p className="muted">
-          Import a list below. Its leads are researched and scripted first.
-        </p>
-      ) : (
-        <ul className="prep-lists">
-          {lists.map((list) => {
-            const done = list.ready + list.skipped + list.failed;
-            const percent = list.total
-              ? Math.round((done / list.total) * 100)
-              : 0;
-            return (
-              <li key={list.list_name}>
-                <div className="prep-row">
-                  <strong>{list.list_name || "Unnamed list"}</strong>
-                  <span className="fine">
-                    {done} of {list.total} ready to call
-                  </span>
-                </div>
-                <div
-                  className="progress"
-                  role="progressbar"
-                  aria-valuenow={percent}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label={`${list.list_name || "Unnamed list"} preparation`}
-                >
-                  <span style={{ width: `${percent}%` }} />
-                </div>
-                <p className="fine">
-                  {list.ready} with their own script
-                  {list.skipped
-                    ? ` · ${list.skipped} skipped by the agent`
-                    : ""}
-                  {list.failed
-                    ? ` · ${list.failed} using your base script`
-                    : ""}
-                  {list.working ? ` · ${list.working} in progress` : ""}
-                  {list.waiting ? ` · ${list.waiting} waiting` : ""}
-                  {list.spent_usd > 0
-                    ? ` · ${money(list.spent_usd)} of ${money(list.budget_usd)} AI budget`
-                    : ""}
-                </p>
-                {list.skipped_leads?.length > 0 && (
-                  <details className="prep-skipped">
-                    <summary>
-                      Why{" "}
-                      {list.skipped === 1
-                        ? "one lead was"
-                        : `${list.skipped} leads were`}{" "}
-                      skipped
-                    </summary>
-                    <p className="fine">
-                      Skipped leads are called with your script as written.
-                    </p>
-                    <ul>
-                      {list.skipped_leads.map((lead, index) => (
-                        <li key={index}>
-                          <strong>{lead.name || "Unnamed lead"}</strong>{" "}
-                          {lead.reason}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-                {admin && list.waiting > 0 && (
-                  <button
-                    className="text-button"
-                    onClick={() =>
-                      void run(async () => {
-                        const result = await api<{ released: number }>(
-                          "/v1/preparation/lists/release",
-                          "POST",
-                          { list_name: list.list_name },
-                        );
-                        await load();
-                        notice(
-                          `${result.released} leads can be called now with your script as written.`,
-                        );
-                      })
-                    }
+      {!compact &&
+        (lists.length === 0 ? (
+          <p className="muted">
+            Import a list below. Its leads are researched and scripted first.
+          </p>
+        ) : (
+          <ul className="prep-lists">
+            {lists.map((list) => {
+              const done = list.ready + list.skipped + list.failed;
+              const percent = list.total
+                ? Math.round((done / list.total) * 100)
+                : 0;
+              return (
+                <li key={list.list_name}>
+                  <div className="prep-row">
+                    <strong>{list.list_name || "Unnamed list"}</strong>
+                    <span className="fine">
+                      {done} of {list.total} ready to call
+                    </span>
+                  </div>
+                  <div
+                    className="progress"
+                    role="progressbar"
+                    aria-valuenow={percent}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={`${list.list_name || "Unnamed list"} preparation`}
                   >
-                    Call the waiting leads now with the base script
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {admin && draft && (
+                    <span style={{ width: `${percent}%` }} />
+                  </div>
+                  <p className="fine">
+                    {list.ready} with their own script
+                    {list.skipped
+                      ? ` · ${list.skipped} skipped by the agent`
+                      : ""}
+                    {list.failed
+                      ? ` · ${list.failed} using your base script`
+                      : ""}
+                    {list.working ? ` · ${list.working} in progress` : ""}
+                    {list.waiting ? ` · ${list.waiting} waiting` : ""}
+                    {list.spent_usd > 0
+                      ? ` · ${money(list.spent_usd)} of ${money(list.budget_usd)} AI budget`
+                      : ""}
+                  </p>
+                  {list.skipped_leads?.length > 0 && (
+                    <details className="prep-skipped">
+                      <summary>
+                        Why{" "}
+                        {list.skipped === 1
+                          ? "one lead was"
+                          : `${list.skipped} leads were`}{" "}
+                        skipped
+                      </summary>
+                      <p className="fine">
+                        Skipped leads are called with your script as written.
+                      </p>
+                      <ul>
+                        {list.skipped_leads.map((lead, index) => (
+                          <li key={index}>
+                            <strong>{lead.name || "Unnamed lead"}</strong>{" "}
+                            {lead.reason}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                  {admin && list.waiting > 0 && (
+                    <button
+                      className="text-button"
+                      onClick={() =>
+                        void run(async () => {
+                          const result = await api<{ released: number }>(
+                            "/v1/preparation/lists/release",
+                            "POST",
+                            { list_name: list.list_name },
+                          );
+                          await load();
+                          notice(
+                            `${result.released} leads can be called now with your script as written.`,
+                          );
+                        })
+                      }
+                    >
+                      Call the waiting leads now with the base script
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        ))}
+      {!compact && admin && draft && (
         <details className="prep-settings">
           <summary>Agent settings</summary>
           <div className="two-fields">

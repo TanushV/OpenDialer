@@ -91,6 +91,89 @@ def test_bulk_lifecycle_keeps_history_and_can_move_and_remove_membership(workspa
     assert get(workspace, f"/v1/leads/{lead['id']}/packet")["lead"]["id"] == lead["id"]
 
 
+def test_remove_rejects_an_unrelated_list_without_claiming_success(workspace):
+    lead = imported(workspace, "Named source", "+14155550651")
+    before = get(workspace, f"/v1/leads/{lead['id']}/packet")["lead"]
+    post(
+        workspace,
+        "/v1/leads/bulk",
+        {"lead_ids": [lead["id"]], "action": "remove", "list_name": ""},
+        status=422,
+    )
+    after = get(workspace, f"/v1/leads/{lead['id']}/packet")["lead"]
+    assert after["version"] == before["version"]
+    assert after["list_names"] == ["Named source"]
+
+
+def test_remove_counts_only_members_and_keeps_other_lists(workspace):
+    member = imported(workspace, "Remove source", "+14155550652")
+    other = imported(workspace, "Keep source", "+14155550653")
+    import_leads(workspace, [{"phone": member["phone"]}], list_name="Keep source")
+    result = bulk(workspace, [member["id"], other["id"]], "remove", list_name="Remove source")
+    assert result["updated"] == 1 and result["unchanged"] == 1
+    assert result["leads"][0]["list_names"] == ["Keep source"]
+
+
+def test_removed_list_visibility_keeps_shared_contacts_and_restore_history(workspace):
+    baseline = get(workspace, "/v1/workspace/leads")["total"]
+    sole = imported(workspace, "Remove entire list", "+14155550654")
+    shared = import_leads(
+        workspace,
+        [{"name": "Shared", "phone": "+14155550655", "timezone": "America/Los_Angeles"}],
+        list_name="Remove entire list",
+    )["leads"][0]
+    import_leads(workspace, [{"phone": shared["phone"]}], list_name="Other active list")
+    manage(workspace, "Remove entire list", "archive")
+    active = get(workspace, "/v1/workspace/leads", params={"filter": "active"})
+    removed = get(workspace, "/v1/workspace/leads", params={"filter": "removed"})
+    assert sole["id"] not in {row["id"] for row in active["items"]}
+    assert shared["id"] in {row["id"] for row in active["items"]}
+    assert {row["id"] for row in removed["items"]} == {sole["id"]}
+    assert removed["total"] == 1
+    assert get(workspace, "/v1/workspace/leads")["total"] == baseline + 2
+    manage(workspace, "Remove entire list", "restore")
+    assert get(workspace, "/v1/workspace/leads", params={"filter": "active"})["total"] == baseline + 2
+    assert get(workspace, f"/v1/leads/{sole['id']}/packet")["lead"]["id"] == sole["id"]
+
+
+def test_removed_lead_and_last_membership_have_recoverable_views(workspace):
+    baseline = get(workspace, "/v1/workspace/leads")["total"]
+    lead = imported(workspace, "Recoverable", "+14155550656")
+    bulk(workspace, [lead["id"]], "archive")
+    assert get(workspace, "/v1/workspace/leads", params={"filter": "active"})["total"] == baseline
+    assert get(workspace, "/v1/workspace/leads", params={"filter": "removed"})["total"] == 1
+    bulk(workspace, [lead["id"]], "restore")
+    bulk(workspace, [lead["id"]], "remove", list_name="Recoverable")
+    assert get(workspace, "/v1/workspace/leads", params={"filter": "active"})["total"] == baseline
+    assert get(workspace, "/v1/workspace/leads", params={"filter": "removed"})["total"] == 1
+    bulk(workspace, [lead["id"]], "add", list_name="Recovered")
+    assert get(workspace, "/v1/workspace/leads", params={"filter": "active"})["total"] == baseline + 1
+
+
+def test_removed_and_active_views_filter_before_pagination(workspace):
+    baseline = get(workspace, "/v1/workspace/leads")["total"]
+    rows = [
+        {"name": f"Removed {i}", "phone": f"+14155556{i:03}", "timezone": "America/Los_Angeles"}
+        for i in range(60)
+    ]
+    leads = import_leads(workspace, rows, list_name="Paged removal")["leads"]
+    for row in rows[-5:]:
+        import_leads(workspace, [{"phone": row["phone"]}], list_name="Keep tail")
+    manage(workspace, "Paged removal", "archive")
+    active = get(workspace, "/v1/workspace/leads", params={"filter": "active"})
+    assert active["total"] == baseline + 5 and len(active["items"]) == baseline + 5
+    first = get(workspace, "/v1/workspace/leads", params={"filter": "removed"})
+    assert first["total"] == 55 and len(first["items"]) == 50
+    second = get(
+        workspace,
+        "/v1/workspace/leads",
+        params={"filter": "removed", "cursor": first["next_cursor"]},
+    )
+    assert len(second["items"]) == 5 and second["next_cursor"] is None
+    assert len({r["id"] for r in first["items"] + second["items"]}) == 55
+    assert get(workspace, "/v1/workspace/leads")["total"] == baseline + len(leads)
+
+
 def test_outside_callback_requires_an_explicit_choice(workspace, clock):
     east = imported(workspace, "East callback", "+12125550885", "America/New_York")
     west = imported(workspace, "West", "+14155550886")

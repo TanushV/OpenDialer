@@ -438,7 +438,9 @@ class Service(LeadLists, ReservationPlanner):
                     endpoints[phone.e164] = endpoint
                 if (body["campaign_id"], endpoint.id) in existing:
                     result["duplicates"] += 1
-                    duplicate = existing[(body["campaign_id"], endpoint.id)]
+                    duplicate = self.required(
+                        s, "leads", existing[(body["campaign_id"], endpoint.id)].id, p, lock=True
+                    )
                     names = list(
                         dict.fromkeys([*memberships(duplicate.data), body.get("list_name", "").strip()])
                     )

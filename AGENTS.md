@@ -3,6 +3,7 @@
 Testing handoff (current): `docs/HANDOFF.md`, with the code map in `docs/HANDOFF_AST.md`.
 Active feature plan: `docs/CAMPAIGN_PREP_PLAN.md` (one Markdown script, per-lead agent preparation, simple settings; implemented in 0.7.0). Script learning: `docs/SCRIPT_LEARNING.md`.
 Current script update: `docs/SCRIPT_PLAYBOOK_PLAN.md` (flexible Markdown, fresh generations, token usage and the owner-provided Agite script; read on continuation).
+Removal and refresh follow-up: `docs/LIST_REMOVAL_PLAN.md` (intuitive membership/list removal, recoverable views and explicit script refresh status; read on continuation).
 Architecture and calling-policy review: `docs/ARCHITECTURE.md` (November 1, 2026); distinguish current behavior from the owner's requested cadence, final-call voicemail and warmup work.
 Numbers and connect rate plan: `docs/NUMBER_CONNECT_PLAN.md` (November 4; read the full checklist on continuation and compaction).
 Calling completion detail: `docs/CALLING_COMPLETION_PLAN.md` (November 2 owner revision; manual Space/Next call, optional DNC, follow-up scripts, streamed helper and simpler readiness).

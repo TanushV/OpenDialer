@@ -156,6 +156,12 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 5: [list-removal and script-refresh follow-up](LIST_REMOVAL_PLAN.md) is active after the owner
+  reported confusing/no-op membership removal and no intuitive list removal. Preserve the 1.0.0 workspace,
+  credentials and Agite master v3. Add failing regressions, reuse reversible archive state, show active/removed
+  views and explicit script refresh feedback; verify and ship as the 1.0.1 patch. No production removal target
+  was specified, so use isolated simulated contacts for mutation checks and retain the owner's existing archives.
+
 - November 5: owner-requested **1.0.0** is published and installed from `b1b774c`.
   [Release receipt](evidence/lean/release-100-20261105.json). Release TODOs:
   - [x] Save a fresh installed baseline and observe version/manifest acceptance fail before changing inputs.

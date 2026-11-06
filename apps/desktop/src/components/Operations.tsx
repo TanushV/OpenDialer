@@ -50,18 +50,28 @@ export function LeadsPage({
   const [lookupLead, setLookupLead] = useState("");
   const [lookupStatus, setLookupStatus] = useState<Record<string, string>>({});
   const [filterList, setFilterList] = useState<string | null>(null);
+  const [leadView, setLeadView] = useState("active");
   const [selected, setSelected] = useState<string[]>([]);
   const lists = useLists();
-  const history = useHistory(
-    "leads",
-    w.leads,
-    filterList === null ? {} : { list_name: filterList },
-  );
+  const history = useHistory<Lead>("leads", [], {
+    filter: leadView,
+    ...(filterList === null ? {} : { list_name: filterList }),
+  });
   const leads = history.items;
   useEffect(() => {
     setSelected([]);
-    void run(() => history.load(false, query));
-  }, [filterList]);
+    void run(() => history.load(false, query, leadView));
+  }, [filterList, leadView]);
+  useEffect(() => {
+    if (
+      leadView === "active" &&
+      filterList !== null &&
+      lists.data?.lists.some(
+        (list) => list.name === filterList && list.archived,
+      )
+    )
+      setFilterList(null);
+  }, [lists.data, filterList, leadView]);
   return (
     <>
       <div className="page-heading">
@@ -76,6 +86,21 @@ export function LeadsPage({
       <PreparationPanel onNavigate={onNavigate} />
       <section className="card table-card">
         <label>
+          Show
+          <select
+            aria-label="Lead view"
+            value={leadView}
+            onChange={(e) => {
+              setLeadView(e.target.value);
+              setFilterList(null);
+            }}
+          >
+            <option value="active">Active leads</option>
+            <option value="removed">Removed leads</option>
+            <option value="all">All leads and history</option>
+          </select>
+        </label>
+        <label>
           Filter leads by list
           <select
             aria-label="Filter leads by list"
@@ -87,21 +112,31 @@ export function LeadsPage({
             }
           >
             <option value="__all_lists__">All lists</option>
-            {lists.data?.lists.map((list) => (
-              <option key={list.name} value={list.name}>
-                {listLabel(list.name)}
-                {list.archived ? " · archived" : ""}
-              </option>
-            ))}
+            {lists.data?.lists
+              .filter((list) => leadView !== "active" || !list.archived)
+              .map((list) => (
+                <option key={list.name} value={list.name}>
+                  {listLabel(list.name)}
+                  {list.archived ? " · removed" : ""}
+                </option>
+              ))}
           </select>
         </label>
         {admin && (
           <BulkLeadActions
             selected={selected}
+            memberships={[
+              ...new Set(
+                leads
+                  .filter((lead) => selected.includes(lead.id))
+                  .flatMap(leadLists),
+              ),
+            ].sort()}
+            filteredList={filterList}
             updated={async () => {
               setSelected([]);
               await refresh();
-              await history.load(false, query);
+              await history.load(false, query, leadView);
               await lists.reload();
             }}
           />
@@ -124,7 +159,9 @@ export function LeadsPage({
             <button
               aria-label="Search lead history"
               disabled={history.busy}
-              onClick={() => void run(() => history.load(false, query))}
+              onClick={() =>
+                void run(() => history.load(false, query, leadView))
+              }
             >
               Search
             </button>
@@ -204,7 +241,7 @@ export function LeadsPage({
                     className={`pill ${lead.suppressed ? "red" : lead.status === "preparing" ? "amber" : lead.outreach_hold ? "subtle" : "green"}`}
                   >
                     {lead.archived
-                      ? "Archived"
+                      ? "Removed"
                       : lead.dial_paused
                         ? "Paused"
                         : lead.suppressed
@@ -323,6 +360,8 @@ export function LeadsPage({
                     setReport(report);
                     setCSV("");
                     await refresh();
+                    await history.load(false, query, leadView);
+                    await lists.reload();
                     const count = `${report.imported} lead${report.imported === 1 ? "" : "s"} imported.`;
                     notice(
                       report.preparing
@@ -2106,7 +2145,11 @@ function NumberRow({
     </>
   );
 }
-export function ScriptPage() {
+export function ScriptPage({
+  onNavigate,
+}: {
+  onNavigate: (view: "Script" | "Settings") => void;
+}) {
   return (
     <>
       <div className="page-heading">
@@ -2119,6 +2162,7 @@ export function ScriptPage() {
         </div>
       </div>
       <ScriptEditor />
+      <PreparationPanel onNavigate={onNavigate} compact />
       <TokenUsage />
       <details className="card padded">
         <summary>What's working</summary>

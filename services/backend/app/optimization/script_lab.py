@@ -647,7 +647,7 @@ def register_script_lab(app, service, principal, administrator):
     @app.post("/v1/admin/script/import")
     def import_script(body: ImportBody, p=Depends(administrator)):
         """Parse a pasted script. A preview answers with every problem; saving requires none."""
-        from app.preparation.templates import ScriptError, parse_markdown
+        from app.preparation.templates import ScriptError, parse_markdown, template_version
 
         try:
             template, errors = parse_markdown(body.markdown), []
@@ -661,13 +661,16 @@ def register_script_lab(app, service, principal, administrator):
             campaign = selected(s, p)
             if service.script_base(s, p, campaign)["version"] != body.expected_version:
                 fail(409, "The script changed; reload before replacing it")
+            refresh_required = template_version(
+                service.script_base(s, p, campaign)["template"]
+            ) != template_version(template)
             adopted = service.adopt_script_in(s, p, campaign, template, "markdown_upload")
         from app.coaching.knowledge import sync_from_script
 
         sync_from_script(service, p, template)
         # Prepared leads are rewritten in the background for the new script.
         service.prepare_tick(p)
-        return adopted
+        return {**adopted, "refresh_required": refresh_required, "preparation": service.preparation_status(p)}
 
     @app.get("/v1/optimization/script/memory.md")
     def script_memory(p=Depends(principal)):

@@ -38,9 +38,11 @@ test("manage lists and archive/restore selected leads without losing records", a
   await list.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(list.getByText("Paused", { exact: true })).toBeVisible();
   await list.getByRole("button", { name: "Resume", exact: true }).click();
-  await list.getByRole("button", { name: "Archive", exact: true }).click();
-  await expect(list.getByText("Archived", { exact: true })).toBeVisible();
-  await list.getByRole("button", { name: "Restore", exact: true }).click();
+  await list.getByRole("button", { name: "Remove list", exact: true }).click();
+  await expect(list).toBeHidden();
+  await page.getByLabel("Show removed lists", { exact: true }).check();
+  await expect(list.getByText("Removed", { exact: true })).toBeVisible();
+  await list.getByRole("button", { name: "Restore list", exact: true }).click();
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page
     .getByLabel("Filter leads by list")
@@ -50,23 +52,21 @@ test("manage lists and archive/restore selected leads without losing records", a
   await page
     .getByRole("button", { name: "Apply to selected leads", exact: true })
     .click();
-  await expect(
-    page
-      .getByRole("row")
-      .filter({ has: page.getByText("Managed list 091", { exact: true }) })
-      .getByText("Archived", { exact: true }),
-  ).toBeVisible();
+  const contact = page.getByRole("row").filter({
+    has: page.getByText("Managed list 091", { exact: true }),
+  });
+  await expect(contact).toBeHidden();
+  await page.getByLabel("Lead view", { exact: true }).selectOption("removed");
+  await expect(contact.getByText("Removed", { exact: true })).toBeVisible();
   await page.getByLabel("Select Managed list 091").check();
   await page.getByLabel("Lead action", { exact: true }).selectOption("restore");
   await page
     .getByRole("button", { name: "Apply to selected leads", exact: true })
     .click();
-  await expect(
-    page
-      .getByRole("row")
-      .filter({ has: page.getByText("Managed list 091", { exact: true }) })
-      .getByText("Archived", { exact: true }),
-  ).toBeHidden();
+  await expect(contact).toBeHidden();
+  await page.getByLabel("Lead view", { exact: true }).selectOption("active");
+  await expect(contact).toBeVisible();
+  await expect(contact.getByText("Removed", { exact: true })).toBeHidden();
 });
 
 test("Dial from selected lists reserves only that pool and keeps scope across reload", async ({

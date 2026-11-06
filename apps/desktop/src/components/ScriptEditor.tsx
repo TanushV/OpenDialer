@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, FileUp, Sparkles } from "lucide-react";
 import { isAdmin, useWorkspace } from "../context";
 import type { ScriptError, ScriptTemplate } from "../types";
+import type { PreparationStatus } from "./PreparationPanel";
 
 type Base = { version: number; template: ScriptTemplate | null };
 
@@ -135,6 +136,7 @@ export function ScriptEditor() {
   const [errors, setErrors] = useState<ScriptError[]>([]);
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savedFeedback, setSavedFeedback] = useState("");
   const edited = useRef(false);
   // The version the open edits started from: saving never silently replaces a newer one.
   const [startedFrom, setStartedFrom] = useState<number | null>(null);
@@ -201,16 +203,27 @@ export function ScriptEditor() {
       if (!base) return;
       setSaving(true);
       try {
-        await api("/v1/admin/script/import", "POST", {
+        const result = await api<{
+          refresh_required: boolean;
+          preparation: PreparationStatus;
+        }>("/v1/admin/script/import", "POST", {
           markdown: text,
           expected_version: startedFrom ?? base.version,
           preview: false,
         });
         edited.current = false;
         await load();
-        notice(
-          "Script saved. Prepared leads are rewritten for it in the background.",
-        );
+        const message = !result.refresh_required
+          ? "Script saved. Formatting-only edit; prepared scripts kept."
+          : !result.preparation.ai_connected
+            ? "Script saved. Connect AI in Settings to refresh lead scripts."
+            : result.preparation.paused_until
+              ? "Script saved. Refresh is paused; resume preparation below."
+              : result.preparation.summary.total === 0
+                ? "Script saved. New leads will use this version."
+                : "Script saved. Lead scripts refresh automatically for this version.";
+        setSavedFeedback(message);
+        notice(message);
       } finally {
         setSaving(false);
       }
@@ -283,6 +296,13 @@ export function ScriptEditor() {
           </button>
         </div>
       </div>
+      <p className="fine">
+        Save meaningful changes to refresh prepared lead scripts automatically
+        from your new script and current research. Formatting-only edits keep
+        the prepared scripts. Active calls keep their original script; paused or
+        removed leads refresh when restored.
+      </p>
+      {savedFeedback && <p role="status">{savedFeedback}</p>}
       {overtaken && (
         <div className="alert" role="status">
           A newer version was saved while you were editing.
