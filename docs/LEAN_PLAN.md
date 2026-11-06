@@ -156,6 +156,11 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 5: owner approved implementing [Markdown playbooks and token usage](SCRIPT_PLAYBOOK_PLAN.md),
+  fresh per-lead generations after template changes, signed publication/update and replacing Agite's saved script
+  with the supplied playbook. Six new parser/HTTP regressions fail before product changes. Installed 0.9.2 and
+  all existing data remain unchanged. The new feature checklist remains open until native and real-model verification.
+
 - November 5: list controls and the hard 17:00 lead-local cutoff shipped in 0.9.1; the
   [feature checklist](LIST_DIALING_PLAN.md) is complete. Native verification caught a pre-existing mixed-zone
   scoring error on the newly imported list. A failing regression preceded its one-line correction, shipped
