@@ -41,7 +41,12 @@ test("a Markdown playbook shows non-spoken cues and measured rewrite usage", asy
     await page
       .getByRole("button", { name: "Save script", exact: true })
       .click();
-    await expect(page.getByText(/Script saved/)).toBeVisible();
+    await expect(
+      page
+        .getByRole("region", { name: "Your script", exact: true })
+        .getByRole("status")
+        .filter({ hasText: /Script saved/ }),
+    ).toBeVisible();
     saved = true;
     const usage = page.getByRole("region", { name: "Model token usage" });
     await expect(usage).toBeVisible();
@@ -68,7 +73,12 @@ test("a Markdown playbook shows non-spoken cues and measured rewrite usage", asy
       await page
         .getByRole("button", { name: "Save script", exact: true })
         .click();
-      await expect(page.getByText(/Script saved/)).toBeVisible();
+      await expect(
+        page
+          .getByRole("region", { name: "Your script", exact: true })
+          .getByRole("status")
+          .filter({ hasText: /Script saved/ }),
+      ).toBeVisible();
     }
   }
 });
