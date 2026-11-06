@@ -1169,7 +1169,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     .distinct()
                 )
             )
-            lists = sorted(set(lists) | set(campaign.data.get("lists", {})))
+            catalog = campaign.data.get("lists", {})
+            lists = sorted(
+                name for name in set(lists) | set(catalog) if not catalog.get(name, {}).get("archived")
+            )
             key = planning_key(campaign.id, list_name=list_name)
             job = s.scalar(
                 select(Job)

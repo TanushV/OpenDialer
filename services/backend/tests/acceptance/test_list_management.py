@@ -124,6 +124,9 @@ def test_removed_list_visibility_keeps_shared_contacts_and_restore_history(works
     )["leads"][0]
     import_leads(workspace, [{"phone": shared["phone"]}], list_name="Other active list")
     manage(workspace, "Remove entire list", "archive")
+    choices = get(workspace, "/v1/admin/numbers/summary")["lists"]
+    assert "Remove entire list" not in choices
+    assert "Other active list" in choices
     active = get(workspace, "/v1/workspace/leads", params={"filter": "active"})
     removed = get(workspace, "/v1/workspace/leads", params={"filter": "removed"})
     assert sole["id"] not in {row["id"] for row in active["items"]}
