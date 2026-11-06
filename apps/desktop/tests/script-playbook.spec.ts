@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { isolatedSimulationWorkspace } from "./simulation";
 
 const script = `# Goal
 Earn a 20-minute conversation.
@@ -23,6 +24,7 @@ test("a Markdown playbook shows non-spoken cues and measured rewrite usage", asy
     name: "Try a simulated workspace",
   });
   if (await sample.isVisible()) await sample.click();
+  await isolatedSimulationWorkspace(page, "playbook-rewrite-usage");
   await page.getByRole("button", { name: "Script", exact: true }).click();
   const editor = page.getByLabel("Script Markdown");
   await expect(editor).toBeVisible();
