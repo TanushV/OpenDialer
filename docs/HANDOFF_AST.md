@@ -1,4 +1,4 @@
-# 0.9.1 list-management delta (November 5, 2026)
+# 0.9.1 list-management and 0.9.2 planner delta (November 5, 2026)
 
 `lead_lists.py` owns membership predicates for SQLite/PostgreSQL, reversible list/lead controls and list summaries.
 `Service` mixes it into the existing queue/authorization pipeline. Queue scope is persisted with reservations/calls
@@ -6,6 +6,9 @@ and rechecked on submission. `compliance/policy.py` caps new calls at 17:00; an 
 `components/LeadLists.tsx` provides Lists, bulk lead controls and the Dialer pool selector; `useHistory` forwards
 list filters to the same bounded history endpoint. Acceptance: `test_list_management.py`; browser: `lists.spec.ts`.
 Existing list labels use a read-time membership fallback; no data scan or cutover runs at startup.
+The 0.9.2 correction makes `optimization/capacity.py:Assignment.value_groups` score in the first plausible
+zone, matching `value_at`, while `zone_mask` still checks every plausible calling window. Regression:
+`test_time_capacity.py:test_slot_scoring_uses_one_zone_while_hours_check_every_plausible_zone`.
 
 The older code map below is historical.
 

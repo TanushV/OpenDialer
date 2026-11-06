@@ -1,0 +1,180 @@
+{
+  "scope": [
+    "New outbound calls, including callbacks, stop at 17:00 in every applicable lead-local timezone; earlier cutoffs remain. Ongoing conversations and inbound callbacks continue.",
+    "List counts and lifecycle controls; lead bulk actions, membership and location correction; selected-list dialing and explicit due callbacks outside the pool.",
+    "Duplicate imports share one campaign contact and retained history across lists; management and scope are checked at reservation and submission."
+  ],
+  "prior_live_evidence": {
+    "version": "0.8.14",
+    "receipt": "calling-0814-20261104.json",
+    "human_two_way_audio": "owner confirmed clear both directions",
+    "new_phone_call_or_microphone_session_for_this_release": false
+  },
+  "remaining_gates": [
+    "Live tracked-stage checkpoint, vendor/email objection and complete fresh post-call rundown.",
+    "Broader carrier/device labels, AMD and final rep-spoken voicemail qualification.",
+    "Real prospect ramp and at least 5000 post-ramp attempts; the 12 percent connect-rate target remains unproven.",
+    "Apple Developer ID/notarization and Windows publisher trust remain outside current signing setup."
+  ],
+  "source_size": {
+    "backend_lines": 38671,
+    "backend_ast_nodes": 267324,
+    "frontend_lines": 18974,
+    "frontend_tokens": 105577,
+    "rust_lines": 998,
+    "note": "Owner-authorized end-feature growth; historical lean size targets remain missed."
+  },
+  "version": "0.9.2",
+  "date": "2026-11-05",
+  "source_commit": "ad3356cc8972dd00c31680b38ae6cfe2dfea8a73",
+  "verification_commit": "ad3356cc8972dd00c31680b38ae6cfe2dfea8a73",
+  "requested_release": "0.9.1; published and installed, then superseded by this normal signed follow-up after native testing exposed a pre-existing planner error.",
+  "regression_first": {
+    "initial_missing_behaviors": 6,
+    "additional_cases": [
+      "Active conversation transcription after the outbound cutoff.",
+      "Company spacing in callable list counts.",
+      "Secondary-list preparation progress.",
+      "Saved capacity staleness after list edits."
+    ],
+    "version_contract_red_before_inputs": 2,
+    "mixed_zone_slot_scoring": "ZoneInfoNotFoundError reproduced before correction; first-zone scoring and every-zone calling windows pass afterward.",
+    "private_saved_workspace_copy": "Fresh forecast succeeds for all 59 leads after failing with the original source.",
+    "focused_planner_distribution_passed": 131
+  },
+  "ci": {
+    "run_id": 42133890663,
+    "url": "https://github.com/TanushV/OpenDialer/actions/runs/42133890663",
+    "status": "passed",
+    "jobs": 6,
+    "sqlite": {
+      "passed": 850,
+      "skipped": 10
+    },
+    "postgres": {
+      "passed": 851,
+      "skipped": 9
+    },
+    "browser_passed": 181,
+    "frontend_passed": 82,
+    "native_packaging_passed": 25,
+    "rust_passed": 7,
+    "lint_format_typecheck_clippy": "passed"
+  },
+  "signed_release": {
+    "run_id": 42133897338,
+    "url": "https://github.com/TanushV/OpenDialer/releases/tag/v0.9.2",
+    "status": "published",
+    "mac_build": "passed",
+    "windows_build": "passed",
+    "public_manifest_matches": true,
+    "version": "0.9.2",
+    "archive_sha256": "4521efeac3c65ecdf07b5c7a07a7a8bd3b57841ae31fc6c50a6ad49679f62958",
+    "checksum": "passed",
+    "bundle_signature": "deep strict passed",
+    "bundle_identifier": "com.opendialer.desktop",
+    "platforms": [
+      "darwin-aarch64",
+      "windows-x86_64",
+      "windows-x86_64-nsis",
+      "windows-x86_64-msi"
+    ],
+    "executables": {
+      "codex-code-mode-host": "0ed9f44319f46ed749653281c35b6706ab272916b6ed8290add6b61524f04416",
+      "opendialer-backend": "ca9ac024f048f0fef6281f82a9b830877b555880aa4712f826995871b1d448a6",
+      "opendialer-codex": "0ec7469699bf2f4ee54d543b911313d7319a3beb55e91e0b2c9919f5da6dd393",
+      "opendialer-desktop": "5af1ae436dde607518d73431ed4f1042a96b092c265ee01beacb62cada44ff06",
+      "opendialer-trainer": "4a79cb7102fe15b3d14b1945f5bf5ea7bad5c8d93a84a4b19b4cbd3c82c4d34a"
+    }
+  },
+  "installed_before": {
+    "version": "0.9.1",
+    "at": "2026-11-06T00:15:29.035120+00:00",
+    "database_quick_check": "ok",
+    "tables": {
+      "users": {
+        "count": 1,
+        "id_sha256": "feb1ae0e38b9be53e0cfd8c353c79f7b12986be4179ccad4952b00057b50774e"
+      },
+      "leads": {
+        "count": 59,
+        "id_sha256": "f2f55331e4dfe0665bb93af3c96f64caf8b3848e2e3760c03c2655bba3b2bc27"
+      },
+      "number_inventory": {
+        "count": 2,
+        "id_sha256": "a51f5a3da70c6c27cc0b34c37b29048a2371786d94fbdd620a21f37e92b6e65e"
+      },
+      "call_attempts": {
+        "count": 4,
+        "id_sha256": "c3e7ef0846400759342a93fcd5fd8658db46ce829424992b989344075b99ac90"
+      },
+      "followup_tasks": {
+        "count": 11,
+        "id_sha256": "6fa435345a5dfb33218dd6577d8df1611f3ceb4f97627e16d57415e97b53931e"
+      }
+    }
+  },
+  "installed_after": {
+    "version": "0.9.2",
+    "installed_executables_match_archive": true,
+    "installed_bundle_signature": "deep strict passed",
+    "database_quick_check": "ok",
+    "workspace_counts_and_id_hashes_match": true,
+    "tables": {
+      "users": {
+        "count": 1,
+        "id_sha256": "feb1ae0e38b9be53e0cfd8c353c79f7b12986be4179ccad4952b00057b50774e"
+      },
+      "leads": {
+        "count": 59,
+        "id_sha256": "f2f55331e4dfe0665bb93af3c96f64caf8b3848e2e3760c03c2655bba3b2bc27"
+      },
+      "number_inventory": {
+        "count": 2,
+        "id_sha256": "a51f5a3da70c6c27cc0b34c37b29048a2371786d94fbdd620a21f37e92b6e65e"
+      },
+      "call_attempts": {
+        "count": 4,
+        "id_sha256": "c3e7ef0846400759342a93fcd5fd8658db46ce829424992b989344075b99ac90"
+      },
+      "followup_tasks": {
+        "count": 11,
+        "id_sha256": "6fa435345a5dfb33218dd6577d8df1611f3ceb4f97627e16d57415e97b53931e"
+      }
+    },
+    "backend_health": {
+      "status": "ok",
+      "version": "0.9.2",
+      "mode": "local",
+      "simulation": false,
+      "initialized": true
+    },
+    "ui_version": "0.9.2",
+    "numbers_ready": 2,
+    "pending_setup": 0,
+    "capacity_plan": "Current after native UI retry at 16:18 Pacific, November 5.",
+    "agite_greeting": "retained in workspace",
+    "calling": "Telnyx connected",
+    "chatgpt": "connected",
+    "live_help_key": "configured",
+    "calling_hours": [
+      8,
+      17
+    ],
+    "dialing": "paused",
+    "dial_lists": "all active lists",
+    "new_phone_call_or_microphone_session": false
+  },
+  "native_feature_checks": {
+    "lists_page": "Four existing lists, counts and lifecycle controls inspected on installed 0.9.1; same frontend in 0.9.2.",
+    "dial_scope": "Selected one list, navigated away and verified retention; restored all active lists.",
+    "lead_controls": "Filtered owner test list, selected/cleared contact and inspected all eight bulk operations; restored all-leads view without changing contacts.",
+    "latest_backend_check": "0.9.2 capacity retry succeeds on actual workspace; preserved numbers, greeting, provider setup and hours verified in UI."
+  },
+  "cleanup": {
+    "temporary_extracted_app_removed": true,
+    "task_owned_disposable_postgres_stopped_and_removed": true,
+    "verification_auth_session_created": false,
+    "task_owned_awake_helper_stopped": true
+  }
+}

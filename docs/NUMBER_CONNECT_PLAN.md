@@ -1,6 +1,6 @@
 # Numbers and connect rate plan
 
-Updated November 5, 2026. Signed 0.9.0 is published and installed as a version promotion of 0.8.14; no calling behavior changed. Both numbers show ready with zero pending setup, and capacity refresh succeeds. The late November 4 human microphone test passed: the owner confirmed both audio directions were clear, and real Cerebras text guidance responded to the spoken stop request. The test is finalized and excluded from connect-rate metrics, normal controls are restored and dialing is paused. The vendor/email objection, tracked-stage checkpoint and the wider carrier/traffic/measurement gates remain open.
+Updated November 5, 2026. Signed 0.9.1 added list controls and a hard 17:00 lead-local cutoff; 0.9.2 is published and installed with a mixed-zone planner correction found during native verification. Both numbers show ready with zero pending setup, and the actual 59-lead workspace's capacity refresh succeeds. All saved IDs, provider setup and Agite greeting remain; hours are 08:00–17:00 and dialing is paused. The late November 4 human microphone test passed: the owner confirmed both audio directions were clear, and real Cerebras text guidance responded to the spoken stop request. The test is finalized and excluded from connect-rate metrics. The vendor/email objection, tracked-stage checkpoint and the wider carrier/traffic/measurement gates remain open.
 
 ## Goal
 
@@ -123,6 +123,8 @@ Telnyx account: the owner reports it is now Verified. The hourly cap and automat
 - [ ] Verify a complete post-call rundown during a fresh spoken test while raw speech is still available. The saved
   owner delivery test has a partial rundown; human outcome, audio evidence and notes are retained.
 - [x] Publish and install 0.9.0, pass full CI and verify its installed version, retained workspace and both ready numbers.
+- [x] Publish/install 0.9.1 list controls and 17:00 cutoff; resolve the mixed-zone planner error through signed 0.9.2
+  and verify actual-workspace capacity, retained records and both ready numbers in the installed UI.
 - [x] Record the owner's answer/silence report and finalize the 0.8.14 delivery test with audio unconfirmed.
 - [x] Verify actual human speech through the Mac microphone to the phone and speech from the phone back to the rep.
 - [ ] Resolve failures before ramping.
@@ -182,6 +184,17 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - Display of caller name and branding varies by carrier and device. Nothing guarantees clean labels.
 
 ## Verification checkpoint
+
+- November 5: [0.9.1](https://github.com/TanushV/OpenDialer/releases/tag/v0.9.1) shipped the owner-approved
+  [list/hours checklist](LIST_DIALING_PLAN.md). Native refresh exposed a pre-existing mixed-zone scoring error
+  on the newly imported list. A regression failed before the one-line correction; a private copy of all 59 leads
+  now forecasts successfully. [0.9.2](https://github.com/TanushV/OpenDialer/releases/tag/v0.9.2) is published and
+  installed from `ad3356c`. All six CI jobs pass (850 SQLite, 851 PostgreSQL, 181 browser) and both signed builds
+  pass. Public manifest, archive/installed signatures and all executable hashes verify. The UI/service report
+  0.9.2; all workspace IDs/counts remain, both numbers are ready with zero pending setup, saved provider setup and
+  Agite greeting remain, and native capacity retry shows **Capacity plan is current** at 16:18 Pacific.
+  The app is paused with all active lists selected and 08:00–17:00 hours. No new phone call or microphone session
+  was opened; the wider live/measurement TODOs above remain open. [Receipt](evidence/lean/release-092-20261105.json).
 
 - November 5: [0.9.0](https://github.com/TanushV/OpenDialer/releases/tag/v0.9.0) is published and installed
   from `4d1888b`. All six CI jobs and both signed builds passed. The public manifest matches the verified

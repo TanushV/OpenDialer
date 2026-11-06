@@ -156,13 +156,18 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
-- November 5: owner approved list controls and a hard 17:00 lead-local cutoff for 0.9.1.
-  [Active feature checklist](LIST_DIALING_PLAN.md). Regression tests first reproduced six missing behaviors;
-  initial 47 focused policy/list cases pass on SQLite and PostgreSQL. Implementation adds reversible list/lead
-  states, shared membership for duplicate imports, selected-list dialing and explicit outside callbacks.
-  Frontend controls and browser journeys are under verification. Broader suite fixtures are being adjusted
-  to the shorter workday without weakening their capacity/publication assertions. Signed publication and
-  native verification remain TODOs. Existing installed 0.9.0 and workspace are unchanged so far.
+- November 5: list controls and the hard 17:00 lead-local cutoff shipped in 0.9.1; the
+  [feature checklist](LIST_DIALING_PLAN.md) is complete. Native verification caught a pre-existing mixed-zone
+  scoring error on the newly imported list. A failing regression preceded its one-line correction, shipped
+  through a normal signed 0.9.2 update from `ad3356c`. All six CI jobs pass: 850 SQLite, 851 PostgreSQL,
+  181 browser, 82 frontend, 25 native/package and seven Rust tests. Both signed desktop builds pass.
+  This Mac installed both releases through the updater; the final UI/service report 0.9.2, signatures,
+  public manifest and executable hashes verify, and all record IDs/counts remain (59 leads, two numbers,
+  four calls and eleven tasks). Native capacity retry now succeeds; both numbers show ready with zero
+  pending setup. List counts, pool selection/retention, lead filtering and bulk controls were checked in
+  the installed UI. Saved provider setup, Agite greeting and 08:00–17:00 hours remain. Dialing is paused
+  with all active lists selected. No new phone call or microphone session was opened. The wider number
+  plan and its live scenarios/measurement gates remain open. [Final receipt](evidence/lean/release-092-20261105.json).
 
 
 - November 5 owner-requested 0.9.0 release is published and installed from `4d1888b`. This is a version

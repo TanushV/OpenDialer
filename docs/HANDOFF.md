@@ -1,10 +1,15 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.9.0 installed**, November 5, 2026. Both numbers show ready with zero pending setup;
-> capacity refresh succeeds with out-of-state fallback. This is a version-only promotion of 0.8.14;
-> all six CI jobs and both signed desktop builds passed. The installed UI/service report 0.9.0, signatures and
-> executable hashes pass, and original workspace IDs/counts are retained. No new phone call was placed for this
-> update. [0.9.0 receipt](evidence/lean/release-090-20261105.json).
+> **Status: CURRENT — 0.9.2 installed**, November 5, 2026. List controls and the hard 17:00 lead-local
+> cutoff shipped in 0.9.1. Native capacity refresh caught a pre-existing mixed-zone scoring error; a regression
+> preceded the correction, delivered through the signed 0.9.2 updater. All six CI jobs and both desktop builds
+> passed (850 SQLite, 851 PostgreSQL, 181 browser, 82 frontend, 25 native/package, seven Rust).
+> The installed UI/service report 0.9.2; archive/installed signatures, hashes and public manifest pass.
+> All IDs/counts remain: 59 leads, two numbers, four calls and eleven tasks. Both numbers show ready with
+> zero pending setup; the actual workspace's capacity retry now shows **Capacity plan is current**.
+> Native list counts, pool selection/retention, filtering and bulk controls were inspected. Saved provider setup,
+> Agite greeting and 08:00–17:00 hours remain. No new phone call or microphone session was opened.
+> [Feature checklist](LIST_DIALING_PLAN.md), [final receipt](evidence/lean/release-092-20261105.json).
 > The late November 4 human microphone test passed on 0.8.14:
 > the owner confirmed both directions were clear, and rep/remote speech reached the app. Real Cerebras text
 > guidance responded to the spoken stop request. The saved delivery-test result is `two_way`, finalized and
