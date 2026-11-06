@@ -335,3 +335,23 @@ async def test_offline_script_review_outlives_the_short_completion_deadline(
     else:
         with pytest.raises(codex.InferenceError):
             await client.complete("Write.", {"mode": "slow_review"}, {"type": "object"})
+
+
+@pytest.mark.asyncio
+async def test_parallel_reviews_do_not_hold_the_login_lock_during_inference(
+    tmp_path, runtime_fixture, monkeypatch
+):
+    codex = runtime_fixture
+    home = tmp_path / "parallel-reviews"
+    codex.save_login(home, login())
+    deadline = asyncio.timeout
+    monkeypatch.setattr(codex.asyncio, "timeout", lambda seconds: deadline(seconds / 1000))
+    clients = [codex.CodexClient(home, "fixture", "submit_script_review") for _ in range(2)]
+    results = await asyncio.gather(
+        *(client.complete("Review.", {"mode": "slow_review"}, {"type": "object"}) for client in clients),
+        return_exceptions=True,
+    )
+    assert all(not isinstance(result, BaseException) for result in results), results
+    assert all(result.usage == {"input_tokens": 12, "output_tokens": 4} for result in results)
+    assert read_private(home / "auth.json")["tokens"]["refresh_token"] == "rotated-during-inference"
+    assert {path.name for path in home.iterdir()} == {"auth.json", ".lock"}

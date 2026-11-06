@@ -1,4 +1,4 @@
-# Markdown playbooks, fresh rewrites and token usage — 0.10.1
+# Markdown playbooks, fresh rewrites and token usage — 0.10.2
 
 Owner approved November 5, 2026. Implementation, publication, this Mac's signed update and replacing Agite's
 saved script with the owner's supplied playbook are authorized. Preserve all workspace data and credentials.
@@ -31,10 +31,10 @@ Read this checklist along with LEAN_PLAN.md and NUMBER_CONNECT_PLAN.md after eve
 - [x] Persistent token accounting and scoped usage reporting, including partial/unknown totals.
 - [x] Flexible Markdown structure, aliases, defaults, notes, options and editor/reader/live-helper integration.
 - [x] Fresh generation, research reuse/refresh, sample estimates, active-call/version safeguards and progress.
-- [ ] Full SQLite/PostgreSQL, frontend/browser/native checks; fix discovered errors with regressions.
-- [ ] Bump 0.10.0, commit/push, build both signed desktop packages, verify and publish.
-- [ ] Update this Mac through the signed updater; verify data, provider setup, numbers and capacity remain.
-- [ ] Replace Agite's script through the app, regenerate from it and verify real token receipts and version linkage.
+- [x] Full SQLite/PostgreSQL, frontend/browser/native checks; fix discovered errors with regressions.
+- [x] Bump 0.10.0/0.10.1, commit/push, build both signed desktop packages, verify and publish.
+- [x] Update this Mac through the signed updater; verify data, provider setup, numbers and capacity remain.
+- [ ] Replace Agite's script through the app import handler, regenerate every requested active lead and verify real token receipts and version linkage.
 - [ ] Commit final evidence and current handoff; close only when every item works.
 
 ## Checkpoint
@@ -63,3 +63,21 @@ completion limit at maximum effort. Failed receipts correctly retained unknown c
 regression precedes a longer deadline only for offline script review. 0.10.1 is required before close-out.
 New batches are temporarily paused while that patch builds; preserve and restore the prior unpaused state,
 resume remaining leads and regenerate any current-master scripts whose independent review was interrupted.
+
+Current checkpoint: 0.10.1 is published and installed from `f5d108c` (CI 42151152325, signed build
+42151151461). All six CI jobs pass: 869 SQLite, 870 PostgreSQL, 182 browser, 83 frontend,
+25 native/package and seven Rust. Public manifest, archive/installed signatures and all executable hashes
+match. Agite master v3 and all core record IDs/counts remain. Native Numbers, saved greeting, providers,
+hours and script/objection views pass. The temporary preparation pause is removed. Of 57 requested active
+leads, 15 with interrupted reviews were requeued through the existing rewrite action; 20 current scripts
+are reviewed and ready, with 37 still waiting/working. The first patched review completed in about 191
+seconds with reported counters (including time waiting for the login lock). Keep this checklist open
+until current generation/review finishes and the final receipt/handoff are committed. No new carrier call
+or microphone session was opened. Disposable test PostgreSQL is stopped and moved to Trash; extracted
+verification app copies are also in Trash. The task's awake helper remains active until preparation finishes.
+
+All 57 requested active leads now have current-v3 scripts; 52 are independently reviewed. One post-patch review
+failed after 120 seconds while another review held the personal login lock. A concurrent-subprocess regression
+reproduces the timeout before the fix. Completion now uses the same short credential-file locking as agent
+threads, so inference does not hold the login lock. 0.10.2 publication/update and the five affected reviews
+remain open. Historical failed attempts remain in usage reporting with unknown counters.

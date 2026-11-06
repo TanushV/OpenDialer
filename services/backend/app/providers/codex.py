@@ -241,7 +241,7 @@ class CodexRuntime:
             return {k: account.get(k) for k in ("type", "email", "planType")}
 
     async def complete(self, model, instructions, context, schema, tool_name, *, on_usage=None, seconds=120):
-        async with self.session(seconds=seconds):
+        async with self.session(seconds=seconds, shared=True):
             thread = await self.request(
                 "thread/start",
                 {
@@ -453,16 +453,15 @@ class CodexClient:
         )
 
     async def complete(self, instructions, context, schema):
-        async with personal_lock(self.home):
-            result = await CodexRuntime(self.home).complete(
-                self.model,
-                instructions,
-                context,
-                schema,
-                self.tool_name,
-                **({"seconds": 900} if self.tool_name == "submit_script_review" else {}),
-                **({"on_usage": self.usage_callback} if getattr(self, "usage_callback", None) else {}),
-            )
+        result = await CodexRuntime(self.home).complete(
+            self.model,
+            instructions,
+            context,
+            schema,
+            self.tool_name,
+            **({"seconds": 900} if self.tool_name == "submit_script_review" else {}),
+            **({"on_usage": self.usage_callback} if getattr(self, "usage_callback", None) else {}),
+        )
         if not isinstance(result.get("arguments"), dict) or not result.get("call_id"):
             raise InferenceError("Codex must submit a named tool result.")
         return InferenceResult(
