@@ -46,3 +46,9 @@ Frontend 83 tests and typecheck pass. Browser and native release checks continue
 13 KB, three pitch variants and eleven objections, with conditional proof/charging lines kept as directions.
 No production script or installed application has changed yet. See [usage guide](SCRIPT_PLAYBOOK.md).
 The wider number/connect-rate plan remains open for its independent live scenarios and traffic measurement.
+
+The full browser continuation exposed a nullable human-note field crashing fresh preparation after a call.
+A failing HTTP regression reproduced the stuck state; empty notes are now normalized. Three more regressions
+preceded excluding paused, archived and opted-out contacts from automatic dispatch, claims and progress.
+All 33 related journeys pass on both stores. The initial signed draft remains unpublished and is being replaced
+with these runtime fixes; full CI/browser verification and native installation are still required.

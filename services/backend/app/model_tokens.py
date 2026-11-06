@@ -249,11 +249,7 @@ def estimate(service, p, *, list_name=None):
         )
         if list_name is not None:
             query = query.where(in_list(model, list_name, service.db.sqlite))
-        eligible = [
-            r
-            for r in s.scalars(query)
-            if service.list_permitted(s, p, r) and not service.suppressed(s, p, r.data["phone"])
-        ]
+        eligible = [r for r in s.scalars(query) if service.preparation_permitted(s, p, r)]
         count = len(eligible)
         remaining = sum(service.preparation_state(s, p, r)["status"] != "ready" for r in eligible)
     receipt = report(

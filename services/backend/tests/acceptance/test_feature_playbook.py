@@ -1,7 +1,19 @@
 """HTTP acceptance for fresh generations and subscription token receipts."""
 
+import pytest
 from app.preparation.agent import SimulatedAgent
-from journey import call, get, import_leads, post, ready, reserve, run_jobs
+from journey import (
+    answered_by_human,
+    call,
+    get,
+    hang_up,
+    import_leads,
+    post,
+    ready,
+    reserve,
+    run_jobs,
+    wrap_up,
+)
 from test_campaign_prep import SCRIPT, save_script
 
 
@@ -218,3 +230,64 @@ def test_cumulative_metered_cost_settles_once_at_the_final_receipt(workspace, ap
     assert report["records"][0]["cost_usd"] == 0.02
     assert report["records"][0]["status"] == "completed"
     assert get(workspace, f"/v1/leads/{identity}/packet")["script"]["preparation_status"] == "ready"
+
+
+def test_rewrite_after_a_call_accepts_an_ai_note_with_no_human_edit(workspace):
+    ws = workspace
+    save_script(ws)
+    identity = add(ws)
+    run_jobs(ws, 3)
+    offered = reserve(ws, list_names=["Playbook rewrites"])
+    assert offered.status_code == 200
+    placed = post(
+        ws,
+        "/v1/calls/start",
+        {"reservation_id": offered.json()["reservation_id"], "idempotency_key": "note-rewrite"},
+    )
+    answered_by_human(ws, placed["id"])
+    post(
+        ws,
+        f"/v1/calls/{placed['id']}/transcript",
+        {
+            "segment_id": "history-remark",
+            "revision": 1,
+            "side": "remote",
+            "text": "Our current process is manual. Please send some information.",
+            "is_final": True,
+        },
+    )
+    hang_up(ws, placed["id"])
+    wrap_up(ws, placed["id"], outcome="not_interested", contact_role="right_party")
+    run_jobs(ws, 3)
+    assert get(ws, f"/v1/calls/{placed['id']}/analysis")["human_notes"] is None
+    before = get(ws, f"/v1/leads/{identity}/packet")["script"]
+    save_script(ws, SCRIPT.replace("Would Tuesday work?", "Could we review the new scope?"))
+    run_jobs(ws, 3)
+    after = get(ws, f"/v1/leads/{identity}/packet")["script"]
+    assert after["preparation_status"] == "ready"
+    assert after["script_version"] != before["script_version"]
+
+
+@pytest.mark.parametrize("action", ["pause", "archive", "suppress"])
+def test_master_edit_does_not_research_inactive_contacts(workspace, app, action):
+    ws = workspace
+    seen = []
+
+    class Agent(SimulatedAgent):
+        async def run(self, *args, **kwargs):
+            seen.append(True)
+            return await super().run(*args, **kwargs)
+
+    app.state.service.agent_route = lambda p: Agent()
+    save_script(ws)
+    identity = add(ws)
+    run_jobs(ws, 3)
+    seen.clear()
+    if action == "suppress":
+        post(ws, "/v1/suppressions", {"phone": "+14155557941", "reason": "opt_out"})
+    else:
+        post(ws, "/v1/leads/bulk", {"lead_ids": [identity], "action": action})
+    save_script(ws, SCRIPT.replace("Would Tuesday work?", "A new close?"))
+    run_jobs(ws, 3)
+    assert not seen
+    assert not any(x["working"] or x["waiting"] for x in get(ws, "/v1/preparation")["lists"])

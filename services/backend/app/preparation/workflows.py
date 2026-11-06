@@ -77,6 +77,13 @@ def company_key(lead):
 
 
 class Preparation:
+    def preparation_permitted(self, s, p, lead):
+        return (
+            lead.data.get("status") in {"eligible", "preparing"}
+            and self.list_permitted(s, p, lead)
+            and not self.suppressed(s, p, lead.data["phone"])
+        )
+
     def preparation_settings(self, s, p):
         key = ("preparation_settings", p["tenant_id"], p["seller_id"])
         if key not in s.info:
@@ -452,11 +459,11 @@ class Preparation:
                         "outcome": row.data.get("outcome"),
                         "at": row.data.get("started_at"),
                         "summary": (
-                            (note.data.get("notes") or {}).get("summary", "")
+                            ((note.data.get("notes") or {}).get("summary") or "")
                             if note and not note.data.get("stale")
                             else ""
                         )[:1000],
-                        "human_notes": (note.data.get("human_text", "") if note else "")[:1000],
+                        "human_notes": ((note.data.get("human_text") or "") if note else "")[:1000],
                     }
                 )
             result[identity] = summaries
@@ -490,7 +497,7 @@ class Preparation:
             for lead in s.scalars(query):
                 if list_name is not None and list_name not in memberships(lead.data):
                     continue
-                if not self.list_permitted(s, p, lead) or self.suppressed(s, p, lead.data["phone"]):
+                if not self.preparation_permitted(s, p, lead):
                     continue
                 if remaining_only and self.preparation_state(s, p, lead)["status"] == "ready":
                     continue
@@ -595,6 +602,8 @@ class Preparation:
                 ):
                     if lead.id in pending or not lead.data.get("prepare_requested"):
                         continue
+                    if not self.preparation_permitted(s, p, lead):
+                        continue
                     if needs_preparation(self.preparation_state(s, p, lead), now):
                         candidates.append(lead)
                         if len(candidates) >= room * config["leads_per_agent"]:
@@ -653,6 +662,8 @@ class Preparation:
                 select(model).where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
             ):
                 if not lead.data.get("prepare_requested"):
+                    continue
+                if not self.preparation_permitted(s, p, lead):
                     continue
                 state = self.preparation_state(s, p, lead)
                 for name in memberships(lead.data):
@@ -737,6 +748,8 @@ class Preparation:
             for lead_id in lead_ids:
                 lead = self.required(s, "leads", lead_id, p)
                 s.refresh(lead, with_for_update=True)
+                if not self.preparation_permitted(s, p, lead):
+                    continue
                 lease = lead.data.get("preparation_lease") or {}
                 if lease.get("expires_at") and dt(lease["expires_at"]) > self.clock():
                     continue
