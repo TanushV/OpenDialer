@@ -504,7 +504,7 @@ class Assignment:
 
     def value_groups(self, index):
         """Starts merged by equal predicted value, best first; one pass per zone/estimate."""
-        key = (self.work[index].timezone, self.estimate_ids[index])
+        key = (self.work[index].timezone.split("|")[0], self.estimate_ids[index])
         if key not in self.groups:
             values, merged = self.estimates[index], defaultdict(int)
             if len(values) > 1:

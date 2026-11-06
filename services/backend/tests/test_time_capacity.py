@@ -3,6 +3,7 @@
 import itertools
 import tracemalloc
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from app.db import get, put, update
@@ -56,6 +57,31 @@ def test_calls_outside_staffed_hours_cannot_be_fixed_by_buying_numbers():
     assert result["minimum_additional_numbers"] == 0
     assert result["staffing_shortfall"] == 1
     assert result["schedule_scope"] == "declared_staffed_windows"
+
+
+def test_slot_scoring_uses_one_zone_while_hours_check_every_plausible_zone():
+    now = datetime(2026, 11, 5, 16, tzinfo=UTC)
+    result = capacity_forecast(
+        [
+            lead(
+                "uncertain",
+                phone="+12125550191",
+                state="CA",
+                timezone=None,
+                slot_estimates={"3:8": 0.1, "3:10": 0.9},
+            )
+        ],
+        [number()],
+        now=now,
+        horizon_hours=24,
+        handling_seconds=120,
+        policy={"max_attempts": 1, "local_start_hour": 8, "local_end_hour": 17},
+        staffed_windows=[window(now, minutes=420)],
+    )
+    assert result["existing_only_capacity"] == 1
+    at = datetime.fromisoformat(result["existing_schedule"][0]["at"])
+    assert at.astimezone(ZoneInfo("America/Los_Angeles")).hour == 10
+    assert 8 <= at.astimezone(ZoneInfo("America/New_York")).hour < 17
 
 
 def test_one_number_daily_capacity_cannot_be_borrowed_from_an_unstaffed_tomorrow():

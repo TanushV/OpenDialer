@@ -1,4 +1,4 @@
-# List management and local calling hours — 0.9.1
+# List management and local calling hours — 0.9.1, planner follow-up 0.9.2
 
 Owner approved November 5, 2026. This extends LEAN_PLAN.md with an end feature.
 
@@ -21,18 +21,27 @@ Owner approved November 5, 2026. This extends LEAN_PLAN.md with an end feature.
 - [x] Leads list controls and bulk actions; Dialer selection and outside callbacks.
 - [x] Browser journeys for management and selected-list dialing.
 - [ ] Full database, frontend, browser and native checks; fix regressions.
-- [ ] Bump 0.9.1, commit/push and build signed Mac and Windows packages.
+- [x] Bump 0.9.1, commit/push and build signed Mac and Windows packages.
 - [ ] Verify package signatures/manifests and publish 0.9.1.
 - [ ] Computer-use review of the implemented UI and update authorized Mac; retain workspace/credentials.
 - [ ] Commit release evidence and update handoff/current plans.
+- [ ] Fix mixed-time-zone slot scoring found in installed capacity planning; publish/install 0.9.2.
 
 This checklist closes on verified software/release completion. The wider number/connect-rate plan remains open
 for its separate live scenarios, carrier qualification and real-traffic measurement.
 
 ## Checkpoint
 
-Initial regression failures and focused SQLite/PostgreSQL results are recorded in the working logs.
-Two new browser journeys pass and all 82 frontend tests plus typecheck/build pass. Additional regressions
-cover company spacing in list counts, shared preparation progress and stale capacity after list edits.
-The 17:00 cutoff applies to new submissions; ongoing conversations keep their transcription/help path.
-Broader exact-source verification and the signed 0.9.1 release are next.
+Regression-first tests reproduced the hours, list-management, scope and shared-membership gaps. Full source
+suites pass 849 cases on SQLite and 850 on PostgreSQL; 82 frontend and 25 native/package plus seven Rust
+tests pass. The full browser run passed 180 of 181: the new list fixture reused a helper contact's phone,
+so correct deduplication returned zero new contacts. With a separate phone, all eight helper/list journeys
+pass together; a fresh full CI run is in progress. No product change followed the signed builds.
+0.9.1 is published from `4ec9268`, with all six CI jobs green on the test-only fixture correction `6b54ca3`
+(181 browser journeys). It is installed through the signed updater; signatures, executable hashes and all
+workspace IDs/counts match. The Lists page, one-list selection, retained scope, lead filter and bulk-action
+menu work in the installed UI. All active lists and the all-leads view are restored afterward.
+Both numbers remain ready with zero pending setup, the saved greeting remains and hours are 08:00–17:00.
+Native capacity refresh exposed a separate pre-existing mixed-zone scoring error on the newly imported list.
+A regression reproduces `ZoneInfoNotFoundError` before the one-line correction. 0.9.2 is the signed follow-up
+so already-updated 0.9.1 installations can receive the fix normally; final verification remains open.

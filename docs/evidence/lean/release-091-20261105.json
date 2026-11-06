@@ -1,0 +1,169 @@
+{
+  "version": "0.9.1",
+  "date": "2026-11-05",
+  "source_commit": "4ec92682c96b425497595a00e73096d4fae0375f",
+  "verification_commit": "6b54ca3316c4d45cfa6dba8058ab5c3780c28c5b",
+  "scope": [
+    "New outbound calls, including callbacks, stop at 17:00 in every applicable lead-local timezone; earlier cutoffs remain. Ongoing conversations and inbound callbacks continue.",
+    "List counts and lifecycle controls; lead bulk actions, membership and location correction; selected-list dialing and explicit due callbacks outside the pool.",
+    "Duplicate imports share one campaign contact and retained history across lists; management and scope are checked at reservation and submission."
+  ],
+  "regression_first": {
+    "initial_missing_behaviors": 6,
+    "additional_cases": [
+      "Active conversation transcription after the outbound cutoff.",
+      "Company spacing in callable list counts.",
+      "Secondary-list preparation progress.",
+      "Saved capacity staleness after list edits."
+    ],
+    "version_contract_red_before_inputs": 2
+  },
+  "ci": {
+    "run_id": 42131300619,
+    "url": "https://github.com/TanushV/OpenDialer/actions/runs/42131300619",
+    "status": "passed",
+    "sqlite": {
+      "passed": 849,
+      "skipped": 10
+    },
+    "postgres": {
+      "passed": 850,
+      "skipped": 9
+    },
+    "frontend_passed": 82,
+    "native_packaging_passed": 25,
+    "rust_passed": 7,
+    "initial_source_run": {
+      "run_id": 42129397581,
+      "browser_passed": 180,
+      "browser_failed": 1,
+      "reason": "New list test reused the delayed-helper fixture phone; correct deduplication linked the existing contact. Test-only fixture corrected; all eight helper/list journeys pass together."
+    },
+    "runtime_tree_unchanged_after_build": true,
+    "browser_passed": 181
+  },
+  "signed_release": {
+    "run_id": 42129494545,
+    "url": "https://github.com/TanushV/OpenDialer/releases/tag/v0.9.1",
+    "status": "published",
+    "mac_build": "passed",
+    "windows_build": "passed",
+    "version": "0.9.1",
+    "archive_sha256": "ff67c103dae8848b265cf80a4718aef1d9310f8b69d4aa3ade006c0c22c7e2a7",
+    "checksum": "passed",
+    "bundle_signature": "deep strict passed",
+    "bundle_identifier": "com.opendialer.desktop",
+    "platforms": [
+      "darwin-aarch64",
+      "windows-x86_64",
+      "windows-x86_64-nsis",
+      "windows-x86_64-msi"
+    ],
+    "executables": {
+      "codex-code-mode-host": "0ed9f44319f46ed749653281c35b6706ab272916b6ed8290add6b61524f04416",
+      "opendialer-backend": "d82fdf98f92a02f8bc72ee05ea2e2fcf20e5c64c6ba37c8f7a3e2c5c734c5e9e",
+      "opendialer-codex": "0ec7469699bf2f4ee54d543b911313d7319a3beb55e91e0b2c9919f5da6dd393",
+      "opendialer-desktop": "4007e398a67e4b88c49725bc76af32c9e674eed36eb9550a0c2b51fd97bd3091",
+      "opendialer-trainer": "929d57372f2a4c4c04d1cdd101897b41ebd548e05b25338161d0345a75d3e87d"
+    },
+    "public_manifest_matches": true
+  },
+  "installed_before": {
+    "version": "0.9.0",
+    "at": "2026-11-05T23:42:41.061196+00:00",
+    "database_quick_check": "ok",
+    "tables": {
+      "users": {
+        "count": 1,
+        "id_sha256": "feb1ae0e38b9be53e0cfd8c353c79f7b12986be4179ccad4952b00057b50774e"
+      },
+      "leads": {
+        "count": 59,
+        "id_sha256": "f2f55331e4dfe0665bb93af3c96f64caf8b3848e2e3760c03c2655bba3b2bc27"
+      },
+      "number_inventory": {
+        "count": 2,
+        "id_sha256": "a51f5a3da70c6c27cc0b34c37b29048a2371786d94fbdd620a21f37e92b6e65e"
+      },
+      "call_attempts": {
+        "count": 4,
+        "id_sha256": "c3e7ef0846400759342a93fcd5fd8658db46ce829424992b989344075b99ac90"
+      },
+      "followup_tasks": {
+        "count": 11,
+        "id_sha256": "6fa435345a5dfb33218dd6577d8df1611f3ceb4f97627e16d57415e97b53931e"
+      }
+    },
+    "calling_hours": [
+      8,
+      17
+    ],
+    "hours_saved_through_native_ui": true
+  },
+  "prior_live_evidence": {
+    "version": "0.8.14",
+    "receipt": "calling-0814-20261104.json",
+    "human_two_way_audio": "owner confirmed clear both directions",
+    "new_phone_call_or_microphone_session_for_this_release": false
+  },
+  "remaining_gates": [
+    "Live tracked-stage checkpoint, vendor/email objection and complete fresh post-call rundown.",
+    "Broader carrier/device labels, AMD and final rep-spoken voicemail qualification.",
+    "Real prospect ramp and at least 5000 post-ramp attempts; the 12 percent connect-rate target remains unproven.",
+    "Apple Developer ID/notarization and Windows publisher trust remain outside current signing setup."
+  ],
+  "cleanup": {
+    "temporary_extracted_app_removed": true,
+    "task_owned_disposable_postgres_stopped_and_removed": true,
+    "verification_auth_session_created": false
+  },
+  "source_size": {
+    "backend_lines": 38671,
+    "backend_ast_nodes": 267324,
+    "frontend_lines": 18974,
+    "frontend_tokens": 105577,
+    "rust_lines": 998,
+    "note": "Owner-authorized end-feature growth; historical lean size targets remain missed."
+  },
+  "installed_after": {
+    "version": "0.9.1",
+    "installed_executables_match_archive": true,
+    "installed_bundle_signature": "deep strict passed",
+    "database_quick_check": "ok",
+    "workspace_counts_and_id_hashes_match": true,
+    "tables": {
+      "users": {
+        "count": 1,
+        "id_sha256": "feb1ae0e38b9be53e0cfd8c353c79f7b12986be4179ccad4952b00057b50774e"
+      },
+      "leads": {
+        "count": 59,
+        "id_sha256": "f2f55331e4dfe0665bb93af3c96f64caf8b3848e2e3760c03c2655bba3b2bc27"
+      },
+      "number_inventory": {
+        "count": 2,
+        "id_sha256": "a51f5a3da70c6c27cc0b34c37b29048a2371786d94fbdd620a21f37e92b6e65e"
+      },
+      "call_attempts": {
+        "count": 4,
+        "id_sha256": "c3e7ef0846400759342a93fcd5fd8658db46ce829424992b989344075b99ac90"
+      },
+      "followup_tasks": {
+        "count": 11,
+        "id_sha256": "6fa435345a5dfb33218dd6577d8df1611f3ceb4f97627e16d57415e97b53931e"
+      }
+    },
+    "ui_version": "0.9.1",
+    "lists_displayed": 4,
+    "single_list_selection_and_navigation_retention": "passed; restored all active lists",
+    "lead_filter_and_bulk_action_menu": "passed; restored all leads and cleared selection",
+    "numbers_ready": 2,
+    "pending_setup": 0,
+    "greeting": "Agite workspace greeting retained",
+    "capacity_plan": "failed with mixed-zone scoring; follow-up 0.9.2 required"
+  },
+  "follow_up": {
+    "version": "0.9.2",
+    "reason": "Native capacity refresh exposed pre-existing slot scoring passing a joined pair of time zones into ZoneInfo. One-line fix has a failing-before/passing-after regression and a successful fresh forecast on a private 59-lead workspace copy."
+  }
+}
