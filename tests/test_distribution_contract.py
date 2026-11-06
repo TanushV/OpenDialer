@@ -39,7 +39,7 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
 
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
-    for name in ("OpenDialer.app.tar.gz", "OpenDialer_1.0.0_aarch64.dmg", "OpenDialer_1.0.0_x64-setup.exe"):
+    for name in ("OpenDialer.app.tar.gz", "OpenDialer_1.0.1_aarch64.dmg", "OpenDialer_1.0.1_x64-setup.exe"):
         (artifacts / name).write_bytes(b"test artifact")
         (artifacts / (name + ".sig")).write_text("test signature")
     output = tmp_path / "output"
@@ -59,10 +59,10 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
     release_notes = (ROOT / "docs/RELEASE_NOTES.md").read_text()
     version = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())["version"]
     assert release_notes.splitlines()[0] == "# OpenDialer " + version
-    assert "Your Markdown playbook." in notes
-    assert "Fresh scripts for each lead." in notes
-    assert "Visible model usage." in notes
-    assert "Lists and local calling hours." in notes
+    assert "Remove lists clearly." in notes
+    assert "Choose a real membership." in notes
+    assert "See script refresh progress." in notes
+    assert "Keep shared contacts." in notes
     assert "Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials" in notes
     assert "fresh workspace" in notes
     assert "old data stays untouched" in notes
@@ -164,7 +164,7 @@ def test_version_identity_artifact_contract():
         next(p["version"] for p in python_lock["package"] if p["name"] == "opendialer"),
         next(p["version"] for p in cargo_lock["package"] if p["name"] == "opendialer-desktop"),
     ]
-    assert versions == ["1.0.0"] * len(versions)
+    assert versions == ["1.0.1"] * len(versions)
     assert tauri["identifier"] == "com.opendialer.desktop"
     updater = tauri["plugins"]["updater"]
     assert (
