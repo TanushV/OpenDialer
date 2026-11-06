@@ -156,6 +156,16 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 5: owner requested the release name **1.0.0**, replacing the 0.x label. Version promotion only;
+  preserve the verified 0.10.2 behavior, installed workspace, saved credentials and master-v3 preparation.
+  Release TODOs:
+  - [x] Save a fresh installed baseline and observe version/manifest acceptance fail before changing inputs.
+  - [x] Set all nine root release inputs to 1.0.0 and use concise product-facing release notes.
+  - [ ] Pass verification and build both signed desktop packages from the same commit.
+  - [ ] Verify the Mac package and manifest, publish 1.0.0 and install through this Mac's signed updater.
+  - [ ] Verify installed UI/service, signatures, retained records/scripts/providers, both numbers and capacity.
+  - [ ] Commit final evidence and current handoff; leave the wider number/connect-rate gates open.
+
 - November 5: [0.10.2](https://github.com/TanushV/OpenDialer/releases/tag/v0.10.2) is published and installed
   from `c3a8cc5`. The [Markdown/token feature checklist](SCRIPT_PLAYBOOK_PLAN.md) is complete. All six CI jobs
   pass (870 SQLite, 871 PostgreSQL, 182 browser, 83 frontend, 25 native/package, seven Rust), as do both signed
