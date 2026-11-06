@@ -29,12 +29,15 @@ class InferenceClient:
         tool_name=None,
     ):
         self.mode, self.api_key, self.model = mode, api_key, model
+        self.billing = "litellm" if mode == "litellm" else "openai"
         self.tool_name = tool_name
         self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
         self.http, self.timeout = http, timeout
         self.official = mode == "api" and self.base_url == "https://api.openai.com/v1"
 
-    async def run(self, instructions, tools, handler, first, follow_up, *, web_search=True, max_turns=3):
+    async def run(
+        self, instructions, tools, handler, first, follow_up, *, web_search=True, max_turns=3, on_usage=None
+    ):
         """A tool-calling agent loop. The official API also gets metered web search for research."""
         functions = [
             {
@@ -46,7 +49,7 @@ class InferenceClient:
             }
             for tool in tools
         ]
-        usage, searches = {"input_tokens": 0, "output_tokens": 0}, 0
+        usage, searches = {}, 0
         chat = self.mode == "litellm"
         if chat:
             messages = [{"role": "system", "content": instructions}, {"role": "user", "content": first}]
@@ -69,7 +72,23 @@ class InferenceClient:
                 if response.status_code == 429:
                     raise InferenceError("Inference rate limited (429)")
                 response.raise_for_status()
-                return response.json()
+                payload = response.json()
+                from app.model_tokens import counters
+
+                normalized = counters(payload.get("usage", {}))
+                for key in (
+                    "input_tokens",
+                    "output_tokens",
+                    "cached_tokens",
+                    "reasoning_tokens",
+                    "cost",
+                    "cost_usd",
+                ):
+                    if key in normalized:
+                        usage[key] = usage.get(key, 0) + normalized[key]
+                if on_usage:
+                    await on_usage({**usage, "web_search_calls": searches})
+                return payload
             except (httpx.HTTPError, ValueError) as exc:
                 raise InferenceError("Inference failed: " + type(exc).__name__) from exc
 
@@ -94,9 +113,6 @@ class InferenceClient:
                             (c["function"]["name"], c["function"]["arguments"], c["id"])
                             for c in message.get("tool_calls") or []
                         ]
-                        part = payload.get("usage", {})
-                        usage["input_tokens"] += part.get("prompt_tokens", 0)
-                        usage["output_tokens"] += part.get("completion_tokens", 0)
                     else:
                         payload = await post(
                             http,
@@ -118,9 +134,8 @@ class InferenceClient:
                             for item in output
                             if item.get("type") == "function_call"
                         ]
-                        part = payload.get("usage", {})
-                        usage["input_tokens"] += part.get("input_tokens", 0)
-                        usage["output_tokens"] += part.get("output_tokens", 0)
+                    if on_usage:
+                        await on_usage({**usage, "web_search_calls": searches})
                     if not calls:
                         break
                     for name, arguments, call_id in calls:
@@ -209,6 +224,11 @@ class InferenceClient:
                         await r.aread()
                         raise InferenceError(f"Inference HTTP {r.status_code}")
                     payload = json.loads(await r.aread())
+                    observer = getattr(self, "usage_callback", None)
+                    if observer:
+                        from app.model_tokens import counters
+
+                        await observer(counters(payload.get("usage", {})))
                     if self.tool_name:
                         return self.action_result(payload)
                     if self.mode == "litellm":
@@ -217,11 +237,9 @@ class InferenceClient:
                             raise InferenceError("Model refused")
                         output = message.get("content", "")
                         usage = payload.get("usage", {})
-                        usage = {
-                            **usage,
-                            "input_tokens": usage.get("prompt_tokens", 0),
-                            "output_tokens": usage.get("completion_tokens", 0),
-                        }
+                        from app.model_tokens import counters
+
+                        usage = counters(usage)
                     else:
                         pieces = [c for item in payload.get("output", []) for c in item.get("content", [])]
                         if any(c.get("type") == "refusal" for c in pieces):
@@ -254,11 +272,9 @@ class InferenceClient:
                 if len(calls) != 1 or calls[0].get("type") != "function":
                     raise ValueError("Exactly one action required")
                 action = {**calls[0]["function"], "call_id": calls[0].get("id")}
-                usage = {
-                    **usage,
-                    "input_tokens": usage.get("prompt_tokens", 0),
-                    "output_tokens": usage.get("completion_tokens", 0),
-                }
+                from app.model_tokens import counters
+
+                usage = counters(usage)
             else:
                 if payload.get("status") != "completed":
                     raise ValueError("Incomplete action")

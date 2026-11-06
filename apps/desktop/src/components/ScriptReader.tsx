@@ -31,6 +31,12 @@ function Option({
     <div className="script-option">
       {option.title && <strong>{option.title}</strong>}
       <p>{withWritten(option.text, written)}</p>
+      {option.notes && (
+        <aside className="script-cue">
+          <strong>Rep directions</strong>
+          <p>{option.notes}</p>
+        </aside>
+      )}
     </div>
   );
 }
@@ -41,6 +47,17 @@ export function ScriptReader({ script }: { script: Partial<Script> }) {
   const sections = script.sections ?? [];
   return (
     <div className="script-reader">
+      {Object.keys(script.context ?? {}).length > 0 && (
+        <details className="script-directions">
+          <summary>Playbook directions · not spoken</summary>
+          {Object.entries(script.context ?? {}).map(([key, value]) => (
+            <section key={key}>
+              <h3>{key.replaceAll("_", " ")}</h3>
+              <p>{value}</p>
+            </section>
+          ))}
+        </details>
+      )}
       {written.length > 0 && (
         <p className="fine script-legend">
           <Sparkles size={13} /> Highlighted lines were written for this lead
@@ -66,6 +83,12 @@ export function ScriptReader({ script }: { script: Partial<Script> }) {
                 <details key={option.id} className="script-objection">
                   <summary>{option.title}</summary>
                   <p>{withWritten(option.text, written)}</p>
+                  {option.notes && (
+                    <aside className="script-cue">
+                      <strong>Rep directions</strong>
+                      <p>{option.notes}</p>
+                    </aside>
+                  )}
                 </details>
               ))}
             </section>

@@ -11,6 +11,7 @@ type Section =
   | "opening"
   | "screening"
   | "gatekeeper"
+  | "pitch"
   | "discovery"
   | "offers"
   | "objections"
@@ -72,6 +73,7 @@ const SECTION_NAMES: Record<Section, string> = {
   opening: "Opening",
   screening: "Screening",
   gatekeeper: "Gatekeeper",
+  pitch: "Pitch",
   discovery: "Discovery",
   offers: "Offers",
   objections: "Objections",

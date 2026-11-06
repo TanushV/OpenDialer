@@ -123,8 +123,9 @@ test("the script editor parses as you type and lists every problem with its line
   const errors = page.locator(".script-errors");
   await expect(errors).toContainText("Line 1");
   await expect(errors).toContainText("Every Opening must say who is calling");
-  await expect(errors).toContainText("Unknown section '# Pitch'");
-  await expect(errors).toContainText("Add a '# Screening' section");
+  await expect(errors).toContainText("Add a '# Close' section");
+  await expect(errors).not.toContainText("Unknown section '# Pitch'");
+  await expect(errors).not.toContainText("Add a '# Screening' section");
   await expect(
     page.getByRole("button", { name: "Save script" }),
   ).toBeDisabled();

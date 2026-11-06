@@ -2443,3 +2443,43 @@ details.transcript-card {
 .bulk-leads input[type="checkbox"] {
   width: auto;
 }
+
+.script-cue {
+  margin: 0.65rem 0;
+  padding: 0.65rem 0.9rem;
+  border-left: 3px solid #42654c;
+  background: #f2f5ed;
+  font-size: 0.88rem;
+  white-space: pre-line;
+}
+.script-cue > strong {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.script-cue p {
+  margin: 0.3rem 0 0;
+}
+.token-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 1rem;
+  margin: 1.2rem 0;
+}
+.token-totals dt {
+  color: #6d7568;
+  font-size: 0.82rem;
+}
+.token-totals dd {
+  margin: 0.2rem 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+.token-usage table small {
+  display: block;
+}
+.token-usage .table-scroll {
+  margin: 1rem 0;
+  max-height: 420px;
+  overflow: auto;
+}

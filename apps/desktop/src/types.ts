@@ -226,6 +226,7 @@ export interface Call {
   } | null;
 }
 export interface ScriptOption {
+  notes?: string;
   id: string;
   title: string | null;
   text: string;
@@ -240,6 +241,7 @@ export interface ScriptSection {
   options?: ScriptOption[];
 }
 export interface ScriptTemplate {
+  context?: Record<string, string>;
   format: 2;
   markdown: string;
   sections: {
@@ -263,6 +265,7 @@ export interface ScriptError {
   message: string;
 }
 export interface Script {
+  context?: Record<string, string>;
   sections?: ScriptSection[];
   picks?: Record<string, string[]>;
   written?: Record<string, { text: string; fact_ids: string[] }>;

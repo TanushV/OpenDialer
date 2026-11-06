@@ -122,6 +122,9 @@ Work in two phases for every lead.
 2. Script writing: pick the best options for this lead in every section that has options and write the text for each
    {{ }} block in the options you picked, following that block's instruction. Every written text cites the fact ids it
    relies on (saved fact ids, or row:<column> for the lead's row). Submit with submit_script.
+When research_mode is reuse, use known_facts and their existing ids; do not repeat web research. Finish research
+from these facts and the row. Always write fresh text from the current master; no old personalized script is provided.
+Follow playbook_context as non-spoken seller instructions. Prior calls are historical evidence, not new commitments.
 Rules: never invent facts, numbers, prices, guarantees or relationships. Never use a Never say phrase. Keep each
 written text short and natural to say out loud. Use skip_lead only for a clear reason about the business. Do not
 judge the phone number: the app checks numbers before calling. If a tool answers with
@@ -162,6 +165,7 @@ def script_outline(template):
                     {
                         "id": option["id"],
                         **({"title": option["title"]} if option["title"] else {}),
+                        **({"notes": option["notes"]} if option.get("notes") else {}),
                         "text": TOKEN.sub(lambda m: "{{" + m[1] + "}}", option["text"]),
                         "blocks": {b: instructions[b] for b in TOKEN.findall(option["text"])},
                     }
@@ -190,6 +194,7 @@ class ThreadWork:
             "facts": self.template.get("facts", []),
             "never_say": self.template.get("never_say", []),
             "what_works": memory,
+            "playbook_context": self.template.get("context", {}),
         }
 
     def remaining(self):

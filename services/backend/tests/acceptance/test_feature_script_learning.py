@@ -230,7 +230,8 @@ def test_proposals_keep_identity_and_compliance_lines_locked(workspace):
     )  # No {rep}/{seller}.
     propose(ws, 422, section="opening", text="Hi {name}, {rep} from {seller}. We guarantee results.")
     propose(ws, 422, section="opening", text="Hi {name}, {rep} from {seller} about {pricing}.")
-    propose(ws, 422, section="discovery", text="What happens when an invoice is late?")  # Not bullets.
+    plain = propose(ws, section="discovery", text="What happens when an invoice is late?")
+    assert plain["template"]
     added = propose(
         ws,
         section="discovery",
@@ -245,7 +246,7 @@ def test_proposals_keep_identity_and_compliance_lines_locked(workspace):
     assert candidate["screening"]["options"][0]["text"] == SECTIONS["screening"]
     lab = get(ws, "/v1/optimization/script")
     assert lab["base"]["version"] == base and lab["base"]["source"] == "markdown_upload"
-    assert [p["id"] for p in lab["proposals"]] == [added["id"]]
+    assert [p["id"] for p in lab["proposals"]] == [added["id"], plain["id"]]
 
 
 def opening(template):

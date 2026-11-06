@@ -28,9 +28,9 @@ Read this checklist along with LEAN_PLAN.md and NUMBER_CONNECT_PLAN.md after eve
 ## TODOs
 
 - [x] Acceptance and provider/parser regressions first; record failing-before evidence.
-- [ ] Persistent token accounting and scoped usage reporting, including partial/unknown totals.
-- [ ] Flexible Markdown structure, aliases, defaults, notes, options and editor/reader/live-helper integration.
-- [ ] Fresh generation, research reuse/refresh, sample estimates, active-call/version safeguards and progress.
+- [x] Persistent token accounting and scoped usage reporting, including partial/unknown totals.
+- [x] Flexible Markdown structure, aliases, defaults, notes, options and editor/reader/live-helper integration.
+- [x] Fresh generation, research reuse/refresh, sample estimates, active-call/version safeguards and progress.
 - [ ] Full SQLite/PostgreSQL, frontend/browser/native checks; fix discovered errors with regressions.
 - [ ] Bump 0.10.0, commit/push, build both signed desktop packages, verify and publish.
 - [ ] Update this Mac through the signed updater; verify data, provider setup, numbers and capacity remain.
@@ -39,6 +39,10 @@ Read this checklist along with LEAN_PLAN.md and NUMBER_CONNECT_PLAN.md after eve
 
 ## Checkpoint
 
-Implementation beginning from clean main `9e5d058`, installed 0.9.2. Six new parser/HTTP cases fail before
-product changes (work/script-playbook-red.log). Existing usage has OpenRouter receipts but no persisted ChatGPT preparation totals.
+Implementation began from clean main `9e5d058`, installed 0.9.2. New parser/HTTP/provider/native/UI regressions
+cover aliases, optional sections, directions, fresh generation, research modes, cumulative/unknown/partial tokens and
+metered settlement. Full local SQLite 867 and PostgreSQL 868 pass; subsequent provider/cost regressions pass.
+Frontend 83 tests and typecheck pass. Browser and native release checks continue. The owner playbook converts to
+13 KB, three pitch variants and eleven objections, with conditional proof/charging lines kept as directions.
+No production script or installed application has changed yet. See [usage guide](SCRIPT_PLAYBOOK.md).
 The wider number/connect-rate plan remains open for its independent live scenarios and traffic measurement.

@@ -1,6 +1,7 @@
 """The owner-authored playbook keeps cues separate and accepts a useful small structure."""
 
-from app.preparation.templates import parse_markdown, render, template_version
+import pytest
+from app.preparation.templates import ScriptError, parse_markdown, render, template_version
 
 PLAYBOOK = """# Goal
 Earn a 20 minute conversation.
@@ -76,3 +77,10 @@ def test_formatting_changes_keep_the_generation_key_but_meaning_changes_do_not()
     assert template_version(original) != template_version(
         parse_markdown(PLAYBOOK.replace("Worth 20 minutes?", "Worth a short review?"))
     )
+
+
+def test_direction_only_custom_section_is_preserved_and_bad_fields_are_reported():
+    template = parse_markdown(PLAYBOOK + "\n# Proof notes\n> Use approved measurements only.\n")
+    assert "approved measurements" in template["context"]["Proof notes"]
+    with pytest.raises(ScriptError, match="Unbalanced"):
+        parse_markdown(PLAYBOOK.replace("Pause for permission.", "Pause { for permission."))

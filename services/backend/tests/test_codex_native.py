@@ -60,7 +60,13 @@ async def test_native_runtime_accepts_submission_and_preserves_usage(tmp_path, m
                         "id": "fixture-response",
                         "status": "completed",
                         "output": [item] if len(requests) == 1 else [],
-                        "usage": {"input_tokens": 10, "output_tokens": 4, "total_tokens": 14},
+                        "usage": {
+                            "input_tokens": 10,
+                            "output_tokens": 4,
+                            "total_tokens": 14,
+                            "input_tokens_details": {"cached_tokens": 2},
+                            "output_tokens_details": {"reasoning_tokens": 1},
+                        },
                     },
                 }
             )
@@ -115,7 +121,14 @@ async def test_native_runtime_accepts_submission_and_preserves_usage(tmp_path, m
     ]
     monkeypatch.setattr(codex, "runtime_command", lambda: command)
     try:
-        result = await codex.CodexClient(tmp_path, "gpt-6.1-sol", "submit_test").complete(
+        client = codex.CodexClient(tmp_path, "gpt-6.1-sol", "submit_test")
+        observed = []
+
+        async def meter(value):
+            observed.append(value)
+
+        client.usage_callback = meter
+        result = await client.complete(
             "Use submit_test once.",
             {"fixture": True},
             {
@@ -129,7 +142,13 @@ async def test_native_runtime_accepts_submission_and_preserves_usage(tmp_path, m
         assert result.tool_call_id and result.request_id
         if not code_mode:
             assert result.tool_call_id == "test-call"
-        assert result.usage == {"input_tokens": 20, "output_tokens": 8}
+        assert result.usage == {
+            "input_tokens": 20,
+            "output_tokens": 8,
+            "cached_tokens": 4,
+            "reasoning_tokens": 2,
+        }
+        assert observed[-1] == result.usage
         assert len(requests) == 2
         assert all(request["store"] is False for request in requests)
         tools = json.dumps(

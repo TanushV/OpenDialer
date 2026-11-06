@@ -38,6 +38,7 @@ const PICK: Record<string, string> = {
   opening: "AI picks 1 per lead",
   gatekeeper: "AI picks 1 per lead",
   close: "AI picks 1 per lead",
+  pitch: "AI picks 1 per lead",
   discovery: "AI picks up to 3 per lead",
   offers: "AI picks a lead offer and a backup",
 };
@@ -78,7 +79,7 @@ export function ScriptOutline({ template }: { template: ScriptTemplate }) {
             <h3>{section.title}</h3>
             <span className="fine">
               {section.options.length > 1
-                ? `${section.options.length} options · ${section.key === "objections" ? "AI orders them per lead" : PICK[section.key]}`
+                ? `${section.options.length} options · ${section.key === "objections" ? "AI orders them per lead" : (PICK[section.key] ?? "All named options available")}`
                 : section.key === "screening"
                   ? "Fixed, said as written"
                   : "One version"}
@@ -89,10 +90,22 @@ export function ScriptOutline({ template }: { template: ScriptTemplate }) {
               <li key={option.id}>
                 {option.title && <strong>{option.title}: </strong>}
                 <Wording text={option.text} blocks={blocks} />
+                {option.notes && (
+                  <aside className="script-cue">
+                    <strong>Rep directions</strong>
+                    <p>{option.notes}</p>
+                  </aside>
+                )}
               </li>
             ))}
           </ul>
         </section>
+      ))}
+      {Object.entries(template.context ?? {}).map(([key, value]) => (
+        <details key={key}>
+          <summary>{key.replaceAll("_", " ")} · not spoken</summary>
+          <p>{value}</p>
+        </details>
       ))}
       {(template.facts.length > 0 || template.never_say.length > 0) && (
         <section>
@@ -288,15 +301,19 @@ export function ScriptEditor() {
         <summary>How to write it</summary>
         <ul>
           <li>
-            Use these sections: <code># Opening</code>, <code># Screening</code>
-            , <code># Discovery</code> and <code># Close</code> are required;{" "}
-            <code># Gatekeeper</code>, <code># Offers</code>,{" "}
-            <code># Objections</code>, <code># Facts</code> and{" "}
-            <code># Never say</code> are optional.
+            Start with <code># Opening</code> and <code># Close</code>. Add{" "}
+            <code># Pitch</code>, <code># Discovery</code>, <code># Goal</code>,{" "}
+            <code># Instructions</code> and <code># Preparation</code> as
+            useful. Screening has an identity default; <code># Gatekeeper</code>
+            , <code># Offers</code>, <code># Objections</code>,{" "}
+            <code># Facts</code> and <code># Never say</code> are optional.
           </li>
           <li>
-            Bullets are options. The AI picks the best ones for each lead.
-            Offers and objections each get their own <code>## heading</code>.
+            Use <code>##</code> for named options and objections. Prefix rep
+            directions with <code>&gt;</code>; they never become spoken wording.
+            Discovery bullets and existing opening/close bullets remain choices.
+            Other bullets stay checklists. Familiar headings such as Opener and
+            Problem and outcome work too.
           </li>
           <li>
             <code>{"{{ instruction }}"}</code> is text the AI writes for each

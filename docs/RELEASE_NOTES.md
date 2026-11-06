@@ -1,11 +1,10 @@
-# OpenDialer 0.9.2
+# OpenDialer 0.10.0
 
-- **Fix planning for mixed locations.** Leads whose state and phone indicate different time zones can be scored by hour without a planner error. Every plausible local calling window still applies.
-- **Stop outbound at 5 p.m.** New calls and requested callbacks respect a hard 17:00 cutoff in the lead's local time, including older saved policies. Existing conversations can finish and inbound callbacks remain answerable.
-- **Choose your calling lists.** Dial from all active lists, one list or several; due callbacks outside that pool are separate explicit choices. Selection stays with your workspace and rep across reloads.
-- **Manage lists and leads.** Lists show preparation, callable-now, held, completed and callback counts. Pause/resume, rename and archive/restore lists; select leads in bulk to pause, archive, move between lists or correct location. History, notes, opt-outs and caller-ID assignments remain.
-- **Keep one contact across lists.** Reimporting the same phone in the campaign links another membership and reuses its history and preparation. List changes invalidate saved capacity plans; renamed lists keep their preparation budget scope.
+- **Flexible Markdown playbooks.** Use familiar section names, named alternatives, a separate pitch, goals and preparation instructions. Blockquotes appear as rep directions. Screening and discovery are optional; extra reference sections are preserved.
+- **Fresh scripts from a new master.** Meaningful template changes generate new personalized scripts from current facts and call history. Earlier personalized wording is not reused. Formatting-only edits use no model work, and active calls keep their original script.
+- **Control research and rewriting.** Reuse valid research or explicitly refresh it, choose a list, measure a three-lead sample and rewrite the remaining leads. Paused and archived lists stay out of these actions.
+- **See model token usage.** Inspect input, output, cached and reasoning tokens by list, master version, work type and lead. Subscription preparation and independent review are included when reported. Shared-thread allocations and remaining-work forecasts are labeled estimates; missing historical counters remain unknown.
 
-Updating from 0.9.0 or 0.9.1 keeps your workspace and saved credentials. macOS may ask for microphone access again.
+Updating from 0.9.x keeps your workspace and saved credentials. macOS may ask for microphone access again.
 Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched in its previous folder.
 Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.

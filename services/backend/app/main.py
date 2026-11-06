@@ -202,6 +202,14 @@ class PrepareList(Strict):
     list_name: str = Field(default="", max_length=120)
 
 
+class RewriteScripts(Strict):
+    list_name: str | None = Field(default=None, max_length=120)
+    lead_ids: list[str] | None = Field(default=None, max_length=10000)
+    refresh_research: bool = False
+    sample_size: int | None = Field(default=None, ge=1, le=20)
+    remaining_only: bool = False
+
+
 class SimulationEvent(Strict):
     event_id: str
     event_type: str
@@ -718,6 +726,37 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/preparation/lists")
     def prepare_list(data: PrepareList, p=Depends(administrator)):
         return service.prepare_list(p, data.list_name)
+
+    @app.post("/v1/preparation/rewrite")
+    def rewrite_scripts(data: RewriteScripts, p=Depends(administrator)):
+        return service.rewrite_scripts(p, **data.model_dump())
+
+    @app.get("/v1/preparation/estimate")
+    def preparation_estimate(list_name: str | None = None, p=Depends(administrator)):
+        from app.model_tokens import estimate
+
+        return estimate(service, p, list_name=list_name)
+
+    @app.get("/v1/usage/tokens")
+    def token_usage(
+        campaign_id: str | None = None,
+        list_name: str | None = None,
+        base_version: int | None = None,
+        kind: str | None = None,
+        lead_id: str | None = None,
+        p=Depends(administrator),
+    ):
+        from app.model_tokens import report
+
+        return report(
+            service,
+            p,
+            campaign_id=campaign_id,
+            list_name=list_name,
+            base_version=base_version,
+            kind=kind,
+            lead_id=lead_id,
+        )
 
     @app.post("/v1/preparation/lists/release")
     def release_list(data: PrepareList, p=Depends(administrator)):

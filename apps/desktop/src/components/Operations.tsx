@@ -26,6 +26,7 @@ import { BulkLeadActions, leadLists, listLabel, useLists } from "./LeadLists";
 import { PreparationPanel } from "./PreparationPanel";
 import { ConversationLearning } from "./ConversationLearning";
 import { ScriptEditor } from "./ScriptEditor";
+import { TokenUsage } from "./TokenUsage";
 import { ScriptMemory } from "./ScriptMemory";
 import { ScriptReader } from "./ScriptReader";
 import { OptimizationPanel } from "./OptimizationPanel";
@@ -2118,6 +2119,7 @@ export function ScriptPage() {
         </div>
       </div>
       <ScriptEditor />
+      <TokenUsage />
       <details className="card padded">
         <summary>What's working</summary>
         <ScriptMemory />

@@ -105,6 +105,7 @@ class Preparation:
                 template_version(base["template"]),
                 lead.data.get("row") or {k: lead.data.get(k) for k in ("name", "company", "domain")},
                 campaign.data.get("script_memory_key"),
+                lead.data.get("rewrite_generation"),
             ]
         )
 
@@ -214,9 +215,13 @@ class Preparation:
                 proposal = testing if arm == "candidate" else None
                 template = testing["template" if proposal else "control_template"]
         prepared = dict(row.data) if row else None
-        if prepared and template:
-            # Prepared text stays usable after a script edit wherever its blocks and options still
-            # exist; anything that no longer matches falls back to the seller's defaults.
+        if (
+            prepared
+            and template
+            and state["status"] == "ready"
+            and prepared.get("template_version") == template_version(template)
+        ):
+            # New masters get fresh output. Historical scripts remain only in their call snapshots.
             facts = {fact["fact_id"]: fact for fact in self.script_evidence(s, p, lead, prepared)}
             blocks = {block["id"]: block["instruction"] for block in template["blocks"]}
             written = {
@@ -414,6 +419,99 @@ class Preparation:
             )
             marked += 1
         return marked
+
+    def prior_call_context_in(self, s, p, lead_ids):
+        calls, notes = MODELS["call_attempts"], MODELS["notes"]
+        result = {}
+        for identity in lead_ids:
+            recent = list(
+                s.scalars(
+                    select(calls)
+                    .where(
+                        calls.tenant_id == p["tenant_id"],
+                        calls.seller_id == p["seller_id"],
+                        calls.op_lead_id == identity,
+                    )
+                    .order_by(calls.created_at.desc())
+                    .limit(3)
+                )
+            )
+            summaries = []
+            for row in recent:
+                note = s.scalar(
+                    select(notes)
+                    .where(
+                        notes.tenant_id == p["tenant_id"],
+                        notes.seller_id == p["seller_id"],
+                        notes.external_key == row.id,
+                    )
+                    .limit(1)
+                )
+                summaries.append(
+                    {
+                        "outcome": row.data.get("outcome"),
+                        "at": row.data.get("started_at"),
+                        "summary": (
+                            (note.data.get("notes") or {}).get("summary", "")
+                            if note and not note.data.get("stale")
+                            else ""
+                        )[:1000],
+                        "human_notes": (note.data.get("human_text", "") if note else "")[:1000],
+                    }
+                )
+            result[identity] = summaries
+        return result
+
+    def rewrite_scripts(
+        self,
+        p,
+        *,
+        list_name=None,
+        lead_ids=None,
+        refresh_research=False,
+        sample_size=None,
+        remaining_only=False,
+    ):
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            model = MODELS["leads"]
+            query = (
+                select(model)
+                .where(
+                    model.tenant_id == p["tenant_id"],
+                    model.seller_id == p["seller_id"],
+                    model.op_status.in_(["eligible", "preparing"]),
+                )
+                .order_by(model.created_at, model.id)
+            )
+            if lead_ids is not None:
+                query = query.where(model.id.in_(lead_ids))
+            generation, count = uid(), 0
+            for lead in s.scalars(query):
+                if list_name is not None and list_name not in memberships(lead.data):
+                    continue
+                if not self.list_permitted(s, p, lead) or self.suppressed(s, p, lead.data["phone"]):
+                    continue
+                if remaining_only and self.preparation_state(s, p, lead)["status"] == "ready":
+                    continue
+                if sample_size is not None and count >= sample_size:
+                    break
+                update(
+                    lead,
+                    rewrite_generation=generation,
+                    refresh_research=refresh_research,
+                    prepare_requested=True,
+                    preparation={
+                        **(lead.data.get("preparation") or {}),
+                        "status": "queued",
+                        "attempts": 0,
+                        "next_attempt_at": None,
+                    },
+                )
+                count += 1
+            update(self.required(s, "sellers", p["seller_id"], p), preparation_user_id=p["user_id"])
+        self.prepare_tick(p)
+        return {"marked": count, "sample": sample_size is not None, "generation": generation}
 
     def prepare_list(self, p, list_name=None, lead_ids=None):
         """Prepare a whole list (or the given leads) before calling."""
@@ -666,9 +764,18 @@ class Preparation:
                         limit=12,
                     )
                 ]
-                claimed.append({"lead": doc(lead), "key": key, "facts": facts})
+                claimed.append(
+                    {
+                        "lead": doc(lead),
+                        "key": key,
+                        "facts": [] if lead.data.get("refresh_research") else facts,
+                    }
+                )
             campaign = self.scoped(s, "campaigns", p)[0]
-            template = self.script_base(s, p, campaign)["template"]
+            base = self.script_base(s, p, campaign)
+            template = base["template"]
+            for item in claimed:
+                item["base_version"] = base["version"]
             memory = self.script_memory_digest_in(s, p, campaign) if template else None
         return owner, claimed, template, memory
 
@@ -740,13 +847,41 @@ class Preparation:
             )
             return {"prepared": 0, "budget": "reached"}
         context = work.context(memory)
+        reuse = all(item["facts"] for item in claimed)
+        context["research_mode"] = "reuse" if reuse else "research"
+        context["prior_calls"] = {lead["id"]: [] for lead in leads}
+        from app.model_tokens import capture
+
+        with self.db.transaction(False) as session:
+            base_version = claimed[0]["base_version"]
+            history = self.prior_call_context_in(session, p, [item["lead"]["id"] for item in claimed])
+        context["prior_calls"] = {work.aliases[identity]: calls for identity, calls in history.items()}
+        tracking = {
+            "campaign_id": claimed[0]["lead"]["campaign_id"],
+            "base_version": base_version,
+            "template_version": template_version(template),
+            "lead_ids": [item["lead"]["id"] for item in claimed],
+            "list_names": sorted({name for item in claimed for name in memberships(item["lead"])}),
+            "job_id": job_id,
+            "model": getattr(agent, "model", None),
+            "research": "reused" if reuse else "researched",
+        }
+        provider_name = getattr(agent, "billing", "openai")
+        work_kind = "preparation"
+
+        async def observe(value, status="running"):
+            await asyncio.to_thread(
+                capture, self, p, provider_name, work_kind, request_key, tracking, value, status
+            )
+
+        await observe({})
         if any(item["facts"] for item in claimed):
             context["known_facts"] = {
                 alias: [{"id": i, "statement": f["statement"]} for i, f in facts.items()]
                 for alias, facts in work.facts.items()
                 if facts
             }
-        usage, failure = {}, None
+        usage, failure, run_status = {}, None, "completed"
         try:
             usage = await agent.run(
                 INSTRUCTIONS,
@@ -754,10 +889,15 @@ class Preparation:
                 work.handle,
                 json.dumps(context),
                 work.follow_up,
-                web_search=True,
+                web_search=not reuse,
                 max_turns=3,
+                on_usage=observe,
             )
+        except asyncio.CancelledError:
+            run_status = "cancelled"
+            raise
         except PlanLimit as exc:
+            run_status = "failed"
             await asyncio.to_thread(self.pause_preparation, p, str(exc), PLAN_PAUSE)
             await asyncio.to_thread(
                 self.finish_thread, p, owner, claimed, None, None, release=False, requeue=True
@@ -765,28 +905,17 @@ class Preparation:
             return {"prepared": 0, "paused": True}
         except Exception as exc:
             logging.getLogger(__name__).warning("Preparation thread failed: %s", type(exc).__name__)
+            run_status = "failed"
             failure = "The AI thread stopped before finishing: " + type(exc).__name__
         finally:
-            if metered:
-                from app.providers.inference import InferenceResult
-
-                await asyncio.to_thread(
-                    self.usage,
-                    p,
-                    getattr(agent, "billing", "openai"),
-                    "preparation",
-                    InferenceResult({}, usage or {}, None),
-                    object_id=claimed[0]["lead"]["id"],
-                    request_key=request_key,
-                    reserved=0,
-                )
-        review = await self.review_thread(p, work, owner) if work.done else {}
+            await asyncio.shield(observe(usage, run_status))
+        review = await self.review_thread(p, work, owner, tracking) if work.done else {}
         published = await asyncio.to_thread(
             self.finish_thread, p, owner, claimed, work, failure, review=review
         )
         return {"prepared": published, "tool_calls": work.tool_calls, "rejections": work.rejections, **usage}
 
-    async def review_thread(self, p, work, owner):
+    async def review_thread(self, p, work, owner, tracking=None):
         """One independent meaning review of every written text in the thread. Rejected text is dropped."""
         from app.grounding import accept_review, review_request
 
@@ -809,15 +938,37 @@ class Preparation:
         rejected = set()
         for start in range(0, len(fields), 100):
             request = review_request("script", fields[start : start + 100], sources[:400])
+            from app.model_tokens import capture
+
+            async def observe_review(value, status="running", start=start):
+                await asyncio.to_thread(
+                    capture,
+                    self,
+                    p,
+                    getattr(provider, "billing", "openai"),
+                    "script_review",
+                    f"script-review:{owner}:{start}",
+                    {**(tracking or {}), "model": getattr(provider, "model", None)},
+                    value,
+                    status,
+                )
+
+            provider.usage_callback = observe_review
+            await observe_review({})
             try:
                 from app.grounding import REVIEW_INSTRUCTIONS, ReviewOutput
 
                 result = await provider.complete(
                     REVIEW_INSTRUCTIONS, request, ReviewOutput.model_json_schema()
                 )
+                await observe_review(result.usage, "completed")
                 receipt = accept_review(request, result.data, result.request_id, partial=True)
                 rejected.update(receipt.rejected)
+            except asyncio.CancelledError:
+                await asyncio.shield(observe_review({}, "cancelled"))
+                raise
             except Exception as exc:
+                await observe_review({}, "failed")
                 logging.getLogger(__name__).warning("Script review unavailable: %s", type(exc).__name__)
                 return {"unreviewed": True}
         return {"rejected": sorted(rejected)}
@@ -870,6 +1021,7 @@ class Preparation:
                     }
                     if lead.data["status"] == "preparing":
                         changes["status"] = "eligible"
+                    changes["refresh_research"] = False
                     published += 1
                 elif work and alias in work.skipped:
                     self.store_facts_in(s, p, lead, work, alias)

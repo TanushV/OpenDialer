@@ -11,8 +11,8 @@ from collections import Counter, defaultdict
 
 from app.optimization.conversations import association_patterns, first_eligible, supported
 
-SECTIONS = ("opening", "screening", "gatekeeper", "discovery", "offers", "objections", "close")
-EDITABLE = ("opening", "gatekeeper", "discovery", "offers", "objections", "close")
+SECTIONS = ("opening", "screening", "gatekeeper", "pitch", "discovery", "offers", "objections", "close")
+EDITABLE = ("opening", "gatekeeper", "pitch", "discovery", "offers", "objections", "close")
 LOCKED = {
     "screening": "The screening line names the business with {seller} and stays as the seller wrote it.",
 }
@@ -28,6 +28,7 @@ NAMES = {
     "gatekeeper": "gatekeeper line",
     "screening": "screening line",
     "discovery": "discovery question",
+    "pitch": "pitch",
     "offers": "offer",
     "objections": "objection answer",
     "close": "close",

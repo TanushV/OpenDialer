@@ -49,6 +49,8 @@ def script_text(script):
         for option in options:
             label = f"{section.get('title', '')}" + (f" ({option['title']})" if option.get("title") else "")
             lines.append(f"{label}: {option.get('text', '')}")
+            if option.get("notes"):
+                lines.append(f"Rep directions (not spoken): {option['notes']}")
     return lines
 
 
@@ -63,6 +65,9 @@ def messages(request):
     if seller.get("knowledge"):
         body.append(f"Product knowledge: {seller['knowledge']}")
     body.append("Prospect: " + ", ".join(f"{k}: {v}" for k, v in lead.items() if v and k != "prospect_brief"))
+    body += _lines(
+        "Playbook directions (not spoken)", [f"{k}: {v}" for k, v in template.get("context", {}).items()]
+    )
     body += ["", "Script:", *script_text(script)]
     body += _lines("Facts", template.get("facts", []))
     body += _lines("Research", [f.get("statement") for f in request.get("facts", [])])

@@ -240,7 +240,7 @@ class CodexRuntime:
                 raise InferenceError(RECONNECT)
             return {k: account.get(k) for k in ("type", "email", "planType")}
 
-    async def complete(self, model, instructions, context, schema, tool_name):
+    async def complete(self, model, instructions, context, schema, tool_name, *, on_usage=None):
         async with self.session():
             thread = await self.request(
                 "thread/start",
@@ -313,6 +313,14 @@ class CodexRuntime:
                 elif method == "thread/tokenUsage/updated" and params.get("turnId") == turn_id:
                     total = params["tokenUsage"]["total"]
                     usage = {"input_tokens": total["inputTokens"], "output_tokens": total["outputTokens"]}
+                    for source, target in (
+                        ("cachedInputTokens", "cached_tokens"),
+                        ("reasoningOutputTokens", "reasoning_tokens"),
+                    ):
+                        if source in total:
+                            usage[target] = total[source]
+                    if on_usage:
+                        await on_usage(usage)
                 elif method == "turn/completed" and params.get("turn", {}).get("id") == turn_id:
                     if params["turn"].get("status") != "completed":
                         raise_turn_failure(params["turn"])
@@ -321,7 +329,17 @@ class CodexRuntime:
                     return {**result, "usage": usage}
 
     async def run_agent(
-        self, model, instructions, tools, handler, first, follow_up, *, max_turns=3, seconds=3600
+        self,
+        model,
+        instructions,
+        tools,
+        handler,
+        first,
+        follow_up,
+        *,
+        max_turns=3,
+        seconds=3600,
+        on_usage=None,
     ):
         """A multi-turn thread with several offered tools; every tool answer comes from `handler`.
 
@@ -354,7 +372,7 @@ class CodexRuntime:
                 },
             )
             thread_id = thread["thread"]["id"]
-            usage, searches, text = {"input_tokens": 0, "output_tokens": 0}, 0, first
+            usage, searches, text = {}, 0, first
             for _ in range(max_turns):
                 turn = await self.request(
                     "turn/start",
@@ -394,6 +412,14 @@ class CodexRuntime:
                     ):
                         total = params["tokenUsage"]["total"]
                         usage = {"input_tokens": total["inputTokens"], "output_tokens": total["outputTokens"]}
+                        for source, target in (
+                            ("cachedInputTokens", "cached_tokens"),
+                            ("reasoningOutputTokens", "reasoning_tokens"),
+                        ):
+                            if source in total:
+                                usage[target] = total[source]
+                        if on_usage:
+                            await on_usage({**usage, "web_search_calls": searches})
                     elif method == "item/completed" and params.get("item", {}).get("type") == "webSearch":
                         searches += 1
                     elif method == "turn/completed" and params.get("turn", {}).get("id") == turn_id:
@@ -419,15 +445,22 @@ class CodexClient:
     def __init__(self, home, model, tool_name):
         self.home, self.model, self.tool_name = home, model, tool_name
 
-    async def run(self, instructions, tools, handler, first, follow_up, *, web_search=True, max_turns=3):
+    async def run(
+        self, instructions, tools, handler, first, follow_up, *, web_search=True, max_turns=3, on_usage=None
+    ):
         return await CodexRuntime(self.home, web_search=web_search).run_agent(
-            self.model, instructions, tools, handler, first, follow_up, max_turns=max_turns
+            self.model, instructions, tools, handler, first, follow_up, max_turns=max_turns, on_usage=on_usage
         )
 
     async def complete(self, instructions, context, schema):
         async with personal_lock(self.home):
             result = await CodexRuntime(self.home).complete(
-                self.model, instructions, context, schema, self.tool_name
+                self.model,
+                instructions,
+                context,
+                schema,
+                self.tool_name,
+                **({"on_usage": self.usage_callback} if getattr(self, "usage_callback", None) else {}),
             )
         if not isinstance(result.get("arguments"), dict) or not result.get("call_id"):
             raise InferenceError("Codex must submit a named tool result.")

@@ -152,3 +152,26 @@ async def test_api_agent_loops_tools_with_web_search_and_follow_up_turns():
     assert bodies[3]["input"][-1] == {"role": "user", "content": "Close lead-1."}
     compatible = InferenceClient("litellm", "k", "m", base_url="http://127.0.0.1:4000/v1")
     assert not compatible.official
+
+
+async def test_agent_reports_consumption_before_malformed_result_is_rejected():
+    import httpx
+    from app.providers.inference import InferenceClient
+
+    observed = []
+
+    async def meter(value):
+        observed.append(value)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(
+                200, json={"choices": [], "usage": {"prompt_tokens": 9, "completion_tokens": 2}}
+            )
+        )
+    ) as http:
+        provider = InferenceClient("litellm", "fixture", "model", http=http)
+        with pytest.raises(IndexError):
+            await provider.run("Write", [], None, "Input", lambda: None, on_usage=meter)
+    assert observed and observed[-1]["input_tokens"] == 9
+    assert observed[-1]["output_tokens"] == 2

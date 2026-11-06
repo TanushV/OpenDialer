@@ -140,7 +140,6 @@ def test_features_bucket_call_shape_and_name_section_wording():
         ("opening", "Hi {name}, quick question."),
         ("opening", "Hi {name}, {rep} from {seller}. Guaranteed savings."),
         ("opening", "Hi {name}, {rep} from {seller}. {unknown}"),
-        ("discovery", "What happens next?"),
         ("close", "Would a short walkthrough next week be useful?"),
     ],
 )

@@ -12,9 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field
 # per item; "bullets": plain lists that are not spoken (facts and banned claims).
 HEADINGS = {
     "opening": ("opening", True, "choice"),
-    "screening": ("screening", True, "fixed"),
+    "screening": ("screening", False, "fixed"),
     "gatekeeper": ("gatekeeper", False, "choice"),
-    "discovery": ("discovery", True, "list"),
+    "discovery": ("discovery", False, "list"),
+    "pitch": ("pitch", False, "choice"),
     "offers": ("offers", False, "cards"),
     "objections": ("objections", False, "cards"),
     "close": ("close", True, "choice"),
@@ -30,13 +31,31 @@ TITLES = {
     "screening": "Screening",
     "gatekeeper": "Gatekeeper",
     "discovery": "Discovery",
+    "pitch": "Pitch",
     "offers": "Offers",
     "objections": "Objections",
     "close": "Close",
 }
-ORDER = ("opening", "screening", "gatekeeper", "discovery", "offers", "objections", "close")
+ORDER = ("opening", "screening", "gatekeeper", "pitch", "discovery", "offers", "objections", "close")
+ALIASES = {
+    "opener": "opening",
+    "problem and outcome": "pitch",
+    "problem & outcome": "pitch",
+    "before you dial": "preparation",
+    "delivery rules": "instructions",
+    "common objections": "objections",
+    "book the meeting": "close",
+}
+CONTEXT = {"goal", "instructions", "preparation"}
 # How many options of each section a lead's script uses: (minimum, maximum). Objections keep all.
-PICKS = {"opening": (1, 1), "gatekeeper": (1, 1), "close": (1, 1), "discovery": (1, 3), "offers": (1, 2)}
+PICKS = {
+    "opening": (1, 1),
+    "gatekeeper": (1, 1),
+    "close": (1, 1),
+    "pitch": (1, 1),
+    "discovery": (1, 3),
+    "offers": (1, 2),
+}
 PLACEHOLDERS = {"name", "first_name", "company", "rep", "seller"}
 MAX_BYTES = 40000
 MAX_OPTIONS = 20
@@ -96,8 +115,23 @@ class ScriptError(ValueError):
 
 
 def template_version(template):
+    """Generation identity excludes source formatting; words, cues and claims remain inputs."""
+
+    def canonical(value):
+        if isinstance(value, str):
+            return " ".join(value.split())
+        if isinstance(value, list):
+            return [canonical(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                k: canonical(v)
+                for k, v in value.items()
+                if k not in {"markdown", "line"} and v not in (None, {}, [], "")
+            }
+        return value
+
     return (
-        hashlib.sha256(json.dumps(template, sort_keys=True).encode()).hexdigest()[:16]
+        hashlib.sha256(json.dumps(canonical(template), sort_keys=True).encode()).hexdigest()[:16]
         if template
         else "no-script"
     )
@@ -122,48 +156,34 @@ def _placeholders(text, line, errors):
 
 
 def parse_markdown(markdown):
-    """Parse a pasted script into the template every other part of the app reads.
-
-    Raises ScriptError listing every problem, so the editor can show them all at once.
-    """
-    errors = []
+    """Parse a Markdown playbook once; blockquotes are cues, never spoken wording."""
     if len(markdown.encode()) > MAX_BYTES:
         raise ScriptError([{"line": 0, "message": "Keep the script under 40 KB"}])
-    raw, current, card = {}, None, None
+    errors, raw, context = [], {}, {}
+    current, card = None, None
     for number, line in enumerate(markdown.splitlines(), 1):
         heading = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", line)
         if heading and len(heading[1]) == 1:
             name = " ".join(heading[2].casefold().split())
-            if name not in HEADINGS:
-                errors.append(
-                    {
-                        "line": number,
-                        "message": f"Unknown section '# {heading[2]}'. Use: "
-                        + ", ".join(
-                            "# " + h.title() if h != "never say" else "# Never say" for h in HEADINGS
-                        ),
-                    }
-                )
-                current = SKIP
-                continue
-            key = HEADINGS[name][0]
+            name = ALIASES.get(name, name)
+            key = HEADINGS.get(
+                name,
+                (
+                    name if name in CONTEXT else "custom:" + re.sub(r"[^a-z0-9]+", "-", name).strip("-"),
+                    False,
+                    "fixed",
+                ),
+            )[0]
             if key in raw:
                 errors.append({"line": number, "message": f"'# {heading[2]}' appears twice"})
                 current = SKIP
                 continue
             current, card = key, None
-            raw[key] = {"line": number, "lines": [], "cards": []}
+            raw[key] = {"line": number, "title": TITLES.get(key, heading[2]), "lines": [], "cards": []}
             continue
         if current == SKIP:
             continue
-        if heading:
-            if current is None:
-                continue
-            if HEADINGS_BY_KEY[current] != "cards":
-                errors.append(
-                    {"line": number, "message": "Use ## headings only under # Offers or # Objections"}
-                )
-                continue
+        if heading and current and current not in CONTEXT:
             card = {"title": heading[2].strip(), "line": number, "lines": []}
             raw[current]["cards"].append(card)
             continue
@@ -171,28 +191,13 @@ def parse_markdown(markdown):
             if line.strip():
                 errors.append({"line": number, "message": "Put this text under a # section heading"})
             continue
-        if HEADINGS_BY_KEY[current] == "cards":
-            if card is None:
-                if line.strip():
-                    errors.append(
-                        {
-                            "line": number,
-                            "message": f"Put each item under its own ## heading in {TITLES[current]}",
-                        }
-                    )
-                continue
-            card["lines"].append((number, line))
-        else:
-            raw[current]["lines"].append((number, line))
+        (card["lines"] if card is not None else raw[current]["lines"]).append((number, line))
     for name, (key, required, _) in HEADINGS.items():
         if required and key not in raw:
             errors.append({"line": 0, "message": f"Add a '# {name.title()}' section"})
-
     blocks, sections, facts, never = [], [], [], []
 
     def ai(text, line, key, option):
-        """Replace each {{ instruction }} with a stable token and record the instruction."""
-
         def replace(match):
             instruction = " ".join(match[1].split())
             if not 3 <= len(instruction) <= 300:
@@ -205,134 +210,159 @@ def parse_markdown(markdown):
         replaced = BLOCK.sub(replace, text)
         if "{{" in replaced or "}}" in replaced:
             errors.append({"line": line, "message": "Close every {{ with }}"})
-            return replaced
-        _placeholders(TOKEN.sub("", replaced), line, errors)
+        else:
+            _placeholders(TOKEN.sub("", replaced), line, errors)
         return replaced
 
-    def paragraphs(lines):
+    def split_cues(lines):
+        spoken, cues = [], []
+        for number, line in lines:
+            if line.lstrip().startswith(">"):
+                cues.append(line.lstrip()[1:].strip())
+            else:
+                spoken.append((number, line))
+        return spoken, "\n".join(cues).strip()
+
+    def text(lines):
         return "\n".join(line for _, line in lines).strip()
 
-    def bullets(lines, key):
-        items, plain = [], []
-        for number, line in lines:
-            match = BULLET.match(line)
-            if match:
-                items.append([number, match[1].strip()])
-            elif line.strip():
-                if items and line.startswith((" ", "\t")):
-                    items[-1][1] += " " + line.strip()
-                else:
-                    plain.append(number)
-        return items, plain
+    def option(lines, key, identity, title=None, inherited=""):
+        spoken, notes = split_cues(lines)
+        value = text(spoken)
+        if not value:
+            errors.append(
+                {
+                    "line": lines[0][0] if lines else raw[key]["line"],
+                    "message": f"'{title or TITLES.get(key, key)}' has no spoken text",
+                }
+            )
+        if key == "screening":
+            if BLOCK.search(value):
+                errors.append(
+                    {"line": raw[key]["line"], "message": "Screening must be fixed text, without {{ }}"}
+                )
+            if "{seller}" not in value:
+                errors.append(
+                    {"line": raw[key]["line"], "message": "Screening must name your business with {seller}"}
+                )
+            if len(value) > 400:
+                errors.append({"line": raw[key]["line"], "message": "Keep Screening under 400 characters"})
+        result = {"id": identity, "title": title, "text": ai(value, raw[key]["line"], key, identity)}
+        cues = "\n".join(v for v in (inherited, notes) if v)
+        if cues:
+            _placeholders(cues, raw[key]["line"], errors)
+            result["notes"] = cues
+        return result
 
-    for key in ORDER:
+    for key in [*ORDER, *(key for key in raw if key.startswith("custom:"))]:
         if key not in raw:
             continue
-        entry, shape = raw[key], HEADINGS_BY_KEY[key]
-        title = TITLES[key]
+        entry = raw[key]
+        shape = HEADINGS_BY_KEY.get(key, "fixed")
         options = []
-        if shape == "cards":
-            for index, item in enumerate(entry["cards"], 1):
-                text = paragraphs(item["lines"])
-                if not text:
-                    errors.append({"line": item["line"], "message": f"'## {item['title']}' has no text"})
-                    continue
-                option = f"{key}-{index}"
-                options.append(
-                    {"id": option, "title": item["title"][:120], "text": ai(text, item["line"], key, option)}
+        if entry["cards"]:
+            prelude, cues = split_cues(entry["lines"])
+            if text(prelude):
+                errors.append(
+                    {
+                        "line": prelude[0][0],
+                        "message": f"Put each item under its own ## heading in {entry['title']}",
+                    }
                 )
-            if not options:
-                errors.append({"line": entry["line"], "message": f"Add at least one ## item to {title}"})
+            if key == "screening":
+                errors.append({"line": entry["line"], "message": "Screening must be plain text"})
+            for index, item in enumerate(entry["cards"], 1):
+                options.append(option(item["lines"], key, f"{key}-{index}", item["title"][:120], cues))
+        elif shape == "cards":
+            errors.append({"line": entry["line"], "message": f"Add at least one ## item to {entry['title']}"})
         else:
-            items, plain = bullets(entry["lines"], key)
-            if shape == "list" or (shape == "choice" and items):
+            spoken, cues = split_cues(entry["lines"])
+            items = []
+            plain = []
+            for number, line in spoken:
+                match = BULLET.match(line)
+                if match:
+                    items.append([number, match[1].strip()])
+                elif line.strip():
+                    if items and line.startswith((" ", "\t")):
+                        items[-1][1] += " " + line.strip()
+                    else:
+                        plain.append(number)
+            if items and shape in {"choice", "list"}:
                 if plain:
                     errors.append(
                         {
                             "line": plain[0],
-                            "message": f"{title} mixes bullets and plain text; make every line a bullet",
+                            "message": f"{entry['title']} mixes bullets and plain text; make every line a bullet",
                         }
                     )
-                for index, (number, text) in enumerate(items, 1):
-                    option = f"{key}-{index}"
-                    options.append({"id": option, "title": None, "text": ai(text, number, key, option)})
-                if not options:
-                    errors.append({"line": entry["line"], "message": f"Add at least one bullet to {title}"})
-            else:
-                text = paragraphs(entry["lines"])
-                if not text:
-                    errors.append({"line": entry["line"], "message": f"{title} is empty"})
-                    continue
-                if items:
-                    errors.append(
-                        {"line": items[0][0], "message": f"{title} must be plain text, not bullets"}
-                    )
-                if key == "screening":
-                    if BLOCK.search(text):
-                        errors.append(
-                            {"line": entry["line"], "message": "Screening must be fixed text, without {{ }}"}
-                        )
-                    if "{seller}" not in text:
-                        errors.append(
-                            {
-                                "line": entry["line"],
-                                "message": "Screening must name your business with {seller}",
-                            }
-                        )
-                    if len(text) > 400:
-                        errors.append(
-                            {"line": entry["line"], "message": "Keep Screening under 400 characters"}
-                        )
-                options.append(
-                    {"id": f"{key}-1", "title": None, "text": ai(text, entry["line"], key, f"{key}-1")}
-                )
+                options = [
+                    option([(number, value)], key, f"{key}-{i}", inherited=cues)
+                    for i, (number, value) in enumerate(items, 1)
+                ]
+            elif spoken and text(spoken):
+                options = [option(entry["lines"], key, f"{key}-1")]
+            elif not key.startswith("custom:"):
+                errors.append({"line": entry["line"], "message": f"{entry['title']} is empty"})
+            elif cues:
+                context[entry["title"]] = cues
         if len(options) > MAX_OPTIONS:
-            errors.append({"line": entry["line"], "message": f"Use at most {MAX_OPTIONS} items in {title}"})
-        if key == "opening":
-            for option in options:
-                if "{seller}" not in option["text"] or "{rep}" not in option["text"]:
-                    errors.append(
-                        {
-                            "line": entry["line"],
-                            "message": "Every Opening must say who is calling: use {rep} and {seller}",
-                        }
-                    )
-                    break
-        sections.append(
-            {
-                "key": key,
-                "title": title,
-                "shape": shape,
-                "options": options,
-                "pick": list(PICKS[key]) if key in PICKS and len(options) > 1 else None,
-            }
-        )
+            errors.append(
+                {"line": entry["line"], "message": f"Use at most {MAX_OPTIONS} items in {entry['title']}"}
+            )
+        if key == "opening" and any("{rep}" not in o["text"] or "{seller}" not in o["text"] for o in options):
+            errors.append(
+                {
+                    "line": entry["line"],
+                    "message": "Every Opening must say who is calling: use {rep} and {seller}",
+                }
+            )
+        if options:
+            sections.append(
+                {
+                    "key": key,
+                    "title": entry["title"],
+                    "shape": shape,
+                    "options": options,
+                    "pick": list(PICKS[key]) if key in PICKS and len(options) > 1 else None,
+                }
+            )
     for key, target in (("facts", facts), ("never_say", never)):
         if key not in raw:
             continue
-        items, plain = bullets(raw[key]["lines"], key)
-        if plain:
-            errors.append({"line": plain[0], "message": "Write Facts and Never say as bullets"})
-        for number, text in items:
-            if BLOCK.search(text):
+        for number, line in raw[key]["lines"]:
+            if not line.strip():
+                continue
+            match = BULLET.match(line)
+            if not match:
+                errors.append({"line": number, "message": "Write Facts and Never say as bullets"})
+                continue
+            if BLOCK.search(match[1]):
                 errors.append({"line": number, "message": "Facts and Never say cannot contain {{ }}"})
-            target.append(text[:400])
+            target.append(match[1][:400])
     notes = {}
+    for key in CONTEXT:
+        if key in raw:
+            context[key] = text(raw[key]["lines"])
     for key in ("follow_up", "voicemail"):
         if key not in raw:
             continue
-        text = paragraphs(raw[key]["lines"])
-        if BLOCK.search(text):
+        value = text(raw[key]["lines"])
+        if BLOCK.search(value):
             errors.append(
                 {"line": raw[key]["line"], "message": "Follow-up and Voicemail cannot contain {{ }}"}
             )
-        elif text:
-            _placeholders(text, raw[key]["line"], errors)
-            notes[key] = text[:1000]
+        elif value:
+            spoken, cues = split_cues(raw[key]["lines"])
+            value = text(spoken)
+            _placeholders(value, raw[key]["line"], errors)
+            notes[key] = value[:1000]
+            if cues:
+                context[key + " directions"] = cues
     if len(blocks) > MAX_BLOCKS:
         errors.append({"line": 0, "message": f"Use at most {MAX_BLOCKS} {{{{ }}}} blocks"})
     if errors:
-        raise ScriptError(sorted(errors, key=lambda e: e["line"]))
+        raise ScriptError(errors)
     return {
         "format": 2,
         "markdown": markdown,
@@ -340,6 +370,7 @@ def parse_markdown(markdown):
         "blocks": blocks,
         "facts": facts,
         "never_say": never,
+        "context": context,
         **notes,
     }
 
@@ -354,7 +385,15 @@ def section_markdown(template, key):
     for line in template["markdown"].splitlines():
         heading = re.match(r"^#\s+(.+?)\s*#*\s*$", line)
         if heading:
-            inside = HEADINGS.get(" ".join(heading[1].casefold().split()), (None,))[0] == key
+            inside = (
+                HEADINGS.get(
+                    ALIASES.get(
+                        " ".join(heading[1].casefold().split()), " ".join(heading[1].casefold().split())
+                    ),
+                    (None,),
+                )[0]
+                == key
+            )
             continue
         if inside:
             lines.append(line)
@@ -367,7 +406,15 @@ def replace_section(template, key, body):
     for line in template["markdown"].splitlines():
         heading = re.match(r"^#\s+(.+?)\s*#*\s*$", line)
         if heading:
-            inside = HEADINGS.get(" ".join(heading[1].casefold().split()), (None,))[0] == key
+            inside = (
+                HEADINGS.get(
+                    ALIASES.get(
+                        " ".join(heading[1].casefold().split()), " ".join(heading[1].casefold().split())
+                    ),
+                    (None,),
+                )[0]
+                == key
+            )
             out.append(line)
             if inside:
                 out.extend(["", body.strip(), ""])
@@ -429,6 +476,7 @@ def render(template, *, lead, seller, rep, picks=None, written=None):
                 "id": option["id"],
                 "title": option["title"],
                 "text": re.sub(r"[ \t]{2,}", " ", text_of(option["text"])).strip(),
+                **({"notes": fill_fields(option["notes"], values)} if option.get("notes") else {}),
                 "picked": option["id"] in rank,
                 "rank": rank.get(option["id"]),
             }
@@ -453,7 +501,8 @@ def render(template, *, lead, seller, rep, picks=None, written=None):
         "picks": {key: list(value) for key, value in chosen.items()},
         "written": {key: dict(value) for key, value in written.items()},
         "opener": first("opening"),
-        "screening_intro": first("screening"),
+        "screening_intro": first("screening", f"{rep} from {seller}, calling with a business introduction."),
+        "context": template.get("context", {}),
         "gatekeeper": first("gatekeeper"),
         "discovery_questions": [o["text"] for o in picked("discovery")],
         "closing_question": first("close"),

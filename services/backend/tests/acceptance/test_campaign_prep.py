@@ -81,8 +81,8 @@ def test_pasted_script_is_parsed_with_every_problem_listed(workspace):
     )
     assert broken["template"] is None
     messages = " | ".join(f"{e['line']}:{e['message']}" for e in broken["errors"])
-    assert "1:Every Opening must say who is calling" in messages and "Unknown section '# Pitch'" in messages
-    assert "Add a '# Screening' section" in messages and "Add a '# Close' section" in messages
+    assert "1:Every Opening must say who is calling" in messages and "Unknown section" not in messages
+    assert "Add a '# Screening' section" not in messages and "Add a '# Close' section" in messages
     refused = call(
         ws,
         "POST",
@@ -159,8 +159,8 @@ def test_a_script_change_rewrites_prepared_leads_without_blocking_calls(workspac
     before = get(ws, f"/v1/leads/{ids[0]}/packet")["script"]
     save_script(ws, SCRIPT.replace("Would Tuesday work?", "Does Tuesday suit you?"))
     after = get(ws, f"/v1/leads/{ids[0]}/packet")["script"]
-    # Written text whose block and instruction are unchanged stays; the lead stays callable.
-    assert after["written"]["ai-1"] == before["written"]["ai-1"]
+    # A new master never reuses an older personalized script; the current base is explicit.
+    assert before["written"] and not after.get("written") and after["fallback"]
     assert after["preparation_status"] == "stale" and lead_row(ws, ids[0])["status"] == "eligible"
     run_jobs(ws, rounds=3)
     assert get(ws, f"/v1/leads/{ids[0]}/packet")["script"]["preparation_status"] == "ready"

@@ -90,9 +90,8 @@ def test_every_structure_error_is_reported_with_its_line():
     messages = [(e["line"], e["message"]) for e in found]
     assert (1, "Put this text under a # section heading") in messages
     assert any(line == 2 and "who is calling" in m for line, m in messages)
-    assert any(line == 4 and "Unknown section '# Pricing'" in m for line, m in messages)
+    assert not any("Unknown section" in m for _, m in messages)
     assert any(line == 6 and "{seller}" in m for line, m in messages)
-    assert any("Add at least one bullet to Discovery" in m or "mixes bullets" in m for _, m in messages)
     assert any(line == 10 and "appears twice" in m for line, m in messages)
     assert any(line == 0 and "# Close" in m for line, m in messages)
 
@@ -110,9 +109,8 @@ def test_fields_blocks_and_cards_are_validated():
         "own ## heading" in e["message"]
         for e in errors(SCRIPT.replace("# Offers\n", "# Offers\nLoose text\n"))
     )
-    assert any(
-        "## headings only" in e["message"] for e in errors(SCRIPT.replace("# Close\n", "# Close\n## Ask\n"))
-    )
+    named = parse_markdown(SCRIPT.replace("# Close\n", "# Close\n## Ask\n"))
+    assert named["sections"][-1]["options"][0]["title"] == "Ask"
 
 
 def test_render_uses_picks_and_written_text_and_falls_back_cleanly():
