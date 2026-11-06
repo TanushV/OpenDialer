@@ -156,8 +156,12 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
-- November 5: owner requested the release name **1.0.0**, replacing the 0.x label. Version promotion only;
-  preserve the verified 0.10.2 behavior, installed workspace, saved credentials and master-v3 preparation.
+- November 5: owner requested the release name **1.0.0**, replacing the 0.x label. Preserve the installed
+  workspace, saved credentials and master-v3 preparation. Verification found a list-choice persistence race:
+  reloading before queue release completed lost the visible choice. A delayed-response browser regression
+  reproduces it; save immediately and restore the previous choice if release fails. The first browser run
+  also hung in mocked-request cleanup after its assertions passed; fixture teardown is now non-blocking.
+  The first signed candidate is unpublished and will be replaced, retaining the 1.0.0 version.
   Release TODOs:
   - [x] Save a fresh installed baseline and observe version/manifest acceptance fail before changing inputs.
   - [x] Set all nine root release inputs to 1.0.0 and use concise product-facing release notes.

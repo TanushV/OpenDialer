@@ -103,7 +103,7 @@ test("a complete private suggestion stays readable while its explanation is fini
     ).toBeHidden();
   } finally {
     release();
-    await page.unrouteAll({ behavior: "wait" });
+    await page.unrouteAll({ behavior: "ignoreErrors" });
   }
 });
 
@@ -145,7 +145,7 @@ test("cancelling refreshes an answer delivered before its HTTP response finishes
     ).toBeHidden();
   } finally {
     release();
-    await page.unrouteAll({ behavior: "wait" });
+    await page.unrouteAll({ behavior: "ignoreErrors" });
   }
 });
 
@@ -203,7 +203,7 @@ test("private help can be cancelled without a late response clearing a newer req
     expect(cancelled[1]).toBe(pending[1].body.request_id);
   } finally {
     pending.forEach((p) => p.release());
-    await page.unrouteAll({ behavior: "wait" });
+    await page.unrouteAll({ behavior: "ignoreErrors" });
   }
 });
 

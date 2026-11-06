@@ -611,14 +611,15 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
           setDialLists(names);
           setFinding(true);
           try {
+            localStorage.setItem(scopeKey, JSON.stringify(names));
             await api("/v1/queue/release", "POST", {});
             setReservation(null);
             setPacket(null);
             setCall(null);
-            localStorage.setItem(scopeKey, JSON.stringify(names));
             await refresh();
           } catch (error) {
             setDialLists(previous);
+            localStorage.setItem(scopeKey, JSON.stringify(previous));
             throw error;
           } finally {
             setFinding(false);

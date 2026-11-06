@@ -96,3 +96,70 @@ test("Dial from selected lists reserves only that pool and keeps scope across re
   await finishCall(page);
   await page.getByLabel("Dial from all active lists", { exact: true }).check();
 });
+
+test("a dialing-list choice survives reload while the previous queue release is pending", async ({
+  page,
+}) => {
+  await enter(page);
+  await add(page, "Reload list 100", "+14155550793");
+  await page.getByRole("button", { name: "Dialer", exact: true }).click();
+  await page
+    .getByLabel("Dial from all active lists", { exact: true })
+    .uncheck();
+  const choice = page.getByLabel("Dial list Reload list 100", { exact: true });
+  await expect(choice).toBeEnabled();
+  let release!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/v1/queue/release", async (route) => {
+    await delayed;
+    await route.fulfill({ json: { released: true } });
+  });
+  try {
+    await choice.check();
+    await page.reload();
+    await expect(choice).toBeChecked();
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
+  await page.getByLabel("Dial from all active lists", { exact: true }).check();
+});
+
+test("a rejected dialing-list change restores the saved choice", async ({
+  page,
+}) => {
+  await enter(page);
+  await add(page, "Rejected list 100", "+14155550794");
+  await page.getByRole("button", { name: "Dialer", exact: true }).click();
+  await page
+    .getByLabel("Dial from all active lists", { exact: true })
+    .uncheck();
+  const choice = page.getByLabel("Dial list Rejected list 100", {
+    exact: true,
+  });
+  await expect(choice).toBeEnabled();
+  let reject!: () => void;
+  const delayed = new Promise<void>((resolve) => {
+    reject = resolve;
+  });
+  await page.route("**/v1/queue/release", async (route) => {
+    await delayed;
+    await route.fulfill({
+      status: 409,
+      json: { detail: "Call is still active." },
+    });
+  });
+  try {
+    await choice.check();
+    reject();
+    await expect(choice).not.toBeChecked();
+    await page.reload();
+    await expect(choice).not.toBeChecked();
+  } finally {
+    reject();
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
+  await page.getByLabel("Dial from all active lists", { exact: true }).check();
+});
