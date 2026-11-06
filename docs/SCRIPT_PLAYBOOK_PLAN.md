@@ -34,50 +34,42 @@ Read this checklist along with LEAN_PLAN.md and NUMBER_CONNECT_PLAN.md after eve
 - [x] Full SQLite/PostgreSQL, frontend/browser/native checks; fix discovered errors with regressions.
 - [x] Bump 0.10.0/0.10.1, commit/push, build both signed desktop packages, verify and publish.
 - [x] Update this Mac through the signed updater; verify data, provider setup, numbers and capacity remain.
-- [ ] Replace Agite's script through the app import handler, regenerate every requested active lead and verify real token receipts and version linkage.
-- [ ] Commit final evidence and current handoff; close only when every item works.
+- [x] Replace Agite's script through the app import handler, regenerate every requested active lead and verify real token receipts and version linkage.
+- [x] Commit final evidence and current handoff; close only when every item works.
 
-## Checkpoint
+## Completion checkpoint — November 5, 2026
 
-Implementation began from clean main `9e5d058`, installed 0.9.2. New parser/HTTP/provider/native/UI regressions
-cover aliases, optional sections, directions, fresh generation, research modes, cumulative/unknown/partial tokens and
-metered settlement. Full local SQLite 867 and PostgreSQL 868 pass; subsequent provider/cost regressions pass.
-Frontend 83 tests and typecheck pass. Browser and native release checks continue. The owner playbook converts to
-13 KB, three pitch variants and eleven objections, with conditional proof/charging lines kept as directions.
-No production script or installed application has changed yet. See [usage guide](SCRIPT_PLAYBOOK.md).
-The wider number/connect-rate plan remains open for its independent live scenarios and traffic measurement.
+Complete in published and installed 0.10.2, source `c3a8cc5`. The first signed 0.10.0 update
+exposed long maximum-effort reviews; 0.10.1 increased that role's deadline, and native use then exposed
+another review waiting on the personal login lock. A concurrent-subprocess regression failed before
+0.10.2 changed completions to serialize credential-file access only, as agent threads already do.
+Both short-role deadlines and credential persistence remain covered. Historical failed attempts remain
+in the usage ledger; missing consumption is unknown, not zero.
 
-The full browser continuation exposed a nullable human-note field crashing fresh preparation after a call.
-A failing HTTP regression reproduced the stuck state; empty notes are now normalized. Three more regressions
-preceded excluding paused, archived and opted-out contacts from automatic dispatch, claims and progress.
-All 33 related journeys pass on both stores. The initial signed draft remains unpublished and is being replaced
-with these runtime fixes; full CI/browser verification and native installation are still required.
+All six final CI jobs pass: 870 SQLite, 871 PostgreSQL, 182 browser, 83 frontend, 25 native/package
+and seven Rust tests, plus lint/format/typecheck/build/Clippy. Both signed desktop builds pass.
+Mac archive checksums and deep strict signature, public manifest and all five installed executable
+hashes match. This Mac updated through the signed updater; native UI and local authority report 0.10.2.
+All original core record IDs/counts remain: one user, 59 leads, two numbers, four calls and eleven tasks.
 
-Native 0.10.0 verification: published/installed from `a7b3434`; all six CI jobs pass (867 SQLite,
-868 PostgreSQL, 182 browser, 83 frontend, 25 native/package, seven Rust). Signatures, executable hashes,
-manifest, retained record IDs, both ready numbers, zero pending setup, capacity, providers and hours pass.
-Agite master v3 is saved through the application's existing import handler after native file selection;
-CUA subsequently verified v3, directions, all variants/objections, scoped token reporting and different grounded
-wording for two real leads. First five independent reviews passed; later reviews hit the existing 120-second
-completion limit at maximum effort. Failed receipts correctly retained unknown counters. A failing delayed-provider
-regression precedes a longer deadline only for offline script review. 0.10.1 is required before close-out.
-New batches are temporarily paused while that patch builds; preserve and restore the prior unpaused state,
-resume remaining leads and regenerate any current-master scripts whose independent review was interrupted.
+Agite's supplied playbook is saved as master v3 through the application's existing import handler.
+Native UI verifies the saved source/preview, separate rep directions, three pitch variants, eleven
+objections and different grounded wording for two real leads. The pilot figure and charging language
+remain conditional directions; the generic app starter is unchanged. Every requested active lead has a
+current independently reviewed script: **57 of 57**, zero skips, preparation errors or pending jobs.
+Twenty-nine have accepted model-written blocks; unsupported trigger wording is withheld on the others.
+One suppressed endpoint and the owner's held, unrequested delivery-test contact remain outside this work.
 
-Current checkpoint: 0.10.1 is published and installed from `f5d108c` (CI 42151152325, signed build
-42151151461). All six CI jobs pass: 869 SQLite, 870 PostgreSQL, 182 browser, 83 frontend,
-25 native/package and seven Rust. Public manifest, archive/installed signatures and all executable hashes
-match. Agite master v3 and all core record IDs/counts remain. Native Numbers, saved greeting, providers,
-hours and script/objection views pass. The temporary preparation pause is removed. Of 57 requested active
-leads, 15 with interrupted reviews were requeued through the existing rewrite action; 20 current scripts
-are reviewed and ready, with 37 still waiting/working. The first patched review completed in about 191
-seconds with reported counters (including time waiting for the login lock). Keep this checklist open
-until current generation/review finishes and the final receipt/handoff are committed. No new carrier call
-or microphone session was opened. Disposable test PostgreSQL is stopped and moved to Trash; extracted
-verification app copies are also in Trash. The task's awake helper remains active until preparation finishes.
+Real master-v3 usage, including retries: 32 requests; 1,395,941 input + 132,853 output = **1,528,794 reported
+tokens**. Cached input 971,520 and reasoning output 115,916 are subsets, not additional tokens.
+Four historical failed requests have unknown counters; no requests remain running. The final 0.10.2 retry
+completed writing and independent review with real receipts and zero new failures. Subscription work is
+labeled included, with no invented metered charge. Scoped native filtering matches the ledger totals.
 
-All 57 requested active leads now have current-v3 scripts; 52 are independently reviewed. One post-patch review
-failed after 120 seconds while another review held the personal login lock. A concurrent-subprocess regression
-reproduces the timeout before the fix. Completion now uses the same short credential-file locking as agent
-threads, so inference does not hold the login lock. 0.10.2 publication/update and the five affected reviews
-remain open. Historical failed attempts remain in usage reporting with unknown counters.
+Both numbers are ready with zero pending setup. Saved providers, Agite greeting, 08:00–17:00 hours and
+all-active-list selection remain; dialing is paused. Actual-workspace capacity refresh succeeds in the
+installed UI after preparation. Disposable test PostgreSQL is stopped and moved to Trash, extracted
+verification app copies are in Trash and the task's awake helper is stopped. No new carrier call or
+microphone session was opened. [Final receipt](evidence/lean/release-0102-20261105.json),
+[usage guide](SCRIPT_PLAYBOOK.md). The wider number/connect-rate plan remains open for its independent
+live scenarios, traffic ramp and measured outcomes.

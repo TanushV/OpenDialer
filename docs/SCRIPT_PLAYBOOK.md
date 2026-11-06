@@ -45,4 +45,6 @@ unpriced receipts remain distinct. Missing counters display **Unknown**; histori
 0.10.0 was not recorded and cannot be recovered from the app ledger. Reported totals exclude missing counters.
 
 Offline maximum-effort script review can take several minutes; 0.10.1 gives it up to fifteen minutes.
-This changes no live calling or live-helper deadline. Reported usage from interrupted attempts stays in the ledger.
+From 0.10.2, independent requests lock the personal login only while copying or saving credentials, so one
+long review does not block another review or preparation thread. This changes no live calling or live-helper
+deadline. Reported usage from interrupted attempts stays in the ledger.

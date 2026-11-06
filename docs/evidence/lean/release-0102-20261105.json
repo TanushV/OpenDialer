@@ -1,0 +1,204 @@
+{
+  "version": "0.10.2",
+  "date": "2026-11-05",
+  "source_commit": "c3a8cc559227490b7763596cf5269c7f967012b2",
+  "scope": [
+    "Flexible deterministic Markdown sections, named options, rep directions, defaults and preserved reference sections.",
+    "Fresh per-lead generation from a changed master, research reuse or refresh, scoped sample/remaining actions and active-call/version safeguards.",
+    "Persistent provider token receipts and scoped usage/estimates, including partial and unknown failed work.",
+    "Replace only the Agite workspace playbook, publish and install a signed update while preserving data."
+  ],
+  "regression_first": {
+    "coverage": [
+      "Parser aliases, optional sections, options, cues and canonical formatting identity.",
+      "Fresh generation, expired research, sampled/list scopes, superseded jobs and active-call snapshots.",
+      "Cumulative deduplication, malformed/failed receipts, metered cost settlement and unknown counters.",
+      "Nullable post-call notes and inactive/suppressed preparation exclusions.",
+      "Delayed maximum-effort script review and concurrent review lock contention.",
+      "Root version identity and updater notes."
+    ],
+    "final_focused_passed": 26,
+    "remaining_review_root_cause": "A review held the personal credential lock during inference; another timed out after 120 seconds waiting. Shared runtime sessions now lock only credential-file access, while offline review retains its role deadline."
+  },
+  "ci": {
+    "run_id": 42155409085,
+    "url": "https://github.com/TanushV/OpenDialer/actions/runs/42155409085",
+    "status": "passed",
+    "jobs": 6,
+    "sqlite": {
+      "passed": 870,
+      "skipped": 10
+    },
+    "postgres": {
+      "passed": 871,
+      "skipped": 9
+    },
+    "browser_passed": 182,
+    "frontend_passed": 83,
+    "native_packaging_passed": 25,
+    "rust_passed": 7,
+    "lint_format_typecheck_build_clippy": "passed"
+  },
+  "signed_release": {
+    "run_id": 42155421574,
+    "url": "https://github.com/TanushV/OpenDialer/releases/tag/v0.10.2",
+    "status": "published",
+    "mac_build": "passed",
+    "windows_build": "passed",
+    "public_manifest_matches": true,
+    "source_commit": "c3a8cc559227490b7763596cf5269c7f967012b2",
+    "version": "0.10.2",
+    "bundle_identifier": "com.opendialer.desktop",
+    "bundle_signature": "deep strict passed",
+    "archive_sha256": "0eff1ff12c602cf0361ad044a6db1ed117313ff74c5a05358eb44e306a584198",
+    "executables": {
+      "opendialer-backend": "85592c83ead74ae3c96469a82d22ad1c1d60b424ad60e783a6e34eab2947581b",
+      "opendialer-desktop": "2584e48d276e7afb5089df41f203c491110ccc1bc1fc80e688855c601cc61827",
+      "opendialer-codex": "0ec7469699bf2f4ee54d543b911313d7319a3beb55e91e0b2c9919f5da6dd393",
+      "opendialer-trainer": "a0bd5b3454feb3735b17c7318d18069b406fbc87227da9c2492d48ed8224f2d6",
+      "codex-code-mode-host": "0ed9f44319f46ed749653281c35b6706ab272916b6ed8290add6b61524f04416"
+    }
+  },
+  "installed_before": {
+    "at": "2026-11-06T01:24:32.167949+00:00",
+    "version": "0.9.2",
+    "quick_check": "ok",
+    "tables": {
+      "users": {
+        "count": 1,
+        "id_sha256": "efa24c40179d6fc64453fcc807340d278b07691d9b0918951404f30efa4331f1"
+      },
+      "leads": {
+        "count": 59,
+        "id_sha256": "f9f11dda0702fcc271f7655d548b7e6eb50f50cadeb0bcf1e619d0e375806911"
+      },
+      "number_inventory": {
+        "count": 2,
+        "id_sha256": "5ff83e770c9085e0fd63d9bbc782b7a6752e86fca552aa20a84456b215d9aea9"
+      },
+      "call_attempts": {
+        "count": 4,
+        "id_sha256": "adad5061ebc0d225e26ae6c03ef5cce71fe6b2df25122d29c03e64c191442c44"
+      },
+      "followup_tasks": {
+        "count": 11,
+        "id_sha256": "e5325676ad4bd991a76d497f246079e68df20010a8bd689ec75ddc3024f26bff"
+      }
+    }
+  },
+  "installed_after": {
+    "version": "0.10.2",
+    "at": "2026-11-06T03:31:12.279557+00:00",
+    "executables_match_archive": true,
+    "bundle_signature": "deep strict passed",
+    "tables_match_before": true,
+    "database_quick_check": "ok",
+    "master_version": 3,
+    "owner_script_hash_matches": true,
+    "tables": {
+      "users": {
+        "count": 1,
+        "id_sha256": "efa24c40179d6fc64453fcc807340d278b07691d9b0918951404f30efa4331f1"
+      },
+      "leads": {
+        "count": 59,
+        "id_sha256": "f9f11dda0702fcc271f7655d548b7e6eb50f50cadeb0bcf1e619d0e375806911"
+      },
+      "number_inventory": {
+        "count": 2,
+        "id_sha256": "5ff83e770c9085e0fd63d9bbc782b7a6752e86fca552aa20a84456b215d9aea9"
+      },
+      "call_attempts": {
+        "count": 4,
+        "id_sha256": "adad5061ebc0d225e26ae6c03ef5cce71fe6b2df25122d29c03e64c191442c44"
+      },
+      "followup_tasks": {
+        "count": 11,
+        "id_sha256": "e5325676ad4bd991a76d497f246079e68df20010a8bd689ec75ddc3024f26bff"
+      }
+    },
+    "backend_health": {
+      "status": "ok",
+      "version": "0.10.2",
+      "mode": "local",
+      "simulation": false,
+      "initialized": true
+    },
+    "ui_version": "0.10.2",
+    "numbers_ready": 2,
+    "pending_setup": 0,
+    "capacity_plan": "Current after native refresh at 19:37 Pacific on November 5.",
+    "providers": "Telnyx and ChatGPT connected; saved live-help key configured.",
+    "agite_greeting": "retained in workspace",
+    "calling_hours": [
+      8,
+      17
+    ],
+    "dialing": "paused",
+    "dial_lists": "all active lists",
+    "new_phone_call_or_microphone_session": false
+  },
+  "owner_playbook": {
+    "version": 3,
+    "previous_version": 2,
+    "workspace": "Agite",
+    "markdown_sha256": "de8d6d7c80a300b2c3f1f79ca3a2679673b7c385fd926d6c7e2ba4857f949602",
+    "pitch_options": 3,
+    "objections": 11,
+    "no_global_default_change": true,
+    "saved_via": "Existing application import handler after native file selection; native source/preview verified afterward.",
+    "proof_restrictions": "Pilot figure and unapproved charging language remain non-spoken conditional directions.",
+    "native_checks": [
+      "Saved v3, three pitches, eleven objections, separated directions and custom contexts.",
+      "Two real lead previews have different fact-grounded bridges; vendor objection branches are visible.",
+      "Usage master-version filter matches exact ledger totals.",
+      "Native production list shows 54 of 54 ready to call."
+    ],
+    "requested_active_leads": 57,
+    "current_scripts": 57,
+    "independently_reviewed": 57,
+    "with_accepted_model_written_blocks": 29,
+    "unsupported_wording": "Withheld by independent review; no invented trigger is required to fill a slot.",
+    "excluded": "One suppressed endpoint and the held, unrequested owner delivery-test contact.",
+    "preparation_errors": 0,
+    "pending_preparation_jobs": 0,
+    "post_0102_retry_failures": 0
+  },
+  "real_master_v3_usage": {
+    "requests": 32,
+    "unknown_requests": 4,
+    "partial_requests": 0,
+    "running": 0,
+    "input_tokens": 1395941,
+    "output_tokens": 132853,
+    "cached_tokens": 971520,
+    "reasoning_tokens": 115916,
+    "total_tokens": 1528794,
+    "at": "2026-11-06T03:36:56.058985+00:00",
+    "includes_retries": true,
+    "missing_counters": "Four historical failed requests remain unknown; reported totals exclude missing consumption.",
+    "billing": "ChatGPT subscription included; no invented metered dollar charge.",
+    "subsets": "Cached input is part of input; reasoning output is part of output. Do not add them twice."
+  },
+  "source_size": {
+    "backend_lines": 39274,
+    "backend_ast_nodes": 271608,
+    "frontend_lines": 19392,
+    "frontend_tokens": 108452,
+    "rust_lines": 998,
+    "note": "Owner-authorized end-feature growth; historical lean size targets remain missed."
+  },
+  "cleanup": {
+    "temporary_extracted_apps_in_trash": true,
+    "task_owned_disposable_postgres_stopped_and_in_trash": true,
+    "task_owned_awake_helper_stopped": true,
+    "verification_auth_session_created": false,
+    "credentials_or_private_playbook_committed": false
+  },
+  "remaining_gates": [
+    "Live tracked-stage/vendor-email objection and complete fresh post-call rundown.",
+    "Broader carrier/device labels, AMD and final rep-spoken voicemail qualification.",
+    "Real prospect ramp and measured connect rate; 12 percent remains a planning target, not demonstrated lift.",
+    "Apple Developer ID/notarization and Windows publisher trust remain outside the current signing setup."
+  ]
+}

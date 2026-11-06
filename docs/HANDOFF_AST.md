@@ -1,3 +1,19 @@
+# 0.10.2 Markdown playbooks and token usage delta (November 5, 2026)
+
+`preparation/templates.py` owns deterministic Markdown aliases, named alternatives, separate rep directions,
+optional section defaults and the canonical content identity. `preparation/agent.py` supplies current-master
+options and fact-grounded writing tools; `preparation/workflows.py` owns fresh generations, research reuse,
+explicit scopes, active-contact exclusion and independent review. `model_tokens.py` stores normalized cumulative
+receipts in the existing usage ledger and builds scoped reports and measured estimates; no schema was added.
+`providers/codex.py` and `providers/inference.py` report consumption before parsing and retain partial failures.
+Native completions use short credential-file locks, with a longer deadline for offline script review.
+
+`main.py` exposes `/v1/preparation/rewrite`, `/v1/preparation/estimate` and `/v1/usage/tokens` under existing
+authorization. The desktop `components/TokenUsage.tsx`, `ScriptEditor.tsx` and `ScriptReader.tsx` expose these
+controls, directions and live preview. Regression coverage: `test_script_playbook.py`,
+`acceptance/test_feature_playbook.py`, `test_codex_login.py`, provider/native tests and `script-playbook.spec.ts`.
+See [the usage guide](SCRIPT_PLAYBOOK.md) and [feature checklist](SCRIPT_PLAYBOOK_PLAN.md).
+
 # 0.9.1 list-management and 0.9.2 planner delta (November 5, 2026)
 
 `lead_lists.py` owns membership predicates for SQLite/PostgreSQL, reversible list/lead controls and list summaries.

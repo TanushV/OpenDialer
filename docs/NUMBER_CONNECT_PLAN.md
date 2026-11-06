@@ -1,6 +1,14 @@
 # Numbers and connect rate plan
 
-Updated November 5, 2026. Signed 0.9.1 added list controls and a hard 17:00 lead-local cutoff; 0.9.2 is published and installed with a mixed-zone planner correction found during native verification. Both numbers show ready with zero pending setup, and the actual 59-lead workspace's capacity refresh succeeds. All saved IDs, provider setup and Agite greeting remain; hours are 08:00–17:00 and dialing is paused. The late November 4 human microphone test passed: the owner confirmed both audio directions were clear, and real Cerebras text guidance responded to the spoken stop request. The test is finalized and excluded from connect-rate metrics. The vendor/email objection, tracked-stage checkpoint and the wider carrier/traffic/measurement gates remain open.
+Updated November 5, 2026. Signed 0.10.2 is published and installed. Both numbers show ready with zero
+pending setup, and the actual 59-lead workspace's capacity refresh is current at 19:37 Pacific. All core
+record IDs, providers and Agite greeting remain; hours are 08:00–17:00 and dialing is paused. List controls
+and the 17:00 cutoff shipped in 0.9.1; 0.9.2 fixed mixed-zone planning. The 0.10.2 script/token feature is complete.
+
+The late November 4 human microphone test passed on 0.8.14: the owner confirmed both audio directions were
+clear, and real Cerebras text guidance responded to the spoken stop request. The test is finalized and excluded
+from connect-rate metrics. No new call or microphone session was opened for the script update. Vendor/email
+objection and tracked-stage checks, fresh complete rundown and wider carrier/traffic/measurement gates remain open.
 
 ## Goal
 
@@ -184,6 +192,13 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - Display of caller name and branding varies by carrier and device. Nothing guarantees clean labels.
 
 ## Verification checkpoint
+
+- November 5: signed [0.10.2](https://github.com/TanushV/OpenDialer/releases/tag/v0.10.2) is installed from
+  `c3a8cc5`. All six CI jobs and both desktop builds pass. Native UI confirms two ready numbers, zero pending
+  setup and a current capacity plan at 19:37 Pacific after all requested script preparation finishes.
+  Agite master v3, all core record IDs, saved providers/greeting and 08:00–17:00 hours remain; dialing is paused.
+  The [script/token checklist](SCRIPT_PLAYBOOK_PLAN.md) is complete. This verifies the update and setup retention;
+  it adds no new carrier/audio or connect-rate evidence. [Receipt](evidence/lean/release-0102-20261105.json).
 
 - November 5: [0.9.1](https://github.com/TanushV/OpenDialer/releases/tag/v0.9.1) shipped the owner-approved
   [list/hours checklist](LIST_DIALING_PLAN.md). Native refresh exposed a pre-existing mixed-zone scoring error

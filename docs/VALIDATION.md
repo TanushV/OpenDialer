@@ -1,23 +1,29 @@
 # OpenDialer lean build validation
 
-**Current software verification: November 5, 2026, 0.9.2.** Published and installed from `ad3356c`.
-[All six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/42133890663) passed: SQLite 850,
-PostgreSQL 851, browser 181, frontend 82, native/package 25 and Rust 7; lint, format, typecheck and Clippy pass.
-Both signed desktop builds pass. Mac archive checksum/deep strict signature, public manifest and all five
-installed executable hashes verify. The signed updater installed 0.9.1 and its 0.9.2 follow-up on this Mac.
-The installed UI and authority report 0.9.2; all record IDs/counts remain (59 leads, two numbers, four calls,
-eleven tasks). Both numbers show ready with zero pending setup; native capacity retry succeeds at 16:18 Pacific.
-Saved provider setup, Agite greeting and 08:00–17:00 hours remain. Native list controls, selection retention,
-lead filter and bulk menu checks pass; the app is left paused with all active lists selected.
-[Verification receipt](evidence/lean/release-092-20261105.json).
+**Current software verification: November 5, 2026, 0.10.2.** Published and installed from `c3a8cc5`.
+[All six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/42155409085) pass: SQLite 870/10 skips,
+PostgreSQL 871/9, browser 182, frontend 83, native/package 25 and Rust seven; lint/format/typecheck/build/Clippy
+pass. Both desktop builds pass. Mac archive checksum/deep strict signature, public manifest and all five installed
+executable hashes verify. The signed updater installed this Mac; native UI and local authority report 0.10.2.
+All core record IDs/counts remain: one user, 59 leads, two numbers, four calls and eleven tasks.
+[Final receipt](evidence/lean/release-0102-20261105.json), [feature checklist](SCRIPT_PLAYBOOK_PLAN.md).
 
-0.9.1 adds list management and the hard 17:00 cutoff. Native verification exposed a pre-existing mixed-zone
-slot-scoring error; a failing regression preceded the one-line correction in 0.9.2. A private copy of the actual
-59-lead workspace and the installed app both complete the forecast after correction. The owner-confirmed human
-two-way audio and real Cerebras text-guidance result is from 0.8.14; no new phone call or microphone session was
-opened for these releases. Live tracked-stage/vendor scenarios, a complete fresh post-call
-rundown, broader carrier/device coverage and connect-rate measurement remain open in the
-[number plan](NUMBER_CONNECT_PLAN.md). The saved test rundown is partial. Older snapshots below are historical.
+The owner playbook is saved only in Agite, as master v3 with three pitch options and eleven objections.
+Native source/preview, separated directions, grounded differences between lead previews, objection branches and
+scoped token usage pass. All 57 requested active leads have current independently reviewed scripts; the imported
+production list shows 54 of 54 ready. Twenty-nine contain accepted AI-written blocks; unsupported wording is withheld.
+No skips, preparation errors or pending jobs remain. Regression-first fixes cover null post-call notes, inactive
+contacts, long maximum-effort reviews and concurrent login-lock contention. The final installed retry completes
+with real writing/review receipts and zero failures. Master-v3 known usage is 1,528,794 tokens, including retries;
+four historical failed requests retain unknown counters. Cached/reasoning counters are subsets, not extra tokens.
+
+Both numbers show ready with zero pending setup. Actual-workspace capacity refresh is current at 19:37 Pacific.
+Saved provider setup, Agite greeting, 08:00–17:00 hours and all-active-list dialing selection remain; dialing is paused.
+Temporary test PostgreSQL is stopped and in Trash, extracted verification app copies are in Trash, and the task's
+awake helper is stopped. No new phone call or microphone session was opened. The owner-confirmed human two-way
+audio and Cerebras text-guidance result remains dated to 0.8.14. Live tracked-stage/vendor scenarios, complete
+fresh post-call rundown, broader carrier/device coverage, real ramp and measured connect-rate lift remain open
+in the [number plan](NUMBER_CONNECT_PLAN.md). Older snapshots below are historical.
 
 **Historical software verification: October 30, 2026, 0.6.0.** The [release receipt](evidence/lean/security-release-20261030.json) records backend SQLite/PostgreSQL, browser, frontend, native credential/runtime, frozen restart and Mac packaging checks, dependency audits and release status. The [handoff](HANDOFF.md) explains the current implementation and remaining live/security gates. Earlier results below are historical.
 

@@ -156,6 +156,20 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
+- November 5: [0.10.2](https://github.com/TanushV/OpenDialer/releases/tag/v0.10.2) is published and installed
+  from `c3a8cc5`. The [Markdown/token feature checklist](SCRIPT_PLAYBOOK_PLAN.md) is complete. All six CI jobs
+  pass (870 SQLite, 871 PostgreSQL, 182 browser, 83 frontend, 25 native/package, seven Rust), as do both signed
+  builds, Mac checksums/signatures, public manifest and installed executable hashes. All core IDs/counts remain.
+  Agite's owner-supplied playbook is master v3; all 57 requested active leads have current independently reviewed
+  scripts, with no preparation error or pending job. Native production list: 54 of 54 ready. Usage reports
+  1,528,794 known tokens including retries; four historical failed requests retain unknown counters.
+  Native use found review-deadline and login-lock contention issues; failing regressions preceded 0.10.1/0.10.2.
+  The final installed retry completes with real writing/review receipts and zero new failures. Both numbers are
+  ready, pending setup is zero, capacity refresh is current and providers/greeting/08:00–17:00 hours remain.
+  Dialing is paused; disposable services, extracted apps and the awake helper are cleaned up. No new carrier call
+  or microphone session was opened. Broader live/measurement gates remain open in the number plan.
+  [Final receipt](evidence/lean/release-0102-20261105.json).
+
 - November 5: owner approved implementing [Markdown playbooks and token usage](SCRIPT_PLAYBOOK_PLAN.md),
   fresh per-lead generations after template changes, signed publication/update and replacing Agite's saved script
   with the supplied playbook. Six new parser/HTTP regressions fail before product changes. Installed 0.9.2 and
