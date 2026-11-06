@@ -1,6 +1,25 @@
 # OpenDialer lean build validation
 
-**Current software verification: November 5, 2026, 1.0.0.** Published and installed from `b1b774c`.
+**Current software verification: November 5, 2026, 1.0.1.** Published and installed from `c3a12ea`.
+[Receipt](evidence/lean/release-101-20261105.json). All six [CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/42168969573)
+pass: 877 SQLite/10 skips, 878 PostgreSQL/9 skips, 187 browser, 83 frontend, 25 native/package and seven Rust.
+Both signed builds pass; Mac DMG creation recovered a transient Resource busy failure by rerunning the job.
+The earlier full browser run's one failure was an ambiguous old save-message locator; the corrected editor-status
+assertion passes locally and in the fresh complete CI. No test was skipped or deadline increased.
+
+Mac archive checksums/deep signatures, public manifest/signatures/source tag and all five installed executables
+verify. Native UI/service report 1.0.1. Native isolated simulation served by the installed signed backend verifies
+membership removal/recovery, whole-list removal/restoration, shared contacts, import visibility and meaningful/
+formatting-only script saves. Agite retains all IDs/counts, original memberships, two owner archives, master v3
+and 55/55 current requested active scripts. No preparation is pending; master-v3 tokens remain 1,528,794 known
+across 32 requests, with four historical unknowns and zero running. Both numbers are ready, pending setup is zero
+and capacity refresh is current at 22:04 Pacific. Saved providers/greeting and 08:00–17:00 hours remain; dialing
+is paused with all active lists. Temporary services are stopped and data/extracted apps are in Trash; the awake
+helper is stopped. No new carrier call, microphone session or real-model request occurred. The independent live
+and measured connect-rate gates remain open in the [number plan](NUMBER_CONNECT_PLAN.md).
+
+
+**Historical software verification: November 5, 2026, 1.0.0.** Published and installed from `b1b774c`.
 [All six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/42161735952) pass: SQLite 870/10 skips,
 PostgreSQL 871/9, browser 184, frontend 83, native/package 25 and Rust seven; lint/format/typecheck/build/Clippy
 pass. Both desktop builds pass. Mac archive checksum/deep strict signature, public manifest, release tag and

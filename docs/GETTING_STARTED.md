@@ -200,14 +200,18 @@ Contacts at the same company are never called back to back, and when one books a
 ### Lists and lead management
 
 Open **Lists** to review each imported list's preparation, callable-now, held, completed and due-callback counts.
-Use **Pause / Resume** for ordinary outbound or **Archive / Restore** to take a list out of the calling pool.
+Use **Pause / Resume** for ordinary outbound. **Remove list** hides the list from active views and dialing;
+check **Show removed lists** to find **Restore list**.
 A contact in another active list can still be reached through that membership. Rename keeps history and the
 preparation budget scope. The same phone imported into another list in the campaign links to the existing contact.
 
-In **Leads**, filter by list and select rows. **Lead action** offers pause/resume, archive/restore, move, add to
-another list, remove from a list and state/time-zone corrections. Archiving a contact stops all its outbound calls
-and keeps its history, notes, tasks, opt-outs and caller assignments. Removing the final list membership leaves
-its history available in All lists but takes the contact out of ordinary dialing.
+In **Leads**, filter by list and select the checkboxes beside contacts. **Remove from list** offers their actual
+memberships and changes only the one you choose. **Remove leads** hides those contacts from Active leads and
+stops their outbound calls, while keeping history, notes, tasks, opt-outs and caller assignments. Use **Show →
+Removed leads** to find them and **Restore removed leads**, or add an unassigned contact to a list.
+**All leads and history** includes every retained contact. Contacts whose only lists were removed also appear in
+Removed leads; restore their list to bring them back. Pause/resume, move, add to another list and state/time-zone
+corrections remain available.
 
 In **Dialer → Dial from**, choose **All active lists** or check one or several lists. The scheduler works within
 that pool. Due callbacks outside it are shown separately; **Review callback** reserves that specific contact

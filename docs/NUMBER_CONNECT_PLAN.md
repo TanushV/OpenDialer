@@ -1,10 +1,12 @@
 # Numbers and connect rate plan
 
-Updated November 5, 2026. Signed 1.0.0 is published and installed. Both numbers show ready with zero
-pending setup, and actual-workspace capacity refresh is current at 20:34 Pacific. All core record IDs,
+Updated November 5, 2026. Signed 1.0.1 is published and installed. Both numbers show ready with zero
+pending setup, and actual-workspace capacity refresh is current at 22:04 Pacific. All core record IDs,
 providers and Agite greeting remain; hours are 08:00–17:00 and dialing is paused with all active lists.
-The saved-pool choice survives app restart after the 1.0.0 reload-race fix. All 57 requested master-v3
-scripts remain current and reviewed. The script/token feature is complete; the live and measurement gates remain open.
+List removal/recovery and script-refresh clarity pass native isolated simulation and full CI. Original
+memberships and the owner's two removed contacts remain unchanged. All 55 requested active master-v3
+scripts are current; no refresh is pending and master-v3 token usage is unchanged. The script/token and
+list-removal features are complete; the live and measurement gates below remain open.
 
 The late November 4 human microphone test passed on 0.8.14: the owner confirmed both audio directions were
 clear, and real Cerebras text guidance responded to the spoken stop request. The test is finalized and excluded
@@ -193,6 +195,15 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - Display of caller name and branding varies by carrier and device. Nothing guarantees clean labels.
 
 ## Verification checkpoint
+
+- November 5: [1.0.1](https://github.com/TanushV/OpenDialer/releases/tag/v1.0.1) is published and installed
+  from `c3a12ea`. Full CI passes (877 SQLite, 878 PostgreSQL, 187 browser), as do both signed packages and
+  Mac/public-manifest/executable checks. Native isolated simulation proves list removal/restoration and script
+  refresh feedback. Agite retains all core IDs, memberships, two owner archives, master v3 and 55/55 current
+  requested active scripts. Both numbers are ready with zero pending setup; capacity is current at 22:04 Pacific.
+  Providers, greeting, 08:00–17:00 hours and paused all-active-list scope remain. No new carrier/microphone
+  session or real-model request occurred. The independent live/measurement TODOs above stay open.
+  [Receipt](evidence/lean/release-101-20261105.json).
 
 - November 5: [1.0.0](https://github.com/TanushV/OpenDialer/releases/tag/v1.0.0) is published and installed
   from `b1b774c`. All six CI jobs and both desktop builds pass (870 SQLite, 871 PostgreSQL, 184 browser).

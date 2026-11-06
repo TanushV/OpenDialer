@@ -25,19 +25,34 @@ LIST_DIALING_PLAN.md, SCRIPT_PLAYBOOK_PLAN.md and the full NUMBER_CONNECT_PLAN.m
 - [x] Fix membership removal and accurate outcomes; expose explicit, reversible list and lead removal/restore.
 - [x] Make filtered active/removed views correct across pagination and shared contacts on both stores.
 - [x] Show and verify script-change refresh identity, progress and formatting-only behavior.
-- [ ] Pass affected and full checks; bump/commit/publish the signed 1.0.1 patch.
-- [ ] Update the authorized Mac, verify through computer use with isolated examples, retain production setup/data.
-- [ ] Commit final evidence/handoff and close only after all items pass. Keep wider carrier/measurement gates open.
+- [x] Pass affected and full checks; bump/commit/publish the signed 1.0.1 patch.
+- [x] Update the authorized Mac, verify through computer use with isolated examples, retain production setup/data.
+- [x] Commit final evidence/handoff and close only after all items pass. Keep wider carrier/measurement gates open.
 
-## Checkpoint
+## Completion checkpoint — November 5, 2026
 
-Started from clean main `14f4972`, installed 1.0.0. Native inspection and read-only audit show removal attempts
-reported success while the blank source meant Unnamed list; two lead archives succeeded but remained in the
-unfiltered table. No production records have been changed by this follow-up. The implementation will reuse
-archive state and list memberships, with no new deletion mechanism or database schema.
+Complete in published and installed 1.0.1, source `c3a12ea`. [Final receipt](evidence/lean/release-101-20261105.json).
+All six CI jobs pass: 877 SQLite, 878 PostgreSQL, 187 browser, 83 frontend, 25 native/package and seven Rust tests.
+Both signed builds pass; the Mac job recovered a transient hdiutil Resource busy error without a source change.
+The first full browser run passed 186/187; its one broad save-status locator matched the new persistent status and
+its toast. Scoping it to the editor fixed the test; four local cases and the fresh full CI pass.
 
-Focused verification: 31 acceptance cases pass on each store. The browser regression exposed a real PostgreSQL
-lead-version conflict when duplicate import overlapped preparation; duplicate membership edits now reload and lock
-the contact before updating it. A further failing check found newly imported contacts were absent from the new
-filtered history view; import now reloads that view. Removed list names no longer reappear in shared-contact
-preparation. Seven focused browser cases passed before the final import-display regression; final/full checks follow.
+Failing regressions preceded invalid-source/no-op membership removal, Active/Removed filtering across 50-row
+pagination, shared-contact preservation, script-save refresh identity/progress, removed preparation/capacity choices,
+concurrent duplicate import and newly imported-row visibility fixes. Reuse existing archive state; no schema or
+physical deletion path was added. The superseded candidate remains unpublished.
+
+This Mac updated through the signed updater. Native UI/service report 1.0.1; archive/public manifest/checksums,
+bundle signature, release source tag and all five installed executables verify. Native tests connected the installed
+app to a temporary localhost simulation served by its signed backend: import, membership removal/recovery,
+whole-list removal/restoration, shared-contact preservation, automatic fresh scripts and formatting-only preservation
+all pass. Agite was never used for test removals or script edits, and the app is back on its original local workspace.
+
+All original IDs/counts remain: one user, 59 leads, two numbers, four calls and eleven tasks. Memberships, list catalog,
+pause/removal flags and Agite master v3 hash match the fresh baseline; both owner-removed contacts remain removed.
+All 55 requested active leads have current scripts, with no refresh pending. Master-v3 usage is unchanged at 1,528,794
+known tokens across 32 requests, four historical unknowns and zero running. Both numbers show ready, pending setup
+is zero and capacity refresh is current at 22:04 Pacific. Providers, greeting and 08:00–17:00 hours remain; dialing
+is paused with all active lists. Temporary PostgreSQL/native services are stopped, test data and extracted apps are
+in Trash, and the awake helper is stopped. No new carrier/microphone session or real generation was opened.
+The wider number/connect-rate plan remains open for its separate live and measurement gates.

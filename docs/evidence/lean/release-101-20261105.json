@@ -1,0 +1,209 @@
+{
+  "version": "1.0.1",
+  "date": "2026-11-05",
+  "source_commit": "c3a12ea92a9774ae7a093699c82825485144f101",
+  "owner_request": "Fix unintuitive/non-working membership and list removal, verify script-change refresh, publish and update the authorized Mac.",
+  "changes": [
+    "Validate actual source memberships and count only changed contacts.",
+    "Reuse reversible archive state for whole-list and contact removal, with Active/Removed/All contact views and list restoration.",
+    "Apply filtered totals and pagination on both stores; preserve shared contacts and omit removed lists from active planning.",
+    "Lock duplicate-import contacts against background preparation; reload filtered history after import.",
+    "Explain meaningful versus formatting-only saves and show unique-contact refresh progress on Script."
+  ],
+  "regression_first": {
+    "http": "Initial unrelated-removal, filtered-history and script-feedback cases failed before implementation. Removed preparation/capacity choices also failed before correction.",
+    "browser": "Remove-list control and newly imported-row visibility failed before fixes. Shared-contact browser test exposed a PostgreSQL stale-lead import conflict, fixed by reload/lock.",
+    "focused_acceptance_each_store": 31,
+    "focused_browser": 7,
+    "additional_script_feedback_browser": 4,
+    "first_full_browser": "186/187 passed; existing broad save locator matched persistent feedback and toast. Scope corrected to editor status before final 187/187 run.",
+    "deadlines_increased": false,
+    "tests_skipped_to_pass": false
+  },
+  "ci": {
+    "run_id": 42168969573,
+    "url": "https://github.com/TanushV/OpenDialer/actions/runs/42168969573",
+    "status": "passed",
+    "jobs": 6,
+    "sqlite": {
+      "passed": 877,
+      "skipped": 10
+    },
+    "postgres": {
+      "passed": 878,
+      "skipped": 9
+    },
+    "browser_passed": 187,
+    "frontend_passed": 83,
+    "native_packaging_passed": 25,
+    "rust_passed": 7,
+    "lint_format_typecheck_build_clippy": "passed"
+  },
+  "signed_release": {
+    "run_id": 42168968778,
+    "url": "https://github.com/TanushV/OpenDialer/releases/tag/v1.0.1",
+    "status": "published",
+    "mac_build": "passed",
+    "windows_build": "passed",
+    "attempt": 2,
+    "recovered_failure": "First Mac attempt signed the archive but hdiutil DMG creation returned Resource busy; failed job rerun passed without source changes.",
+    "public_manifest_matches": true,
+    "release_tag_matches_source": true,
+    "source_commit": "c3a12ea92a9774ae7a093699c82825485144f101",
+    "version": "1.0.1",
+    "bundle_identifier": "com.opendialer.desktop",
+    "bundle_signature": "deep strict passed",
+    "archive_sha256": "27dddf02d24132dde751c11ad8cf2bc2904f5029dc1e29c50880c48e191f442a",
+    "executables": {
+      "opendialer-backend": "0a29baec0d56997bef8f260846dc9897aff387cfe00584ec310bd35db4c81ef2",
+      "opendialer-desktop": "c68720a826bfb39689fd709d9d8fac0515507a32f16f40464b9c00ee1b19a97a",
+      "opendialer-codex": "0ec7469699bf2f4ee54d543b911313d7319a3beb55e91e0b2c9919f5da6dd393",
+      "opendialer-trainer": "9d1263467665911b7852dcf1d5cb7ee7e989987f49a6790d09dfe6b7c47772c8",
+      "codex-code-mode-host": "0ed9f44319f46ed749653281c35b6706ab272916b6ed8290add6b61524f04416"
+    }
+  },
+  "installed": {
+    "version": "1.0.1",
+    "at": "2026-11-06T05:56:23.520573+00:00",
+    "executables_match_archive": true,
+    "bundle_signature": "deep strict passed",
+    "tables_match_before": true,
+    "database_quick_check": "ok",
+    "master_version": 3,
+    "owner_script_hash_matches": true,
+    "tables": {
+      "users": {
+        "count": 1,
+        "id_sha256": "efa24c40179d6fc64453fcc807340d278b07691d9b0918951404f30efa4331f1"
+      },
+      "leads": {
+        "count": 59,
+        "id_sha256": "f9f11dda0702fcc271f7655d548b7e6eb50f50cadeb0bcf1e619d0e375806911"
+      },
+      "number_inventory": {
+        "count": 2,
+        "id_sha256": "5ff83e770c9085e0fd63d9bbc782b7a6752e86fca552aa20a84456b215d9aea9"
+      },
+      "call_attempts": {
+        "count": 4,
+        "id_sha256": "adad5061ebc0d225e26ae6c03ef5cce71fe6b2df25122d29c03e64c191442c44"
+      },
+      "followup_tasks": {
+        "count": 11,
+        "id_sha256": "e5325676ad4bd991a76d497f246079e68df20010a8bd689ec75ddc3024f26bff"
+      }
+    }
+  },
+  "before": {
+    "at": "2026-11-06T05:54:59.939986+00:00",
+    "tables": {
+      "users": {
+        "count": 1,
+        "id_sha256": "efa24c40179d6fc64453fcc807340d278b07691d9b0918951404f30efa4331f1"
+      },
+      "leads": {
+        "count": 59,
+        "id_sha256": "f9f11dda0702fcc271f7655d548b7e6eb50f50cadeb0bcf1e619d0e375806911"
+      },
+      "number_inventory": {
+        "count": 2,
+        "id_sha256": "5ff83e770c9085e0fd63d9bbc782b7a6752e86fca552aa20a84456b215d9aea9"
+      },
+      "call_attempts": {
+        "count": 4,
+        "id_sha256": "adad5061ebc0d225e26ae6c03ef5cce71fe6b2df25122d29c03e64c191442c44"
+      },
+      "followup_tasks": {
+        "count": 11,
+        "id_sha256": "e5325676ad4bd991a76d497f246079e68df20010a8bd689ec75ddc3024f26bff"
+      }
+    },
+    "master_version": 3,
+    "master_sha256": "de8d6d7c80a300b2c3f1f79ca3a2679673b7c385fd926d6c7e2ba4857f949602",
+    "archived_leads": 2
+  },
+  "retention": {
+    "at": "2026-11-06T06:04:28.593966+00:00",
+    "lead_archive_pause_memberships_unchanged": true,
+    "list_catalog_unchanged": true,
+    "archived_leads": 2,
+    "master_v3_usage": {
+      "input_tokens": 1395941,
+      "output_tokens": 132853,
+      "cached_tokens": 971520,
+      "reasoning_tokens": 115916,
+      "requests": 32,
+      "unknown_requests": 4,
+      "running": 0,
+      "total_tokens": 1528794
+    }
+  },
+  "health": {
+    "status": "ok",
+    "version": "1.0.1",
+    "mode": "local",
+    "simulation": false,
+    "initialized": true
+  },
+  "native_removal_refresh": {
+    "version": "1.0.1",
+    "workspace": "Temporary localhost simulation, served by the installed signed backend; no production records or provider calls",
+    "import": {
+      "new_contacts": 2,
+      "duplicate_links": 1,
+      "visible_immediately": true
+    },
+    "membership_removal": {
+      "auto_selected_source": "Native removal 101",
+      "updated": 1,
+      "active_count_before": 5,
+      "active_count_after": 4,
+      "unassigned_recoverable": true,
+      "add_membership_recovered": true
+    },
+    "whole_list_removal": {
+      "hidden_from_default_lists": true,
+      "sole_contact_hidden": true,
+      "shared_contact_visible": true,
+      "show_removed_restored_list": true,
+      "contacts_visible_after_restore": true
+    },
+    "script_refresh": {
+      "master_before": 1,
+      "meaningful_save_master": 2,
+      "automatic_refresh_feedback": true,
+      "current_prepared": 2,
+      "current_requested": 2,
+      "formatting_save_master": 3,
+      "formatting_kept_prepared_scripts": true
+    },
+    "carrier_calls": 0,
+    "microphone_sessions": 0,
+    "production_contact_or_script_mutations": 0
+  },
+  "native_production": {
+    "returned_to": "Agite local workspace",
+    "version": "1.0.1",
+    "requested_active_scripts": 55,
+    "current_scripts": 55,
+    "pending_preparation": 0,
+    "master_version": 3,
+    "numbers_ready": 2,
+    "pending_setup": 0,
+    "capacity_status": "current",
+    "capacity_calculated_pacific": "Nov 5 at 10:04 PM",
+    "hours": "08:00-17:00 lead local time",
+    "dialing": "paused",
+    "list_scope": "all active lists",
+    "providers": "Telnyx connected; ChatGPT Pro connected; live-help key configured",
+    "greeting": "Saved Agite workspace greeting retained",
+    "owner_archive_flags": "Two contacts remain archived; membership, pause and archive hashes match baseline"
+  },
+  "cleanup": {
+    "temporary_postgres": "stopped and moved to Trash",
+    "native_simulation_server": "stopped; temporary data moved to Trash",
+    "verification_app_copies": "moved to Trash",
+    "awake_helper": "stopped at completion"
+  },
+  "evidence_boundary": "Native mutation checks use fictional contacts and simulated providers, with the installed signed backend. No production contact or script edit, carrier call, microphone session, or new master-v3 model request occurred. Wider carrier/device, live guidance/rundown, ramp and measured connect-rate gates remain open in NUMBER_CONNECT_PLAN.md."
+}

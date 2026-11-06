@@ -1,3 +1,17 @@
+# 1.0.1 list removal and script-refresh delta (November 5, 2026)
+
+`lead_lists.py` validates real source memberships, reports actual changes and reuses reversible list/contact archive state.
+`workspace.py` applies Active/Removed filtering before totals and pagination on SQLite and PostgreSQL. `service.py`
+locks an existing imported contact before adding its new membership, preserving concurrent preparation updates.
+`main.py` omits removed lists from capacity choices. `preparation/workflows.py` reports unique-contact progress and
+hides removed memberships. `optimization/script_lab.py` reports whether a save changes the generation identity.
+`LeadLists.tsx` exposes Remove/Restore list, recovery views and source selection; `Operations.tsx` loads filtered lead
+history and refreshes it after import. `ScriptEditor.tsx` and compact `PreparationPanel.tsx` explain saves and show
+current master progress. Existing current-call snapshots, research reuse and token accounting remain.
+Acceptance regressions: `test_list_management.py`, `test_feature_playbook.py`; browser: `removal-refresh.spec.ts`
+and updated `lists.spec.ts`. No schema or physical deletion path was added. Release/native checks are tracked in
+[the follow-up plan](LIST_REMOVAL_PLAN.md).
+
 # 1.0.0 release and dialing-pool persistence delta (November 5, 2026)
 
 All root release inputs use 1.0.0 with the same app/workspace/updater identity and dependency graphs.

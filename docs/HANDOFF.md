@@ -1,26 +1,26 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 1.0.0 installed**, November 5, 2026. Owner-requested release name, with
-> saved-list persistence corrected after a delayed queue release exposed loss on immediate reload.
-> Choices save immediately and roll back if release fails. Regression-first local list/helper checks pass (eight),
-> followed by all six CI jobs on `b1b774c`: 870 SQLite, 871 PostgreSQL, 184 browser, 83 frontend,
-> 25 native/package and seven Rust tests. Both signed desktop builds pass. Mac checksums/deep strict signatures,
-> public manifest, release tag and installed executable hashes verify. Native UI and authority report 1.0.0.
-> [Current receipt](evidence/lean/release-100-20261105.json), [script checklist](SCRIPT_PLAYBOOK_PLAN.md),
-> [usage guide](SCRIPT_PLAYBOOK.md). All core record IDs remain: one user, 59 leads, two numbers,
-> four calls and eleven tasks. Agite master v3 and all 57 current/reviewed requested scripts remain;
-> the production list shows 54 of 54 ready. Master-v3 usage remains 1,528,794 known tokens across
-> 32 requests; four historical failed attempts retain unknown counters. No preparation work remains pending.
-> Both numbers show ready with zero pending setup. Capacity refresh is current at 20:34 Pacific;
-> providers, saved greeting and 08:00–17:00 hours remain. Native list selection survives a full app restart;
-> the original all-active-list selection is restored, and dialing is paused. Test PostgreSQL and extracted apps
-> are in Trash, and the task's awake helper is stopped. The superseded candidate remains unpublished.
-> No new phone call or microphone session was opened. The late November 4 human audio test passed on 0.8.14:
-> the owner confirmed both directions were clear, and real Cerebras guidance responded to a spoken stop request.
-> The delivery test is finalized and excluded from connect metrics. Live stage/vendor-email guidance, a complete
-> fresh post-call rundown, wider carrier/device qualification, real ramp and measured connect-rate lift remain open
-> in [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md). The saved test rundown is partial.
-> Outbound speech remains the human rep's voice; the assistant displays text.
+> **Status: CURRENT — 1.0.1 installed**, November 5, 2026. Source `c3a12ea`,
+> [release receipt](evidence/lean/release-101-20261105.json), [completed follow-up](LIST_REMOVAL_PLAN.md).
+> Membership removal now selects actual sources and reports real changes. Remove list hides the list from active
+> views/calling; Show removed lists restores it. Contacts shared with another active list stay available. Active,
+> Removed and All lead views filter before pagination. Duplicate imports lock current lead state against preparation.
+> Script saves distinguish meaningful refresh from formatting-only preservation; Script shows current-master progress.
+> Fresh complete CI passes: 877 SQLite, 878 PostgreSQL, 187 browser, 83 frontend, 25 native/package and seven Rust.
+> Both signed builds pass after a transient macOS DMG Resource busy retry. The first browser run's broad save
+> locator was corrected to the editor status; no failing case was skipped or deadline increased.
+> Public manifest, release tag, Mac archive/checksums/deep signatures and all five installed executable hashes verify.
+> Native UI/service report 1.0.1. Isolated native simulation using the installed signed backend passes import,
+> membership removal/recovery, whole-list removal/restoration, shared contacts and both script-save paths.
+> The app is back on Agite. All original core IDs/counts remain: one user, 59 leads, two numbers, four calls,
+> eleven tasks. Original memberships, two owner archives, providers and master-v3 hash remain. All 55 requested
+> active scripts are current; no refresh is pending. Master-v3 usage stays 1,528,794 known tokens across 32 requests,
+> four historical unknowns and zero running. Both numbers are ready with zero pending setup; capacity is current
+> at 22:04 Pacific. Saved greeting, 08:00–17:00 hours, all-active-list scope and paused dialing remain.
+> Temporary PostgreSQL/native servers are stopped, temporary data and extracted apps are in Trash, and the awake
+> helper is stopped. No new carrier/microphone session or real generation occurred. The broader live stage/vendor
+> guidance, fresh complete rundown, carrier/device, ramp and measured lift gates remain open in
+> [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md). Outbound speech remains the rep's voice; the helper is text.
 >
 > Historical 0.8.0 calling-completion checkpoint, November 2, 2026.
 > [CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md) section 14 lists what 0.8.0 implemented and verified:
