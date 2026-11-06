@@ -156,19 +156,27 @@ Hosted (2-vCPU reference, 8 reps, one call per rep per minute): the remediation 
 
 ## Status
 
-- November 5: owner requested the release name **1.0.0**, replacing the 0.x label. Preserve the installed
-  workspace, saved credentials and master-v3 preparation. Verification found a list-choice persistence race:
-  reloading before queue release completed lost the visible choice. A delayed-response browser regression
-  reproduces it; save immediately and restore the previous choice if release fails. The first browser run
-  also hung in mocked-request cleanup after its assertions passed; fixture teardown is now non-blocking.
-  The first signed candidate is unpublished and will be replaced, retaining the 1.0.0 version.
-  Release TODOs:
+- November 5: owner-requested **1.0.0** is published and installed from `b1b774c`.
+  [Release receipt](evidence/lean/release-100-20261105.json). Release TODOs:
   - [x] Save a fresh installed baseline and observe version/manifest acceptance fail before changing inputs.
   - [x] Set all nine root release inputs to 1.0.0 and use concise product-facing release notes.
-  - [ ] Pass verification and build both signed desktop packages from the same commit.
-  - [ ] Verify the Mac package and manifest, publish 1.0.0 and install through this Mac's signed updater.
-  - [ ] Verify installed UI/service, signatures, retained records/scripts/providers, both numbers and capacity.
-  - [ ] Commit final evidence and current handoff; leave the wider number/connect-rate gates open.
+  - [x] Pass verification and build both signed desktop packages from the same corrected commit.
+  - [x] Verify the Mac package and manifest, publish 1.0.0 and install through this Mac's signed updater.
+  - [x] Verify installed UI/service, signatures, retained records/scripts/providers, both numbers and capacity.
+  - [x] Commit final evidence and current handoff; leave the wider number/connect-rate gates open.
+  Verification exposed a list-choice race: an immediate reload before queue release completed lost the visible
+  selection. A delayed-response regression failed first; choices now save immediately and revert if release fails.
+  Mocked helper-request cleanup no longer waits after completed assertions. All eight affected browser tests pass
+  locally, followed by all six final CI jobs: 870 SQLite, 871 PostgreSQL, 184 browser, 83 frontend,
+  25 native/package and seven Rust. CI `42161735952` and signed build `42161771845` pass on `b1b774c`.
+  Both packages, Mac checksums/deep strict signatures, public manifest and installed executable hashes verify.
+  Native UI/service report 1.0.0. The selected production pool survives a full app restart; original all-active-list
+  selection is restored and dialing remains paused. All core record IDs/counts and Agite master v3 remain;
+  all 57 requested active scripts are current/reviewed, with no pending preparation work or new master-v3 model
+  requests. Both numbers are ready with zero pending setup, and capacity refresh is current at 20:34 Pacific.
+  Providers, saved greeting and 08:00–17:00 hours remain. Test PostgreSQL and extracted apps are in Trash;
+  the task's awake helper is stopped. The superseded first candidate remains unpublished. No new phone call
+  or microphone session was opened; live scenarios, traffic ramp and measured lift remain open in the number plan.
 
 - November 5: [0.10.2](https://github.com/TanushV/OpenDialer/releases/tag/v0.10.2) is published and installed
   from `c3a8cc5`. The [Markdown/token feature checklist](SCRIPT_PLAYBOOK_PLAN.md) is complete. All six CI jobs

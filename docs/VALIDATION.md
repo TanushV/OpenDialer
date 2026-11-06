@@ -1,29 +1,29 @@
 # OpenDialer lean build validation
 
-**Current software verification: November 5, 2026, 0.10.2.** Published and installed from `c3a8cc5`.
-[All six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/42155409085) pass: SQLite 870/10 skips,
-PostgreSQL 871/9, browser 182, frontend 83, native/package 25 and Rust seven; lint/format/typecheck/build/Clippy
-pass. Both desktop builds pass. Mac archive checksum/deep strict signature, public manifest and all five installed
-executable hashes verify. The signed updater installed this Mac; native UI and local authority report 0.10.2.
-All core record IDs/counts remain: one user, 59 leads, two numbers, four calls and eleven tasks.
-[Final receipt](evidence/lean/release-0102-20261105.json), [feature checklist](SCRIPT_PLAYBOOK_PLAN.md).
+**Current software verification: November 5, 2026, 1.0.0.** Published and installed from `b1b774c`.
+[All six CI jobs](https://github.com/TanushV/OpenDialer/actions/runs/42161735952) pass: SQLite 870/10 skips,
+PostgreSQL 871/9, browser 184, frontend 83, native/package 25 and Rust seven; lint/format/typecheck/build/Clippy
+pass. Both desktop builds pass. Mac archive checksum/deep strict signature, public manifest, release tag and
+all five installed executable hashes verify. The signed updater installed this Mac; native UI and local authority
+report 1.0.0. All core IDs/counts remain: one user, 59 leads, two numbers, four calls and eleven tasks.
+[Current receipt](evidence/lean/release-100-20261105.json).
 
-The owner playbook is saved only in Agite, as master v3 with three pitch options and eleven objections.
-Native source/preview, separated directions, grounded differences between lead previews, objection branches and
-scoped token usage pass. All 57 requested active leads have current independently reviewed scripts; the imported
-production list shows 54 of 54 ready. Twenty-nine contain accepted AI-written blocks; unsupported wording is withheld.
-No skips, preparation errors or pending jobs remain. Regression-first fixes cover null post-call notes, inactive
-contacts, long maximum-effort reviews and concurrent login-lock contention. The final installed retry completes
-with real writing/review receipts and zero failures. Master-v3 known usage is 1,528,794 tokens, including retries;
-four historical failed requests retain unknown counters. Cached/reasoning counters are subsets, not extra tokens.
+The initial unpublished candidate's browser runs exposed two issues: mocked-request cleanup waiting after
+successful helper assertions, then list-choice persistence losing an immediate reload. A controlled delayed-release
+regression reproduced the latter before the fix. The preference now saves immediately and rolls back on rejection;
+all eight affected local browser tests and the fresh full CI pass. No test was skipped or deadline increased.
+The final native production-list choice survives a full app restart; original all-active-list selection is restored.
 
-Both numbers show ready with zero pending setup. Actual-workspace capacity refresh is current at 19:37 Pacific.
-Saved provider setup, Agite greeting, 08:00–17:00 hours and all-active-list dialing selection remain; dialing is paused.
-Temporary test PostgreSQL is stopped and in Trash, extracted verification app copies are in Trash, and the task's
-awake helper is stopped. No new phone call or microphone session was opened. The owner-confirmed human two-way
-audio and Cerebras text-guidance result remains dated to 0.8.14. Live tracked-stage/vendor scenarios, complete
-fresh post-call rundown, broader carrier/device coverage, real ramp and measured connect-rate lift remain open
-in the [number plan](NUMBER_CONNECT_PLAN.md). Older snapshots below are historical.
+Agite master v3 and all 57 requested current/reviewed scripts remain, with no pending preparation work or error.
+The imported production list shows 54 of 54 ready. Master-v3 usage remains 1,528,794 reported tokens across
+32 requests; four historical failed requests have unknown counters. No new master-v3 model requests were needed.
+[Playbook/usage verification](evidence/lean/release-0102-20261105.json), [feature checklist](SCRIPT_PLAYBOOK_PLAN.md).
+Both numbers show ready with zero pending setup. Capacity refresh is current at 20:34 Pacific. Saved providers,
+Agite greeting and 08:00–17:00 hours remain; dialing is paused. Disposable test PostgreSQL and extracted apps are
+in Trash, and the task's awake helper is stopped. No new phone call or microphone session was opened.
+The prior owner-confirmed human audio and Cerebras result remains dated to 0.8.14. Live tracked-stage/vendor
+scenarios, a complete fresh rundown, broader carrier/device coverage, real ramp and measured connect-rate lift
+remain open in the [number plan](NUMBER_CONNECT_PLAN.md). Older snapshots below are historical.
 
 **Historical software verification: October 30, 2026, 0.6.0.** The [release receipt](evidence/lean/security-release-20261030.json) records backend SQLite/PostgreSQL, browser, frontend, native credential/runtime, frozen restart and Mac packaging checks, dependency audits and release status. The [handoff](HANDOFF.md) explains the current implementation and remaining live/security gates. Earlier results below are historical.
 

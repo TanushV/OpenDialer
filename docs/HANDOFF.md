@@ -1,28 +1,25 @@
 # OpenDialer testing handoff (CURRENT)
 
-> **Status: CURRENT — 0.10.2 installed**, November 5, 2026. Flexible Markdown playbooks, fresh
-> per-lead rewrites after meaningful master changes, scoped research/sample controls and token usage are complete.
-> [Feature checklist](SCRIPT_PLAYBOOK_PLAN.md), [usage guide](SCRIPT_PLAYBOOK.md),
-> [final receipt](evidence/lean/release-0102-20261105.json). Source `c3a8cc5` passes all six CI jobs:
-> 870 SQLite, 871 PostgreSQL, 182 browser, 83 frontend, 25 native/package and seven Rust tests.
-> Both desktop builds pass; the public manifest, Mac checksums/deep strict signatures and all installed
-> executable hashes verify. The signed updater installed this Mac; UI and local authority report 0.10.2.
-> All core record IDs/counts remain: one user, 59 leads, two numbers, four calls and eleven tasks.
-> Agite master v3 contains the owner's playbook, three pitches, eleven objections and separate directions.
-> All 57 requested active leads have current independently reviewed scripts; the production list shows
-> 54 of 54 ready. Unsupported trigger wording is withheld. No pending preparation jobs or errors remain.
-> Master-v3 usage reports 1,528,794 tokens across 32 requests, including retries; four historical failed
-> attempts retain unknown counters. No request remains running. 0.10.2 fixes login-lock contention found
-> during real maximum-effort review; the final retry completes with reported writing/review usage and no failure.
-> Both numbers show ready with zero pending setup; the actual workspace capacity refresh is current at
-> 19:37 Pacific. Providers, Agite greeting and 08:00–17:00 hours remain; dialing is paused with all active lists.
-> Temporary test services/app copies are cleaned up and the task's awake helper is stopped.
-> No new phone call or microphone session was opened. The late November 4 human audio test passed on
-> 0.8.14: the owner confirmed both directions were clear, and real Cerebras text guidance responded to a
-> spoken stop request. Its finalized delivery-test result is excluded from connect metrics.
-> Live tracked-stage/vendor-email guidance, a complete fresh post-call rundown, wider carrier/device
-> qualification, real prospect ramp and measured connect-rate lift remain open in
-> [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md). The saved test AI rundown is partial.
+> **Status: CURRENT — 1.0.0 installed**, November 5, 2026. Owner-requested release name, with
+> saved-list persistence corrected after a delayed queue release exposed loss on immediate reload.
+> Choices save immediately and roll back if release fails. Regression-first local list/helper checks pass (eight),
+> followed by all six CI jobs on `b1b774c`: 870 SQLite, 871 PostgreSQL, 184 browser, 83 frontend,
+> 25 native/package and seven Rust tests. Both signed desktop builds pass. Mac checksums/deep strict signatures,
+> public manifest, release tag and installed executable hashes verify. Native UI and authority report 1.0.0.
+> [Current receipt](evidence/lean/release-100-20261105.json), [script checklist](SCRIPT_PLAYBOOK_PLAN.md),
+> [usage guide](SCRIPT_PLAYBOOK.md). All core record IDs remain: one user, 59 leads, two numbers,
+> four calls and eleven tasks. Agite master v3 and all 57 current/reviewed requested scripts remain;
+> the production list shows 54 of 54 ready. Master-v3 usage remains 1,528,794 known tokens across
+> 32 requests; four historical failed attempts retain unknown counters. No preparation work remains pending.
+> Both numbers show ready with zero pending setup. Capacity refresh is current at 20:34 Pacific;
+> providers, saved greeting and 08:00–17:00 hours remain. Native list selection survives a full app restart;
+> the original all-active-list selection is restored, and dialing is paused. Test PostgreSQL and extracted apps
+> are in Trash, and the task's awake helper is stopped. The superseded candidate remains unpublished.
+> No new phone call or microphone session was opened. The late November 4 human audio test passed on 0.8.14:
+> the owner confirmed both directions were clear, and real Cerebras guidance responded to a spoken stop request.
+> The delivery test is finalized and excluded from connect metrics. Live stage/vendor-email guidance, a complete
+> fresh post-call rundown, wider carrier/device qualification, real ramp and measured connect-rate lift remain open
+> in [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md). The saved test rundown is partial.
 > Outbound speech remains the human rep's voice; the assistant displays text.
 >
 > Historical 0.8.0 calling-completion checkpoint, November 2, 2026.

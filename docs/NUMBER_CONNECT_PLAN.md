@@ -1,9 +1,10 @@
 # Numbers and connect rate plan
 
-Updated November 5, 2026. Signed 0.10.2 is published and installed. Both numbers show ready with zero
-pending setup, and the actual 59-lead workspace's capacity refresh is current at 19:37 Pacific. All core
-record IDs, providers and Agite greeting remain; hours are 08:00–17:00 and dialing is paused. List controls
-and the 17:00 cutoff shipped in 0.9.1; 0.9.2 fixed mixed-zone planning. The 0.10.2 script/token feature is complete.
+Updated November 5, 2026. Signed 1.0.0 is published and installed. Both numbers show ready with zero
+pending setup, and actual-workspace capacity refresh is current at 20:34 Pacific. All core record IDs,
+providers and Agite greeting remain; hours are 08:00–17:00 and dialing is paused with all active lists.
+The saved-pool choice survives app restart after the 1.0.0 reload-race fix. All 57 requested master-v3
+scripts remain current and reviewed. The script/token feature is complete; the live and measurement gates remain open.
 
 The late November 4 human microphone test passed on 0.8.14: the owner confirmed both audio directions were
 clear, and real Cerebras text guidance responded to the spoken stop request. The test is finalized and excluded
@@ -192,6 +193,14 @@ fresh reputation checks before each dial. No audio recording unless the owner as
 - Display of caller name and branding varies by carrier and device. Nothing guarantees clean labels.
 
 ## Verification checkpoint
+
+- November 5: [1.0.0](https://github.com/TanushV/OpenDialer/releases/tag/v1.0.0) is published and installed
+  from `b1b774c`. All six CI jobs and both desktop builds pass (870 SQLite, 871 PostgreSQL, 184 browser).
+  Signatures, checksums, public manifest, installed executables, saved data and master-v3 preparation verify.
+  Native list choice survives a full app restart and original all-active-list scope is restored. Both numbers
+  are ready, pending setup is zero and capacity refresh is current at 20:34 Pacific. Providers, greeting and
+  08:00–17:00 hours remain; dialing is paused. No new carrier call or microphone session was opened.
+  The wider live/measurement checklist above stays open. [Receipt](evidence/lean/release-100-20261105.json).
 
 - November 5: signed [0.10.2](https://github.com/TanushV/OpenDialer/releases/tag/v0.10.2) is installed from
   `c3a8cc5`. All six CI jobs and both desktop builds pass. Native UI confirms two ready numbers, zero pending

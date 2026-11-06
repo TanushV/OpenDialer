@@ -1,0 +1,202 @@
+{
+  "version": "1.0.0",
+  "date": "2026-11-05",
+  "source_commit": "b1b774ceae5efca035753dbb9b06c786ff1a295a",
+  "owner_request": "Release the current app as OpenDialer 1.0.0; publish and update this Mac while preserving saved setup.",
+  "changes": [
+    "All nine root release-version inputs use 1.0.0; stable workspace/updater identity and unchanged dependency graphs.",
+    "Save dialing-list preferences before asynchronous queue release, so immediate reload preserves the selected pool. Restore the previous preference if release fails.",
+    "Non-blocking cleanup for intercepted helper-test requests after behavioral assertions complete."
+  ],
+  "regression_first": {
+    "version_manifest": "Two acceptance failures before release inputs changed; all 16 distribution checks pass afterward.",
+    "lost_list_choice": "A delayed queue release reproduced an unchecked saved list after reload before the fix.",
+    "guard": "Rejected queue releases restore the prior saved pool.",
+    "affected_local_browser_tests_passed": 8,
+    "initial_candidate": "c5e9da5 stayed unpublished. Its first browser run passed cancellation assertions then stalled in fixture cleanup; its second run exposed list-choice loss on immediate reload. Both were addressed before final publication.",
+    "final_verification": "Fresh complete CI passes on corrected source; no failing test was skipped or deadline increased."
+  },
+  "ci": {
+    "run_id": 42161735952,
+    "url": "https://github.com/TanushV/OpenDialer/actions/runs/42161735952",
+    "status": "passed",
+    "jobs": 6,
+    "sqlite": {
+      "passed": 870,
+      "skipped": 10
+    },
+    "postgres": {
+      "passed": 871,
+      "skipped": 9
+    },
+    "browser_passed": 184,
+    "frontend_passed": 83,
+    "native_packaging_passed": 25,
+    "rust_passed": 7,
+    "lint_format_typecheck_build_clippy": "passed"
+  },
+  "signed_release": {
+    "run_id": 42161771845,
+    "url": "https://github.com/TanushV/OpenDialer/releases/tag/v1.0.0",
+    "status": "published",
+    "mac_build": "passed",
+    "windows_build": "passed",
+    "public_manifest_matches": true,
+    "source_commit": "b1b774ceae5efca035753dbb9b06c786ff1a295a",
+    "version": "1.0.0",
+    "bundle_identifier": "com.opendialer.desktop",
+    "bundle_signature": "deep strict passed",
+    "archive_sha256": "3c9d5f5b8aa65edc5e270f91bc94b6eaeab68b9b96b83f7f6fcec4b46d5a6e7c",
+    "executables": {
+      "opendialer-backend": "5a0024d9ddeb323faceffea2588f224205cbc594b5e4bf171cdb497a1e4db42b",
+      "opendialer-desktop": "609a4e1a6c06fee582296d2a9c4b3d96c2f84c7c456953a01cd221e7d0034ced",
+      "opendialer-codex": "0ec7469699bf2f4ee54d543b911313d7319a3beb55e91e0b2c9919f5da6dd393",
+      "opendialer-trainer": "98c187307aec6578077a982c63dae57da9d42959122ae3ae5b5d959ff1336393",
+      "codex-code-mode-host": "0ed9f44319f46ed749653281c35b6706ab272916b6ed8290add6b61524f04416"
+    }
+  },
+  "installed_before": {
+    "at": "2026-11-06T03:42:31.084812+00:00",
+    "version": "0.10.2",
+    "quick_check": "ok",
+    "tables": {
+      "users": {
+        "count": 1,
+        "id_sha256": "efa24c40179d6fc64453fcc807340d278b07691d9b0918951404f30efa4331f1"
+      },
+      "leads": {
+        "count": 59,
+        "id_sha256": "f9f11dda0702fcc271f7655d548b7e6eb50f50cadeb0bcf1e619d0e375806911"
+      },
+      "number_inventory": {
+        "count": 2,
+        "id_sha256": "5ff83e770c9085e0fd63d9bbc782b7a6752e86fca552aa20a84456b215d9aea9"
+      },
+      "call_attempts": {
+        "count": 4,
+        "id_sha256": "adad5061ebc0d225e26ae6c03ef5cce71fe6b2df25122d29c03e64c191442c44"
+      },
+      "followup_tasks": {
+        "count": 11,
+        "id_sha256": "e5325676ad4bd991a76d497f246079e68df20010a8bd689ec75ddc3024f26bff"
+      }
+    },
+    "master_version": 3,
+    "markdown_sha256": "de8d6d7c80a300b2c3f1f79ca3a2679673b7c385fd926d6c7e2ba4857f949602"
+  },
+  "installed_after": {
+    "version": "1.0.0",
+    "at": "2026-11-06T04:32:55.608225+00:00",
+    "executables_match_archive": true,
+    "bundle_signature": "deep strict passed",
+    "tables_match_before": true,
+    "database_quick_check": "ok",
+    "master_version": 3,
+    "owner_script_hash_matches": true,
+    "tables": {
+      "users": {
+        "count": 1,
+        "id_sha256": "efa24c40179d6fc64453fcc807340d278b07691d9b0918951404f30efa4331f1"
+      },
+      "leads": {
+        "count": 59,
+        "id_sha256": "f9f11dda0702fcc271f7655d548b7e6eb50f50cadeb0bcf1e619d0e375806911"
+      },
+      "number_inventory": {
+        "count": 2,
+        "id_sha256": "5ff83e770c9085e0fd63d9bbc782b7a6752e86fca552aa20a84456b215d9aea9"
+      },
+      "call_attempts": {
+        "count": 4,
+        "id_sha256": "adad5061ebc0d225e26ae6c03ef5cce71fe6b2df25122d29c03e64c191442c44"
+      },
+      "followup_tasks": {
+        "count": 11,
+        "id_sha256": "e5325676ad4bd991a76d497f246079e68df20010a8bd689ec75ddc3024f26bff"
+      }
+    },
+    "ui_version": "1.0.0",
+    "list_selection_survived_full_restart": true,
+    "original_all_active_lists_restored": true,
+    "dialing": "paused",
+    "numbers_ready": 2,
+    "pending_setup": 0,
+    "capacity": "Current after native refresh at 20:34 Pacific on November 5.",
+    "agite_greeting": "retained",
+    "telnyx": "connected",
+    "chatgpt": "connected",
+    "live_help_key": "configured",
+    "calling_hours": [
+      8,
+      17
+    ],
+    "production_list_ready": 54,
+    "production_list_total": 54,
+    "earlier_prepared_test_list_ready": 3,
+    "current_master_reported_tokens": 1528794,
+    "current_master_requests": 32,
+    "current_master_running_requests": 0,
+    "new_phone_call_or_microphone_session": false,
+    "backend_health": {
+      "status": "ok",
+      "version": "1.0.0",
+      "mode": "local",
+      "simulation": false,
+      "initialized": true
+    }
+  },
+  "retained_preparation": {
+    "at": "2026-11-06T04:36:11.372007+00:00",
+    "master_version": 3,
+    "requested_active": 57,
+    "current_scripts": 57,
+    "reviewed_scripts": 57,
+    "with_accepted_model_written_blocks": 29,
+    "pending_jobs": 0,
+    "errors": 0,
+    "owner_script_hash_matches": true,
+    "usage_totals": {
+      "requests": 32,
+      "unknown_requests": 4,
+      "partial_requests": 0,
+      "running": 0,
+      "input_tokens": 1395941,
+      "output_tokens": 132853,
+      "cached_tokens": 971520,
+      "reasoning_tokens": 115916,
+      "total_tokens": 1528794
+    },
+    "usage_note": "No new master-v3 model requests for this release. Four historical failed requests retain unknown counters; known totals remain 1,528,794. Cached/reasoning are subsets of input/output."
+  },
+  "source_comparison": {
+    "runtime_changes": [
+      "release version 1.0.0",
+      "save list preference before awaiting queue release; restore prior preference on failure"
+    ],
+    "calling_policy_and_audio_path_unchanged": true,
+    "dependency_graphs_unchanged": true,
+    "baseline_source": "c3a8cc5",
+    "release_source": "b1b774ceae5efca035753dbb9b06c786ff1a295a",
+    "regression_first": "Delayed queue release reproduces lost pool on reload before fix; all eight affected list/helper browser tests pass after fix."
+  },
+  "cleanup": {
+    "task_owned_disposable_postgres_stopped_and_in_trash": true,
+    "extracted_verification_apps_in_trash": true,
+    "task_owned_awake_helper_stopped": true,
+    "verification_auth_session_created": false,
+    "credentials_or_private_playbook_committed": false,
+    "superseded_candidate": "Retained unpublished; first-candidate artifacts and failure evidence kept locally."
+  },
+  "prior_live_evidence": {
+    "version": "0.8.14",
+    "receipt": "calling-0814-20261104.json",
+    "human_two_way_audio": "owner confirmed clear both directions",
+    "new_phone_call_or_microphone_session_for_this_release": false
+  },
+  "remaining_gates": [
+    "Live tracked-stage/vendor-email objection and complete fresh post-call rundown.",
+    "Broader carrier/device labels, AMD and final rep-spoken voicemail qualification.",
+    "Real prospect ramp and measured connect rate; 12 percent remains an unproven planning target.",
+    "Apple Developer ID/notarization and Windows publisher trust remain outside current signing setup."
+  ]
+}

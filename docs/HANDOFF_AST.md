@@ -1,3 +1,12 @@
+# 1.0.0 release and dialing-pool persistence delta (November 5, 2026)
+
+All root release inputs use 1.0.0 with the same app/workspace/updater identity and dependency graphs.
+`components/DialerPage.tsx` saves a list choice before awaiting queue release, then restores the previous
+saved choice if that request fails. `tests/lists.spec.ts` delays release across reload and tests rejection rollback.
+`helper-cancel.spec.ts` releases mocked requests without blocking teardown after its assertions finish.
+No calling-policy or audio-path change. See [current handoff](HANDOFF.md) and
+[release receipt](evidence/lean/release-100-20261105.json).
+
 # 0.10.2 Markdown playbooks and token usage delta (November 5, 2026)
 
 `preparation/templates.py` owns deterministic Markdown aliases, named alternatives, separate rep directions,

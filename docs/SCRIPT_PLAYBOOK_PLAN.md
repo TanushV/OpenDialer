@@ -1,5 +1,7 @@
 # Markdown playbooks, fresh rewrites and token usage — 0.10.2
 
+Carried forward unchanged into published and installed [1.0.0](evidence/lean/release-100-20261105.json).
+
 Owner approved November 5, 2026. Implementation, publication, this Mac's signed update and replacing Agite's
 saved script with the owner's supplied playbook are authorized. Preserve all workspace data and credentials.
 Read this checklist along with LEAN_PLAN.md and NUMBER_CONNECT_PLAN.md after every compaction.
