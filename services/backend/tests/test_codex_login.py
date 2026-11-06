@@ -80,11 +80,14 @@ for line in sys.stdin:
   data["tokens"]["refresh_token"] = "rotated-during-inference"
   (home / "auth.json").write_text(json.dumps(data))
   mode = json.loads(m["params"]["input"][0]["text"])["mode"]
+  if mode == "slow_review":
+   import time
+   time.sleep(0.2)
   send({"id":m["id"],"result":{"turn":{"id":"turn-test"}}})
   if mode == "prose":
    send({"method":"turn/completed","params":{"turn":{"id":"turn-test","status":"completed"}}})
   else:
-   send({"id":99,"method":"item/tool/call", "params":{"tool": tool if mode == "valid" else "exec_command", "arguments":{"opener":"Hello"},"callId":"tool-test","threadId":"thread-test","turnId":"turn-test"}})
+   send({"id":99,"method":"item/tool/call", "params":{"tool": tool if mode in {"valid", "slow_review"} else "exec_command", "arguments":{"opener":"Hello"},"callId":"tool-test","threadId":"thread-test","turnId":"turn-test"}})
   continue
  if "method" not in m:
   send({"method":"thread/tokenUsage/updated","params":{"turnId":"turn-test","tokenUsage":{"total":{"inputTokens":12,"outputTokens":4}}}})
@@ -311,3 +314,24 @@ def test_a_local_workspace_can_use_the_chatgpt_login_already_on_this_computer(
     assert read_private(home / "auth.json")["tokens"]["account_id"] == login()["tokens"]["account_id"]
     monkeypatch.setattr(app.state.service.settings, "mode", "connected")
     assert client.get("/v1/inference/codex", headers=headers).json()["computer_login"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role,succeeds", [("script_review", True), ("script_write", False)])
+async def test_offline_script_review_outlives_the_short_completion_deadline(
+    tmp_path, runtime_fixture, monkeypatch, role, succeeds
+):
+    codex = runtime_fixture
+    home = tmp_path / "slow-review"
+    codex.save_login(home, login())
+    deadline = asyncio.timeout
+    # Scale real deadlines, leaving the fake provider's 0.2-second response unchanged.
+    monkeypatch.setattr(codex.asyncio, "timeout", lambda seconds: deadline(seconds / 1000))
+    client = codex.CodexClient(home, "fixture", "submit_" + role)
+    if succeeds:
+        result = await client.complete("Review.", {"mode": "slow_review"}, {"type": "object"})
+        assert result.data == {"opener": "Hello"}
+        assert result.usage["input_tokens"] == 12
+    else:
+        with pytest.raises(codex.InferenceError):
+            await client.complete("Write.", {"mode": "slow_review"}, {"type": "object"})

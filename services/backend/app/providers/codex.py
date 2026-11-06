@@ -240,8 +240,8 @@ class CodexRuntime:
                 raise InferenceError(RECONNECT)
             return {k: account.get(k) for k in ("type", "email", "planType")}
 
-    async def complete(self, model, instructions, context, schema, tool_name, *, on_usage=None):
-        async with self.session():
+    async def complete(self, model, instructions, context, schema, tool_name, *, on_usage=None, seconds=120):
+        async with self.session(seconds=seconds):
             thread = await self.request(
                 "thread/start",
                 {
@@ -460,6 +460,7 @@ class CodexClient:
                 context,
                 schema,
                 self.tool_name,
+                **({"seconds": 900} if self.tool_name == "submit_script_review" else {}),
                 **({"on_usage": self.usage_callback} if getattr(self, "usage_callback", None) else {}),
             )
         if not isinstance(result.get("arguments"), dict) or not result.get("call_id"):

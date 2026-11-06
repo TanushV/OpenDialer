@@ -1,4 +1,4 @@
-# Markdown playbooks, fresh rewrites and token usage — 0.10.0
+# Markdown playbooks, fresh rewrites and token usage — 0.10.1
 
 Owner approved November 5, 2026. Implementation, publication, this Mac's signed update and replacing Agite's
 saved script with the owner's supplied playbook are authorized. Preserve all workspace data and credentials.
@@ -52,3 +52,14 @@ A failing HTTP regression reproduced the stuck state; empty notes are now normal
 preceded excluding paused, archived and opted-out contacts from automatic dispatch, claims and progress.
 All 33 related journeys pass on both stores. The initial signed draft remains unpublished and is being replaced
 with these runtime fixes; full CI/browser verification and native installation are still required.
+
+Native 0.10.0 verification: published/installed from `a7b3434`; all six CI jobs pass (867 SQLite,
+868 PostgreSQL, 182 browser, 83 frontend, 25 native/package, seven Rust). Signatures, executable hashes,
+manifest, retained record IDs, both ready numbers, zero pending setup, capacity, providers and hours pass.
+Agite master v3 is saved through the application's existing import handler after native file selection;
+CUA subsequently verified v3, directions, all variants/objections, scoped token reporting and different grounded
+wording for two real leads. First five independent reviews passed; later reviews hit the existing 120-second
+completion limit at maximum effort. Failed receipts correctly retained unknown counters. A failing delayed-provider
+regression precedes a longer deadline only for offline script review. 0.10.1 is required before close-out.
+New batches are temporarily paused while that patch builds; preserve and restore the prior unpaused state,
+resume remaining leads and regenerate any current-master scripts whose independent review was interrupted.

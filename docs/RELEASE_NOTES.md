@@ -1,5 +1,6 @@
-# OpenDialer 0.10.0
+# OpenDialer 0.10.1
 
+- **Finish maximum-effort reviews.** Offline script review has a longer deadline so complex, maximum-effort reasoning can finish. Reported usage remains attached to each attempt, including failed work.
 - **Flexible Markdown playbooks.** Use familiar section names, named alternatives, a separate pitch, goals and preparation instructions. Blockquotes appear as rep directions. Screening and discovery are optional; extra reference sections are preserved.
 - **Fresh scripts from a new master.** Meaningful template changes generate new personalized scripts from current facts and call history. Earlier personalized wording is not reused. Formatting-only edits use no model work, and active calls keep their original script.
 - **Control research and rewriting.** Reuse valid research or explicitly refresh it, choose a list, measure a three-lead sample and rewrite the remaining leads. Paused and archived lists stay out of these actions.

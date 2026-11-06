@@ -43,3 +43,6 @@ thread has an exact reported total and an explicitly estimated equal allocation 
 ChatGPT subscription work is labeled subscription-included, not a metered dollar charge. Provider charges and
 unpriced receipts remain distinct. Missing counters display **Unknown**; historical preparation usage before
 0.10.0 was not recorded and cannot be recovered from the app ledger. Reported totals exclude missing counters.
+
+Offline maximum-effort script review can take several minutes; 0.10.1 gives it up to fifteen minutes.
+This changes no live calling or live-helper deadline. Reported usage from interrupted attempts stays in the ledger.
