@@ -108,7 +108,7 @@ def watch_launcher(stream, on_lost=_launcher_lost):
     return watcher
 
 
-def main():
+def parser():
     parser = argparse.ArgumentParser(description="OpenDialer local authority")
     parser.add_argument("command", nargs="?", choices=["serve", "migrate"], default="serve")
     parser.add_argument("--port", type=int, default=8765)
@@ -119,7 +119,11 @@ def main():
         action="store_true",
         help="Read local_token from one JSON line on stdin (desktop launcher)",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = parser().parse_args()
     launch = read_launch_secrets(sys.stdin.buffer) if args.secrets_stdin else None
     overrides = {k: v for k, v in vars(args).items() if k in {"data_dir", "simulation"} and v is not None}
     if launch:

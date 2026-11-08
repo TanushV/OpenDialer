@@ -166,12 +166,8 @@ fn start_backend(
     let nonce = format!("{}{}", Uuid::new_v4(), Uuid::new_v4());
     let mut args = vec![
         "serve".to_string(),
-        "--host".into(),
-        "127.0.0.1".into(),
         "--port".into(),
         port.to_string(),
-        "--mode".into(),
-        "local".into(),
         "--data-dir".into(),
         directory.to_string_lossy().to_string(),
         "--secrets-stdin".into(),

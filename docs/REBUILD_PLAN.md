@@ -1234,3 +1234,8 @@ Done when: every live check passes and the owner signs off. **Owner sitting 5.**
   password sign-in and roles (R3.4), the direct webhook route (R4.7), coaching library and scorecard internals (R10.1,
   R10.2), saved trial state in projections (R8.4 to R8.6). Still waiting on the owner: publish and install of the 1.0.2
   draft, live calls (R0.15 and later), RealValidito key, HubSpot key. Next: Phase 3, starting with R3.1.
+- November 7, 2026: Phase 3 started under D24. R3.1, R3.3 and R3.10 done (`653db0b`). Found a launch defect from R2.1:
+  the desktop shell still passed `--host` and `--mode`, which the backend no longer accepts, so the packaged backend
+  would exit at launch. The 1.0.2 draft built from `b8e2cd0` has this defect and must not be published; it needs a
+  rebuild from a green commit after the fix. A new test reads the shell's arguments from `lib.rs` and parses them with
+  the backend's own parser. Next: R3.7 to R3.9 (migration) and R3.11.

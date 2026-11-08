@@ -1,0 +1,30 @@
+"""The desktop shell's sidecar arguments are ones the backend accepts.
+
+Regression: R2.1 removed `--mode` from the backend while `lib.rs` still passed `--mode local`, so the packaged backend
+would exit on launch. The package smoke test started the sidecar with its own arguments and missed it.
+"""
+
+import re
+from pathlib import Path
+
+from app.cli import parser
+
+LIB = Path(__file__).resolve().parents[3] / "apps/desktop/src-tauri/src/lib.rs"
+
+
+def shell_arguments():
+    source = LIB.read_text()
+    block = source[source.index("let mut args = vec![") :]
+    block = block[: block.index("];")]
+    return [match.group(1) for match in re.finditer(r'"([^"]*)"', block)]
+
+
+def test_the_shell_passes_only_arguments_the_backend_accepts():
+    args = shell_arguments()
+    assert args[0] == "serve" and "--data-dir" in args
+    # The port and data folder are computed in Rust; give each a stand-in value.
+    filled = []
+    for arg in args:
+        filled += [arg, *{"--port": ["1"], "--data-dir": ["data"]}.get(arg, [])]
+    parsed = parser().parse_args(filled)
+    assert parsed.command == "serve"
