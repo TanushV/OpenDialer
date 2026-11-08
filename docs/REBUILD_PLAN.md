@@ -1192,3 +1192,7 @@ Done when: every live check passes and the owner signs off. **Owner sitting 5.**
   Windows removed). Waiting on the owner: R0.14 publish and install of 1.0.2 (the draft is built from the first green
   commit after R2.1), R0.15 and the other live calls, R1.1 (tag `v1.0.2` once published). Next: the 1.0.2 draft, then
   R2.2.
+- November 7, 2026: R2.2 done and pushed (`5387421`). Signed 1.0.2 draft built by the gated release from `b8e2cd0`
+  (Verify passed; Mac only; `latest.json`, archive, signature, disk image). Not published or installed: both wait for
+  the owner. Next: R2.3. Its experiments module also serves coaching strategies (R2.4) and the StatML comparison group
+  (kept), so remove comparisons, trials, drift and variants while keeping `assign_arm` and the holdout path.
