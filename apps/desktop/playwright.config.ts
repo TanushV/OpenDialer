@@ -32,6 +32,13 @@ export default defineConfig({
             "../../.venv/bin/python ../../scripts/e2e_server.py connected",
           url: "http://127.0.0.1:8766/health",
           reuseExistingServer: false,
+          // One hosted server for every worker: allow each worker's frontend origin.
+          env: {
+            OPENDIALER_E2E_ORIGIN: Array.from(
+              { length: 16 },
+              (_, slot) => `http://127.0.0.1:${11420 + slot}`,
+            ).join(","),
+          },
         },
       ]
     : [],

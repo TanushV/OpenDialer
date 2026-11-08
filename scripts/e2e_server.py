@@ -35,9 +35,9 @@ with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
         local_token="e2e-local-token",
         bootstrap_token="e2e-bootstrap-token",
     )
-    if origin := os.environ.get("OPENDIALER_E2E_ORIGIN"):
-        # A browser-test worker serves its frontend on its own port (apps/desktop/tests/fixtures.ts).
-        settings.allowed_origins = [*settings.allowed_origins, origin]
+    if origins := os.environ.get("OPENDIALER_E2E_ORIGIN"):
+        # Browser-test workers serve their frontends on their own ports (apps/desktop/tests/fixtures.ts).
+        settings.allowed_origins = [*settings.allowed_origins, *origins.split(",")]
 
     began = time.monotonic()
 
