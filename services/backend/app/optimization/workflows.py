@@ -289,10 +289,24 @@ class OptimizationWorkflows(ComparisonWorkflows):
         if any(lead.data.get(key) != value for key, value in change.items()):
             update(lead, **change)
 
+    def finalized_calls(self, s, tenant_id, seller_id):
+        """How many of this seller's calls have a saved outcome: the refresh trigger (R2.10)."""
+        model = MODELS["call_attempts"]
+        return s.scalar(
+            select(func.count())
+            .select_from(model)
+            .where(
+                model.tenant_id == tenant_id,
+                model.seller_id == seller_id,
+                model.op_status == "FINALIZED",
+            )
+        )
+
     def schedule_optimization(self, tenant_id=None):
+        """Queue a refresh only after a call is finalized, at most once a minute (section 8, R2.10)."""
         from app.db import rows
 
-        slot = int(self.clock().timestamp()) // 600
+        slot = int(self.clock().timestamp()) // 60
         with self.db.transaction(False) as s:
             users = [
                 doc(user) | {"tenant_id": user.tenant_id, "seller_id": user.seller_id}
@@ -307,14 +321,17 @@ class OptimizationWorkflows(ComparisonWorkflows):
             seen.add(identity)
             with self.db.transaction(False) as session:
                 model = MODELS["campaigns"]
-                campaigns = list(
-                    session.scalars(
-                        select(model.id).where(
+                campaigns = [
+                    row.id
+                    for row in session.scalars(
+                        select(model).where(
                             model.tenant_id == user["tenant_id"],
                             model.seller_id == user["seller_id"],
                         )
                     )
-                )
+                    if row.data.get("optimization_refreshed_finalized")
+                    != self.finalized_calls(session, user["tenant_id"], user["seller_id"])
+                ]
             for campaign_id in campaigns:
                 self.jobs.enqueue(
                     "ml",
@@ -1037,7 +1054,15 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
                 fail(403, "Optimization owner no longer has administrator access")
             self.jobs.require_owned_in(s, lease)
-            update(campaign, selection_profile=profile)
+            previous = {
+                k: v for k, v in (campaign.data.get("selection_profile") or {}).items() if k != "as_of"
+            }
+            changed = previous != {k: v for k, v in profile.items() if k != "as_of"}
+            finalized = self.finalized_calls(s, p["tenant_id"], p["seller_id"])
+            # An unchanged refresh writes nothing: a campaign write would bump the report revision
+            # and republish the same totals to the screen.
+            if changed or campaign.data.get("optimization_refreshed_finalized") != finalized:
+                update(campaign, selection_profile=profile, optimization_refreshed_finalized=finalized)
             jobs = []
             for kind in ("health_refresh", "learning_refresh"):
                 key = (
@@ -1068,11 +1093,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         latest=True,
                     )
                 )
-            emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
+            if changed:  # No UI event unless the estimates moved (section 8).
+                emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
         self.rebuild_optimization_report(p, lease=lease, totals=totals)
-        from app.optimization.projections import read_comparison_metrics
-
-        self.settle_script_tests(p, read_comparison_metrics(self, p, totals))
         return {
             "status": "ready",
             "rows": profile["samples"],

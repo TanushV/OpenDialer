@@ -905,10 +905,18 @@ Order, each as its own commit with its tests removed:
 - [x] R2.9 Unused tables, with a test that lists the allowed tables. Done November 7: 53 tables. `companies`,
       `consent_evidence`, `evaluation_reports` and `work_intervals` are retired: restore skips them and R3.7 drops them
       from the copied store. Coaching and scoring tables stay until R10.1 and R10.2 remove their last readers.
-- [ ] R2.10 Replace the 10-minute refresh churn with the once-a-minute rule from section 8.
+- [x] R2.10 Replace the 10-minute refresh churn with the once-a-minute rule from section 8. Done November 7: a refresh is
+      queued only after a call is finalized, at most once a minute; an unchanged refresh writes nothing and publishes no
+      screen event. Nightly training stays with R8.7.
 
 Done when: L1 and L2 pass on replay, the kept acceptance tests pass, and the backend is about 20,000 to 24,000 lines
 with restructuring still to come.
+
+Phase 2 result, November 7: replay (L1, L2 and the recorded calls) and the kept acceptance tests pass. The size target is
+missed: the backend went from 39,428 to 34,716 lines (12%), against 20,000 to 24,000. Routes fell from 162 to 117 and
+tables from 57 to 53. Most of the remaining cut sits in modules later phases rewrite rather than delete: projections and
+optimization workflows (Phase 8), coaching and post-call (R10.1, R10.2) and telephony (Phase 4). Phase 3's measurement
+(R3.1 to R3.10) re-baselines the estimate.
 
 ### Phase 3: clear structure and typed data
 

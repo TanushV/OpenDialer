@@ -80,6 +80,16 @@ REPORT_FIELDS = {
     "followup_tasks": {"inbound", "number_id", "occurred_at", "status"},
 }
 REPORT_TTL_SECONDS = 600
+_VOLATILE = {"as_of", "next_refresh_at", "expires_at", "generated_at"}
+
+
+def _stable(value):
+    """A report with its clock fields removed, for deciding whether anything changed."""
+    if isinstance(value, dict):
+        return {k: _stable(v) for k, v in value.items() if k not in _VOLATILE}
+    if isinstance(value, list):
+        return [_stable(v) for v in value]
+    return value
 
 
 def collect_report_changes(session):
@@ -214,6 +224,9 @@ class ReportProjections:
         with self.db.transaction() as s:
             self.jobs.require_owned_in(s, lease)
             row = self._by_key(s, p, "report_projections", key)
+            # Republishing the same figures tells the screen nothing new (section 8): compare the
+            # report itself, with its timestamps set aside, not the revision other writes move.
+            changed = not row or _stable(row.data.get("report")) != _stable(report)
             values = {
                 "report": report,
                 "source_revision": revision,
@@ -229,7 +242,8 @@ class ReportProjections:
                     s, "report_projections", p["tenant_id"], p["seller_id"], values, key=key, now=self.clock()
                 )
             )
-            emit(s, p["tenant_id"], event, row, self.clock())
+            if changed:
+                emit(s, p["tenant_id"], event, row, self.clock())
             return row
 
     def cached_optimization_report(self, p, epoch=None):
