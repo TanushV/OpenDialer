@@ -3,11 +3,21 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  actions: read
 concurrency:
   group: desktop-release
   cancel-in-progress: false
 jobs:
+  verified:
+    # D21: a signed build only ever comes from a commit whose Verify run passed.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/release_gate.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
   desktop:
+    needs: verified
     strategy:
       fail-fast: false
       matrix:

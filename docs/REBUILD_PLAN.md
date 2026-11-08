@@ -823,7 +823,7 @@ Fixes:
 
 Ship:
 
-- [ ] R0.13a `release.yml`: refuse to build unless Verify passed on the exact commit, with a test of the check.
+- [x] R0.13a `release.yml`: refuse to build unless Verify passed on the exact commit, with a test of the check.
 - [ ] R0.14 Full CI, then signed 1.0.2 on the owner's OK. Tag `v1.0.2` as the rollback point.
 - [ ] R0.15 Live L1, L2, L3, L9 and one more answered call; receipt under `docs/evidence/rebuild/`. L9 confirms that
       removing the parking parameter ends the prospect's leg when the rep's is lost.
