@@ -1031,8 +1031,11 @@ Done when: all automated guarantees pass and the live checks pass. **Owner sitti
 
 Goal: nothing moves, nothing gets covered, and the rep always knows what is happening.
 
-- [ ] R5.1 Design tokens and eight components: Button, Field, Select, Check, Status, Panel, Toast, Table.
+- [x] R5.1 Design tokens and eight components: Button, Field, Select, Check, Status, Panel, Toast, Table.
+      Done November 8: `src/ui/kit.tsx` and `kit.css` (class selectors only, tested); the Dialer's bars use it.
 - [ ] R5.2 Replace global element CSS; add breakpoints; set a real minimum window behavior.
+      In part, November 8: the stacked-checkbox defect is fixed and the Dialer has its breakpoint and pinned regions.
+      The remaining global element rules go as Phase 10 rebuilds each page on the kit (R10.6 to R10.10).
 - [x] R5.3 Three fixed regions: status bar, script with its own scroll, action bar. Reserved space for every phase.
       Done November 8: `calling/Dialer.tsx`; the action bar is pinned to the window and its space reserved.
 - [x] R5.4 `screen.ts`: pure phase function with a `never` check; table tests for every phase. Done November 8.

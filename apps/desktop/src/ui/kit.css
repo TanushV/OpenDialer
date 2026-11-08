@@ -1,0 +1,106 @@
+/* The UI kit (R5.1): tokens and eight components. Class selectors only; no element rules (rule 9). */
+:root {
+  --ui-ink: #20382f;
+  --ui-muted: #667085;
+  --ui-surface: #fbfaf6;
+  --ui-line: #e3e0d4;
+  --ui-accent: #183c31;
+  --ui-accent-ink: #f1f3e8;
+  --ui-danger: #b42318;
+  --ui-good: #286548;
+  --ui-warn: #8a5a00;
+  --ui-radius: 10px;
+  --ui-gap: 8px;
+}
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-gap);
+  min-height: 36px;
+  padding: 8px 14px;
+  border-radius: var(--ui-radius);
+  border: 1px solid var(--ui-line);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font-weight: 560;
+}
+.ui-button.primary {
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
+  color: var(--ui-accent-ink);
+}
+.ui-button.danger {
+  background: var(--ui-danger);
+  border-color: var(--ui-danger);
+  color: #fff;
+}
+.ui-button.text {
+  background: transparent;
+  border-color: transparent;
+}
+.ui-button .ui-kbd {
+  font-size: 11px;
+  opacity: 0.7;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.ui-field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.ui-field .ui-hint {
+  color: var(--ui-muted);
+  font-weight: 400;
+}
+.ui-check {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--ui-gap);
+  margin: 0;
+  font-size: 13px;
+}
+.ui-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+.ui-status.good {
+  color: var(--ui-good);
+}
+.ui-status.warn {
+  color: var(--ui-warn);
+}
+.ui-status.bad {
+  color: var(--ui-danger);
+}
+.ui-panel {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-line);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+.ui-panel .ui-panel-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.ui-toast {
+  border-radius: var(--ui-radius);
+  background: var(--ui-accent);
+  color: var(--ui-accent-ink);
+  padding: 10px 14px;
+}
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ui-table .ui-cell {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ui-line);
+}

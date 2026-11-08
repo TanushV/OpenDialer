@@ -84,6 +84,11 @@ label {
   font-weight: 500;
   margin-bottom: 17px;
 }
+/* A checkbox and its words sit on one line; the column rule above stacked them (section 3, R5.2). */
+label:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+}
 h1,
 h2,
 h3,

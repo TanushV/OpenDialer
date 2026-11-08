@@ -15,6 +15,7 @@ import { LiveCoach } from "../components/LiveCoach";
 import { ProspectBrief } from "../components/ProspectBrief";
 import { ScriptReader } from "../components/ScriptReader";
 import { CallbackReviewNotice, WrapUp } from "../components/WrapUp";
+import { Button } from "../ui/kit";
 import { headline, keys, type Action, type Phase } from "./screen";
 import { OUTCOME_KEYS, useCallLoop } from "./useCallLoop";
 
@@ -71,17 +72,18 @@ function StatusBar({ loop }: { loop: Loop }) {
       {loop.stopping ? (
         <span className="muted">Calling stops after this call</span>
       ) : paused ? (
-        <button
-          className="primary"
+        <Button
+          variant="primary"
+          kbd="Space"
           disabled={!!phase.blocker}
           onClick={() => void act.start()}
         >
-          Start calling <kbd>Space</kbd>
-        </button>
+          Start calling
+        </Button>
       ) : (
-        <button className="secondary" onClick={() => void act.pause()}>
-          Pause <kbd>P</kbd>
-        </button>
+        <Button variant="secondary" kbd="P" onClick={() => void act.pause()}>
+          Pause
+        </Button>
       )}
     </header>
   );
@@ -377,18 +379,22 @@ function ActionBar({ loop }: { loop: Loop }) {
         <span className="muted">{loop.audioStatus || "Connecting audio"}</span>
       )}
       {phase.kind === "dialing" && (
-        <button onClick={() => void act.skip()} disabled={!call}>
-          Skip <kbd>Space</kbd>
-        </button>
+        <Button kbd="Space" onClick={() => void act.skip()} disabled={!call}>
+          Skip
+        </Button>
       )}
       {phase.kind === "voicemail_skipping" && (
         <>
-          <button onClick={() => void act.skip()}>
-            Skip now <kbd>Space</kbd>
-          </button>
-          <button className="secondary" onClick={() => void act.stay()}>
-            Stay <kbd>S</kbd>
-          </button>
+          <Button
+            variant="secondary"
+            kbd="Space"
+            onClick={() => void act.skip()}
+          >
+            Skip now
+          </Button>
+          <Button variant="secondary" kbd="S" onClick={() => void act.stay()}>
+            Stay
+          </Button>
         </>
       )}
       {phase.kind === "voicemail_final" && (
@@ -401,9 +407,9 @@ function ActionBar({ loop }: { loop: Loop }) {
       )}
       {phase.kind === "talking" && (
         <>
-          <button className="secondary" onClick={act.mute}>
-            {muted ? "Unmute" : "Mute"} <kbd>M</kbd>
-          </button>
+          <Button variant="secondary" kbd="M" onClick={act.mute}>
+            {muted ? "Unmute" : "Mute"}
+          </Button>
           <button className="secondary" onClick={() => setKeypad(!keypad)}>
             Keypad
           </button>
@@ -416,17 +422,18 @@ function ActionBar({ loop }: { loop: Loop }) {
       {phase.kind === "ended" && (
         <div className="outcome-keys" role="group" aria-label="Save outcome">
           {OUTCOME_KEYS.map(([code, name], index) => (
-            <button
+            <Button
               key={code}
-              className={code === suggested ? "primary suggested" : "secondary"}
+              variant={code === suggested ? "primary" : "secondary"}
+              className={code === suggested ? "suggested" : ""}
               onClick={() => void act.save(code)}
             >
-              <kbd>{index + 1}</kbd> {name}
-            </button>
+              <kbd className="ui-kbd">{index + 1}</kbd> {name}
+            </Button>
           ))}
-          <button className="text-button" onClick={() => act.edit(true)}>
+          <Button variant="text" onClick={() => act.edit(true)}>
             Add detail
-          </button>
+          </Button>
         </div>
       )}
       {(phase.kind === "saved" || phase.kind === "skipped") && (
@@ -435,13 +442,17 @@ function ActionBar({ loop }: { loop: Loop }) {
             {label(phase.outcome)}
             {phase.kind === "skipped" ? " saved by the carrier" : " saved"}
           </span>
-          <button className="primary" onClick={() => void act.dial_now()}>
-            Dial now <kbd>Space</kbd>
-          </button>
+          <Button
+            variant="primary"
+            kbd="Space"
+            onClick={() => void act.dial_now()}
+          >
+            Dial now
+          </Button>
           {phase.kind === "saved" && (
-            <button className="text-button" onClick={act.change_outcome}>
-              Change outcome <kbd>C</kbd>
-            </button>
+            <Button variant="text" kbd="C" onClick={act.change_outcome}>
+              Change outcome
+            </Button>
           )}
         </>
       )}
@@ -454,9 +465,9 @@ function ActionBar({ loop }: { loop: Loop }) {
 
 function HangUp({ act }: { act: Loop["act"] }) {
   return (
-    <button className="danger-button" onClick={() => void act.hangup()}>
-      Hang up <kbd>Esc</kbd>
-    </button>
+    <Button variant="danger" kbd="Esc" onClick={() => void act.hangup()}>
+      Hang up
+    </Button>
   );
 }
 
