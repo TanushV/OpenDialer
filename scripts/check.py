@@ -149,7 +149,9 @@ def _env():
 
 def _tail(text, lines=60):
     rows = text.rstrip().splitlines()
-    return "\n".join("        " + row for row in rows[-lines:])
+    # CI keeps the whole log of a failing step; locally the end is enough.
+    keep = rows if os.environ.get("CI") else rows[-lines:]
+    return "\n".join("        " + row for row in keep)
 
 
 def install_hooks():

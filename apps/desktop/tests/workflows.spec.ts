@@ -104,7 +104,8 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
       .getByRole("listitem")
       .filter({ hasText: "Workflow journey list" })
       .getByText("1 of 1 ready to call"),
-  ).toBeVisible();
+    // Preparation is a server job; a small CI runner can take longer than one expect window.
+  ).toBeVisible({ timeout: 30_000 });
   await page.getByLabel("Search leads").fill("Taylor Example");
   await page
     .getByRole("button", { name: "Search lead history", exact: true })
