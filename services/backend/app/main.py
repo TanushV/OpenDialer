@@ -862,7 +862,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def simulation_event(data: SimulationEvent, p=Depends(principal)):
         if not settings.simulation:
             fail(403, "Simulation is disabled")
-        return service.event(p, data.event_id, data.event_type, data.call_id, data.payload)
+        result = service.event(p, data.event_id, data.event_type, data.call_id, data.payload)
+        if saved := result.pop("save_outcome", None):
+            service.auto_disposition(*saved)
+        return result
 
     @app.post("/v1/telephony/token")
     async def telephony_token(p=Depends(principal)):

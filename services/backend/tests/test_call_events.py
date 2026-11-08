@@ -74,3 +74,27 @@ def test_a_confirmed_person_clears_machine_and_outcome_and_reports_the_first_ans
     assert first is True
     assert events.human({"human_answered_at": "x"}, "call.machine.detection.ended:human", NOW)[1] is False
     assert events.human({}, "call.ringing", NOW) == ({}, False)
+
+
+def test_a_carrier_outcome_is_saved_when_the_hangup_arrives_without_any_job(workspace):
+    """R4.9: no answer, busy and voicemail are carrier facts, saved at once."""
+    from conftest import start
+
+    client, headers = workspace["client"], workspace["headers"]
+    call = start(workspace, key="r49-no-answer")
+    client.post(
+        "/v1/simulation/event",
+        headers=headers,
+        json={
+            "event_id": "r49-hangup",
+            "event_type": "call.hangup",
+            "call_id": call["id"],
+            "payload": {"hangup_cause": "timeout", "hangup_source": "callee"},
+        },
+    )
+    saved = client.get(f"/v1/calls/{call['id']}", headers=headers).json()
+    assert (saved["state"], saved["outcome"], saved["outcome_source"]) == (
+        "FINALIZED",
+        "no_answer",
+        "carrier",
+    )

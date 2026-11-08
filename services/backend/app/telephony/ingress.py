@@ -121,6 +121,8 @@ class WebhookIngress:
         if control := result.pop("voicemail_control", None):
             principal, command_id = control
             await self.dispatch_controls(principal, command_id=command_id)
+        if saved := result.pop("save_outcome", None):
+            await asyncio.to_thread(self.auto_disposition, *saved)
         return result
 
     def _process_webhook(self, tenant_id, receipt_id):

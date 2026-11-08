@@ -205,6 +205,9 @@ class TelephonyWorkflows:
                     and call.data.get("carrier_outcome")
                 ):
                     self.enqueue_finalize(s, p, call, "carrier_hangup")
+                    # R4.9: a carrier fact (no answer, busy, voicemail, failure) is saved as soon as this
+                    # event commits, never after a job or an AI request.
+                    result["save_outcome"] = (p, call_id)
                 receipt = self._by_key(s, p, "provider_events", event_id)
                 update(receipt, effects_complete=True)
             return result

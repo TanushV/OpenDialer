@@ -984,12 +984,15 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
       is measured live (R4.15).
 - [ ] R4.5 `calling/dial.py`: keep durable dial and hang-up records and read-only reconcile; `save_disposition` under
       120 lines.
+      In progress: `save_disposition` is 66 lines (November 8). The dial code still sits in `service.py`.
 - [ ] R4.6 `calling/recovery.py`: one automatic pass at startup and every minute; open calls, uncertain dials, stuck
       hang-ups. Needs attention lists only what software cannot settle.
 - [ ] R4.7 `calling/relay.py`: gate on HTTP exchange success; Realtime only wakes it; handle restart lease conflicts
       without a block.
 - [ ] R4.8 Poll carrier status during an active call as the fallback for missed events.
-- [ ] R4.9 Save carrier outcomes directly on hangup.
+- [x] R4.9 Save carrier outcomes directly on hangup. Done November 8: no answer, busy, voicemail and carrier
+      failure are saved as soon as the hang-up event commits, before any job; the after-call job still runs for the
+      summary.
 - [ ] R4.10 Sidecar auto-restart in `lib.rs`, then a recovery pass; UI reconnects by itself.
 - [ ] R4.11 Keep the Mac awake while Ready.
 - [ ] R4.12 Call timeline visible in Review; one log file with rotation.
