@@ -1063,16 +1063,21 @@ Done when: the audit passes and the owner confirms it reads clearly.
 
 Goal: the loop runs with almost no decisions.
 
-- [ ] R6.1 Failing tests for the behavior table in section 6.
+- [x] R6.1 Failing tests for the behavior table in section 6. Done November 8: `tests/screen.test.ts` covers every
+      phase and key; the browser suite drives the loop in WebKit.
 - [x] R6.2 Auto-advance after Saved (3 seconds) and Skipped (1.5 seconds), with Space to go now and `P` to pause. Done
       November 8 with the Dialer loop.
 - [x] R6.3 Voicemail: on detection, hang up at the later of detection and 7 seconds; final attempt holds; `S` stays;
       screening is not skipped.
       Done November 8: a machine result schedules the hang-up at the later of now and 7 seconds after the answer; a
       final attempt opens the line for a message; Stay and detected call screening withdraw a pending skip.
-- [ ] R6.4 Log detection against what really happened; report after 50 calls.
-- [ ] R6.5 Auto-dial stop conditions, each with a plain message.
-- [ ] R6.6 Test-line allowlist enforced in code during test sessions.
+- [x] R6.4 Log detection against what really happened; report after 50 calls. Done November 8:
+      `/v1/calling/voicemail-report`; the only ground truth is a call the rep kept open with Stay. The report itself
+      waits for 50 real calls.
+- [x] R6.5 Auto-dial stop conditions, each with a plain message. Done November 8: Pause, any blocker, an incoming
+      call, an unsynced opt-out and an empty queue each stop the loop and say so; a failed dial pauses with its reason.
+- [x] R6.6 Test-line allowlist enforced in code during test sessions. Done November 8: with `test_session` on, dial
+      refuses any number but 203-821-1101, both when the call is prepared and when it is sent.
 - [ ] R6.7 Live L3 to L8, L11 and L12.
 
 Done when: a 20-call run passes. **Owner sitting 3.** Real lists wait for the lawyer check in R1.

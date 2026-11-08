@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, or_, select
 
 from app.calling import audio_leg
-from app.calling.blockers import refuse
+from app.calling.blockers import refuse, test_line_refusal
 from app.calling.recovery import next_step
 from app.calling.state import TERMINAL, moved, transition
 from app.compliance.phone import normalize_phone
@@ -708,6 +708,10 @@ class Service(LeadLists, ReservationPlanner):
             .execution_options(synchronize_session=False)
         )
 
+    def refuse_outside_test_line(self, p, lead):
+        test_session = bool(self.configs.read(p["tenant_id"]).get("test_session"))
+        refuse(test_line_refusal(lead.data["phone"], test_session=test_session, test_lines=TEST_LINES))
+
     def _prepare_call(self, p, data):
         now = self.clock()
         with self.db.transaction() as s:
@@ -733,6 +737,7 @@ class Service(LeadLists, ReservationPlanner):
             refuse(self.dial_blockers_in(s, p, rep=True))
             agent = self.required(s, "users", p["user_id"], p).data["presence"]["agent_call_control_id"]
             lead = self.required(s, "leads", reservation.data["lead_id"], p)
+            self.refuse_outside_test_line(p, lead)
             number = self.required(s, "number_inventory", reservation.data["number_id"], p)
             self.managed.require_number(p["tenant_id"], number.data)
             scoped_p = {**p, **reservation.data.get("dial_scope", {})}
@@ -866,6 +871,7 @@ class Service(LeadLists, ReservationPlanner):
             if command.data["status"] != "pending":
                 return
             lead = self.required(s, "leads", call.data["lead_id"], p, lock=True)
+            self.refuse_outside_test_line(p, lead)
             number = self.required(s, "number_inventory", call.data["number_id"], p)
             self.managed.require_number(p["tenant_id"], number.data)
             decision = authorize(self.context(s, {**p, **call.data.get("dial_scope", {})}, lead, number))

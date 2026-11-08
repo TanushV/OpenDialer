@@ -64,6 +64,10 @@ CATALOG = {
         "An opt-out is still being saved. Calling resumes when it is stored.",
         "dialer",
     ),
+    "TEST_SESSION_TEST_LINE_ONLY": (
+        "A test session dials only your own test line. Turn test sessions off in Settings to call leads.",
+        "settings",
+    ),
     "REP_AUDIO_NOT_READY": (
         "Connecting your audio. Check your headset or microphone if this stays.",
         "dialer",
@@ -120,6 +124,11 @@ def blockers(facts):
 def blocked(code, phone=None):
     message, fix = CATALOG[code]
     return Blocker(code, message.format(phone=phone or "one of your numbers"), fix)
+
+
+def test_line_refusal(phone, *, test_session, test_lines):
+    """R6.6: during a test session any number but the owner's test line is refused, in code."""
+    return [blocked("TEST_SESSION_TEST_LINE_ONLY")] if test_session and phone not in test_lines else []
 
 
 def refuse(found):

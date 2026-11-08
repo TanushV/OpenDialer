@@ -104,3 +104,23 @@ def test_the_blockers_route_lists_what_stops_the_rep_now(workspace):
     assert before[0]["fix"] == "dialer"
     ready(workspace)
     assert client.get("/v1/blockers", headers=headers).json() == {"blockers": []}
+
+
+def test_a_test_session_dials_only_the_owners_test_line(workspace, app):
+    """R6.6: in a test session, code refuses every number but the test line."""
+    from app.calling.blockers import test_line_refusal
+    from conftest import reserve
+
+    assert test_line_refusal("+16175550100", test_session=False, test_lines={"+12038211101"}) == []
+    assert test_line_refusal("+12038211101", test_session=True, test_lines={"+12038211101"}) == []
+    client, headers = workspace["client"], workspace["headers"]
+    assert client.put("/v1/admin/settings", headers=headers, json={"test_session": True}).status_code == 200
+    packet = reserve(workspace).json()
+    refused = client.post(
+        "/v1/calls/start",
+        headers=headers,
+        json={"reservation_id": packet["reservation_id"], "idempotency_key": "test-session"},
+    )
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "TEST_SESSION_TEST_LINE_ONLY"
+    assert app.state.service.carrier(workspace["tenant_id"]).dials == []
