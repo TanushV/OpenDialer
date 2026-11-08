@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { importLead, chooseOutcome } from "./simulation";
+import { answer, finishCall, importLead, startDialing } from "./simulation";
 
 test("keypad preserves a lost-response identity through reload and distinguishes a new press", async ({
   page,
@@ -31,11 +31,8 @@ test("keypad preserves a lost-response identity through reload and distinguishes
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await importLead(page, "Keypad identity fixture", "+14155550704");
-  await page.getByRole("button", { name: "Go ready" }).click();
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
+  await startDialing(page);
+  await answer(page);
   await page.getByRole("button", { name: /Keypad$/ }).click();
   await page
     .locator(".keypad-popover")
@@ -59,12 +56,7 @@ test("keypad preserves a lost-response identity through reload and distinguishes
     .click();
   await expect.poll(() => posts.length).toBe(3);
   expect(posts[2].idempotency_key).not.toEqual(posts[0].idempotency_key);
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await chooseOutcome(page, "no_answer");
-  await page.getByRole("button", { name: "Save outcome", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Pause dialing", exact: true })
-    .click();
+  await finishCall(page);
 });
 
 test("uncertain keypad lets the rep explicitly resume after checking the live menu", async ({
@@ -92,11 +84,8 @@ test("uncertain keypad lets the rep explicitly resume after checking the live me
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await importLead(page, "Keypad resume fixture", "+14155550705");
-  await page.getByRole("button", { name: "Go ready" }).click();
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
+  await startDialing(page);
+  await answer(page);
   await page.getByRole("button", { name: /Keypad$/ }).click();
   const digit = page
     .getByRole("region", { name: "Call keypad" })
@@ -108,10 +97,5 @@ test("uncertain keypad lets the rep explicitly resume after checking the live me
     .click();
   await expect(digit).toBeEnabled();
   expect(submissions).toBe(1);
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await chooseOutcome(page, "no_answer");
-  await page.getByRole("button", { name: "Save outcome", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Pause dialing", exact: true })
-    .click();
+  await finishCall(page);
 });

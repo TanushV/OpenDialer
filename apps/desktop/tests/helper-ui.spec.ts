@@ -1,41 +1,56 @@
-import { expect, test } from "./fixtures";
+import { expect, test, type Page } from "./fixtures";
 import { openMoreSettings } from "./navigation";
 import {
-  prepareSimulationCall,
-  chooseOutcome,
+  answer,
+  callStatus,
+  saveOutcome,
   finishCall,
+  hangUp,
   leaveNoCall,
+  prepareSimulationCall,
+  startCalling,
 } from "./simulation";
 
 // The local authority is shared by every test in this file: a failed test
 // must not leave its call active for the next one.
 test.afterEach(async ({ page }) => leaveNoCall(page));
 
-test("a delayed helper refresh cannot restore a previous call after wrap-up", async ({
-  page,
-}) => {
+async function enter(page: Page) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .isVisible()
-  )
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .click();
+  const sample = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await sample.isVisible()) await sample.click();
+}
+
+/** Start calling and return the first call the loop places. */
+async function firstCall(page: Page) {
+  const started = page.waitForResponse((r) =>
+    r.url().endsWith("/v1/calls/start"),
+  );
+  await startCalling(page).click();
+  return await (await started).json();
+}
+
+const settle = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+
+test("a delayed helper read cannot bring back a previous call after the next one starts", async ({
+  page,
+}) => {
+  await enter(page);
   // This journey calls twice: it brings its own second lead.
   await prepareSimulationCall(page, "Delayed helper fixture", "+14155550881", [
     { name: "Delayed helper next fixture", phone: "+14155550891" },
   ]);
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  const started = page.waitForResponse((r) =>
-    r.url().endsWith("/v1/calls/start"),
-  );
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  const original = await (await started).json();
+  const original = await firstCall(page);
+  await answer(page);
   let release!: () => void;
   let arrived!: () => void;
   const delayed = new Promise<void>((resolve) => {
@@ -44,8 +59,7 @@ test("a delayed helper refresh cannot restore a previous call after wrap-up", as
   const pending = new Promise<void>((resolve) => {
     arrived = resolve;
   });
-  const oldCallPath = `**/v1/calls/${original.id}`;
-  await page.route(oldCallPath, async (route) => {
+  await page.route(`**/v1/calls/${original.id}`, async (route) => {
     const response = await route.fetch();
     arrived();
     await delayed;
@@ -54,38 +68,25 @@ test("a delayed helper refresh cannot restore a previous call after wrap-up", as
   try {
     await page.keyboard.press("F1");
     await pending;
-    await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await chooseOutcome(page, "no_answer");
-    await page
-      .getByRole("button", { name: "Save outcome", exact: true })
-      .click();
-    await page
-      .getByRole("button", { name: "Get next lead", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", { name: "Start call", exact: true }),
-    ).toBeVisible();
+    await hangUp(page).click();
+    const next = page.waitForResponse((r) =>
+      r.url().endsWith("/v1/calls/start"),
+    );
+    await saveOutcome(page, "not_interested");
+    await page.getByRole("button", { name: /^Dial now/ }).click();
+    const current = await (await next).json();
+    expect(current.id).not.toBe(original.id);
     release();
     await page.unrouteAll({ behavior: "wait" });
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
+    await settle(page);
+    await expect(callStatus(page)).toContainText(/Dialing|Ringing/);
+    await expect(page.getByRole("group", { name: "Save outcome" })).toHaveCount(
+      0,
     );
-    await expect(
-      page.getByRole("button", { name: "Start call", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Hang up", exact: true }),
-    ).toHaveCount(0);
   } finally {
     release();
     await page.unrouteAll({ behavior: "wait" });
     await finishCall(page);
-    await page
-      .getByRole("button", { name: "Pause dialing", exact: true })
-      .click();
   }
 });
 
@@ -101,21 +102,10 @@ test("fixed helper remains visible, private controls work and no raw content is 
       exposureRequests.push(request.postDataJSON());
   });
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto("/");
-  await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .isVisible()
-  )
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .click();
+  await enter(page);
   await prepareSimulationCall(page, "Helper Fixture", "+14155550175");
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
+  await firstCall(page);
+  await answer(page);
   await page.evaluate(() => window.scrollTo(0, 0));
   const opener = page
     .getByTestId("prepared-script")
@@ -123,9 +113,7 @@ test("fixed helper remains visible, private controls work and no raw content is 
     .first();
   await expect(opener).toBeInViewport({ ratio: 1 });
   const openerBox = await opener.boundingBox();
-  const hangupBox = await page
-    .getByRole("button", { name: "Hang up", exact: true })
-    .boundingBox();
+  const hangupBox = await hangUp(page).boundingBox();
   expect(openerBox!.y + openerBox!.height).toBeLessThan(hangupBox!.y);
   await page
     .getByLabel("Simulation transcript")
@@ -137,9 +125,7 @@ test("fixed helper remains visible, private controls work and no raw content is 
   await expect(strip).toBeVisible();
   await page.mouse.wheel(0, 1200);
   await expect(strip).toBeInViewport();
-  await expect(
-    page.getByRole("button", { name: "Hang up", exact: true }),
-  ).toBeInViewport();
+  await expect(hangUp(page)).toBeInViewport();
   await page.getByRole("button", { name: "Mute tips", exact: true }).click();
   await expect(page.getByText("Automatic tips muted")).toBeVisible();
   await page.getByRole("button", { name: "Private help", exact: true }).click();
@@ -179,9 +165,7 @@ test("fixed helper remains visible, private controls work and no raw content is 
         exact: true,
       }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Hang up", exact: true }),
-    ).toBeInViewport();
+    await expect(hangUp(page)).toBeInViewport();
   }
   await expect
     .poll(() => exposureRequests.some((r) => r.displayed === true))
@@ -197,47 +181,40 @@ test("fixed helper remains visible, private controls work and no raw content is 
   expect(exposureRequests.some((r) => r.used_by_rep === false)).toBe(true);
   expect(exposureRequests.every((r) => r.conversion === undefined)).toBe(true);
   await page.unrouteAll({ behavior: "wait" });
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await chooseOutcome(page, "no_answer");
-  await page.getByRole("button", { name: "Save outcome", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Pause dialing", exact: true })
-    .click();
+  await finishCall(page);
 });
 
-test("a reserved lead cannot be dialed before its brief and talk track load", async ({
+test("a lead is not dialed before its brief and talk track load", async ({
   page,
 }) => {
-  await page.goto("/");
-  await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .isVisible()
-  )
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .click();
+  await enter(page);
   await prepareSimulationCall(page, "Brief first fixture", "+14155550885");
+  let starts = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/v1/calls/start")) starts++;
+  });
   let release!: () => void;
+  let arrived!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
+  const packet = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
   await page.route(/\/v1\/leads\/[^/]+\/packet$/, async (route) => {
     const response = await route.fetch();
+    arrived();
     await held;
     await route.fulfill({ response });
   });
   try {
-    await page
-      .getByRole("button", { name: "Get next lead", exact: true })
-      .click();
-    const start = page.getByRole("button", { name: "Start call", exact: true });
-    await expect(start).toBeVisible();
-    await expect(start).toBeDisabled();
+    await startCalling(page).click();
+    await packet;
+    await page.waitForTimeout(500);
+    expect(starts).toBe(0);
     release();
     await expect(page.getByTestId("lead-name")).toBeVisible();
-    await expect(start).toBeEnabled();
+    await expect.poll(() => starts).toBe(1);
   } finally {
     release();
     await page.unrouteAll({ behavior: "wait" });
@@ -278,30 +255,15 @@ test("settings display the authority cost register, including changed rates", as
   ).toBeVisible();
 });
 
-test("duplicate hangup responses cannot replace or stop a newer conversation", async ({
+test("a late hang-up answer cannot touch the next conversation's audio", async ({
   page,
 }) => {
-  await page.goto("/");
-  await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .isVisible()
-  )
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .click();
+  await enter(page);
   await prepareSimulationCall(page, "Delayed hangup fixture", "+14155550883", [
     { name: "Delayed hangup next fixture", phone: "+14155550893" },
   ]);
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  const started = page.waitForResponse((r) =>
-    r.url().endsWith("/v1/calls/start"),
-  );
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  const original = await (await started).json();
+  const original = await firstCall(page);
+  await answer(page);
   await page.evaluate(async () => {
     const path = "/src/telephony/client.ts";
     const { Telephony } = await import(path);
@@ -318,11 +280,8 @@ test("duplicate hangup responses cannot replace or stop a newer conversation", a
       state.stopped.push(id);
     };
   });
-  let firstArrived!: () => void,
-    secondArrived!: () => void,
-    sent!: () => void,
-    captured!: () => void,
-    release!: () => void;
+  let firstArrived!: () => void, secondArrived!: () => void, sent!: () => void;
+  let captured!: () => void, release!: () => void;
   const first = new Promise<void>((resolve) => {
     firstArrived = resolve;
   });
@@ -355,9 +314,10 @@ test("duplicate hangup responses cannot replace or stop a newer conversation", a
     }
   });
   try {
-    await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    await hangUp(page).click();
     await first;
-    await page.keyboard.press("F4");
+    await page.locator(".dialer-body").click({ position: { x: 2, y: 2 } });
+    await page.keyboard.press("Escape");
     await second;
     sent();
     await expect
@@ -365,77 +325,39 @@ test("duplicate hangup responses cannot replace or stop a newer conversation", a
         page.evaluate(() => (window as any).audioBoundary.stopped.length),
       )
       .toBe(1);
-    await chooseOutcome(page, "no_answer");
-    await page
-      .getByRole("button", { name: "Save outcome", exact: true })
-      .click();
-    await page
-      .getByRole("button", { name: "Get next lead", exact: true })
-      .click();
     await page.evaluate(() => {
       (window as any).audioBoundary.id = "new-sdk-leg";
     });
     const nextStarted = page.waitForResponse((r) =>
       r.url().endsWith("/v1/calls/start"),
     );
-    await page.getByRole("button", { name: "Start call", exact: true }).click();
+    await saveOutcome(page, "not_interested");
+    await page.getByRole("button", { name: /^Dial now/ }).click();
     const current = await (await nextStarted).json();
     release();
     await page.unrouteAll({ behavior: "wait" });
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
-    );
-    await expect(
-      page.getByRole("button", { name: "Hang up", exact: true }),
-    ).toBeVisible();
+    await settle(page);
+    await expect(callStatus(page)).toContainText(/Dialing|Ringing/);
     expect(
       await page.evaluate(() => (window as any).audioBoundary.stopped),
     ).toEqual(["original-sdk-leg"]);
-    const finalHangup = page.waitForRequest((r) =>
-      r.url().endsWith(`/v1/calls/${current.id}/hangup`),
-    );
-    await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await finalHangup;
-    await chooseOutcome(page, "no_answer");
-    await page
-      .getByRole("button", { name: "Save outcome", exact: true })
-      .click();
-    await page
-      .getByRole("button", { name: "Pause dialing", exact: true })
-      .click();
+    expect(current.id).not.toBe(original.id);
   } finally {
     sent();
     captured();
     release();
     await page.unrouteAll({ behavior: "wait" });
+    await finishCall(page);
   }
 });
 
 test("a same-version stale help read cannot restore withdrawn guidance", async ({
   page,
 }) => {
-  await page.goto("/");
-  await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .isVisible()
-  )
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .click();
+  await enter(page);
   await prepareSimulationCall(page, "Withdrawn help fixture", "+14155550884");
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  const started = page.waitForResponse((r) =>
-    r.url().endsWith("/v1/calls/start"),
-  );
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  const original = await (await started).json();
+  const original = await firstCall(page);
+  await answer(page);
   let release!: () => void, received!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -502,12 +424,7 @@ test("a same-version stale help read cannot restore withdrawn guidance", async (
     });
     release();
     await page.unrouteAll({ behavior: "wait" });
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
-    );
+    await settle(page);
     expect(await page.evaluate(() => (window as any).sawObsolete)).toBe(false);
     await expect(
       page.getByText("OBSOLETE ADVICE SHOULD NOT REAPPEAR", { exact: true }),
@@ -516,13 +433,6 @@ test("a same-version stale help read cannot restore withdrawn guidance", async (
     release();
     await page.unrouteAll({ behavior: "wait" });
     await page.evaluate(() => (window as any).obsoleteObserver?.disconnect());
-    await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await chooseOutcome(page, "no_answer");
-    await page
-      .getByRole("button", { name: "Save outcome", exact: true })
-      .click();
-    await page
-      .getByRole("button", { name: "Pause dialing", exact: true })
-      .click();
+    await finishCall(page);
   }
 });

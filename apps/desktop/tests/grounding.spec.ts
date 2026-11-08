@@ -1,5 +1,12 @@
 import { expect, test } from "./fixtures";
-import { prepareSimulationCall, chooseOutcome } from "./simulation";
+import {
+  answer,
+  saveOutcome,
+  hangUp,
+  pauseCalling,
+  prepareSimulationCall,
+  startCalling,
+} from "./simulation";
 
 test("a failed evidence review is visible without overwriting the rep note", async ({
   page,
@@ -34,16 +41,12 @@ test("a failed evidence review is visible without overwriting the rep note", asy
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await prepareSimulationCall(page, "Grounding Fixture", "+14155550174");
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await chooseOutcome(page, "no_answer");
-  await page.getByRole("button", { name: "Save outcome", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Pause dialing", exact: true })
-    .click();
+  await startCalling(page).click();
+  await answer(page);
+  await pauseCalling(page).click();
+  await hangUp(page).click();
+  await saveOutcome(page, "not_interested");
+  await expect(startCalling(page)).toBeVisible();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await page
     .getByRole("button", { name: /^Review call / })

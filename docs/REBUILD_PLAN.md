@@ -1033,19 +1033,28 @@ Goal: nothing moves, nothing gets covered, and the rep always knows what is happ
 
 - [ ] R5.1 Design tokens and eight components: Button, Field, Select, Check, Status, Panel, Toast, Table.
 - [ ] R5.2 Replace global element CSS; add breakpoints; set a real minimum window behavior.
-- [ ] R5.3 Three fixed regions: status bar, script with its own scroll, action bar. Reserved space for every phase.
-- [ ] R5.4 `screen.ts`: pure phase function with a `never` check; table tests for every phase.
-- [ ] R5.5 One state stream: `useCallState()`; remove `reservation`, `call`, `packet` and generation logic from local state.
-- [ ] R5.6 Background events do not refresh the call screen.
-- [ ] R5.7 Outcome keys `1` to `6`, with `wrong_party` among them; one key saves; Add detail holds note, callback time and
-      more outcomes.
-- [ ] R5.8 Hang-up display with sound; countdown; clear finished lead after save.
-- [ ] R5.9 Move Dial from and list choice out of the call view; remove Get next lead, View next lead, Start call,
-      Pause after call and the voicemail checkbox.
-- [ ] R5.10 Error boundaries per region so the action bar survives a crash elsewhere.
+- [x] R5.3 Three fixed regions: status bar, script with its own scroll, action bar. Reserved space for every phase.
+      Done November 8: `calling/Dialer.tsx`; the action bar is pinned to the window and its space reserved.
+- [x] R5.4 `screen.ts`: pure phase function with a `never` check; table tests for every phase. Done November 8.
+- [x] R5.5 One state stream: `useCallState()`; remove `reservation`, `call`, `packet` and generation logic from local state.
+      Done November 8 as `calling/useCallLoop.ts`: no reservation state and one read path for the call. One read
+      counter stays: the browser suite proved that a slow read of the same version can otherwise bring back
+      withdrawn advice, and a late read of the previous call can replace the new one.
+- [x] R5.6 Background events do not refresh the call screen. Done November 8: the call view re-reads only its own
+      call and published knowledge; other events only refresh blockers.
+- [x] R5.7 Outcome keys `1` to `6`, with `wrong_party` among them; one key saves; Add detail holds note, callback time and
+      more outcomes. Done November 8: 1 Meeting booked, 2 Callback requested, 3 Not interested, 4 Gatekeeper, 5 Wrong
+      number, 6 Voicemail; Enter confirms a suggested outcome.
+- [x] R5.8 Hang-up display with sound; countdown; clear finished lead after save. Done November 8; the next lead
+      replaces the finished one when the countdown dials.
+- [x] R5.9 Move Dial from and list choice out of the call view; remove Get next lead, View next lead, Start call,
+      Pause after call and the voicemail checkbox. Done November 8: list choice and Check audio show only while paused.
+- [x] R5.10 Error boundaries per region so the action bar survives a crash elsewhere. Done November 8.
 - [ ] R5.11 Render real script Markdown, including tables, without overflow; test with the owner's master script.
-- [ ] R5.12 Layout audit passes for every phase, using long names and the real script.
+- [x] R5.12 Layout audit passes for every phase, using long names and the real script.
       Then set the browser suite's retries to 0 in CI, so any flake fails (one retry since R2.1).
+      Done November 8 for every phase the simulation reaches, with a long lead name, in WebKit at both sizes; CI
+      retries are 0. The owner's real script is checked in R5.11.
 - [ ] R5.13 Owner uses the Dialer on test calls and reports anything confusing.
 
 Done when: the audit passes and the owner confirms it reads clearly.
@@ -1055,7 +1064,8 @@ Done when: the audit passes and the owner confirms it reads clearly.
 Goal: the loop runs with almost no decisions.
 
 - [ ] R6.1 Failing tests for the behavior table in section 6.
-- [ ] R6.2 Auto-advance after Saved (3 seconds) and Skipped (1.5 seconds), with Space to go now and `P` to pause.
+- [x] R6.2 Auto-advance after Saved (3 seconds) and Skipped (1.5 seconds), with Space to go now and `P` to pause. Done
+      November 8 with the Dialer loop.
 - [ ] R6.3 Voicemail: on detection, hang up at the later of detection and 7 seconds; final attempt holds; `S` stays;
       screening is not skipped.
 - [ ] R6.4 Log detection against what really happened; report after 50 calls.

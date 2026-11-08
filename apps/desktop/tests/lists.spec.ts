@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { waitForPreparation, finishCall } from "./simulation";
+import { finishCall, startDialing, waitForPreparation } from "./simulation";
 
 async function enter(page: import("@playwright/test").Page) {
   await page.goto("/");
@@ -83,16 +83,8 @@ test("Dial from selected lists reserves only that pool and keeps scope across re
   await expect(
     page.getByLabel("Dial list Dial only 091", { exact: true }),
   ).toBeChecked();
-  const ready = page.getByRole("button", { name: "Go ready", exact: true });
-  if (await ready.isVisible()) await ready.click();
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
+  await startDialing(page);
   await expect(page.getByTestId("lead-name")).toHaveText("Dial only 091");
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Hang up", exact: true }),
-  ).toBeVisible();
   await finishCall(page);
   await page.getByLabel("Dial from all active lists", { exact: true }).check();
 });

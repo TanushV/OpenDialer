@@ -1,9 +1,14 @@
 import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
 import { openMoreSettings } from "./navigation";
 import {
-  chooseOutcome,
+  answer,
+  saveOutcome,
+  finishCall,
+  hangUp,
   importLead,
   isolatedSimulationWorkspace,
+  pauseCalling,
+  startDialing,
   waitForPreparation,
 } from "./simulation";
 
@@ -47,15 +52,11 @@ for (const connected of [false]) {
       `Proactive coaching fixture ${connected ? "connected" : "local"}`,
       connected ? "+14155550708" : "+14155550707",
     );
-    if (await page.getByRole("button", { name: "Pause dialing" }).isVisible())
-      await page.getByRole("button", { name: "Pause dialing" }).click();
-    await page.getByRole("button", { name: "Go ready" }).click();
-    await page.getByRole("button", { name: "Get next lead" }).click();
+    await startDialing(page);
     await expect(page.getByTestId("prospect-brief")).toBeVisible();
     await expect(page.getByTestId("statistical-guidance")).toBeVisible();
     await expect(page.getByTestId("prepared-script")).toBeVisible();
-    await page.getByRole("button", { name: "Start call", exact: true }).click();
-    await page.getByRole("button", { name: "Simulate human answer" }).click();
+    await answer(page);
     await page
       .getByLabel("Simulation transcript")
       .fill("Our approvals depend on a union committee.");
@@ -67,12 +68,10 @@ for (const connected of [false]) {
     expect(bounds).not.toBeNull();
     expect(bounds!.y).toBeGreaterThanOrEqual(0);
     expect(bounds!.y + bounds!.height).toBeLessThan(400);
-    await expect(
-      page.getByRole("button", { name: "Hang up", exact: true }),
-    ).toBeInViewport();
-    await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await chooseOutcome(page, "meeting_booked");
-    await page.getByRole("button", { name: "Save outcome" }).click();
+    await expect(hangUp(page)).toBeInViewport();
+    await pauseCalling(page).click();
+    await hangUp(page).click();
+    await saveOutcome(page, "meeting_booked");
     await expect(page.getByText(/Meeting recorded.*rep/i)).toBeVisible();
     await expect(
       page.getByRole("button", {
@@ -111,11 +110,7 @@ test("a requested lead's own script shows its gatekeeper and screening sections"
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await waitForPreparation(page);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  const ready = page.getByRole("button", { name: "Go ready", exact: true });
-  if (await ready.isVisible()) await ready.click();
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
+  await startDialing(page);
   const script = page.getByTestId("prepared-script");
   await expect(
     script.getByRole("heading", { name: "Gatekeeper", exact: true }),
@@ -123,7 +118,5 @@ test("a requested lead's own script shows its gatekeeper and screening sections"
   await expect(
     script.getByRole("heading", { name: "Screening", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Pause dialing", exact: true })
-    .click();
+  await finishCall(page);
 });

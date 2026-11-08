@@ -72,8 +72,6 @@ for (const [helper, text] of [
     await expect(
       page.getByTestId("live-coaching-strip").getByRole("alert"),
     ).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: "Hang up", exact: true }),
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Hang up/ })).toBeVisible();
   });
 }

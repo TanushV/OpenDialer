@@ -55,6 +55,17 @@ describe("the Dialer screen phases (section 6)", () => {
       "saved",
     ],
     [
+      "rep skipped while ringing",
+      {
+        call: {
+          state: "FINALIZED",
+          outcome: "no_answer",
+          outcome_source: "rep_reported",
+        },
+      },
+      "skipped",
+    ],
+    [
       "carrier no answer",
       {
         call: {

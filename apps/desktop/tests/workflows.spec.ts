@@ -1,6 +1,15 @@
 import { expect, test } from "./fixtures";
 import { openSettingsCard } from "./navigation";
-import { chooseOutcome, waitForPreparation } from "./simulation";
+import {
+  answer,
+  callStatus,
+  saveOutcome,
+  hangUp,
+  pauseCalling,
+  startCalling,
+  startDialing,
+  waitForPreparation,
+} from "./simulation";
 
 async function enterSimulation(page: import("@playwright/test").Page) {
   await page.goto("/");
@@ -15,8 +24,7 @@ async function enterSimulation(page: import("@playwright/test").Page) {
       .click();
   }
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
-  if (await page.getByRole("button", { name: "Pause dialing" }).isVisible())
-    await page.getByRole("button", { name: "Pause dialing" }).click();
+  if (await pauseCalling(page).isVisible()) await pauseCalling(page).click();
 }
 
 test("local setup, readiness, calling, evidence, human notes and opt-out", async ({
@@ -39,11 +47,8 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
     .click();
   await expect(page.getByText("Workflow Call", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your next conversation" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Go ready" }).click();
-  await page.getByRole("button", { name: "Get next lead" }).click();
+  await expect(startCalling(page)).toBeVisible();
+  await startDialing(page);
   await expect(page.getByTestId("lead-name")).not.toBeEmpty();
   // Reopen this journey's own call: other specs add calls to the shared list.
   const reviewCall = page
@@ -52,22 +57,16 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
       exact: true,
     })
     .first();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  await expect(page.getByText("RINGING", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Simulate human answer" }).click();
-  await expect(page.getByText("HUMAN", { exact: true })).toBeVisible();
+  await expect(callStatus(page)).toContainText("Ringing");
+  await answer(page);
   await page
     .getByLabel("Simulation transcript")
     .fill("We already use another provider.");
   await page.getByRole("button", { name: "Add prospect turn" }).click();
-  // The ephemeral transcript is an optional expansion during the call.
-  await page.getByText("Live transcript", { exact: false }).click();
-  await expect(
-    page.getByText("We already use another provider.", { exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await chooseOutcome(page, "callback_requested");
-  await page.getByRole("button", { name: "Save outcome" }).click();
+  await pauseCalling(page).click();
+  await hangUp(page).click();
+  await saveOutcome(page, "callback_requested");
+  await expect(startCalling(page)).toBeVisible();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await reviewCall.click();
   await page

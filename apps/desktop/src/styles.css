@@ -2526,3 +2526,80 @@ details.transcript-card {
   color: #667085;
   font-variant-numeric: tabular-nums;
 }
+
+/* Dialer: three fixed regions (R5.3). The status and action bars stay in view; the lead and script scroll. */
+.dialer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: calc(100vh - 120px);
+}
+.status-bar,
+.action-bar {
+  position: sticky;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px 18px;
+  background: #fbfaf6;
+  border: 1px solid #e3e0d4;
+  border-radius: 14px;
+}
+.status-bar {
+  top: 0;
+  justify-content: space-between;
+}
+.status-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.status-text strong {
+  font-size: 18px;
+}
+/* The action bar is pinned to the window, so no phase change can move it (R5.3, R5.12). */
+.action-bar {
+  position: fixed;
+  bottom: 12px;
+  left: calc(214px + 34px);
+  right: 34px;
+  flex-wrap: wrap;
+  box-shadow: 0 6px 24px rgba(24, 60, 49, 0.08);
+}
+.dialer {
+  padding-bottom: 96px;
+}
+.action-bar .blocker {
+  margin: 0;
+  flex: 1;
+}
+.dialer-body {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+.lead-and-script {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);
+  gap: 14px;
+  align-items: start;
+}
+.lead-and-script .script-card {
+  max-height: calc(100vh - 300px);
+  overflow: auto;
+}
+.outcome-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.outcome-keys .suggested {
+  outline: 2px solid #183c31;
+}
+@media (max-width: 860px) {
+  .lead-and-script {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

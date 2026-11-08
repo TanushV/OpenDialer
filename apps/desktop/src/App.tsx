@@ -38,7 +38,7 @@ import {
 } from "./api/client";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { DialerPage } from "./components/DialerPage";
+import { Dialer } from "./calling/Dialer";
 import { LiveConnection, type LiveEvent } from "./api/live";
 import { ListsPage } from "./components/LeadLists";
 import { ScriptPage, LeadsPage, NumbersPage } from "./components/Operations";
@@ -789,7 +789,7 @@ export function App() {
               </div>
             )}
             <div hidden={view !== "Dialer"}>
-              <DialerPage visible={view === "Dialer"} />
+              <Dialer visible={view === "Dialer"} />
             </div>
             {view === "Dialer" ? null : view === "Lists" ? (
               <ListsPage />

@@ -1,5 +1,10 @@
 import { expect, test, type Page } from "./fixtures";
-import { chooseOutcome, prepareSimulationCall } from "./simulation";
+import {
+  answer,
+  finishCall,
+  hangUp,
+  prepareSimulationCall,
+} from "./simulation";
 import { coveredBy, drift, noSidewaysScroll } from "./layout";
 
 /**
@@ -16,17 +21,8 @@ const DRIFT_LIMIT = 4;
 
 type Finding = { phase: string; problem: string };
 
-/**
- * Known failures, fixed in a later phase. Each stays listed until that fix lands (plan
- * section 13); any other finding fails the audit.
- */
-const KNOWN = [
-  {
-    phase: "ended",
-    problem: /^Save outcome moved|covers Save outcome$/,
-    fix: "R5.3: the wrap-up grows as its analysis loads; reserved space fixes it",
-  },
-];
+/** Known failures, fixed in a later phase. Each stays listed until that fix lands; any other finding fails. */
+const KNOWN: { phase: string; problem: RegExp; fix: string }[] = [];
 const known = (f: Finding) =>
   KNOWN.some((k) => k.phase === f.phase && k.problem.test(f.problem));
 
@@ -63,24 +59,25 @@ for (const size of SIZES) {
     });
     if (await sample.isVisible()) await sample.click();
     const findings: Finding[] = [];
-    await expect(page.getByRole("button", { name: "Go ready" })).toBeVisible();
-    findings.push(...(await audit(page, "paused", "Go ready")));
-    await prepareSimulationCall(page, "Layout audit", "+14155550782");
-    findings.push(...(await audit(page, "ready", "Next call Space")));
+    await prepareSimulationCall(
+      page,
+      "Bartholomew Alexander Fitzgerald-Montgomery of the Extended Enterprise Accounts Team",
+      "+14155550782",
+    );
+    findings.push(...(await audit(page, "paused", "Start calling Space")));
     await page
-      .getByRole("button", { name: "Next call Space", exact: true })
+      .getByRole("button", { name: "Start calling Space", exact: true })
       .click();
-    findings.push(...(await audit(page, "in conversation", "Hang up")));
-    await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    findings.push(...(await audit(page, "ended", "Save outcome")));
-    await chooseOutcome(page, "no_answer");
+    findings.push(...(await audit(page, "dialing", "Skip Space")));
+    await answer(page);
+    findings.push(...(await audit(page, "talking", "Hang up Esc")));
+    await hangUp(page).click();
+    findings.push(...(await audit(page, "ended", "3 Not interested")));
     await page
-      .getByRole("button", { name: "Save outcome", exact: true })
+      .getByRole("button", { name: "3 Not interested", exact: true })
       .click();
-    await expect(
-      page.getByRole("button", { name: "Save outcome", exact: true }),
-    ).toBeHidden();
-    findings.push(...(await audit(page, "saved", "Next call Space")));
+    findings.push(...(await audit(page, "saved", "Dial now Space")));
+    await finishCall(page);
     expect(findings.filter((f) => !known(f))).toEqual([]);
     // The known shift appears only when analysis lands after the button, so its absence is
     // reported, not failed; Phase 5 removes the entry with its fix.

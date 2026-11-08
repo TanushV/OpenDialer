@@ -53,7 +53,7 @@ export type PhaseKind = Phase["kind"];
 /** Seconds before the next call starts by itself (section 6). */
 export const SAVED_COUNTDOWN_MS = 3000;
 export const SKIPPED_COUNTDOWN_MS = 1500;
-/** Outcomes the carrier settles without the rep: the call never reached a person. */
+/** Outcomes where the call never reached a person; saved by the carrier or by the rep skipping. */
 export const CARRIER_OUTCOMES = new Set([
   "no_answer",
   "busy",
@@ -73,12 +73,14 @@ export function screen(input: ScreenInput): Phase {
   const { call } = input;
   if (call && !TERMINAL_STATES.has(call.state)) return live(call);
   if (call && call.state !== "FINALIZED") return ended(call);
+  // Opening the rep's audio shows as such, even before presence says Ready.
+  if (input.connecting) return { kind: "connecting" };
   // Pausing or a blocker stops the loop before any countdown runs.
   if (!input.calling || input.blockers.length)
     return { kind: "paused", blocker: input.blockers[0] ?? null };
   if (call?.outcome) {
-    const skipped =
-      call.outcome_source === "carrier" && CARRIER_OUTCOMES.has(call.outcome);
+    // No answer, busy, a skipped mailbox or a carrier failure: nobody to talk about, so a shorter wait.
+    const skipped = CARRIER_OUTCOMES.has(call.outcome);
     return skipped
       ? {
           kind: "skipped",
@@ -91,7 +93,6 @@ export function screen(input: ScreenInput): Phase {
           countdown_ms: SAVED_COUNTDOWN_MS,
         };
   }
-  if (input.connecting) return { kind: "connecting" };
   if (input.finished)
     return {
       kind: "finished",

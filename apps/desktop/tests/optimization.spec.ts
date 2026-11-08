@@ -4,7 +4,15 @@ import {
   openScriptSection,
   openSettingsCard,
 } from "./navigation";
-import { importLead, chooseOutcome } from "./simulation";
+import {
+  answer,
+  saveOutcome,
+  hangUp,
+  importLead,
+  pauseCalling,
+  startCalling,
+  startDialing,
+} from "./simulation";
 
 async function simulation(page: import("@playwright/test").Page) {
   await page.goto("/");
@@ -18,8 +26,7 @@ async function simulation(page: import("@playwright/test").Page) {
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
-  if (await page.getByRole("button", { name: "Pause dialing" }).isVisible())
-    await page.getByRole("button", { name: "Pause dialing" }).click();
+  if (await pauseCalling(page).isVisible()) await pauseCalling(page).click();
 }
 
 test("optimization goals, forecast, learning state and provider settings persist", async ({
@@ -65,12 +72,10 @@ test("live events deliver cached guidance and conversion recording without call 
   const sockets: string[] = [];
   page.on("websocket", (ws) => sockets.push(ws.url()));
   await page.reload();
-  await expect(page.getByRole("button", { name: "Go ready" })).toBeVisible();
+  await expect(startCalling(page)).toBeVisible();
   await importLead(page, "Live events fixture", "+14155550706");
-  await page.getByRole("button", { name: "Go ready" }).click();
-  await page.getByRole("button", { name: "Get next lead" }).click();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  await page.getByRole("button", { name: "Simulate human answer" }).click();
+  await startDialing(page);
+  await answer(page);
   await page
     .getByLabel("Simulation transcript")
     .fill("The budget is not approved.");
@@ -93,9 +98,10 @@ test("live events deliver cached guidance and conversion recording without call 
     page.getByText("Guidance feedback saved", { exact: true }),
   ).toBeVisible();
   expect(sockets.some((url) => url.endsWith("/v1/live"))).toBeTruthy();
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await chooseOutcome(page, "qualified_conversation");
-  await page.getByRole("button", { name: "Save outcome" }).click();
+  await pauseCalling(page).click();
+  await hangUp(page).click();
+  await saveOutcome(page, "qualified_conversation");
+  await expect(startCalling(page)).toBeVisible();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await page
     .getByRole("button", { name: /Review call/ })

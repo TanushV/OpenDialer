@@ -153,7 +153,7 @@ test("a routed inbound call has visible controls and blocks the outbound next bu
     inbound.getByRole("button", { name: "Mute return call", exact: true }),
   ).toBeEnabled();
   await expect(
-    page.getByRole("button", { name: "Get next lead", exact: true }),
+    page.getByRole("button", { name: /^Start calling/ }),
   ).toBeDisabled();
   await inbound
     .getByRole("button", { name: "End return call", exact: true })
@@ -222,6 +222,6 @@ test("ringing return call exposes explicit acceptance and waits for the matching
     inbound.getByRole("button", { name: "End return call", exact: true }),
   ).toBeEnabled();
   await expect(
-    page.getByRole("button", { name: "Get next lead", exact: true }),
+    page.getByRole("button", { name: /^Start calling/ }),
   ).toBeDisabled();
 });

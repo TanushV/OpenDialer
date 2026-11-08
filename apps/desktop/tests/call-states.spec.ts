@@ -1,5 +1,10 @@
 import { expect, test } from "./fixtures";
-import { leaveNoCall, prepareSimulationCall } from "./simulation";
+import {
+  callStatus,
+  leaveNoCall,
+  prepareSimulationCall,
+  startCalling,
+} from "./simulation";
 
 test.afterEach(async ({ page }) => leaveNoCall(page));
 
@@ -45,16 +50,12 @@ test("next lead keeps looking while the authority's queue scan continues", async
     await route.continue();
   });
   try {
-    await page
-      .getByRole("button", { name: "Get next lead", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", { name: "Finding an eligible lead…" }),
-    ).toBeDisabled();
+    await startCalling(page).click();
+    await expect.poll(() => requests).toBe(2);
+    await expect(callStatus(page)).toContainText("Dialing");
     release();
-    await expect(
-      page.getByRole("button", { name: "Start call", exact: true }),
-    ).toBeVisible();
+    await expect(callStatus(page)).toContainText(/Ringing|Dialing/);
+    await expect(page.getByTestId("lead-name")).toBeVisible();
     expect(requests).toBe(3);
     await expect(page.getByText(/QUEUE_SCAN_CONTINUES/)).toHaveCount(0);
   } finally {
@@ -79,12 +80,10 @@ test("a start refused for rep audio tells the rep to check audio", async ({
       },
     }),
   );
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
+  await startCalling(page).click();
   await expect(
     page.getByText(/^Check audio before calling\./).first(),
   ).toBeVisible();
+  await expect(startCalling(page)).toBeVisible();
   await expect(page.getByText(/REP_AUDIO_NOT_READY/)).toHaveCount(0);
 });

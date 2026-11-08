@@ -1,6 +1,13 @@
 import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
 import { openMoreSettings, openSettingsCard } from "./navigation";
-import { importLead, finishCall, waitForPreparation } from "./simulation";
+import {
+  answer,
+  finishCall,
+  hangUp,
+  startCalling,
+  startDialing,
+  waitForPreparation,
+} from "./simulation";
 
 test("setup saves a write-only live help key", async ({ page }) => {
   await enter(page, false);
@@ -112,29 +119,6 @@ test("inbound arrival exposes call controls while an admin page is open", async 
   ).toBeInViewport();
 });
 
-test("selected prepared lead survives navigation before dialing", async ({
-  page,
-}) => {
-  await enter(page, false);
-  await importLead(page, "Selected lead fixture", "+14155550701");
-  if (await page.getByRole("button", { name: "Go ready" }).isVisible())
-    await page.getByRole("button", { name: "Go ready" }).click();
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Start call", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Start call", exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Pause dialing", exact: true })
-    .click();
-});
-
 async function enter(page: Page, connected: boolean) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
@@ -183,16 +167,9 @@ for (const connected of [false]) {
     await expect(page.getByText(/1 imported/)).toBeVisible();
     await waitForPreparation(page);
     await page.getByRole("button", { name: "Dialer", exact: true }).click();
-    if (await page.getByRole("button", { name: "Go ready" }).isVisible())
-      await page.getByRole("button", { name: "Go ready" }).click();
-    await page
-      .getByRole("button", { name: "Get next lead", exact: true })
-      .click();
-    await page.getByRole("button", { name: "Start call", exact: true }).click();
+    await startDialing(page);
     try {
-      await expect(
-        page.getByRole("button", { name: "Hang up", exact: true }),
-      ).toBeEnabled();
+      await expect(page.getByRole("button", { name: /^Skip/ })).toBeEnabled();
       await expect(page.getByTitle("Sign out")).toBeDisabled();
       await expect(
         page.getByRole("button", { name: "Settings", exact: true }),
@@ -202,14 +179,6 @@ for (const connected of [false]) {
       ).toBeDisabled();
     } finally {
       await finishCall(page);
-      if (
-        await page
-          .getByRole("button", { name: "Pause dialing", exact: true })
-          .isVisible()
-      )
-        await page
-          .getByRole("button", { name: "Pause dialing", exact: true })
-          .click();
     }
     await expect(page.getByTitle("Sign out")).toBeEnabled();
   });
@@ -231,15 +200,9 @@ for (const connected of [false]) {
       await expect(page.getByText(/1 imported/)).toBeVisible();
       await waitForPreparation(page);
       await page.getByRole("button", { name: "Dialer", exact: true }).click();
-      if (await page.getByRole("button", { name: "Go ready" }).isVisible())
-        await page.getByRole("button", { name: "Go ready" }).click();
-      await page
-        .getByRole("button", { name: "Get next lead", exact: true })
-        .click();
+      await startDialing(page);
       await expect(page.getByTestId("prospect-brief")).toBeVisible();
-      await page
-        .getByRole("button", { name: "Start call", exact: true })
-        .click();
+      await answer(page);
       try {
         await page.evaluate(() => window.scrollTo(0, 0));
         await expect(
@@ -249,9 +212,7 @@ for (const connected of [false]) {
             .first(),
         ).toBeInViewport({ ratio: 1 });
         await expect(page.getByTestId("live-coaching-strip")).toBeInViewport();
-        await expect(
-          page.getByRole("button", { name: "Hang up", exact: true }),
-        ).toBeInViewport();
+        await expect(hangUp(page)).toBeInViewport();
         if (
           await page
             .getByRole("button", { name: "Mute tips", exact: true })
@@ -295,9 +256,11 @@ for (const connected of [false]) {
         await page.getByRole("button", { name: "Add prospect turn" }).click();
         await arrived;
         await question.focus();
+        // The call view re-reads the call itself; the workspace is not reloaded mid-call (R5.6).
         const updated = page.waitForResponse(
           (r) =>
-            r.url().endsWith("/v1/workspace") && r.request().method() === "GET",
+            /\/v1\/calls\/[^/]+$/.test(r.url()) &&
+            r.request().method() === "GET",
         );
         releaseTurn();
         await updated;
@@ -331,27 +294,15 @@ for (const connected of [false]) {
         await page
           .getByRole("button", { name: "Ask privately", exact: true })
           .click();
-        await expect(
-          page.getByRole("button", { name: "Hang up", exact: true }),
-        ).toBeEnabled();
+        await expect(hangUp(page)).toBeEnabled();
         await expect(
           page.getByRole("button", { name: /opt.out/i }),
         ).toBeInViewport();
       } finally {
         await finishCall(page);
-        if (
-          await page
-            .getByRole("button", { name: "Pause dialing", exact: true })
-            .isVisible()
-        )
-          await page
-            .getByRole("button", { name: "Pause dialing", exact: true })
-            .click();
       }
       await page.reload();
-      await expect(
-        page.getByRole("button", { name: "Go ready" }),
-      ).toBeVisible();
+      await expect(startCalling(page)).toBeVisible();
     });
   }
 }

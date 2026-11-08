@@ -9,9 +9,8 @@ export default defineConfig({
   testMatch: "**/*.spec.ts",
   workers: Number(process.env.PW_WORKERS ?? 4),
   fullyParallel: true,
-  // One retry, reported as flaky: background refreshes still move the layout until Phase 5
-  // (R5.6, R5.12), and a shared or small machine can starve a step. A test that fails twice fails.
-  retries: 1,
+  // R5.12: CI fails on any flake; the shared local Mac retries once and reports it as flaky.
+  retries: process.env.CI ? 0 : 1,
   // Steps poll the authority; allow for a loaded machine.
   expect: { timeout: 10_000 },
   timeout: 60_000,

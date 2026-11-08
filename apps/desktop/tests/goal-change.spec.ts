@@ -1,6 +1,14 @@
 import { expect, test } from "./fixtures";
 import { openMoreSettings } from "./navigation";
-import { chooseOutcome, waitForPreparation } from "./simulation";
+import {
+  answer,
+  saveOutcome,
+  hangUp,
+  pauseCalling,
+  startCalling,
+  startDialing,
+  waitForPreparation,
+} from "./simulation";
 
 /** The campaign goal lives under Settings → More settings. */
 async function openGoal(page: import("@playwright/test").Page) {
@@ -93,23 +101,13 @@ test("rep explicitly reviews a reopened prospect before resuming outreach", asyn
     await expect(page.getByText("Campaign goal saved").first()).toBeVisible();
   }
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  if (
-    await page
-      .getByRole("button", { name: "Go ready", exact: true })
-      .isVisible()
-  )
-    await page.getByRole("button", { name: "Go ready", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
+  await startDialing(page);
   const name = await page.getByTestId("lead-name").textContent();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await chooseOutcome(page, "qualified_conversation");
-  await page.getByRole("button", { name: "Save outcome", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Pause dialing", exact: true })
-    .click();
+  await answer(page);
+  await pauseCalling(page).click();
+  await hangUp(page).click();
+  await saveOutcome(page, "qualified_conversation");
+  await expect(startCalling(page)).toBeVisible();
   await openGoal(page);
   await page.getByLabel("Conversion goal").selectOption("sale_won");
   await page.getByRole("button", { name: "Save campaign goal" }).click();

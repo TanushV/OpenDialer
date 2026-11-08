@@ -1,8 +1,14 @@
 import { expect, test, hosted, HOSTED_ONLY } from "./fixtures";
 import {
-  importLead,
-  prepareSimulationCall,
+  addDetail,
+  answer,
   chooseOutcome,
+  hangUp,
+  importLead,
+  outcomeKeys,
+  pauseCalling,
+  prepareSimulationCall,
+  startCalling,
   waitForPreparation,
 } from "./simulation";
 
@@ -39,12 +45,11 @@ for (const connected of [false]) {
     const packetResponse = page.waitForResponse((r) =>
       /\/v1\/leads\/[^/]+\/packet$/.test(r.url()),
     );
-    await page
-      .getByRole("button", { name: "Get next lead", exact: true })
-      .click();
+    await startCalling(page).click();
     const packet = await (await packetResponse).json();
-    await page.getByRole("button", { name: "Start call", exact: true }).click();
-    await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    await answer(page);
+    await pauseCalling(page).click();
+    await hangUp(page).click();
     await chooseOutcome(page, "meeting_held");
     await page
       .getByLabel("Who did you speak with?")
@@ -56,9 +61,6 @@ for (const connected of [false]) {
       .getByRole("button", { name: "Save outcome", exact: true })
       .click();
     await expect(page.getByText(/Meeting recorded.*rep/i)).toBeVisible();
-    await page
-      .getByRole("button", { name: "Pause dialing", exact: true })
-      .click();
     await page.getByRole("button", { name: "Review", exact: true }).click();
     await page
       .getByRole("button", {
@@ -237,11 +239,11 @@ test("a suggested outcome requires a rep choice and keeps the rep's note and con
       },
     });
   });
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
+  await startCalling(page).click();
+  await answer(page);
+  await pauseCalling(page).click();
+  await hangUp(page).click();
+  await addDetail(page);
   // No outcome is presumed: the rep chooses one before Save is enabled.
   await expect(page.getByLabel("Disposition")).toHaveValue("");
   await expect(
@@ -298,11 +300,10 @@ for (const connected of [false]) {
       "Follow-up retry fixture",
       "+14155550177",
     );
-    await page
-      .getByRole("button", { name: "Get next lead", exact: true })
-      .click();
-    await page.getByRole("button", { name: "Start call", exact: true }).click();
-    await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    await startCalling(page).click();
+    await answer(page);
+    await pauseCalling(page).click();
+    await hangUp(page).click();
     await chooseOutcome(page, "callback_requested");
     const saved = page.waitForResponse(
       (r) =>
@@ -486,11 +487,10 @@ test("a callback time that a person already handled names the follow-up to revie
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await prepareSimulationCall(page, "Callback review fixture", "+14155550886");
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
+  await startCalling(page).click();
+  await answer(page);
+  await pauseCalling(page).click();
+  await hangUp(page).click();
   await chooseOutcome(page, "callback_requested");
   await page.getByLabel(/^Confirmed callback time/).fill("2026-10-23T10:30");
   let taskId = "";
@@ -517,7 +517,6 @@ test("a callback time that a person already handled names the follow-up to revie
   await review.getByRole("button", { name: "Review follow-up" }).click();
   await expect(page.locator(`#followup-task-${taskId}`)).toBeFocused();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  await page.getByRole("button", { name: "Pause dialing" }).click();
 });
 
 test("a local callback is confirmed, rescheduled, retained on reload and completed", async ({
@@ -534,14 +533,10 @@ test("a local callback is confirmed, rescheduled, retained on reload and complet
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await importLead(page, "Local callback fixture", "+14155550703");
-  if (await page.getByRole("button", { name: "Pause dialing" }).isVisible())
-    await page.getByRole("button", { name: "Pause dialing" }).click();
-  await page.getByRole("button", { name: "Go ready" }).click();
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
+  await startCalling(page).click();
+  await answer(page);
+  await pauseCalling(page).click();
+  await hangUp(page).click();
   await chooseOutcome(page, "callback_requested");
   const saved = page.waitForResponse(
     (r) => r.url().endsWith("/disposition") && r.request().method() === "POST",
@@ -594,25 +589,16 @@ test("unfinished wrap-up survives navigation and a full reload", async ({
   await expect(page.getByText(/1 imported/)).toBeVisible();
   await waitForPreparation(page);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  if (await page.getByRole("button", { name: "Go ready" }).isVisible())
-    await page.getByRole("button", { name: "Go ready" }).click();
-  await page
-    .getByRole("button", { name: "Get next lead", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Start call", exact: true }).click();
-  await page.getByRole("button", { name: "Hang up", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Save outcome", exact: true }),
-  ).toBeVisible();
+  await startCalling(page).click();
+  await answer(page);
+  await pauseCalling(page).click();
+  await hangUp(page).click();
+  await expect(outcomeKeys(page)).toBeVisible();
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Save outcome", exact: true }),
-  ).toBeVisible();
+  await expect(outcomeKeys(page)).toBeVisible();
   await page.reload();
-  await expect(
-    page.getByRole("button", { name: "Save outcome", exact: true }),
-  ).toBeVisible();
+  await expect(outcomeKeys(page)).toBeVisible();
   await chooseOutcome(page, "no_answer");
   const sent = page.waitForRequest(
     (r) => r.url().endsWith("/disposition") && r.method() === "POST",
@@ -645,17 +631,16 @@ test("outcome conflict reload and late save preserve the selected review", async
     const reserved = page.waitForResponse((r) =>
       r.url().endsWith("/v1/queue/next"),
     );
-    await page
-      .getByRole("button", { name: "Get next lead", exact: true })
-      .click();
+    await startCalling(page).click();
     const name = (await (await reserved).json()).lead.name;
     const started = page.waitForResponse((r) =>
       r.url().endsWith("/v1/calls/start"),
     );
-    await page.getByRole("button", { name: "Start call", exact: true }).click();
+    await answer(page);
+    await pauseCalling(page).click();
     const call = await (await started).json();
     calls.push({ id: call.id, name });
-    await page.getByRole("button", { name: "Hang up", exact: true }).click();
+    await hangUp(page).click();
     await chooseOutcome(page, "no_answer");
     await page.getByLabel("Wrap-up note").fill(`Human note ${index}`);
     await page
@@ -665,9 +650,6 @@ test("outcome conflict reload and late save preserve the selected review", async
       page.getByRole("button", { name: "Save outcome", exact: true }),
     ).toBeHidden();
   }
-  await page
-    .getByRole("button", { name: "Pause dialing", exact: true })
-    .click();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   // The queue may offer the same lead twice, so select each call by identity.
   await page

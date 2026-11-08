@@ -64,11 +64,68 @@ export async function prepareSimulationCall(
   ).toBeVisible({ timeout: 30_000 });
   await waitForPreparation(page);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
-  const ready = page.getByRole("button", { name: "Go ready", exact: true });
-  await expect(
-    ready.or(page.getByRole("button", { name: "Pause dialing", exact: true })),
-  ).toBeVisible();
-  if (await ready.isVisible()) await ready.click();
+  await expect(callStatus(page)).toBeVisible();
+}
+
+export const startCalling = (page: Page) =>
+  page.getByRole("button", { name: /^Start calling/ });
+export const pauseCalling = (page: Page) =>
+  page.getByRole("button", { name: /^Pause/ });
+export const callStatus = (page: Page) =>
+  page.getByRole("status", { name: "Call status" });
+
+/** Start the calling loop; it dials the next lead by itself. */
+export async function startDialing(page: Page) {
+  await startCalling(page).click();
+  await expect(callStatus(page)).toContainText(/Dialing|Ringing|No one left/);
+}
+
+/** The six one-key outcomes (section 6); every other outcome is under Add detail. */
+const KEYED: Record<string, string> = {
+  meeting_booked: "Meeting booked",
+  callback_requested: "Callback requested",
+  not_interested: "Not interested",
+  gatekeeper: "Gatekeeper",
+  wrong_party: "Wrong number",
+  voicemail: "Voicemail",
+};
+
+/** Save an ended call's outcome: one key when it has one, otherwise through Add detail. */
+export async function saveOutcome(page: Page, code: string) {
+  const keys = page.getByRole("group", { name: "Save outcome" });
+  await expect(keys).toBeVisible();
+  if (KEYED[code])
+    return await keys
+      .getByRole("button", { name: new RegExp(`${KEYED[code]}$`) })
+      .click();
+  await chooseOutcome(page, code);
+  await page
+    .locator(".wrap-up")
+    .last()
+    .getByRole("button", { name: "Save outcome", exact: true })
+    .click();
+}
+
+/** Pick an outcome in the full wrap-up form without saving; opens Add detail on the Dialer first. */
+export async function chooseOutcome(page: Page, code: string) {
+  const keys = page.getByRole("group", { name: "Save outcome" });
+  const wrapUp = page.locator(".wrap-up").last();
+  const save = wrapUp.getByRole("button", {
+    name: "Save outcome",
+    exact: true,
+  });
+  await expect(keys.or(save)).toBeVisible();
+  if (await keys.isVisible())
+    await keys.getByRole("button", { name: "Add detail", exact: true }).click();
+  await expect(save).toBeVisible();
+  const primary = PRIMARY_OUTCOMES[code]
+    ? wrapUp.getByRole("button", { name: PRIMARY_OUTCOMES[code], exact: true })
+    : null;
+  if (primary && (await primary.count())) return await primary.click();
+  const select = wrapUp.getByLabel("Disposition");
+  if (!(await select.isVisible()))
+    await wrapUp.getByText("More outcomes", { exact: true }).click();
+  await select.selectOption(code);
 }
 
 const PRIMARY_OUTCOMES: Record<string, string> = {
@@ -80,36 +137,24 @@ const PRIMARY_OUTCOMES: Record<string, string> = {
   meeting_booked: "Meeting booked",
 };
 
-/** Choose a wrap-up outcome: one click when common, otherwise "More outcomes". */
-export async function chooseOutcome(page: Page, code: string) {
-  const wrapUp = page.locator(".wrap-up").last();
-  await expect(
-    wrapUp.getByRole("button", { name: "Save outcome", exact: true }),
-  ).toBeVisible();
-  const primary = PRIMARY_OUTCOMES[code]
-    ? wrapUp.getByRole("button", { name: PRIMARY_OUTCOMES[code], exact: true })
-    : null;
-  if (primary && (await primary.count())) return await primary.click();
-  const select = wrapUp.getByLabel("Disposition");
-  if (!(await select.isVisible()))
-    await wrapUp.getByText("More outcomes", { exact: true }).click();
-  await select.selectOption(code);
-}
-
-/** End any live call and save its owed wrap-up so the next journey starts clean. */
+/** Pause, end any live call, and save its owed outcome, so the next journey starts clean. */
 export async function finishCall(page: Page) {
-  const hangup = page.getByRole("button", { name: "Hang up", exact: true });
-  const save = page.getByRole("button", { name: "Save outcome", exact: true });
-  if (await hangup.isVisible()) {
-    await hangup.click();
-    await expect(save).toBeVisible();
-  }
-  if (await save.isVisible()) {
-    await chooseOutcome(page, "no_answer");
-    // One save, as a rep makes it: a conflict here is a defect, never retried away (R1.9).
-    await save.click();
-    await expect(save).toBeHidden();
-  }
+  const dialer = page.getByRole("button", { name: "Dialer", exact: true });
+  if ((await dialer.isVisible()) && (await dialer.isEnabled()))
+    await dialer.click();
+  if (!(await callStatus(page).isVisible())) return;
+  if (await pauseCalling(page).isVisible()) await pauseCalling(page).click();
+  const end = page.getByRole("button", { name: /^(Hang up|Skip now|Skip)\b/ });
+  if (await end.first().isVisible()) await end.first().click();
+  const keys = page.getByRole("group", { name: "Save outcome" });
+  // A skipped call is saved by the loop itself; otherwise save one outcome, as a rep would.
+  await expect(keys.or(startCalling(page))).toBeVisible({ timeout: 15_000 });
+  if (await keys.isVisible())
+    await keys
+      .getByRole("button", { name: /Not interested$/ })
+      .click({ timeout: 5_000 })
+      .catch(() => undefined);
+  await expect(startCalling(page)).toBeVisible({ timeout: 15_000 });
 }
 
 /** After a test, reopen the workspace and end any call it left behind. */
@@ -125,12 +170,7 @@ export async function leaveNoCall(page: Page) {
     return;
   const dialer = page.getByRole("button", { name: "Dialer", exact: true });
   if (await dialer.isEnabled()) await dialer.click();
-  const pause = page.getByRole("button", {
-    name: "Pause dialing",
-    exact: true,
-  });
-  const ready = page.getByRole("button", { name: "Go ready", exact: true });
-  await expect(ready.or(pause)).toBeVisible();
+  await expect(callStatus(page)).toBeVisible();
   // Let the dialer restore a current call from the workspace before checking.
   await page.evaluate(
     () =>
@@ -139,6 +179,28 @@ export async function leaveNoCall(page: Page) {
       ),
   );
   await finishCall(page);
-  if (await pause.isVisible()) await pause.click();
-  await expect(ready).toBeVisible();
+  await expect(startCalling(page)).toBeVisible();
+}
+
+/** Answer the ringing simulated call as a person. */
+export async function answer(page: Page) {
+  await page
+    .getByRole("button", { name: "Simulate human answer", exact: true })
+    .click();
+  await expect(callStatus(page)).toContainText("Talking");
+}
+
+export const hangUp = (page: Page) =>
+  page.getByRole("button", { name: /^Hang up/ });
+export const outcomeKeys = (page: Page) =>
+  page.getByRole("group", { name: "Save outcome" });
+
+/** Open the full wrap-up form under Add detail; returns it. */
+export async function addDetail(page: Page) {
+  await outcomeKeys(page)
+    .getByRole("button", { name: "Add detail", exact: true })
+    .click();
+  const wrapUp = page.locator(".wrap-up").last();
+  await expect(wrapUp).toBeVisible();
+  return wrapUp;
 }
