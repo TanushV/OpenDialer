@@ -75,7 +75,8 @@ test("inbound arrival exposes call controls while an admin page is open", async 
   page,
 }) => {
   await enter(page, false);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  // Open the card before the arrival can replace this page with the call controls.
+  await openSettingsCard(page, "Calling");
   await page.route("**/v1/workspace", async (route) => {
     const response = await route.fetch();
     const data = await response.json();
@@ -93,7 +94,6 @@ test("inbound arrival exposes call controls while an admin page is open", async 
     });
     await route.fulfill({ response, json: data });
   });
-  await openSettingsCard(page, "Calling");
   const active = page.getByRole("region", {
     name: "Active return call",
     exact: true,

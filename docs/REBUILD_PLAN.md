@@ -956,6 +956,7 @@ Goal: nothing moves, nothing gets covered, and the rep always knows what is happ
 - [ ] R5.10 Error boundaries per region so the action bar survives a crash elsewhere.
 - [ ] R5.11 Render real script Markdown, including tables, without overflow; test with the owner's master script.
 - [ ] R5.12 Layout audit passes for every phase, using long names and the real script.
+      Then set the browser suite's retries to 0 in CI, so any flake fails (one retry since R2.1).
 - [ ] R5.13 Owner uses the Dialer on test calls and reports anything confusing.
 
 Done when: the audit passes and the owner confirms it reads clearly.

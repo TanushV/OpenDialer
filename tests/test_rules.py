@@ -3,6 +3,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("rules", ROOT / "scripts/rules.py")
 rules = importlib.util.module_from_spec(spec)
@@ -43,6 +45,7 @@ def test_nested_functions_are_measured_on_their_own():
     assert sizes == {"outer": 3, "inner": 2}
 
 
+@pytest.mark.slow
 def test_the_report_warns_until_phase_3_and_fails_when_strict(capsys):
     assert rules.main([]) == 0
     assert "Warnings only until Phase 3" in capsys.readouterr().out

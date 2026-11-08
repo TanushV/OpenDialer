@@ -397,11 +397,16 @@ export function App() {
           "POST",
         );
       saveSession({ connection: "local", simulation });
-      setSession(token);
-      setSnapshot(
-        await request(local.url, token.access_token, "/v1/workspace"),
+      const first = await request<Workspace>(
+        local.url,
+        token.access_token,
+        "/v1/workspace",
       );
+      // The view is chosen before the workspace appears, so a click right after it
+      // shows is never undone by setup finishing.
       setView("Dialer");
+      setSession(token);
+      setSnapshot(first);
     });
     setWorking(false);
   }
