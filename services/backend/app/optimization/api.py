@@ -39,7 +39,9 @@ class StaffedWindow(Strict):
 
 class OptimizationSettings(Strict):
     expected_campaign_version: int | None = Field(default=None, ge=1)
-    conversion_goal: Literal["qualified_conversation", "meeting_held", "sale_won"] | None = None
+    conversion_goal: (
+        Literal["qualified_conversation", "meeting_booked", "meeting_held", "sale_won"] | None
+    ) = None
     window_days: int | None = Field(default=None, ge=1, le=180)
     exploration: float | None = Field(default=None, ge=0, le=0.3)
     auto_train: bool | None = None
@@ -90,7 +92,7 @@ class OptimizationSettings(Strict):
 
 class Conversion(Strict):
     event_id: str = Field(min_length=3, max_length=200)
-    kind: Literal["qualified_conversation", "meeting_held", "sale_won"]
+    kind: Literal["qualified_conversation", "meeting_booked", "meeting_held", "sale_won"]
     call_id: str | None = None
     occurred_at: datetime
     source_reference: str = Field(min_length=3, max_length=1000)
