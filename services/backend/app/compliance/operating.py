@@ -390,8 +390,6 @@ def screening_capability(snapshot, endpoint=None):
 
 
 def screening_snapshot(service, s, p, phone=None, *, internal_suppressed=None):
-    from app.compliance.registry import published_snapshots, registry_contains
-
     if internal_suppressed is None:
         internal_suppressed = bool(phone and service.suppressed(s, p, phone))
     base = {
@@ -405,16 +403,8 @@ def screening_snapshot(service, s, p, phone=None, *, internal_suppressed=None):
     if "provider_config" not in s.info:
         s.info["provider_config"] = service.configs.read(p["tenant_id"])
     config = s.info["provider_config"]
+    # National registry files are no longer imported (R2.5); the prepaid lookup is the check.
     national = []
-    for row in published_snapshots(s, p):
-        if row.data.get("kind") == "national":
-            item = {**row.data, "id": row.id, "version": row.version}
-            if phone and phone[2:5] in item.get("npas", []):
-                try:
-                    item["listed"] = registry_contains(s, row, phone)
-                except ValueError:
-                    item["source_invalid"] = True
-            national.append(item)
     cached = cached_screen(service, s, p, phone) if phone else None
     return {
         **base,
@@ -428,54 +418,6 @@ def screening_snapshot(service, s, p, phone=None, *, internal_suppressed=None):
 
 def screening_key(service, phone):
     return "prepaid:" + phone
-
-
-def screening_page(service, s, p, phones, denied):
-    """Charge-free, bounded planning snapshot using the same per-endpoint decision."""
-    from app.compliance.registry import published_snapshots, registry_contains
-
-    if len(phones) > 500:
-        raise ValueError("At most500 endpoints per screening snapshot")
-    base = screening_snapshot(service, s, p)
-    publications = {r.id: r for r in published_snapshots(s, p)}
-    keys = [screening_key(service, phone) for phone in phones if phone not in denied]
-    model = MODELS["registry_snapshots"]
-    prepaid = (
-        {
-            row.data.get("phone"): {**row.data, "id": row.id, "version": row.version}
-            for row in s.scalars(
-                select(model).where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.external_key.in_(keys),
-                )
-            )
-        }
-        if keys
-        else {}
-    )
-    result = {}
-    for phone in phones:
-        national = []
-        if phone not in denied:
-            for source in base["national"]:
-                item = dict(source)
-                if phone[2:5] in item.get("npas", []):
-                    try:
-                        item["listed"] = registry_contains(s, publications[item["id"]], phone)
-                    except ValueError:
-                        item["source_invalid"] = True
-                national.append(item)
-        result[phone] = screening_capability(
-            {
-                **base,
-                "internal_suppressed": phone in denied,
-                "national": national,
-                "prepaid": prepaid.get(phone),
-            },
-            phone,
-        )
-    return result
 
 
 def prepaid_snapshot(service, config, max_age, data=None):

@@ -27,8 +27,6 @@ def apply_in(service, s, entry):
         fail(409, "Opt-out request identity already describes another endpoint or reason")
     endpoint = service._by_key(s, p, "phone_endpoints", key)
     if endpoint:
-        from app.compliance.consent import revoke_effects
-
         # Lock affected calls before any denial dirties shared report state.
         revoke_effects(service, s, p, endpoint.id, ["live", "transcription", "recording", "prerecorded"])
     row = service._by_key(s, p, "suppressions", key)
@@ -156,3 +154,57 @@ def record(service, p, phone, reason, *, event_id=None, session=None):
         service.db.authorize_stream(s, p)
         service.required(s, "sellers", p["seller_id"], p)
         return apply_in(service, s, entry)
+
+
+def revoke_effects(service, s, p, endpoint_id, permissions):
+    """An opt-out stops what a live call to that endpoint is doing: speech, recording, playback, or the dial."""
+    from app.telephony.reducer import TERMINAL
+
+    model = MODELS["call_attempts"]
+    calls = list(
+        s.scalars(
+            select(model)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_endpoint_id == endpoint_id,
+                model.op_status.not_in(TERMINAL),
+            )
+            .order_by(model.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
+    for call in calls:
+        if call.data["state"] in TERMINAL:
+            continue
+        version = call.version
+        if "transcription" in permissions or "live" in permissions:
+            if not call.data.get("transcription_disabled"):
+                update(
+                    call,
+                    transcription_disabled=True,
+                    transcript_version=call.data.get("transcript_version", 0) + 1,
+                )
+            # Also fences a raw publication already committed before this revocation.
+            service.raw.revoke_scope(p["tenant_id"] + ":" + call.id)
+            service.coach.cancel(call.id)
+            service.control_intent(
+                s, p, call.id, "transcription_stop", {}, target=call.data.get("provider_id")
+            )
+            service.stop_agent_transcription_in(s, p, call)
+        if "recording" in permissions:
+            service.control_intent(s, p, call.id, "record_stop", {}, target=call.data.get("provider_id"))
+        if "prerecorded" in permissions:
+            service.control_intent(s, p, call.id, "playback_stop", {}, target=call.data.get("provider_id"))
+        if "live" in permissions:
+            command = service._by_key(s, p, "command_outbox", call.id)
+            if command and command.data["status"] == "pending" and not command.data.get("sent_at"):
+                update(command, status="cancelled", reason="CONSENT_REVOKED")
+                service.finish_call(s, p, call, "consent_revoked_before_submission")
+            else:
+                if call.data["state"] != "ENDING":
+                    update(call, state="ENDING")
+                service.control_intent(s, p, call.id, "hangup", {}, target=call.data.get("provider_id"))
+        if call.version != version:
+            emit(s, p["tenant_id"], "call.updated", call, service.clock(), {"permission_changed": True})

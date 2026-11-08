@@ -1,5 +1,5 @@
 import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
-import { openMoreSettings, openScreening } from "./navigation";
+import { openMoreSettings } from "./navigation";
 
 async function enter(page: Page, connected: boolean) {
   await page.goto("/");
@@ -36,79 +36,6 @@ for (const connected of [false]) {
   test.describe(
     connected ? "PostgreSQL connected screening" : "Local screening",
     () => {
-      test("registry publication retains identity after lost response and reload", async ({
-        page,
-      }) => {
-        const bodies: Record<string, unknown>[] = [];
-        await page.route("**/v1/admin/registry/import", async (route) => {
-          bodies.push(route.request().postDataJSON());
-          if (bodies.length === 1) {
-            const response = await route.fetch();
-            expect(response.status()).toBe(200);
-            return route.abort("failed");
-          }
-          return route.continue();
-        });
-        async function fill() {
-          await openScreening(page);
-          await page
-            .getByLabel("Authorized area codes (comma separated)")
-            .fill("415, 212, 512");
-          await page
-            .getByLabel("Authorization reference")
-            .fill("Synthetic registry authority");
-          await page.getByLabel("Dataset refreshed on").fill("2026-10-14");
-          await page
-            .getByLabel("Source access expires at")
-            .fill("2026-10-20T12:00");
-          await page
-            .getByLabel("Listed E.164 numbers (one per line)")
-            .fill("+14155550199");
-        }
-        await enter(page, connected);
-        await fill();
-        await page
-          .getByRole("button", { name: "Validate & publish dataset" })
-          .click();
-        await expect.poll(() => bodies.length).toBe(1);
-        await expect(
-          page.getByText(/Failed to fetch|Load failed/),
-        ).toBeVisible();
-        await page.reload();
-        await fill();
-        await page
-          .getByRole("button", { name: "Validate & publish dataset" })
-          .click();
-        await expect(
-          page.getByText("Validated registry snapshot published atomically.", {
-            exact: true,
-          }),
-        ).toBeVisible();
-        expect(bodies).toHaveLength(2);
-        expect(bodies[0].request_id).toBeTruthy();
-        expect(bodies[1]).toEqual(bodies[0]);
-        await page.getByLabel("Dataset import mode").selectOption("changes");
-        await page.getByLabel("Base publication").selectOption({ index: 1 });
-        await page
-          .getByLabel("Added listed E.164 numbers")
-          .fill("+14155550198");
-        await page
-          .getByLabel("Removed listed E.164 numbers")
-          .fill("+14155550199");
-        await page
-          .getByRole("button", { name: "Validate & publish dataset" })
-          .click();
-        await expect.poll(() => bodies.length).toBe(3);
-        expect(bodies[2].base_snapshot_id).toBeTruthy();
-        expect(bodies[2].expected_version).toBeGreaterThan(0);
-        expect(bodies[2].numbers).toBeUndefined();
-        await expect(
-          page.getByText("Validated registry snapshot published atomically.", {
-            exact: true,
-          }),
-        ).toBeVisible();
-      });
-
       test("account DNC rates preserve provenance and show the dated reference separately", async ({
         page,
       }) => {

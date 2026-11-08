@@ -22,8 +22,6 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.administration import Dialer
 from app.coaching import knowledge
-from app.compliance.consent import ConsentChange
-from app.compliance.consent import record as record_consent
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.config import Settings
 from app.db import Database, Event, audit, doc, put, rows, update
@@ -1415,12 +1413,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
             fail(422, "Invalid provider event")
         return await service.accept_webhook(tenant_id, event, hashlib.sha256(body).hexdigest(), verified=True)
 
-    @app.post("/v1/admin/registry/import")
-    def registry_import(data: dict, p=Depends(administrator)):
-        from app.compliance.registry import publish_registry
-
-        return publish_registry(service, p, data)
-
     @app.patch("/v1/leads/{lead_id}/endpoint")
     def correct_endpoint(lead_id: str, data: dict, p=Depends(administrator)):
         from app.compliance.phone import normalize_phone
@@ -1532,10 +1524,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
             return doc(seller)
 
-    @app.post("/v1/admin/consent")
-    def consent(data: ConsentChange, p=Depends(administrator)):
-        return record_consent(service, p, data.model_dump(mode="json"))
-
     @app.post("/v1/telephony/agent")
     async def agent_leg(p=Depends(principal)):
         return await service.create_agent(p)
@@ -1604,41 +1592,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 {"reason": data["reason"]},
             )
             return doc(model)
-
-    @app.post("/v1/admin/rnd/results")
-    def import_rnd(data: dict, p=Depends(administrator)):
-        if (
-            not data.get("subscription_reference")
-            or not data.get("reference_date")
-            or data.get("result") not in {"yes", "no", "no_data"}
-        ):
-            fail(
-                422,
-                "Authorized RND subscription, meaningful prior reference date and provider result required",
-            )
-        with db.transaction() as session:
-            endpoint = service.required(session, "phone_endpoints", data.get("endpoint_id"), p)
-            result = {
-                "endpoint_id": endpoint.id,
-                "reference_date": data["reference_date"],
-                "query_date": clock().isoformat(),
-                "result": data["result"],
-                "subscription_reference": data["subscription_reference"],
-                "provider_receipt": data.get("provider_receipt"),
-            }
-            if data["result"] in {"yes", "no_data"}:
-                update(endpoint, reassignment_review_required=True)
-            audit(
-                session,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "rnd.result",
-                endpoint.id,
-                clock(),
-                result,
-            )
-            return result
 
     @app.post("/v1/admin/restore/reconcile")
     async def reconcile_restore(data: dict, p=Depends(administrator)):

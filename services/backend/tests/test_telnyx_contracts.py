@@ -259,7 +259,7 @@ def test_revoked_transcription_permission_stops_both_streams(workspace, app, car
     event(workspace, call, "call.answered")
     run_controls(workspace)
     service, p = app.state.service, principal(workspace)
-    from app.compliance.consent import revoke_effects
+    from app.compliance.suppressions import revoke_effects
 
     with service.db.transaction() as s:
         revoke_effects(service, s, p, call["endpoint_id"], ["transcription"])

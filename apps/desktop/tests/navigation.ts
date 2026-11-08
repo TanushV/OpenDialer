@@ -31,7 +31,7 @@ export async function openScreening(page: Page) {
   if (!(await box.isChecked())) {
     await box.check();
     await card.getByRole("button", { name: "Save", exact: true }).click();
-    await card.getByRole("heading", { name: "Loaded lists" }).waitFor();
+    await expect(box).toBeChecked();
   }
   return card;
 }

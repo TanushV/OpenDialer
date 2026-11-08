@@ -422,15 +422,6 @@ def test_the_memory_reaches_script_writing_and_live_help_but_call_shape_stays_po
     assert not any(item["feature"] == "rep_talk_ratio" for item in digest["working"] + digest["not_working"])
     contexts = []
     live = {"live": lambda request: contexts.append(request.get("script_learning")) or asker_answer(request)}
-    registry = {
-        "kind": "national",
-        "subscription_reference": "own-national-registry-2026",
-        "npas": ["212", "415", "512"],
-        "refreshed_at": clock.now.isoformat(),
-        "numbers": [],
-        "request_id": str(uuid4()),
-    }
-    post(ws, "/v1/admin/registry/import", registry)  # The seeded snapshot is past its 31 days.
     placed = start(ws, key="feed-live")["id"]
     answered_by_human(ws, placed)
     install_fake_models(app, monkeypatch, live)

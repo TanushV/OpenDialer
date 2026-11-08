@@ -558,33 +558,10 @@ class Service(LeadLists, ReservationPlanner):
         endpoint = self.required(s, "phone_endpoints", lead.data["endpoint_id"], p)
         user = self.required(s, "users", p["user_id"], p)
         config, presence = policy.data, user.data.get("presence", {})
-        from app.compliance.operating import screening_max_age, source_expiry
-        from app.compliance.registry import published_snapshots, registry_contains
-
         internal_suppressed = self.suppressed(s, p, lead.data["phone"])
-        snapshots = [] if internal_suppressed else published_snapshots(s, p)
-        state = [
-            r
-            for r in snapshots
-            if r.data.get("kind") == "state" and r.data.get("jurisdiction") == lead.data.get("jurisdiction")
-        ]
-        state = [
-            r
-            for r in state
-            if (self.settings.simulation or not r.data.get("synthetic"))
-            and lead.data["phone"][2:5] in r.data.get("npas", [])
-            and (expiry := source_expiry(r.data, self.clock(), screening_max_age(self, s, p)))
-            and self.clock() < expiry
-        ]
-        try:
-            state_listed = any(registry_contains(s, r, lead.data["phone"]) for r in state)
-            state_current = bool(state)
-        except ValueError:
-            state_listed, state_current = False, False
-
-        from app.compliance.consent import permission_state
-
-        granted, revoked = permission_state(self, s, p, endpoint.id, permission)
+        # Registry imports and consent records are gone (R2.5); neither was ever loaded in practice.
+        state_listed, state_current = False, False
+        granted, revoked = False, False
         healthy = number and self.number_readiness_in(s, p, number)["outbound_ready"]
         authorized_number = bool(
             number

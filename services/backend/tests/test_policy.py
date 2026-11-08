@@ -1,11 +1,9 @@
-import hashlib
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import ORDINARY_RETRY_SECONDS, CallContext, authorize
-from app.compliance.registry import RegistryBitmap, RegistryError
 
 NOW = datetime(2026, 10, 14, 18, tzinfo=UTC)
 
@@ -162,17 +160,6 @@ def test_normalization_does_not_claim_ownership(raw, expected, extension):
     assert result.extension == extension
     assert result.ownership_status == "unknown"
     assert result.assignment_evidence == "unknown"
-
-
-def test_exact_registry_bitmap_roundtrip_and_checksum():
-    numbers = ["+14155550101", "+14155550102", "+12125550103"]
-    bitmap = RegistryBitmap.build(numbers)
-    assert bitmap.contains("+14155550101")
-    assert not bitmap.contains("+14155550109")
-    checksum = hashlib.sha256(bitmap.dump()).hexdigest()
-    assert RegistryBitmap.load(bitmap.dump(), checksum).contains("+12125550103")
-    with pytest.raises(RegistryError):
-        RegistryBitmap.load(bitmap.dump(), "wrong-checksum")
 
 
 def test_five_pm_is_a_hard_local_cutoff_even_for_older_policies_and_callbacks(context):

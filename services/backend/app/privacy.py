@@ -481,13 +481,10 @@ class SpeechPrivacy:
         return f"speech:{p['tenant_id']}:{p['seller_id']}:{call_id}:{segment_id}"
 
     def speech_revoked(self, s, p, call):
-        from app.compliance.consent import permission_state
         from app.db import update
 
-        if (
-            call.data.get("transcription_disabled")
-            or permission_state(self, s, p, call.data.get("endpoint_id"), "transcription")[1]
-        ):
+        # An opt-out during the call sets this flag (compliance/suppressions.revoke_effects).
+        if call.data.get("transcription_disabled"):
             if not call.data.get("transcription_disabled"):
                 update(
                     call,

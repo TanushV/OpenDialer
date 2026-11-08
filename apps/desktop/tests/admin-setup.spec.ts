@@ -418,13 +418,6 @@ test("disabled actions say why and settings failures stay recoverable", async ({
   await openMore(page, "Workspace and app updates");
   await expect(page.getByText("Finish first: Active call.")).toBeVisible();
   await openScreening(page);
-  await expect(page.getByLabel("Authorization reference")).toBeVisible();
-  await expect(
-    page.getByLabel("Subscription / authorization reference"),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText("Enter the authorized area codes.", { exact: true }),
-  ).toBeVisible();
 });
 
 test("managed setup import shows connection and hides tunnel fields", async ({

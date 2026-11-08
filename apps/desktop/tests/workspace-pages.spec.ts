@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { openMoreSettings, openScreening } from "./navigation";
+import { openMoreSettings } from "./navigation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -126,43 +126,6 @@ test("call history loads older named calls independently of the workspace lead p
   await expect(
     page.getByRole("button", { name: "Review call Older Person", exact: true }),
   ).toBeVisible();
-});
-
-test("registry history remains accessible beyond the workspace preview", async ({
-  page,
-}) => {
-  await page.route("**/v1/workspace", async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
-    data.pages = {
-      ...data.pages,
-      registries: { total: 51, next_cursor: "older-registry" },
-    };
-    await route.fulfill({ response, json: data });
-  });
-  await page.route("**/v1/workspace/registries**", (route) =>
-    route.fulfill({
-      json: {
-        items: [
-          {
-            id: "older-registry",
-            kind: "state",
-            npas: ["999"],
-            refreshed_at: "2026-10-14T00:00:00Z",
-            checksum: "older-snapshot-checksum",
-          },
-        ],
-        total: 51,
-        next_cursor: null,
-      },
-    }),
-  );
-  await enter(page);
-  await openScreening(page);
-  await page
-    .getByRole("button", { name: "Load older registry snapshots", exact: true })
-    .click();
-  await expect(page.getByText(/older-snapshot/)).toBeVisible();
 });
 
 test("a newer searched lead is not overwritten by an older workspace preview", async ({

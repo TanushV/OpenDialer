@@ -887,8 +887,10 @@ Order, each as its own commit with its tests removed:
       appeals, review queue. Done November 7: routes, screens and tests removed. The live helper still reads reviewed
       examples from `coaching/library.py`, and post-call finalization still computes scorecards; both go with R10.1 and
       R10.2, which rebuild those paths.
-- [ ] R2.5 Compliance: registries, snapshots, consent evidence, RND import, scheduled screening; keep suppressions, hours
-      and manual check.
+- [x] R2.5 Compliance: registries, snapshots, consent evidence, RND import, scheduled screening; keep suppressions, hours
+      and manual check. Done November 7. Opt-out effects on a live call moved into `compliance/suppressions.py`; the
+      prepaid lookup stays as the manual check until RealValidito replaces it (R9B.17). The registry and consent tables
+      stay until R2.9.
 - [ ] R2.6 SSH tunnel (Rust and UI), direct webhook route, ingress check, API-key and LiteLLM settings, script proposals
       and tests.
 - [ ] R2.7 Dead voicemail drop: `VM_*`, `voicemail_asset`, `detached`, playback, gather, recording and late-human paths.

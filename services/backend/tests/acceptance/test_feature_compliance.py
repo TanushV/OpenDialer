@@ -105,41 +105,6 @@ def test_a_permanent_denial_is_never_released_as_a_hold(workspace, reason):
     assert offered(workspace) != phone
 
 
-@pytest.mark.slow
-def test_national_registry_snapshot_blocks_a_listed_number_until_replaced(workspace, clock):
-    publish(workspace, dnc_screening=True)
-    listed = offered(workspace)
-    suppress_all_but(workspace, keep=listed)
-    source = {
-        "kind": "national",
-        "subscription_reference": "own-national-registry-2026",
-        "npas": ["212", "415", "512"],
-        "refreshed_at": clock.now.isoformat(),
-    }
-    listing = {**source, "numbers": [listed], "request_id": str(uuid4())}
-    receipt = post(workspace, "/v1/admin/registry/import", listing)
-    assert receipt["published"] is True and receipt["count"] == 1
-    assert post(workspace, "/v1/admin/registry/import", listing)["id"] == receipt["id"]
-    assert "REGISTRY_LISTED" in refused(workspace)
-    post(
-        workspace,
-        "/v1/admin/registry/import",
-        {**source, "numbers": ["+13125550199"], "request_id": str(uuid4())},
-        status=422,
-    )
-    post(
-        workspace,
-        "/v1/admin/registry/import",
-        {**source, "numbers": [], "refreshed_at": (clock.now + timedelta(days=1)).isoformat()},
-        status=422,
-    )
-    replaced = post(
-        workspace, "/v1/admin/registry/import", {**source, "numbers": [], "request_id": str(uuid4())}
-    )
-    assert replaced["count"] == 0
-    assert offered(workspace) == listed
-
-
 def test_prepaid_screening_needs_a_key_and_seller_authorization_and_never_spends_on_opt_outs(workspace):
     post(workspace, "/v1/admin/dnc/screen", {"phones": [ET]}, status=409)
     settings(workspace, dnc_api_key="synthetic-dnc-key-not-used")
@@ -158,90 +123,6 @@ def test_prepaid_screening_needs_a_key_and_seller_authorization_and_never_spends
             "idempotency_key": "explicit-retry-1",
             "accept_possible_duplicate_charge": True,
         },
-        status=404,
-    )
-
-
-def test_state_registry_required_by_policy_blocks_until_a_current_state_source_clears_the_lead(
-    workspace, clock
-):
-    publish(workspace, state_registry_required=True)
-    assert get(workspace, "/v1/admin/preflight")["screening"]["state_registry_required"] is True
-    assert "STATE_REGISTRY_MISSING" in refused(workspace)
-    import_leads(
-        workspace,
-        [
-            {
-                "name": "Riley Ridge",
-                "phone": "+14155550177",
-                "company": "Ridge Example",
-                "domain": "ridge.example.test",
-                "timezone": "America/Los_Angeles",
-                "timezone_confidence": "confirmed",
-                "region": "415",
-                "jurisdiction": "CA",
-            }
-        ],
-    )
-    state = {
-        "kind": "state",
-        "jurisdiction": "CA",
-        "subscription_reference": "own-state-list",
-        "npas": ["415"],
-    }
-    state["refreshed_at"] = clock.now.isoformat()
-    post(workspace, "/v1/admin/registry/import", {**state, "numbers": ["+14155550177"]})
-    assert "STATE_REGISTRY_LISTED" in refused(workspace)
-    post(workspace, "/v1/admin/registry/import", {**state, "numbers": []})
-    assert offered(workspace) == "+14155550177"
-
-
-def test_consent_evidence_is_required_by_policy_and_a_revocation_blocks_again(workspace, clock):
-    publish(workspace, consent_required=True)
-    assert "CONSENT_MISSING" in refused(workspace)
-    consent = {
-        "endpoint_id": endpoints(workspace)[PT],
-        "permissions": ["live"],
-        "revoked": False,
-        "evidence_reference": "Signed opt-in form dated 2026-10-01",
-        "idempotency_key": "consent-grant-1",
-    }
-    granted = post(workspace, "/v1/admin/consent", consent)
-    assert granted["revoked"] is False and granted["permissions"] == ["live"]
-    assert post(workspace, "/v1/admin/consent", consent)["id"] == granted["id"]
-    post(workspace, "/v1/admin/consent", {**consent, "evidence_reference": "Different form"}, status=409)
-    future = (clock.now + timedelta(days=1)).isoformat()
-    post(
-        workspace,
-        "/v1/admin/consent",
-        {**consent, "idempotency_key": "consent-future", "acquired_at": future},
-        status=422,
-    )
-    assert offered(workspace) == PT
-    revocation = {
-        **consent,
-        "revoked": True,
-        "evidence_reference": "Lead asked to stop calls",
-        "idempotency_key": "consent-revoke-1",
-    }
-    post(workspace, "/v1/admin/consent", revocation)
-    assert "CONSENT_REVOKED" in refused(workspace)
-
-
-def test_rnd_result_showing_reassignment_blocks_its_endpoint_and_no_result_does_not(workspace):
-    suppress_all_but(workspace, keep=PT)
-    endpoint = endpoints(workspace)[PT]
-    rnd = {"endpoint_id": endpoint, "reference_date": "2026-09-01", "subscription_reference": "own-rnd-2026"}
-    post(workspace, "/v1/admin/rnd/results", {**rnd, "result": "no"})
-    assert offered(workspace) == PT
-    post(workspace, "/v1/admin/rnd/results", {**rnd, "result": "yes", "provider_receipt": "rnd-receipt-1"})
-    assert "INVALID_ENDPOINT" in refused(workspace)
-    post(workspace, "/v1/admin/rnd/results", {**rnd, "result": "maybe"}, status=422)
-    post(workspace, "/v1/admin/rnd/results", {**rnd, "subscription_reference": ""}, status=422)
-    post(
-        workspace,
-        "/v1/admin/rnd/results",
-        {**rnd, "endpoint_id": "missing-endpoint", "result": "no"},
         status=404,
     )
 
@@ -349,17 +230,7 @@ def test_calling_needs_no_approval_paperwork_and_screening_is_optional(workspace
     assert offered(workspace) == "+14155550188"
     publish(workspace, dnc_screening=True)
     assert get(workspace, "/v1/admin/preflight")["screening"]["enabled"] is True
-    listing = {
-        "kind": "national",
-        "subscription_reference": "own-national-registry-2026",
-        "npas": ["212", "415", "512"],
-        "refreshed_at": clock.now.isoformat(),
-        "numbers": ["+14155550188"],
-        "request_id": str(uuid4()),
-    }
-    post(workspace, "/v1/admin/registry/import", listing)
-    assert "REGISTRY_LISTED" in refused(workspace)
-    # Turning screening off stops registry checks; the internal opt-out list always applies.
+    # Turning screening off stops do-not-call checks; the internal opt-out list always applies.
     publish(workspace, dnc_screening=False)
     assert offered(workspace) == "+14155550188"
     capabilities = {item["id"]: item for item in get(workspace, "/v1/admin/preflight")["capabilities"]}
