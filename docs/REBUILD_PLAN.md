@@ -1343,3 +1343,11 @@ Done when: every live check passes and the owner signs off. **Owner sitting 5.**
   Found and fixed: a call stuck ringing waited two hours for recovery, and every backend restart was refused by the
   relay for up to 45 seconds. Carried forward: the dial code move (Phase 9). Waiting on the owner: live checks R4.15
   (L1, L2, L3, L9, L10, L13) and the 1.0.2 rebuild. Next: Phase 5, R5.1.
+- November 8, 2026: Phases 5 to 7 largely done and pushed. The Dialer is one calling loop in three fixed regions:
+  Start calling dials by itself, Space skips, Esc hangs up, keys 1 to 6 save, and saved or skipped calls count down
+  to the next. Voicemail is skipped at detection, never before 7 seconds. Test sessions dial only the test phone.
+  Settings opens with the calling status and eleven rows that turn green only after a real check. Learning skips
+  test calls and uses `meeting_booked` as its goal. The browser suite was rewritten for the new screen and caught
+  ordering defects and a goal mismatch, all fixed. Open: CI browser retries are back to 1 while a click flake under
+  load is found (R5.12); the older Settings cards still need folding into the rows (R7.2); the rest of Phase 8.
+  Waiting on the owner: R5.13, R6.7, R7.8 read-through, live checks, the 1.0.2 rebuild and keys. Next: R8.3.
