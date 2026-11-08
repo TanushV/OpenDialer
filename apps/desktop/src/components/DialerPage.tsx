@@ -20,7 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { openSource } from "../api/client";
 import { label, useWorkspace } from "../context";
 import { OptOutJournal } from "../state/optouts";
-import { pausesPresence, Telephony } from "../telephony/client";
+import { afterAudioStatus, Telephony } from "../telephony/client";
 import { InboundCall } from "./InboundCall";
 import { CallControls } from "./CallControls";
 import { CallbackReviewNotice, WrapUp } from "./WrapUp";
@@ -33,6 +33,9 @@ import { isActiveCall, isTerminal } from "../types";
 /** The rep owes an outcome: the call ended and its wrap-up is unsaved. */
 const owesWrapUp = (call: Call | null) =>
   !!call && isTerminal(call) && call.state !== "FINALIZED";
+
+/** Audio stops a moment before the hangup event when the prospect hangs up. */
+const GAP_GRACE_MS = 2500;
 
 export function DialerPage({ visible = true }: { visible?: boolean }) {
   const {
@@ -93,6 +96,8 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
   const [finding, setFinding] = useState(false);
   const [readying, setReadying] = useState(false);
   const readyingNow = useRef(false);
+  const pausing = useRef(false);
+  const repReady = useRef(false);
   const [transcript, setTranscript] = useState("");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [audioStatus, setAudioStatus] = useState("");
@@ -143,20 +148,30 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
         );
     };
     let failed = false;
+    let grace: ReturnType<typeof setTimeout> | undefined;
     const report = () => {
       if (failed) return;
       failed = true;
       capture?.stop();
       clearInterval(timer);
-      notice(
-        "Live transcription unavailable. Finish this call, then reconnect in Settings.",
-      );
-      void api(`/v1/calls/${call.id}/audio-gap`, "POST", {}).catch(() => {});
+      // A prospect hang-up ends the audio first; only a call still live after the grace has a gap.
+      grace = setTimeout(() => {
+        void api<Call>(`/v1/calls/${call.id}`)
+          .then((latest) => {
+            if (!isActiveCall(latest) || latest.state === "ENDING") return;
+            notice(
+              "Live transcription stopped for this call. Calling continues; this call is marked as missing speech.",
+            );
+            return api(`/v1/calls/${call.id}/audio-gap`, "POST", {});
+          })
+          .catch(() => {});
+      }, GAP_GRACE_MS);
     };
     const timer = setInterval(check, 500);
     check();
     return () => {
       clearInterval(timer);
+      if (grace) clearTimeout(grace);
       capture?.stop();
     };
   }, [
@@ -175,6 +190,7 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
     journal.current.blocksCalling,
   );
   const ready = w.user.presence.status === "ready";
+  repReady.current = ready;
   const active = isActiveCall(call);
   const wrapUpPending = owesWrapUp(call);
   const inbound = w.tasks.find(
@@ -286,18 +302,30 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
   useEffect(() => {
     telephony.current.onStatus = (status) => {
       setAudioStatus(status);
-      // A transient reconnect mid-call, or the registration that Go ready is
-      // replacing, must not post a paused presence.
-      if (
-        readyingNow.current ||
-        !pausesPresence(status, isActiveCall(currentCall.current))
-      )
-        return;
-      void api("/v1/rep/presence", "POST", {
-        status: "paused",
-        audio_ready: false,
-        telephony_ready: false,
-      }).catch(() => {});
+      // The registration that Go ready is replacing must not post a paused presence.
+      if (readyingNow.current) return;
+      const next = afterAudioStatus(status, {
+        inCall: isActiveCall(currentCall.current),
+        ready: repReady.current,
+        pausing: pausing.current,
+      });
+      if (next === "reconnect") {
+        void reconnectAudio().catch((e: unknown) => {
+          notice(
+            `Audio did not reconnect: ${e instanceof Error ? e.message : String(e)}. Paused until you start again.`,
+          );
+          void api("/v1/rep/presence", "POST", {
+            status: "paused",
+            audio_ready: false,
+            telephony_ready: false,
+          }).catch(() => {});
+        });
+      } else if (next === "pause")
+        void api("/v1/rep/presence", "POST", {
+          status: "paused",
+          audio_ready: false,
+          telephony_ready: false,
+        }).catch(() => {});
     };
   }, [api]);
   useEffect(() => {
@@ -346,49 +374,69 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
         throw new Error(
           "Sync the pending opt-out before further outbound calls.",
         );
-      let agent = "agent-simulated";
-      if (!w.simulation) {
-        setAudioStatus("Checking microphone and registering…");
-        const result = await api<{ token: string }>(
-          "/v1/telephony/token",
-          "POST",
-        );
-        await telephony.current.connect(result.token, audio.current!);
-        const leg = await api<{ agent_call_control_id: string }>(
-          "/v1/telephony/agent",
-          "POST",
-        );
-        agent = leg.agent_call_control_id;
-        telephony.current.expectAgentLeg(agent);
-        let answered = false;
-        for (let i = 0; i < 60; i++) {
-          const status = await api<{ state: string }>(
-            `/v1/telephony/agent/${encodeURIComponent(agent)}`,
-          );
-          if (status.state === "answered") {
-            answered = true;
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 500));
-        }
-        if (!answered)
-          throw new Error("The verified agent audio leg did not become ready.");
-      }
-      await api("/v1/rep/presence", "POST", {
-        status: "ready",
-        audio_ready: true,
-        telephony_ready: true,
-        agent_call_control_id: agent,
-        pending_optouts: 0,
-      });
-      setAudioStatus(w.simulation ? "Simulated audio ready" : "Audio ready");
+      pausing.current = false;
+      await connectAudio();
       await refresh();
     } finally {
       readyingNow.current = false;
       setReadying(false);
     }
   }
+  /** Register once, open a fresh audio leg and report the rep ready on it. */
+  async function connectAudio() {
+    let agent = "agent-simulated";
+    if (!w.simulation) {
+      if (!telephony.current.registered) {
+        setAudioStatus("Checking microphone and registering…");
+        const result = await api<{ token: string }>(
+          "/v1/telephony/token",
+          "POST",
+        );
+        await telephony.current.connect(result.token, audio.current!);
+      }
+      const leg = await api<{ agent_call_control_id: string }>(
+        "/v1/telephony/agent",
+        "POST",
+      );
+      agent = leg.agent_call_control_id;
+      telephony.current.expectAgentLeg(agent);
+      let answered = false;
+      for (let i = 0; i < 60; i++) {
+        const status = await api<{ state: string }>(
+          `/v1/telephony/agent/${encodeURIComponent(agent)}`,
+        );
+        if (status.state === "answered") {
+          answered = true;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (!answered)
+        throw new Error("The verified agent audio leg did not become ready.");
+    }
+    await api("/v1/rep/presence", "POST", {
+      status: "ready",
+      audio_ready: true,
+      telephony_ready: true,
+      agent_call_control_id: agent,
+      pending_optouts: 0,
+    });
+    setAudioStatus(w.simulation ? "Simulated audio ready" : "Audio ready");
+  }
+  /** After a call ends its audio leg, a ready rep gets a fresh one without Go ready. */
+  async function reconnectAudio() {
+    if (readyingNow.current) return;
+    readyingNow.current = true;
+    setAudioStatus("Reconnecting audio…");
+    try {
+      await connectAudio();
+      await refresh();
+    } finally {
+      readyingNow.current = false;
+    }
+  }
   async function pause(afterHangup = false) {
+    pausing.current = true;
     await api("/v1/rep/presence", "POST", {
       status: "paused",
       audio_ready: w.user.presence.audio_ready ?? false,
@@ -459,6 +507,8 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
   }
   async function hangup(pauseAfter = false) {
     if (!call) return;
+    // Pause after this call: the audio leg ending must not reconnect.
+    if (pauseAfter) pausing.current = true;
     const id = call.id;
     const controller = telephony.current;
     const audioIdentity = controller.activeIdentity;

@@ -14,6 +14,19 @@ export function pausesPresence(status: string, inCall: boolean) {
   );
 }
 
+/**
+ * What the Dialer does after a telephony status: the audio leg ends with every call, so a
+ * ready rep who has not paused gets a fresh leg. Only Pause, or a failed reconnect, pauses.
+ */
+export function afterAudioStatus(
+  status: string,
+  rep: { inCall: boolean; ready: boolean; pausing: boolean },
+): "reconnect" | "pause" | "none" {
+  if (status === "agent-disconnected" && rep.ready && !rep.pausing)
+    return "reconnect";
+  return pausesPresence(status, rep.inCall) ? "pause" : "none";
+}
+
 export class Telephony {
   private client: TelnyxRTC | null = null;
   private audio: HTMLAudioElement | null = null;
@@ -33,6 +46,14 @@ export class Telephony {
   status = "disconnected";
   onStatus: (status: string) => void = () => {};
 
+  /** The WebRTC client is signed in, so a new audio leg needs no new registration. */
+  get registered() {
+    return (
+      !!this.client &&
+      !this.connecting &&
+      !["reconnecting", "disconnected"].includes(this.status)
+    );
+  }
   private report(status: string) {
     this.status = status;
     this.onStatus(status);

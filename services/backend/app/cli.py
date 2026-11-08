@@ -152,6 +152,9 @@ def main():
 
 
 def run(args, settings, watch_stdin):
+    from app.logfile import configure
+
+    configure(settings.data_dir)
     if not os.getenv("OPENDIALER_DATABASE_URL"):
         settings.database_url = "sqlite:///" + str((settings.data_dir / "opendialer.db").resolve())
     if settings.mode == "local" and not settings.local_token:

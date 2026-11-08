@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { pausesPresence, Telephony } from "../src/telephony/client";
+import {
+  afterAudioStatus,
+  pausesPresence,
+  Telephony,
+} from "../src/telephony/client";
 
 const sdk = vi.hoisted(() => ({ clients: [] as any[] }));
 vi.mock("@telnyx/webrtc", () => ({
@@ -228,6 +232,31 @@ test("a transient socket reconnect during a call does not pause presence", () =>
   expect(pausesPresence("reconnecting", false)).toBe(true);
   expect(pausesPresence("agent-disconnected", true)).toBe(true);
   expect(pausesPresence("registered", false)).toBe(false);
+});
+
+test("an audio leg that ends after a call reconnects while ready; only Pause pauses", () => {
+  // R0.9: the rep's audio leg ends with every call. A ready rep gets a fresh leg.
+  const ready = { inCall: false, ready: true, pausing: false };
+  expect(afterAudioStatus("agent-disconnected", ready)).toBe("reconnect");
+  expect(
+    afterAudioStatus("agent-disconnected", { ...ready, pausing: true }),
+  ).toBe("pause");
+  expect(
+    afterAudioStatus("agent-disconnected", { ...ready, ready: false }),
+  ).toBe("pause");
+  expect(afterAudioStatus("registered", ready)).toBe("none");
+  expect(afterAudioStatus("reconnecting", { ...ready, inCall: true })).toBe(
+    "none",
+  );
+  expect(afterAudioStatus("disconnected", ready)).toBe("pause");
+});
+
+test("a registered client renews only the audio leg", async () => {
+  const { phone } = await connected();
+  expect(phone.registered).toBe(true);
+  phone.expectAgentLeg("agent");
+  phone.disconnect();
+  expect(phone.registered).toBe(false);
 });
 
 test("ending a callback preserves agent ownership and rejects a late callback active event", async () => {

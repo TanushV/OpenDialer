@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { localEdit } from "../api/client";
 import { label, useWorkspace } from "../context";
@@ -86,6 +86,11 @@ export function WrapUp({
   const pending = useRef<{ fingerprint: string; request_id: string } | null>(
     null,
   );
+  const saveButton = useRef<HTMLButtonElement>(null);
+  // The ended call's outcome is the rep's next action: bring it above the call dock (R0.12).
+  useEffect(() => {
+    saveButton.current?.scrollIntoView({ block: "nearest" });
+  }, [call.id]);
   function choose(code: string) {
     setOutcome(code);
     if (!primary.has(code)) setMore(true);
@@ -258,6 +263,7 @@ export function WrapUp({
         </p>
       )}
       <button
+        ref={saveButton}
         className="primary"
         disabled={saving || !outcome}
         onClick={() => void run(save)}

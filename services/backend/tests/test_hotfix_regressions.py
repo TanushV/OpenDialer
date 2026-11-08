@@ -150,3 +150,26 @@ async def test_the_reps_own_sip_leg_finishes_without_a_failed_job(workspace, app
         assert receipt.data["status"] == "ignored"
         jobs = list(s.scalars(select(Job).where(Job.queue == "webhook")))
         assert jobs and all(job.status == "completed" for job in jobs), [(j.status, j.error) for j in jobs]
+
+
+@pytest.mark.database
+def test_dial_does_not_park_the_prospect_when_the_rep_leg_ends(workspace, app):
+    """R0.8: a parked prospect leg outlives the rep's lost audio and waits in silence for up to 2 hours."""
+    service = app.state.service
+    start(workspace)
+    with service.db.transaction(False) as s:
+        dials = [c for c in s.scalars(select(MODELS["command_outbox"])) if c.data.get("kind") == "dial"]
+    assert dials
+    assert all("park_after_unbridge" not in c.data["payload"] for c in dials)
+    assert all(c.data["payload"]["bridge_on_answer"] for c in dials)
+
+
+@pytest.mark.database
+def test_the_call_api_says_who_hung_up_and_for_how_long(workspace, app):
+    """R0.10: the Dialer shows "They hung up · 0:23" from these fields."""
+    call = start(workspace)
+    simulate(workspace, call["id"], "call.answered")
+    simulate(workspace, call["id"], "call.hangup", hangup_source="callee", hangup_cause="normal_clearing")
+    body = workspace["client"].get(f"/v1/calls/{call['id']}", headers=workspace["headers"]).json()
+    assert body["provider_hangup_source"] == "callee"
+    assert "connected_seconds" in body

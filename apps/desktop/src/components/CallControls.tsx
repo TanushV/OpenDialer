@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useWorkspace } from "../context";
 import { canAdvanceWithSpace } from "../state/call-shortcuts";
+import { endedSummary } from "../state/hangup";
 import { Keypad } from "./Keypad";
 import { isActiveCall, type Call, type Reservation } from "../types";
 import type { Telephony } from "../telephony/client";
@@ -131,9 +132,11 @@ export function CallControls({
             <strong>
               {active
                 ? "In conversation"
-                : ready
-                  ? "Ready when you are"
-                  : "Session paused"}
+                : wrapUpPending
+                  ? (endedSummary(call) ?? "Call ended")
+                  : ready
+                    ? "Ready when you are"
+                    : "Session paused"}
             </strong>
             <small>
               {wrapUpPending

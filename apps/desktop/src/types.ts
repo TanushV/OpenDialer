@@ -147,6 +147,9 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  /** Carrier hang-up side: "callee" is the prospect, "caller" is this app's side. */
+  provider_hangup_source?: string | null;
+  connected_seconds?: number | null;
   /** Telnyx found a mailbox on the final attempt: the line stays open for the rep's message. */
   voicemail_turn?: boolean;
   stay_on_voicemail?: boolean;

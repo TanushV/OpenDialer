@@ -14,6 +14,12 @@
 body {
   margin: 0;
 }
+/* The fixed call dock sits over the bottom of the page: scrolling, focus and
+   scrollIntoView keep the rep's next action above it (R0.12). */
+html {
+  --dock-clearance: 130px;
+  scroll-padding-bottom: var(--dock-clearance);
+}
 button,
 input,
 textarea,
@@ -303,20 +309,22 @@ strong {
 }
 .toast {
   position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-35%);
+  /* In the sidebar, over its informational note: never over the work area,
+     the call dock or the rep's next action (R0.12). */
+  bottom: 72px;
+  left: 12px;
+  width: 190px;
+  box-sizing: border-box;
   z-index: 500;
   background: #224a37;
   color: #f5f8ed;
   box-shadow: 0 8px 30px #1b332435;
   border-radius: 9px;
   padding: 13px 13px 13px 18px;
-  max-width: 650px;
   display: flex;
-  gap: 20px;
-  align-items: center;
-  font-size: 12px;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 11px;
   line-height: 1.5;
 }
 .toast.error {
@@ -1700,6 +1708,9 @@ tbody tr:hover {
   font-weight: 500;
 }
 @media (max-width: 1180px) {
+  .toast {
+    width: 166px;
+  }
   .sidebar {
     width: 190px;
     padding-left: 14px;
@@ -2482,4 +2493,14 @@ details.transcript-card {
   margin: 1rem 0;
   max-height: 420px;
   overflow: auto;
+}
+
+.crash-screen {
+  max-width: 560px;
+  margin: 80px auto;
+  padding: 0 16px;
+}
+.crash-screen pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
