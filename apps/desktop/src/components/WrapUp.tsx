@@ -264,7 +264,7 @@ export function WrapUp({
       )}
       <button
         ref={saveButton}
-        className="primary"
+        className="primary save-outcome"
         disabled={saving || !outcome}
         onClick={() => void run(save)}
       >

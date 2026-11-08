@@ -2504,3 +2504,11 @@ details.transcript-card {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Save outcome stays above the fixed call dock while the wrap-up is on screen,
+   however the content around it loads or grows (R0.12). */
+.wrap-up .save-outcome {
+  position: sticky;
+  bottom: calc(var(--dock-clearance) - 8px);
+  z-index: 41;
+}
