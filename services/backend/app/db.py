@@ -72,6 +72,10 @@ class Document:
 
 
 # Explicit tables retain the specification's data ownership and lifecycle boundaries.
+# Tables older versions created and this one no longer uses (R2.9). Restore skips them; the
+# migration in Phase 3 (R3.7) drops them from the copied store.
+RETIRED_TABLES = frozenset({"companies", "consent_evidence", "evaluation_reports", "work_intervals"})
+
 TABLES = [
     "tenants",
     "sellers",
@@ -79,10 +83,8 @@ TABLES = [
     "sessions",
     "campaigns",
     "policy_versions",
-    "companies",
     "leads",
     "phone_endpoints",
-    "consent_evidence",
     "suppressions",
     "registry_snapshots",
     "compliance_decisions",
@@ -121,9 +123,7 @@ TABLES = [
     "comments",
     "learning_datasets",
     "conversion_events",
-    "evaluation_reports",
     "coaching_feedback",
-    "work_intervals",
     "report_projections",
     "script_memories",
 ]
@@ -138,15 +138,6 @@ for _name in TABLES:
             **(columns(_name) if _name in HOT_TABLES else {}),
             **({"op_kind": Column(String(40), nullable=True)} if _name == "command_outbox" else {}),
             **(context_columns(_name) if _name in CONTEXT_FIELDS else {}),
-            **(
-                {
-                    "op_owner_id": Column(String(36), nullable=False),
-                    "op_at": Column(DateTime(timezone=True), nullable=True),
-                    "op_due_at": Column(DateTime(timezone=True), nullable=True),
-                }
-                if _name == "work_intervals"
-                else {}
-            ),
             "__table_args__": (
                 UniqueConstraint("tenant_id", "seller_id", "external_key", name=f"uq_{_name}_key"),
                 *(indexes(_name) if _name in HOT_TABLES else ()),
@@ -164,23 +155,6 @@ for _name in TABLES:
                         ),
                     )
                     if _name == "command_outbox"
-                    else ()
-                ),
-                *(
-                    (
-                        Index(
-                            "ix_work_intervals_owner", "tenant_id", "seller_id", "op_owner_id", "created_at"
-                        ),
-                        Index(
-                            "ix_work_intervals_overlap",
-                            "tenant_id",
-                            "seller_id",
-                            "op_owner_id",
-                            "op_due_at",
-                            "op_at",
-                        ),
-                    )
-                    if _name == "work_intervals"
                     else ()
                 ),
             ),

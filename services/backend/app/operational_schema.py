@@ -73,7 +73,6 @@ CONTEXT_FIELDS = {
     "research_facts": ("lead_id", "status", "expires_at"),
     "research_sources": ("lead_id", None, None),
     "script_versions": ("lead_id", None, None),
-    "consent_evidence": ("endpoint_id", None, None),
     "transcript_segments": ("call_id", None, "raw_expires_at"),
 }
 
@@ -318,11 +317,6 @@ def sync_columns(row):
             )
         if expiry:
             row.ctx_expires_at = as_time(row.data.get(expiry))
-        return
-    if row.__tablename__ == "work_intervals":
-        row.op_owner_id = row.data["rep_id"]
-        row.op_at = as_time(row.data.get("started_at"))
-        row.op_due_at = as_time(row.data.get("ended_at") or row.data.get("lease_until"))
         return
     if row.__tablename__ not in HOT_TABLES:
         return

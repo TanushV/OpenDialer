@@ -12,7 +12,7 @@ import httpx
 from sqlalchemy import delete, func, or_, select, text
 
 from app.config import PROVIDER_DEFAULTS, CapabilityStatus
-from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, put, rows, uid, update
+from app.db import DERIVED_TABLES, MODELS, RETIRED_TABLES, audit, doc, emit, put, rows, uid, update
 from app.intelligence import Application
 from app.number_operations import NumberOperations
 from app.optimization.script_lab import ScriptLab
@@ -775,6 +775,8 @@ class Dialer(
         ):
             fail(403, "Backup identity or schema mismatch")
         for kind, values in payload.get("tables", {}).items():
+            if kind in RETIRED_TABLES:
+                continue  # An older version's table; nothing in this version reads it.
             if kind not in MODELS or any(
                 raw.get("tenant_id") != p["tenant_id"]
                 or raw.get("seller_id") != ("" if kind == "tenants" else p["seller_id"])
@@ -823,10 +825,6 @@ class Dialer(
                                 if not row.data.get("active") or (
                                     raw["data"].get("permanent") and not row.data.get("permanent")
                                 ):
-                                    update(row, **raw["data"])
-                            if kind == "consent_evidence" and raw["data"].get("revoked"):
-                                row = self.required(s, kind, raw["id"], p)
-                                if not row.data.get("revoked"):
                                     update(row, **raw["data"])
                             continue
                         if raw.get("external_key") in by_key:

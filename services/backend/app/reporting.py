@@ -72,7 +72,6 @@ REPORT_FIELDS = {
     "coaching_feedback": None,
     "coach_events": {"call_id", "rep_id", "action", "latency", "strategy_exposure"},
     "outcomes": {"kind", "call_id", "observed_guidance_id", "state", "review_status", "version"},
-    "work_intervals": {"rep_id", "started_at", "ended_at"},
     "experiment_assignments": None,
     "compliance_decisions": None,
     "model_versions": None,
