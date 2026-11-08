@@ -9,6 +9,7 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.calling import audio_leg
 from app.calling.state import TERMINAL
 from app.platform.db import MODELS, Job, emit, get, put, uid, update
 from app.privacy import RAW_TTL_SECONDS, event_metadata
@@ -276,7 +277,7 @@ class WebhookIngress:
             call, leg = self._transcription_call(s, tenant_id, payload)
             if leg == "agent":
                 return self._agent_transcript_in(s, call, receipt, payload, raw_writes)
-        if self.agent_event(tenant_id, payload, event_type, session=s):
+        if audio_leg.on_event(s, tenant_id, payload, event_type):
             return {"received": True, "agent_event": True}
         if self.inbound_event(tenant_id, payload, event_type, session=s, receipt=receipt):
             return {"received": True, "inbound_event": True}

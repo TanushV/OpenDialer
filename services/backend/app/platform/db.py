@@ -560,3 +560,31 @@ def audit(s, tenant_id, seller_id, actor, action, target, now, detail=None):
 
 def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+# Scope helpers for the section 4 packages. `scope` is the request's workspace (today the principal dict); new code
+# passes it through without naming its columns, so removing tenants (R3.4) changes only these functions.
+SCOPE_KEY = "tenant_id"  # Also the field name inside carrier client_state, which older legs still carry.
+
+
+def workspace(scope):
+    return scope[SCOPE_KEY]
+
+
+def scope_of(workspace_id):
+    return {SCOPE_KEY: workspace_id}
+
+
+def scoped_get(s, scope, kind, object_id, *, lock=False):
+    return get(s, kind, object_id, workspace(scope), lock=lock)
+
+
+def scoped_put(s, scope, kind, data, **options):
+    return put(s, kind, workspace(scope), scope.get("seller_id"), data, **options)
+
+
+def scoped_where(model, scope):
+    conditions = [model.tenant_id == workspace(scope)]
+    if scope.get("seller_id"):
+        conditions.append(model.seller_id == scope["seller_id"])
+    return conditions

@@ -12,6 +12,7 @@ from datetime import timedelta
 
 import httpx
 import pytest
+from app.calling import audio_leg
 from app.calling.state import transition
 from app.platform.db import get, update
 from app.providers.telnyx import CarrierConfigurationError, TelnyxCarrier
@@ -112,6 +113,7 @@ async def test_token_request_accepts_the_documented_plain_text_jwt():
 def live_agent(service, carrier, monkeypatch, p, *, error=None):
     service.settings.simulation = False
     monkeypatch.setattr(service, "carrier", lambda _: carrier)
+    monkeypatch.setattr(carrier, "instant_agent_legs", False, raising=False)
     service.configs.write(
         p["tenant_id"], {"sip_username": "rep-browser", "telephony_credential_id": "cred-1"}
     )
@@ -133,9 +135,26 @@ async def test_agent_leg_dials_the_verified_credential_without_an_undocumented_u
 ):
     service, p = app.state.service, principal(workspace)
     checked = live_agent(service, carrier, monkeypatch, p)
-    await service.create_agent(p)
+    await audio_leg.create(service.ctx, p)
     assert checked == [("cred-1", "rep-browser")]
     assert carrier.dials[-1]["to"] == "sip:rep-browser@sip.telnyx.com"
+
+
+@pytest.mark.asyncio
+async def test_the_audio_credential_is_checked_once_per_session_not_per_leg(
+    workspace, app, carrier, monkeypatch
+):
+    """R4.4: each call gets a fresh leg; only the first leg of the session pays for a credential check."""
+    service, p = app.state.service, principal(workspace)
+    checked = live_agent(service, carrier, monkeypatch, p)
+    first = await audio_leg.create(service.ctx, p)
+    with service.db.transaction() as s:
+        audio_leg.on_event(
+            s, p["tenant_id"], {"call_control_id": first["agent_call_control_id"]}, "call.hangup"
+        )
+    second = await audio_leg.create(service.ctx, p)
+    assert first != second and len(carrier.dials) >= 2
+    assert checked == [("cred-1", "rep-browser")]
 
 
 @pytest.mark.parametrize("route", ["/v1/telephony/agent", "/v1/telephony/token"])

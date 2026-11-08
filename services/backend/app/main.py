@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.administration import Dialer
+from app.calling import audio_leg
 from app.coaching import knowledge
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.lead_lists import memberships
@@ -881,7 +882,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         if not credential and not settings.simulation:
             fail(503, "Scoped rep telephony credential is not configured")
         if not settings.simulation:
-            await service.verified_credential(provider, credential, sip)
+            await audio_leg.verify_once(service.ctx, provider, credential, sip)
         return {"token": await provider.token(credential or "simulated"), "simulation": settings.simulation}
 
     @app.post("/v1/admin/policies/{policy_id}/publish")
@@ -1466,12 +1467,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/telephony/agent")
     async def agent_leg(p=Depends(principal)):
-        return await service.create_agent(p)
+        return await audio_leg.create(service.ctx, p)
 
     @app.get("/v1/telephony/agent/{provider_id:path}")
     def agent_status(provider_id: str, p=Depends(principal)):
         with db.transaction(False) as session:
-            leg = service.agent_leg_in(session, p, provider_id=provider_id, rep_id=p["user_id"])
+            leg = audio_leg.find(session, p, provider_id=provider_id, rep_id=p["user_id"])
             if not leg:
                 fail(404, "Verified agent leg not found")
             return {"state": leg.data["state"], "agent_call_control_id": provider_id}

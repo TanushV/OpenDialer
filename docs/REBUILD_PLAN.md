@@ -977,7 +977,11 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
       Done November 8: dial, the queue, preflight and the relay all read `blockers()`; `/v1/blockers` lists them for the
       screen. Every refusal is a 409 with `code`, `message` and `fix`. A test bans readiness codes outside the gate and
       the modules that supply its facts; the audio-leg setup check joins `calling/` in R4.4.
-- [ ] R4.4 `calling/audio_leg.py`: one fresh leg per call, client stays registered, credential verified once per session.
+- [x] R4.4 `calling/audio_leg.py`: one fresh leg per call, client stays registered, credential verified once per session.
+      Done November 8: the leg code left the mixins for `calling/audio_leg.py` with typed `AgentLeg` and `Presence`
+      records; the Telnyx credential check runs once per app session instead of on every leg; the replay carrier answers
+      legs itself (`instant_agent_legs`), so `calling/` never branches on simulation. The 1.5-second reconnect target
+      is measured live (R4.15).
 - [ ] R4.5 `calling/dial.py`: keep durable dial and hang-up records and read-only reconcile; `save_disposition` under
       120 lines.
 - [ ] R4.6 `calling/recovery.py`: one automatic pass at startup and every minute; open calls, uncertain dials, stuck

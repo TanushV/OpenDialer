@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
+from app.calling import audio_leg
 from app.calling.state import transition
 from app.platform.db import MODELS, Job, audit, doc, get, uid, update
 from app.platform.leases import owns_effect
@@ -373,9 +374,7 @@ class RecoveryActions:
                 if verified:
                     update(leg, provider_id=target)
                     if not verified[1]:
-                        self.agent_event(
-                            p["tenant_id"], {"call_control_id": target}, "call.hangup", session=s
-                        )
+                        audio_leg.on_event(s, p["tenant_id"], {"call_control_id": target}, "call.hangup")
                     elif leg.data["state"] in {"submitting", "uncertain"}:
                         update(leg, state="ringing")
                 audit(

@@ -1,13 +1,11 @@
 import asyncio
 import base64
 import json
-import re
 from datetime import timedelta
 
 from sqlalchemy import select
 
 from app.calling import events
-from app.calling.blockers import blocked, refuse
 from app.calling.state import TERMINAL
 from app.compliance.policy import authorize
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
@@ -424,25 +422,6 @@ class TelephonyWorkflows:
                 await asyncio.to_thread(self._control_completed, p, claimed)
         return {"processed": len(commands)}
 
-    def _simulated_agent(self, p):
-        provider_id = "agent-" + uid()
-        with self.db.transaction() as s:
-            put(
-                s,
-                "call_legs",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "kind": "agent",
-                    "rep_id": p["user_id"],
-                    "provider_id": provider_id,
-                    "state": "answered",
-                },
-                key=provider_id,
-                now=self.clock(),
-            )
-        return {"agent_call_control_id": provider_id}
-
     def _keep_callback_promise(self, s, p, call, lead):
         """Reaching the person on a call at or after a promised callback time keeps that promise."""
         from app.postcall.commitments import ACTIVE
@@ -491,179 +470,3 @@ class TelephonyWorkflows:
             pair_opened_at=now.isoformat(),
             pair_until=(now + SECOND_ATTEMPT_WINDOW).isoformat(),
         )
-
-    def _agent_context(self, p):
-        """The rep's audio login and a routed caller number to present on the rep's own leg.
-
-        Each missing piece has its own next step; an empty inventory says nothing about the
-        audio credential.
-        """
-        conf = self.configs.read(p["tenant_id"])
-        with self.db.transaction(False) as s:
-            user = self.required(s, "users", p["user_id"], p)
-            sip = user.data.get("sip_username") or (
-                conf.get("sip_username") if p["role"] in {"owner", "admin"} else None
-            )
-            credential = user.data.get("telephony_credential_id") or (
-                conf.get("telephony_credential_id") if p["role"] in {"owner", "admin"} else None
-            )
-            if not sip or not re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", sip) or not credential:
-                refuse([blocked("AUDIO_SETUP_MISSING")])
-            numbers = [
-                n
-                for n in self.scoped(s, "number_inventory", p)
-                if n.data["lifecycle"] not in {"retired_callback_only", "paused_for_outbound"}
-            ]
-            routed = [
-                n
-                for n in numbers
-                if n.data.get("identity_configured") and n.data.get("provider_present") is not False
-            ]
-            if not routed:
-                code = "CALLER_NUMBER_ROUTE_REQUIRED" if numbers else "NO_CALLER_NUMBER"
-                refuse([blocked(code)])
-            ready = [n for n in routed if n.data["lifecycle"] in {"healthy", "limited_real_use"}]
-        return sip, credential, (ready or routed)[0].data["phone"]
-
-    def _claim_agent(self, p, leg_id, owner):
-        with self.db.transaction() as s:
-            self.db.authorize_stream(s, p)
-            prior = self.agent_leg_in(s, p, rep_id=p["user_id"], active=True)
-            if prior:
-                if prior.data.get("provider_id"):
-                    return doc(prior), False
-                fail(409, "An agent leg is awaiting provider reconciliation; do not create a second leg")
-            leg = put(
-                s,
-                "call_legs",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "kind": "agent",
-                    "rep_id": p["user_id"],
-                    "provider_id": None,
-                    "state": "submitting",
-                    "command_id": leg_id,
-                    "lease_owner": owner,
-                    "lease_until": (self.clock() + timedelta(seconds=30)).isoformat(),
-                },
-                object_id=leg_id,
-                now=self.clock(),
-            )
-        return doc(leg), True
-
-    def _agent_failed(self, p, leg_id, owner):
-        with self.db.transaction() as s:
-            current = self.required(s, "call_legs", leg_id, p)
-            s.refresh(current, with_for_update=True)
-            if current.data["state"] == "submitting" and owns_effect(current.data, owner, self.clock()):
-                update(current, state="uncertain", lease_owner=None, lease_until=None)
-            if current.data.get("provider_id"):
-                return {"agent_call_control_id": current.data["provider_id"]}
-
-    def _agent_completed(self, p, leg_id, owner, receipt):
-        with self.db.transaction() as s:
-            current = self.required(s, "call_legs", leg_id, p)
-            s.refresh(current, with_for_update=True)
-            if current.data.get("provider_id") not in {None, receipt["call_control_id"]}:
-                fail(409, "Carrier returned a conflicting agent leg reference")
-            # Signed events can establish or end the leg before the HTTP response.
-            if current.data.get("provider_id") == receipt["call_control_id"] and not current.data.get(
-                "lease_owner"
-            ):
-                return {"agent_call_control_id": receipt["call_control_id"]}
-            if current.data["state"] != "submitting" or not owns_effect(current.data, owner, self.clock()):
-                fail(409, "Agent reconciliation owns the result; refresh its current status")
-            update(
-                current,
-                provider_id=receipt["call_control_id"],
-                lease_owner=None,
-                lease_until=None,
-                state="ringing"
-                if current.data["state"] in {"submitting", "uncertain"}
-                else current.data["state"],
-            )
-        return {"agent_call_control_id": receipt["call_control_id"]}
-
-    async def verified_credential(self, carrier, credential, sip):
-        from app.providers.telnyx import CarrierConfigurationError
-
-        try:
-            return await carrier.verify_incoming_only_credential(credential, sip_username=sip)
-        except CarrierConfigurationError as exc:
-            fail(503, {"code": "TELEPHONY_CREDENTIAL_MISCONFIGURED", "message": str(exc)})
-
-    async def create_agent(self, p):
-        if self.settings.simulation:
-            return await asyncio.to_thread(self._simulated_agent, p)
-        sip, credential, phone = await asyncio.to_thread(self._agent_context, p)
-        carrier = await asyncio.to_thread(self.carrier, p["tenant_id"])
-        await self.verified_credential(carrier, credential, sip)
-        leg_id, owner = uid(), uid()
-        leg, created = await asyncio.to_thread(self._claim_agent, p, leg_id, owner)
-        if not created:
-            return {"agent_call_control_id": leg["provider_id"]}
-        try:
-            receipt = await carrier.dial(
-                {
-                    "to": f"sip:{sip}@sip.telnyx.com",
-                    "from": phone,
-                    "time_limit_secs": self.settings.max_call_seconds,
-                    "command_id": leg_id,
-                    "client_state": base64.b64encode(
-                        json.dumps({"agent_leg_id": leg_id, "tenant_id": p["tenant_id"]}).encode()
-                    ).decode(),
-                }
-            )
-        except Exception:
-            result = await asyncio.to_thread(self._agent_failed, p, leg_id, owner)
-            if result:
-                return result
-            fail(503, "Agent submission is uncertain; await its signed receipt or reconcile before retrying")
-        return await asyncio.to_thread(self._agent_completed, p, leg_id, owner, receipt)
-
-    def agent_event(self, tenant_id, payload, event_type, *, session=None):
-        provider_id = payload.get("call_control_id")
-        if not isinstance(provider_id, str) or not provider_id:
-            return False
-        with self.db.transaction(session=session) as s:
-            leg = self.agent_leg_in(s, {"tenant_id": tenant_id}, provider_id=provider_id)
-            if not leg:
-                try:
-                    context = json.loads(base64.b64decode(payload.get("client_state", "")))
-                    if not isinstance(context, dict) or context.get("tenant_id") != tenant_id:
-                        return False
-                    leg = self.agent_leg_in(s, {"tenant_id": tenant_id}, leg_id=context.get("agent_leg_id"))
-                except (ValueError, TypeError):
-                    return False
-            if not leg or leg.data.get("provider_id") not in {None, provider_id}:
-                return False
-            update(
-                leg,
-                provider_id=payload.get("call_control_id"),
-                lease_owner=None,
-                lease_until=None,
-                state="ended"
-                if leg.data["state"] == "ended"
-                else "answered"
-                if event_type == "call.answered"
-                else "ended"
-                if event_type == "call.hangup"
-                else leg.data["state"],
-            )
-            if event_type == "call.hangup":
-                user = get(s, "users", leg.data["rep_id"], tenant_id)
-                presence = (user.data.get("presence") or {}) if user else {}
-                if user and presence.get("agent_call_control_id") in {None, provider_id}:
-                    # The audio leg ends with every call. The rep stays in their chosen state until
-                    # audio reconnects; only Pause pauses.
-                    update(
-                        user,
-                        presence={
-                            **presence,
-                            "audio_ready": False,
-                            "telephony_ready": False,
-                            "agent_call_control_id": None,
-                        },
-                    )
-            return True

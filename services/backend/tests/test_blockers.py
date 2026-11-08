@@ -79,7 +79,7 @@ ALLOWED = {
     "administration.py",  # number facts and preflight's report
     "providers/carrier.py",  # cannot build a carrier without a key
     "compliance/policy.py",  # per-call authorization after a restore
-    "telephony/workflows.py",  # the audio leg's own setup check, until R4.4 moves it into calling/
+    "calling/audio_leg.py",  # the audio leg's own setup check when the rep connects
 }
 
 

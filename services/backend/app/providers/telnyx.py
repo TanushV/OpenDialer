@@ -36,6 +36,7 @@ def _errors(response):
 
 class TelnyxCarrier:
     simulated = False
+    instant_agent_legs = False
 
     def __init__(self, api_key, connection_id, *, http=None, webhook_url=""):
         self.api_key, self.connection_id = api_key, connection_id

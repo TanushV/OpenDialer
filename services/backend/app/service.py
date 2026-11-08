@@ -12,6 +12,7 @@ import httpx
 from fastapi import HTTPException
 from sqlalchemy import delete, or_, select
 
+from app.calling import audio_leg
 from app.calling.blockers import refuse
 from app.calling.state import TERMINAL, transition
 from app.compliance.phone import normalize_phone
@@ -57,9 +58,8 @@ class Service(LeadLists, ReservationPlanner):
         self.injected_carrier = carrier
         self.simulated_carrier = carrier or SimulatedCarrier()
         self.configs = ConfigStore(settings.data_dir)
-        self.ctx = Ctx(
-            db, settings, clock, self.configs, carrier_factory(settings, self.configs, self.simulated_carrier)
-        )
+        self.carriers = carrier_factory(settings, self.configs, self.simulated_carrier)
+        self.ctx = Ctx(db, settings, clock, self.configs, lambda workspace: self.carrier(workspace))
         from app.managed_webhooks import ManagedConnection
 
         self.managed = ManagedConnection(self)
@@ -132,7 +132,7 @@ class Service(LeadLists, ReservationPlanner):
         )
 
     def carrier(self, tenant_id):
-        return self.ctx.carrier(tenant_id, http=getattr(self, "http", None))
+        return self.carriers(tenant_id, http=getattr(self, "http", None))
 
     def setup(self, data, *, first=True):
         now = self.clock()
@@ -655,26 +655,6 @@ class Service(LeadLists, ReservationPlanner):
             now=self.clock(),
         )
 
-    def agent_leg_in(self, s, p, *, provider_id=None, leg_id=None, rep_id=None, active=False):
-        model = MODELS["call_legs"]
-        query = select(model).where(model.tenant_id == p["tenant_id"])
-        if p.get("seller_id"):
-            query = query.where(model.seller_id == p["seller_id"])
-        if rep_id:
-            query = query.where(model.op_owner_id == rep_id)
-        if provider_id:
-            query = query.where(model.op_provider_id == provider_id)
-        elif leg_id:
-            query = query.where(model.id == leg_id)
-        elif active and rep_id:
-            query = query.where(model.op_status.in_(["submitting", "uncertain", "ringing", "answered"]))
-        else:
-            raise ValueError("Agent lookup requires a provider, local identity or active rep")
-        candidates = list(s.scalars(query.limit(2)))
-        if len(candidates) > 1:
-            fail(409, "Multiple agent identities need review before another setup")
-        return next((row for row in candidates if row.data.get("kind") == "agent"), None)
-
     def release_unused_reservation_in(self, s, p):
         """Pause/logout releases only this rep's unsubmitted resource claim."""
         claim = s.scalar(
@@ -695,7 +675,7 @@ class Service(LeadLists, ReservationPlanner):
             self.db.authorize_stream(s, p)
             user = self.required(s, "users", p["user_id"], p)
             if not self.settings.simulation and data.get("agent_call_control_id"):
-                verified = self.agent_leg_in(
+                verified = audio_leg.find(
                     s, p, provider_id=data["agent_call_control_id"], rep_id=p["user_id"]
                 )
                 if not verified or verified.data.get("state") != "answered":

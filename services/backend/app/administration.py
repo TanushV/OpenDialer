@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy import delete, func, or_, select, text
 
+from app.calling import audio_leg
 from app.calling.blockers import Facts
 from app.calling.blockers import blockers as dial_gate
 from app.calling.state import TERMINAL
@@ -190,7 +191,7 @@ class Dialer(
             agent = presence.get("agent_call_control_id")
             audio = bool(agent and presence.get("audio_ready") and presence.get("telephony_ready"))
             if audio and not self.settings.simulation:
-                leg = self.agent_leg_in(s, p, provider_id=agent, rep_id=p["user_id"])
+                leg = audio_leg.find(s, p, provider_id=agent, rep_id=p["user_id"])
                 audio = bool(leg and leg.data.get("state") == "answered")
         return dial_gate(
             Facts(

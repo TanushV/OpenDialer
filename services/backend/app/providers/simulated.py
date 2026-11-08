@@ -11,6 +11,8 @@ class CarrierNotSubmitted(RuntimeError):
 
 class SimulatedCarrier:
     simulated = True
+    # Answers the rep's audio leg at once, with no credential or WebRTC client behind it.
+    instant_agent_legs = True
 
     def __init__(self):
         self.actions = []

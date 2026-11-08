@@ -38,17 +38,21 @@ def test_a_ready_workspace_has_no_number_or_paperwork_blockers(workspace):
     assert check["ready_to_call"] is True, check["blockers"]
 
 
+TELNYX = {"telnyx_api_key": "test-key", "telnyx_connection_id": "test-app"}
+
+
 @pytest.mark.parametrize(
     "config,numbers,code",
     [
-        ({}, {}, "AUDIO_SETUP_MISSING"),
+        ({}, {}, "TELNYX_NOT_CONFIGURED"),
+        (TELNYX, {}, "AUDIO_SETUP_MISSING"),
         (
-            {"sip_username": "rep-line", "telephony_credential_id": "cred"},
+            {**TELNYX, "sip_username": "rep-line", "telephony_credential_id": "cred"},
             {"lifecycle": "retired_callback_only"},
             "NO_CALLER_NUMBER",
         ),
         (
-            {"sip_username": "rep-line", "telephony_credential_id": "cred"},
+            {**TELNYX, "sip_username": "rep-line", "telephony_credential_id": "cred"},
             {"identity_configured": False},
             "CALLER_NUMBER_ROUTE_REQUIRED",
         ),

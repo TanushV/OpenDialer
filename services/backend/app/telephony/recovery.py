@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
+from app.calling import audio_leg
 from app.calling.state import TERMINAL, transition
 from app.platform.db import MODELS, ActiveClaim, doc, emit, uid, update
 from app.platform.leases import owns_effect
@@ -178,7 +179,7 @@ class CommandRecovery:
                 elif identity == call.data.get("provider_id"):
                     self.finish_terminal_in(s, p, call, receipt)
                 else:
-                    self.agent_event(p["tenant_id"], {"call_control_id": identity}, "call.hangup", session=s)
+                    audio_leg.on_event(s, p["tenant_id"], {"call_control_id": identity}, "call.hangup")
             if not command.data.get("inbound"):
                 emit(s, p["tenant_id"], "call.updated", call, self.clock())
             return doc(command)

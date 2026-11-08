@@ -1,0 +1,228 @@
+"""The rep's audio leg (R4.4): one fresh leg per call while the WebRTC client stays registered.
+
+Telnyx has no Dial option that parks the rep's leg, so the leg ends with each call and the screen asks for a new one.
+The credential behind it is checked with Telnyx once per app session, not on every leg, so a new leg costs one dial.
+"""
+
+import asyncio
+import base64
+import json
+import re
+from datetime import timedelta
+
+from fastapi import HTTPException
+from sqlalchemy import select
+
+from app.calling.blockers import blocked, refuse
+from app.calling.records import AgentLeg, NumberView, UserView, presence_of
+from app.platform.db import (
+    MODELS,
+    SCOPE_KEY,
+    doc,
+    scope_of,
+    scoped_get,
+    scoped_put,
+    scoped_where,
+    uid,
+    update,
+    workspace,
+)
+from app.platform.leases import owns_effect
+
+ACTIVE = ("submitting", "uncertain", "ringing", "answered")
+SIP_NAME = re.compile(r"[A-Za-z0-9_.+-]{1,128}")
+LEASE = timedelta(seconds=30)
+
+
+def find(s, p, *, provider_id=None, leg_id=None, rep_id=None, active=False):
+    """The rep's agent leg by carrier reference, local id, or the one still active."""
+    model = MODELS["call_legs"]
+    query = select(model).where(*scoped_where(model, p))
+    if rep_id:
+        query = query.where(model.op_owner_id == rep_id)
+    if provider_id:
+        query = query.where(model.op_provider_id == provider_id)
+    elif leg_id:
+        query = query.where(model.id == leg_id)
+    elif active and rep_id:
+        query = query.where(model.op_status.in_(ACTIVE))
+    else:
+        raise ValueError("Agent lookup requires a provider, local identity or active rep")
+    candidates = list(s.scalars(query.limit(2)))
+    if len(candidates) > 1:
+        raise HTTPException(409, "Multiple agent identities need review before another setup")
+    return next((row for row in candidates if row.data["kind"] == "agent"), None)
+
+
+def setup(ctx, p):
+    """(SIP name, credential, caller number) for the rep's leg, or the blocker that is missing."""
+    conf = ctx.configs.read(workspace(p))
+    admin = p["role"] in {"owner", "admin"}
+    with ctx.db.transaction(False) as s:
+        user = UserView.model_validate(scoped_get(s, p, "users", p["user_id"]).data)
+        sip = user.sip_username or (conf.get("sip_username") if admin else None)
+        credential = user.telephony_credential_id or (conf.get("telephony_credential_id") if admin else None)
+        if not sip or not SIP_NAME.fullmatch(sip) or not credential:
+            refuse([blocked("AUDIO_SETUP_MISSING")])
+        model = MODELS["number_inventory"]
+        rows = s.scalars(select(model).where(*scoped_where(model, p)))
+        numbers = [
+            n
+            for n in (NumberView.model_validate(row.data) for row in rows)
+            if n.lifecycle not in {"retired_callback_only", "paused_for_outbound"}
+        ]
+        routed = [n for n in numbers if n.identity_configured and n.provider_present is not False]
+        if not routed:
+            refuse([blocked("CALLER_NUMBER_ROUTE_REQUIRED" if numbers else "NO_CALLER_NUMBER")])
+        ready = [n for n in routed if n.lifecycle in {"healthy", "limited_real_use"}]
+        return sip, credential, (ready or routed)[0].phone
+
+
+async def verify_once(ctx, carrier, credential, sip):
+    """Check the credential with Telnyx the first time this session uses it."""
+    from app.providers.telnyx import CarrierConfigurationError
+
+    verified = ctx.memo.setdefault("verified_credentials", set())
+    if (credential, sip) in verified:
+        return
+    try:
+        await carrier.verify_incoming_only_credential(credential, sip_username=sip)
+    except CarrierConfigurationError as exc:
+        raise HTTPException(503, {"code": "TELEPHONY_CREDENTIAL_MISCONFIGURED", "message": str(exc)}) from exc
+    verified.add((credential, sip))
+
+
+def _claim(ctx, p, leg_id, owner):
+    now = ctx.clock()
+    with ctx.db.transaction() as s:
+        prior = find(s, p, rep_id=p["user_id"], active=True)
+        if prior:
+            if AgentLeg.model_validate(prior.data).provider_id:
+                return doc(prior), False
+            raise HTTPException(
+                409, "An agent leg is awaiting provider reconciliation; do not create a second leg"
+            )
+        record = AgentLeg(
+            kind="agent",
+            rep_id=p["user_id"],
+            state="submitting",
+            command_id=leg_id,
+            lease_owner=owner,
+            lease_until=(now + LEASE).isoformat(),
+        )
+        leg = scoped_put(s, p, "call_legs", record.model_dump(), object_id=leg_id, now=now)
+    return doc(leg), True
+
+
+def _locked(s, p, leg_id):
+    row = scoped_get(s, p, "call_legs", leg_id)
+    s.refresh(row, with_for_update=True)
+    return row, AgentLeg.model_validate(row.data)
+
+
+def _failed(ctx, p, leg_id, owner):
+    with ctx.db.transaction() as s:
+        row, leg = _locked(s, p, leg_id)
+        if leg.state == "submitting" and owns_effect(row.data, owner, ctx.clock()):
+            update(row, state="uncertain", lease_owner=None, lease_until=None)
+        return leg.provider_id
+
+
+def _completed(ctx, p, leg_id, owner, provider_id):
+    with ctx.db.transaction() as s:
+        row, leg = _locked(s, p, leg_id)
+        if leg.provider_id not in {None, provider_id}:
+            raise HTTPException(409, "Carrier returned a conflicting agent leg reference")
+        # Signed events can establish or end the leg before the HTTP response.
+        if leg.provider_id == provider_id and not leg.lease_owner:
+            return
+        if leg.state != "submitting" or not owns_effect(row.data, owner, ctx.clock()):
+            raise HTTPException(409, "Agent reconciliation owns the result; refresh its current status")
+        update(
+            row,
+            provider_id=provider_id,
+            lease_owner=None,
+            lease_until=None,
+            state="ringing" if leg.state in {"submitting", "uncertain"} else leg.state,
+        )
+
+
+def _instant_leg(ctx, p):
+    provider_id = "agent-" + uid()
+    with ctx.db.transaction() as s:
+        record = AgentLeg(kind="agent", rep_id=p["user_id"], provider_id=provider_id, state="answered")
+        scoped_put(s, p, "call_legs", record.model_dump(), key=provider_id, now=ctx.clock())
+    return provider_id
+
+
+async def create(ctx, p):
+    """Dial the rep's registered client and return the new leg's carrier reference."""
+    try:
+        carrier = await asyncio.to_thread(ctx.carrier, workspace(p))
+    except HTTPException as exc:
+        if exc.detail == "TELNYX_NOT_CONFIGURED":
+            refuse([blocked("TELNYX_NOT_CONFIGURED")])
+        raise
+    if carrier.instant_agent_legs:
+        return {"agent_call_control_id": await asyncio.to_thread(_instant_leg, ctx, p)}
+    sip, credential, phone = await asyncio.to_thread(setup, ctx, p)
+    await verify_once(ctx, carrier, credential, sip)
+    leg_id, owner = uid(), uid()
+    leg, created = await asyncio.to_thread(_claim, ctx, p, leg_id, owner)
+    if not created:
+        return {"agent_call_control_id": leg["provider_id"]}
+    state = json.dumps({"agent_leg_id": leg_id, SCOPE_KEY: workspace(p)})
+    try:
+        receipt = await carrier.dial(
+            {
+                "to": f"sip:{sip}@sip.telnyx.com",
+                "from": phone,
+                "time_limit_secs": ctx.settings.max_call_seconds,
+                "command_id": leg_id,
+                "client_state": base64.b64encode(state.encode()).decode(),
+            }
+        )
+    except Exception as exc:
+        provider_id = await asyncio.to_thread(_failed, ctx, p, leg_id, owner)
+        if provider_id:
+            return {"agent_call_control_id": provider_id}
+        raise HTTPException(
+            503, "Agent submission is uncertain; await its signed receipt or reconcile before retrying"
+        ) from exc
+    await asyncio.to_thread(_completed, ctx, p, leg_id, owner, receipt["call_control_id"])
+    return {"agent_call_control_id": receipt["call_control_id"]}
+
+
+def on_event(s, workspace_id, payload, event_type):
+    """Apply a carrier event to the rep's leg. False when the event is not for an agent leg."""
+    provider_id = payload.get("call_control_id")
+    if not isinstance(provider_id, str) or not provider_id:
+        return False
+    scope = scope_of(workspace_id)
+    row = find(s, scope, provider_id=provider_id)
+    if not row:
+        try:
+            context = json.loads(base64.b64decode(payload.get("client_state", "")))
+            if not isinstance(context, dict) or context.get(SCOPE_KEY) != workspace_id:
+                return False
+            row = find(s, scope, leg_id=context.get("agent_leg_id"))
+        except (ValueError, TypeError):
+            return False
+    if not row:
+        return False
+    leg = AgentLeg.model_validate(row.data)
+    if leg.provider_id not in {None, provider_id}:
+        return False
+    state = leg.state
+    if state != "ended":
+        state = {"call.answered": "answered", "call.hangup": "ended"}.get(event_type, state)
+    update(row, provider_id=provider_id, lease_owner=None, lease_until=None, state=state)
+    if event_type == "call.hangup":
+        user = scoped_get(s, scope, "users", leg.rep_id)
+        presence = presence_of(user.data) if user else None
+        if presence and presence.agent_call_control_id in {None, provider_id}:
+            # The leg ends with every call. The rep stays in their chosen state until audio reconnects;
+            # only Pause pauses.
+            changed = presence.model_copy(update={"audio_ready": False, "telephony_ready": False})
+            update(user, presence={**changed.model_dump(exclude_unset=False), "agent_call_control_id": None})
+    return True
