@@ -326,6 +326,42 @@ async fn drain_backend(
     .await;
 }
 
+/// Holds `caffeinate` while the rep is Ready, so the Mac does not sleep mid-session (R4.11, G8).
+#[derive(Default)]
+struct KeepAwake(Mutex<Option<std::process::Child>>);
+
+/// `caffeinate` keeps the system and display awake and exits by itself if this app does.
+fn keep_awake_arguments(pid: u32) -> Vec<String> {
+    vec!["-d".into(), "-i".into(), "-w".into(), pid.to_string()]
+}
+
+#[tauri::command]
+fn keep_awake(state: State<'_, KeepAwake>, on: bool) -> Result<bool, String> {
+    let mut held = state.0.lock().map_err(|_| "Keep-awake state unavailable")?;
+    if let Some(child) = held.as_mut() {
+        if !matches!(child.try_wait(), Ok(None)) {
+            *held = None; // It ended on its own; start a new one if still wanted.
+        }
+    }
+    match (on, held.is_some()) {
+        (true, false) => {
+            let child = std::process::Command::new("/usr/bin/caffeinate")
+                .args(keep_awake_arguments(std::process::id()))
+                .spawn()
+                .map_err(|_| "Cannot keep this Mac awake")?;
+            *held = Some(child);
+        }
+        (false, true) => {
+            if let Some(mut child) = held.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+        _ => {}
+    }
+    Ok(held.is_some())
+}
+
 #[tauri::command]
 fn open_source(app: tauri::AppHandle, value: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
@@ -375,6 +411,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .manage(LocalBackend::default())
+        .manage(KeepAwake::default())
         .setup(|app| {
             // The updater clears the resource table before it launches an installer and exits,
             // which runs this guard.
@@ -384,6 +421,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             backend_config,
+            keep_awake,
             open_source,
             save_registry_csv
         ])
@@ -420,5 +458,10 @@ mod tests {
         assert!(!should_restart(Some(0), false, 0));
         assert!(!should_restart(Some(AUTHORITY_BUSY_EXIT), false, 0));
         assert!(!should_restart(Some(MIGRATION_FAILED_EXIT), false, 0));
+    }
+
+    #[test]
+    fn keep_awake_holds_system_and_display_and_ends_with_the_app() {
+        assert_eq!(keep_awake_arguments(42), ["-d", "-i", "-w", "42"]);
     }
 }

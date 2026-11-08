@@ -1003,7 +1003,8 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
       while quitting or after a busy or migration exit; the window follows it to the new address and the session
       carries over. Its first maintenance tick is the recovery pass. The Windows-only shell code is gone. The kill test
       on the packaged app is live check L13.
-- [ ] R4.11 Keep the Mac awake while Ready.
+- [x] R4.11 Keep the Mac awake while Ready. Done November 8: the shell holds `caffeinate -d -i -w <app>` while the
+      rep's presence is Ready and releases it on Pause; it ends with the app. Checked live in L12.
 - [ ] R4.12 Call timeline visible in Review; one log file with rotation.
 - [ ] R4.13 Crash tests: kill at each dial and hang-up step; no double dial, no lost call.
 - [ ] R4.14 Fault injection for every row in the outage table in section 5.

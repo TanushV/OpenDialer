@@ -36,6 +36,7 @@ import {
   assertNoPendingOptouts,
   type RequestOptions,
 } from "./api/client";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { DialerPage } from "./components/DialerPage";
 import { LiveConnection, type LiveEvent } from "./api/live";
@@ -114,6 +115,14 @@ export function App() {
   }, []);
   const [session, setSession] = useState<Session | null>(null);
   const [snapshot, setSnapshot] = useState<Workspace | null>(null);
+  // R4.11 (G8): the Mac stays awake while the rep is Ready, and may sleep again on Pause.
+  const ready = snapshot?.user.presence?.status === "ready";
+  useEffect(() => {
+    if (!native()) return;
+    void invoke("keep_awake", { on: ready }).catch(() => {
+      /* Sleep prevention is best effort; calling never depends on it. */
+    });
+  }, [ready]);
   const [view, setView] = useState<View>("Dialer");
   const [focusTask, setFocusTask] = useState<string | null>(null);
   const openTask = useCallback((id: string) => {
