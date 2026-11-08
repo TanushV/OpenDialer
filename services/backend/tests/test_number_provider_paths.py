@@ -85,7 +85,7 @@ def test_shared_webhook_sync_lists_every_owned_number_with_its_route(workspace, 
     service.settings.simulation = False
     service.configs.write(workspace["tenant_id"], {"telnyx_connection_id": "test-route"})
     service.managed.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
-    service.managed.last_probe, service.managed.caught_up = monotonic(), True
+    service.managed.last_exchange, service.managed.caught_up = monotonic(), True
     owned = [
         {"id": "unrouted", "phone_number": "+14155550901", "connection_id": None, "status": "active"},
         {"id": "ours", "phone_number": "+14155550902", "connection_id": "test-route", "status": "active"},

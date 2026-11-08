@@ -18,7 +18,7 @@ TIMELINES = Path(__file__).parent / "fixtures" / "carrier_timelines"
 def connected(service, workspace):
     """A managed relay that is signed in, caught up and recently probed."""
     service.managed.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
-    service.managed.last_probe = monotonic()
+    service.managed.last_exchange = monotonic()
     service.managed.caught_up = True
     service.managed.numbers = {"+14155550100"}
 

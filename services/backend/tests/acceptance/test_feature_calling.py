@@ -1,13 +1,12 @@
 """Calling, tasks, holds, telephony, signed inbound return calls and stuck-call recovery over HTTP only."""
 
 import base64
+import hashlib
 import json
 from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from journey import answered_by_human, call, event, get, hang_up, post, run_jobs, start, wrap_up
 
 REP_PASSWORD = "rep-test-password-123"
@@ -137,26 +136,26 @@ def known_callers(ws, *phones):
 
 
 class Telnyx:
-    """Signed provider webhooks through the public route, verified and processed by the job lanes."""
+    """Carrier events through the relay's delivery path, as the relay hands them over after verifying them (R4.7)."""
 
     def __init__(self, ws, clock):
         self.ws, self.clock = ws, clock
-        self.key = Ed25519PrivateKey.generate()
-        public = self.key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-        call(ws, "PUT", "/v1/admin/settings", json={"telnyx_public_key": base64.b64encode(public).decode()})
 
     def deliver(self, event_type, payload, event_id=None):
-        body = json.dumps(
-            {"data": {"id": event_id or str(uuid4()), "event_type": event_type, "payload": payload}}
-        ).encode()
-        stamp = str(int(self.clock.now.timestamp()))
-        signature = base64.b64encode(self.key.sign(stamp.encode() + b"|" + body)).decode()
-        headers = {"telnyx-signature-ed25519": signature, "telnyx-timestamp": stamp}
-        response = self.ws["client"].post(
-            "/webhooks/telnyx", content=body, headers={**headers, "content-type": "application/json"}
+        from functools import partial
+
+        event = {"id": event_id or str(uuid4()), "event_type": event_type, "payload": payload}
+        body = json.dumps({"data": event}).encode()
+        client = self.ws["client"]
+        accept = partial(
+            client.app.state.service.accept_webhook,
+            self.ws["tenant_id"],
+            event,
+            hashlib.sha256(body).hexdigest(),
+            verified=True,
+            received_at=self.clock.now,
         )
-        assert response.status_code == 200, response.text
-        return response.json()
+        return client.portal.call(accept)
 
 
 def test_an_unstarted_reservation_lapses_and_frees_the_rep_and_lead(workspace, clock):

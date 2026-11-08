@@ -94,7 +94,7 @@ def test_managed_socket_delivers_speech_to_existing_pipeline(workspace, app, mon
 
     service = app.state.service
     service.managed.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
-    service.managed.last_probe = monotonic()
+    service.managed.last_exchange = monotonic()
     service.managed.caught_up = True
     service.managed.numbers = {"+14155550100"}
     service.configs.write(workspace["tenant_id"], {"telnyx_api_key": "not-a-real-key"})

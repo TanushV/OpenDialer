@@ -7,7 +7,6 @@ loading only), then times each hot path.
 """
 
 import argparse
-import base64
 import json
 import shutil
 import statistics
@@ -15,6 +14,7 @@ import sys
 import tempfile
 import time
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
@@ -23,8 +23,6 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "services" / "backend"
 from app.main import create_app  # noqa: E402
 from app.platform.config import Settings  # noqa: E402
 from app.providers.simulated import SimulatedCarrier  # noqa: E402
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import event, func, insert, select  # noqa: E402
 
@@ -141,9 +139,6 @@ def run(leads, attempts, samples):
         ).raise_for_status()
     p = {"tenant_id": creds["tenant_id"], "seller_id": creds["seller_id"], "user_id": creds["user_id"]}
     loaded = history(app.state.service, p, campaign, attempts, clock.now)
-    private = Ed25519PrivateKey.generate()
-    public = base64.b64encode(private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode()
-    client.put("/v1/admin/settings", headers=h, json={"telnyx_public_key": public}).raise_for_status()
 
     statements = []
     event.listen(app.state.db.engine, "before_cursor_execute", lambda *a, **k: statements.append(1))
@@ -182,28 +177,13 @@ def run(leads, attempts, samples):
             .json()
         )
         provider = next(reversed(carrier.calls.values()))["call_control_id"]
-        body = json.dumps(
-            {
-                "data": {
-                    "id": str(uuid4()),
-                    "event_type": "call.ringing",
-                    "payload": {"call_control_id": provider},
-                }
-            }
-        ).encode()
-        stamp = str(int(clock.now.timestamp()))
-        signature = base64.b64encode(private.sign(stamp.encode() + b"|" + body)).decode()
-        timed(
-            "webhook_receipt",
-            "POST",
-            "/webhooks/telnyx",
-            content=body,
-            headers={
-                "telnyx-signature-ed25519": signature,
-                "telnyx-timestamp": stamp,
-                "content-type": "application/json",
-            },
+        # Carrier events reach the app through the relay's delivery path (R4.7).
+        ringing = {"id": str(uuid4()), "event_type": "call.ringing", "payload": {"call_control_id": provider}}
+        started = time.perf_counter()
+        client.portal.call(
+            partial(app.state.service.accept_webhook, creds["tenant_id"], ringing, uuid4().hex, verified=True)
         )
+        timings["webhook_receipt"].append((time.perf_counter() - started) * 1000)
         for kind in ("call.answered", "human.confirmed", "call.hangup"):
             timed(
                 "event_to_state",

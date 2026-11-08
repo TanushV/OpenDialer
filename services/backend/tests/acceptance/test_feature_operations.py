@@ -1,13 +1,10 @@
 """Numbers, costs and admin over HTTP: inventory, routes, health, planning, billing, settings, backup and webhooks."""
 
-import base64
 import json
 from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from journey import (
     answered_by_human,
     call,
@@ -359,46 +356,31 @@ def test_backup_and_restore_keep_business_data_and_hold_outbound_until_reconcile
     post(workspace, "/v1/admin/restore", {"backup_id": "../../etc"}, status=422)
 
 
-def test_telnyx_webhook_accepts_only_signed_events_and_redelivery_is_idempotent(workspace, clock):
+def test_relay_redelivery_of_a_carrier_event_is_idempotent(workspace, clock):
+    """Signatures are checked at the relay's edge; the app dedupes what the relay hands over (R4.7)."""
+    from functools import partial
+
+    from app.managed_webhooks import deliver
+
     client = workspace["client"]
-    key = Ed25519PrivateKey.generate()
-    public = base64.b64encode(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode()
-    put_settings(workspace, telnyx_public_key=public)
-
-    def sign(stamp, payload):
-        return base64.b64encode(key.sign(stamp.encode() + b"|" + payload)).decode()
-
-    def deliver(payload, signature, stamp):
-        headers = {
-            "telnyx-signature-ed25519": signature,
-            "telnyx-timestamp": stamp,
-            "content-type": "application/json",
-        }
-        return client.post("/webhooks/telnyx", content=payload, headers=headers)
-
-    body = json.dumps(
-        {
-            "data": {
-                "id": "evt-acceptance-1",
-                "event_type": "call.answered",
-                "payload": {"call_control_id": "unknown-call"},
-            }
-        }
-    ).encode()
-    stamp = str(int(clock.now.timestamp()))
-    assert client.post("/webhooks/telnyx", json={"data": {"id": "forged"}}).status_code == 401
-    accepted = deliver(body, sign(stamp, body), stamp)
-    assert accepted.status_code == 200, accepted.text
-    assert accepted.json()["received"] is True
-    receipt = accepted.json()["receipt_id"]
-    assert deliver(body, sign(stamp, body), stamp).json()["receipt_id"] == receipt
-    assert deliver(body + b" ", sign(stamp, body), stamp).status_code == 401
-    old = str(int(clock.now.timestamp()) - 600)
-    assert deliver(body, sign(old, body), old).status_code == 401
-    missing = json.dumps({"data": {"event_type": "call.answered", "payload": {"a": 1}}}).encode()
-    assert deliver(missing, sign(stamp, missing), stamp).status_code == 422
-    run_jobs(workspace)
-    assert deliver(body, sign(stamp, body), stamp).json()["receipt_id"] == receipt
+    event = {
+        "id": "evt-acceptance-1",
+        "event_type": "call.answered",
+        "payload": {"call_control_id": "unknown-call"},
+    }
+    row = {
+        "event": event,
+        "hash": "hash-1",
+        "received_at": clock.now.isoformat(),
+        "account_id": "acct",
+        "event_id": event["id"],
+    }
+    service, tenant = client.app.state.service, workspace["tenant_id"]
+    first = client.portal.call(partial(deliver, service, tenant, [row]))
+    again = client.portal.call(partial(deliver, service, tenant, [row]))
+    assert first == again == [{"account_id": "acct", "event_id": "evt-acceptance-1"}]
+    receipts = client.portal.call(partial(service.accept_webhook, tenant, event, "hash-1", verified=True))
+    assert receipts["received"] is True
 
 
 HUMAN_LABELS = {"right_party": True, "not_interested": True, "no_answer": False, "busy": False}

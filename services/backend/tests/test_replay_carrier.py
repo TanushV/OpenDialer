@@ -35,7 +35,7 @@ def carrier():
 async def play(app, workspace, timeline, variant):
     service = app.state.service
     service.managed.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
-    service.managed.last_probe, service.managed.caught_up = monotonic(), True
+    service.managed.last_exchange, service.managed.caught_up = monotonic(), True
     service.managed.numbers = {"+14155550100"}
     client, headers = workspace["client"], workspace["headers"]
     carrier = service.carrier(workspace["tenant_id"])

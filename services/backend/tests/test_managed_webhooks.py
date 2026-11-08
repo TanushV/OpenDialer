@@ -85,15 +85,33 @@ async def test_old_inbound_receipt_creates_review_without_answering(workspace, a
         assert not any(row.data.get("provider_id") == "late-provider" for row in commands)
 
 
-def test_probe_receipt_does_not_trigger_another_exchange(app):
+def test_realtime_only_wakes_the_exchange_and_never_marks_calling_ready(app):
+    """R4.7: a Realtime message cannot make calling ready; only a fresh HTTP exchange can."""
     from app.managed_webhooks import ManagedConnection
 
     connection = ManagedConnection(app.state.service)
-    connection.probe = "nonce"
-    connection.broadcast({"payload": {"probe": "nonce"}})
-    assert connection.last_probe > 0
+    connection.broadcast({"payload": {"pending": True}})
+    assert connection.wake.is_set()
     assert not connection.status()["connected"]
-    assert not connection.wake.is_set()
+
+
+def test_a_dropped_realtime_subscription_keeps_calling_ready(app):
+    from time import monotonic
+
+    from app.managed_webhooks import ManagedConnection
+
+    connection = ManagedConnection(app.state.service)
+    connection.caught_up, connection.last_exchange = True, monotonic()
+    connection.subscription("CLOSED", None)
+    assert connection.status()["connected"]
+
+
+def test_a_restarted_backend_keeps_its_relay_identity(app):
+    """R4.7: a new identity on each start was refused as another computer for up to 45 seconds."""
+    from app.managed_webhooks import ManagedConnection
+
+    first = ManagedConnection(app.state.service).installation
+    assert ManagedConnection(app.state.service).installation == first
 
 
 async def test_failed_import_preserves_existing_refresh_session(app):
@@ -213,7 +231,7 @@ def test_managed_call_uses_direct_transcription_only(workspace, app, clock):
 
     service = app.state.service
     service.managed.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
-    service.managed.last_probe = monotonic()
+    service.managed.last_exchange = monotonic()
     service.managed.caught_up = True
     service.managed.numbers = {"+14155550100"}
     call = start(workspace)
@@ -371,7 +389,7 @@ def test_confirmed_managed_number_can_dial_without_a_registration_timer(workspac
             assert paused.is_success, paused.text
     service = app.state.service
     service.managed.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
-    service.managed.last_probe, service.managed.caught_up = monotonic(), True
+    service.managed.last_exchange, service.managed.caught_up = monotonic(), True
     service.managed.numbers = set()
     ready(workspace)
     offered = client.post("/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]})

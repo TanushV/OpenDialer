@@ -40,6 +40,10 @@ CATALOG = {
         "Call events need a new sign-in. Import your setup file in Settings.",
         "settings",
     ),
+    "CONNECTION_IN_USE_ELSEWHERE": (
+        "Your calling setup is active on another computer. Quit OpenDialer there; this one takes over within a minute.",
+        "settings",
+    ),
     "CONNECTION_RECONNECTING": (
         "Call events are reconnecting. This clears by itself; keep OpenDialer open.",
         "dialer",

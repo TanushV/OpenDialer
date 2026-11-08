@@ -991,8 +991,13 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
       unfinished call is due and what the pass does: read a quiet live leg, hang up a call that overran its state, end a
       dial that was never sent, mark an unanswered one unconfirmed, and end what the carrier can no longer settle with a
       review flag. Before this, a call stuck ringing waited two hours. Needs attention itself is R7.6.
-- [ ] R4.7 `calling/relay.py`: gate on HTTP exchange success; Realtime only wakes it; handle restart lease conflicts
+- [x] R4.7 `calling/relay.py`: gate on HTTP exchange success; Realtime only wakes it; handle restart lease conflicts
       without a block.
+      Done November 8, in `managed_webhooks.py` (it moves under `calling/` with the dial rewrite): a fresh HTTP exchange is
+      the only gate, Realtime only wakes the loop, and the loop keeps polling every 20 seconds when Realtime drops. The
+      relay identity now survives restarts; before, every restart drew "active on another computer" for up to 45
+      seconds. A real conflict has its own blocker. The direct `/webhooks/telnyx` route is gone; its tests deliver
+      through the relay path.
 - [x] R4.8 Poll carrier status during an active call as the fallback for missed events. Done November 8: a live
       leg with no state change for 30 seconds is read from the carrier, every 30 seconds, and finished when it is gone.
 - [x] R4.9 Save carrier outcomes directly on hangup. Done November 8: no answer, busy, voicemail and carrier

@@ -1,7 +1,5 @@
 import asyncio
 import functools
-import hashlib
-import json
 import logging
 import re
 import secrets
@@ -29,7 +27,6 @@ from app.platform.config import Settings
 from app.platform.db import Database, Event, audit, doc, put, rows, update
 from app.platform.security import PASSWORDS, admin, decode_session, issue_session
 from app.preparation.templates import PreparationPolicy
-from app.providers.telnyx import verify_webhook
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.scheduling.models import ContactRole, OutcomeCode
 from app.service import fail
@@ -1352,40 +1349,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "role": user.data["role"],
                 "email": user.data["email"],
             }
-
-    @app.post("/webhooks/telnyx")
-    async def webhook(request: Request):
-        body = await request.body()
-        signature = request.headers.get("telnyx-signature-ed25519", "")
-        timestamp = request.headers.get("telnyx-timestamp", "")
-
-        def authenticated_tenant():
-            with db.transaction(False) as s:
-                tenants = rows(s, "tenants")
-            owner = next(
-                (
-                    t
-                    for t in tenants
-                    if verify_webhook(
-                        body,
-                        signature,
-                        timestamp,
-                        service.configs.read(t.tenant_id).get("telnyx_public_key", ""),
-                        now=clock(),
-                    )
-                ),
-                None,
-            )
-            return owner.tenant_id if owner else None
-
-        tenant_id = await asyncio.to_thread(authenticated_tenant)
-        if not tenant_id:
-            fail(401, "Webhook signature invalid or stale")
-        try:
-            event = json.loads(body)["data"]
-        except (ValueError, KeyError, TypeError):
-            fail(422, "Invalid provider event")
-        return await service.accept_webhook(tenant_id, event, hashlib.sha256(body).hexdigest(), verified=True)
 
     @app.patch("/v1/leads/{lead_id}/endpoint")
     def correct_endpoint(lead_id: str, data: dict, p=Depends(administrator)):

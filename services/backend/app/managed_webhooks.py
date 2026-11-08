@@ -1,6 +1,7 @@
 """Outgoing control delivery. Auth refresh belongs to the supported Supabase SDK."""
 
 import asyncio
+import logging
 import re
 from pathlib import Path
 from time import monotonic
@@ -76,28 +77,37 @@ async def deliver(service, tenant_id, events):
     return acknowledgements
 
 
+# The relay lease lasts 45 seconds; an exchange at least every 20 keeps it, and a 35-second-old one is still fresh.
+POLL_SECONDS = 20
+EXCHANGE_FRESH_SECONDS = 35
+
+
 class ManagedConnection:
     def __init__(self, service):
         self.service = service
         self.path = service.settings.data_dir / "managed-connection.json"
         self.storage = SessionStorage(service.settings.data_dir / "managed-session.json")
         self.config = read_private(self.path)
-        self.installation = str(uuid4())
+        self.installation = installation_id(service.settings.data_dir)
         self.task = None
         self.client = None
-        self.last_probe = 0.0
+        # When an HTTP exchange with the relay last succeeded. This, not Realtime, gates new dials (R4.7).
+        self.last_exchange = 0.0
         self.caught_up = False
         self.state = "disconnected"
         self.wake = asyncio.Event()
         self.joined = asyncio.Event()
-        self.probe = ""
         self.numbers = set()
         self.edit_lock = asyncio.Lock()
         self.speech_failed = False
         self.configuring = False
 
     def status(self):
-        connected = bool(self.caught_up and self.last_probe and monotonic() - self.last_probe < 35)
+        connected = bool(
+            self.caught_up
+            and self.last_exchange
+            and monotonic() - self.last_exchange < EXCHANGE_FRESH_SECONDS
+        )
         return {
             "configured": bool(self.config),
             "label": self.config.get("label", ""),
@@ -121,7 +131,9 @@ class ManagedConnection:
             return "CONNECTION_SETUP_CHANGING"
         if self.state == "sign_in_required":
             return "CONNECTION_SIGN_IN_REQUIRED"
-        if self.state == "delivery_gap" or (self.last_probe and not self.caught_up):
+        if self.state == "in_use_elsewhere":
+            return "CONNECTION_IN_USE_ELSEWHERE"
+        if self.state == "delivery_gap" or (self.last_exchange and not self.caught_up):
             return "CONNECTION_DELIVERY_GAP"
         return "CONNECTION_RECONNECTING"
 
@@ -188,7 +200,7 @@ class ManagedConnection:
         return client
 
     async def close(self):
-        self.last_probe = 0
+        self.last_exchange = 0
         if self.task:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
@@ -260,11 +272,8 @@ class ManagedConnection:
             self.task = asyncio.create_task(self.run(), name="opendialer:managed-events")
 
     def broadcast(self, message):
-        payload = message.get("payload", {})
-        if self.probe and payload.get("probe") == self.probe:
-            self.last_probe = monotonic()
-            self.state = "connected"
-        if payload.get("pending"):
+        """Realtime only wakes the exchange loop sooner; it never decides whether calling may proceed."""
+        if message.get("payload", {}).get("pending"):
             self.wake.set()
 
     def subscription(self, state, error):
@@ -272,11 +281,9 @@ class ManagedConnection:
             self.joined.set()
         else:
             self.joined.clear()
-            self.last_probe = 0
-            self.state = "reconnecting"
         self.wake.set()
 
-    async def exchange(self, acknowledgements=(), probe=""):
+    async def exchange(self, acknowledgements=()):
         return (
             await self.client.rpc(
                 "relay_exchange",
@@ -284,14 +291,24 @@ class ManagedConnection:
                     "store": self.config["store_id"],
                     "installation": self.installation,
                     "acknowledgements": list(acknowledgements),
-                    "probe": probe,
+                    "probe": "",
                 },
             ).execute()
         ).data
 
+    async def listen(self, topic):
+        """Subscribe for wake-ups. A failure here leaves the HTTP exchange polling on its own."""
+        try:
+            await self.client.remove_all_channels()
+            self.joined.clear()
+            channel = self.client.channel(topic, {"config": {"private": True}})
+            await channel.on_broadcast("wake", self.broadcast).subscribe(self.subscription)
+            await asyncio.wait_for(self.joined.wait(), 15)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Realtime wake-ups unavailable: %s", type(exc).__name__)
+
     async def run(self):
         while True:
-            self.state = "reconnecting"
             self.caught_up = False
             try:
                 if self.client is None:
@@ -300,17 +317,14 @@ class ManagedConnection:
                     self.state = "sign_in_required"
                     return
                 first = await self.exchange()
-                self.joined.clear()
-                channel = self.client.channel(first["topic"], {"config": {"private": True}})
-                await channel.on_broadcast("wake", self.broadcast).subscribe(self.subscription)
-                await asyncio.wait_for(self.joined.wait(), 15)
+                await self.listen(first["topic"])
                 acknowledgements = []
-                while self.joined.is_set():
+                while True:
                     self.wake.clear()
-                    self.probe = str(uuid4())
-                    batch = await self.exchange(acknowledgements, self.probe)
+                    batch = await self.exchange(acknowledgements)
                     if batch["topic"] != first["topic"]:
                         raise RuntimeError("Subscription changed")
+                    self.last_exchange = monotonic()
                     acknowledgements = await deliver(self.service, self.config["tenant_id"], batch["events"])
                     self.numbers = set(batch.get("numbers", []))
                     if not acknowledgements and not batch.get("gap_since"):
@@ -323,23 +337,42 @@ class ManagedConnection:
                         and not batch.get("gap_since")
                         and await asyncio.to_thread(self.local_caught_up)
                     )
-                    if batch.get("gap_since"):
-                        self.state = "delivery_gap"
+                    self.state = "delivery_gap" if batch.get("gap_since") else "connected"
                     if acknowledgements:
                         continue
+                    if not self.joined.is_set():
+                        await self.listen(first["topic"])
                     try:
-                        await asyncio.wait_for(self.wake.wait(), 20)
+                        # Realtime wakes this early; without it, polling keeps the exchange fresh.
+                        await asyncio.wait_for(self.wake.wait(), POLL_SECONDS if self.joined.is_set() else 5)
                     except TimeoutError:
                         pass
-                raise RuntimeError("Subscription disconnected")
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                self.last_probe = 0
-                self.state = "reconnecting"
+            except Exception as exc:
+                self.last_exchange = 0
+                self.state = "in_use_elsewhere" if "another computer" in str(exc) else "reconnecting"
+                logging.getLogger(__name__).warning("Relay exchange failed: %s", self.state)
                 if self.client:
                     await self.client.remove_all_channels()
                 await asyncio.sleep(5)
+
+
+def installation_id(data_dir):
+    """This data folder's relay identity. It survives restarts, so a restarted backend keeps its relay lease."""
+    path = data_dir / "relay-installation"
+    try:
+        value = path.read_text().strip()
+        if len(value) == 36:
+            return value
+    except OSError:
+        pass
+    value = str(uuid4())
+    try:
+        path.write_text(value)
+    except OSError as exc:
+        logging.getLogger(__name__).warning("Relay identity not saved: %s", type(exc).__name__)
+    return value
 
 
 def require_idle(service, p):

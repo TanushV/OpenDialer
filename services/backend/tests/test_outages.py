@@ -76,7 +76,7 @@ def test_a_relay_outage_names_itself_and_never_blocks_hanging_up(workspace, app,
     call = start(workspace, "outage-relay").json()
     managed = service.managed
     managed.config = {"tenant_id": workspace["tenant_id"]}
-    managed.state, managed.caught_up, managed.last_probe = "reconnecting", False, 0.0
+    managed.state, managed.caught_up, managed.last_exchange = "reconnecting", False, 0.0
     assert "CONNECTION_RECONNECTING" in blockers(workspace)
     asyncio.run(service.hangup(principal(workspace), call["id"]))
     assert all(leg["state"] == "hangup" for leg in carrier.calls.values())
@@ -86,7 +86,7 @@ def test_a_relay_outage_names_itself_and_never_blocks_hanging_up(workspace, app,
 def test_missing_speech_is_a_warning_and_never_a_blocker(workspace, app):
     managed = app.state.service.managed
     managed.config = {"tenant_id": workspace["tenant_id"]}
-    managed.caught_up, managed.last_probe, managed.speech_failed = True, monotonic(), True
+    managed.caught_up, managed.last_exchange, managed.speech_failed = True, monotonic(), True
     try:
         ready(workspace)
         assert managed.status()["speech_warning"] and blockers(workspace) == []
