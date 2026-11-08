@@ -21,7 +21,7 @@ from app.compliance.operating import (
     usable_screen,
 )
 from app.compliance.phone import normalize_phone
-from app.db import MODELS, audit, doc, put, uid, update
+from app.platform.db import MODELS, audit, doc, put, uid, update
 from app.providers.dnc import DNCError, PrepaidDNC
 from app.providers.inference import InferenceResult
 from app.service import dt, fail

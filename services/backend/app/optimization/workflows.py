@@ -5,7 +5,6 @@ from datetime import UTC, timedelta
 
 from sqlalchemy import func, or_, select
 
-from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
 from app.optimization.experiments import ComparisonWorkflows
 from app.optimization.geography import planning_zones
 from app.optimization.learning import training_rows
@@ -16,6 +15,7 @@ from app.optimization.numbering import (
     timestamp,
     warmup_allowance,
 )
+from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
 from app.scheduling.models import (
     OPTIMIZATION_DEFAULTS,
     EstimatePolicy,
@@ -304,7 +304,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
     def schedule_optimization(self, tenant_id=None):
         """Queue a refresh only after a call is finalized, at most once a minute (section 8, R2.10)."""
-        from app.db import rows
+        from app.platform.db import rows
 
         slot = int(self.clock().timestamp()) // 60
         with self.db.transaction(False) as s:

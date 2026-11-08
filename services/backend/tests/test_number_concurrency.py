@@ -3,7 +3,7 @@
 from uuid import uuid4
 
 import pytest
-from app.db import MODELS, put
+from app.platform.db import MODELS, put
 from helpers import principal
 from sqlalchemy import select
 

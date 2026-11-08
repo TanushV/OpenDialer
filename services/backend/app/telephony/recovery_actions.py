@@ -8,7 +8,7 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
-from app.db import MODELS, Job, audit, doc, get, uid, update
+from app.platform.db import MODELS, Job, audit, doc, get, uid, update
 from app.service import dt, fail
 from app.telephony.recovery import CALL_COMMAND_KINDS, call_receipt
 from app.telephony.reducer import owns_effect

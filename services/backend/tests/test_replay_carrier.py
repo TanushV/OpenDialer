@@ -10,7 +10,7 @@ from pathlib import Path
 from time import monotonic
 
 import pytest
-from app.db import MODELS, Job, get
+from app.platform.db import MODELS, Job, get
 from app.providers import replay_carrier as replay
 from app.providers.replay_carrier import ReplayCarrier
 from app.telephony.reducer import TERMINAL

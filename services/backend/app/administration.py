@@ -11,12 +11,12 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy import delete, func, or_, select, text
 
-from app.config import PROVIDER_DEFAULTS, CapabilityStatus
-from app.db import DERIVED_TABLES, MODELS, RETIRED_TABLES, audit, doc, emit, put, rows, uid, update
 from app.intelligence import Application
 from app.number_operations import NumberOperations
 from app.optimization.script_lab import ScriptLab
 from app.optimization.workflows import OptimizationWorkflows
+from app.platform.config import PROVIDER_DEFAULTS, CapabilityStatus
+from app.platform.db import DERIVED_TABLES, MODELS, RETIRED_TABLES, audit, doc, emit, put, rows, uid, update
 from app.rep_workflows import RepWorkflows
 from app.reporting import ReportProjections
 from app.service import dt, fail

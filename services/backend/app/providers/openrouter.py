@@ -7,8 +7,8 @@ import time
 import httpx
 
 from app.coaching.contracts import COACH_SCHEMA, card_view
-from app.config import PROVIDER_DEFAULTS
 from app.grounding import REVIEW_INSTRUCTIONS, ReviewOutput
+from app.platform.config import PROVIDER_DEFAULTS
 from app.providers.inference import InferenceError
 
 RESPONSE_BYTES = 262144

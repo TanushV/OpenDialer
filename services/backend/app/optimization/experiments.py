@@ -6,7 +6,6 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
-from app.db import MODELS, doc, put
 from app.optimization.learning import (
     conversion_at,
     derive_labels,
@@ -17,6 +16,7 @@ from app.optimization.learning import (
     trial_from_counts,
 )
 from app.optimization.numbering import timestamp
+from app.platform.db import MODELS, doc, put
 
 
 def strategy_rewards(study, assignments, events, *, now):
@@ -277,7 +277,7 @@ class ComparisonWorkflows:
     def strategy_exposures_in(self, s, p, state):
         from sqlalchemy import select
 
-        from app.db import MODELS
+        from app.platform.db import MODELS
 
         ids = state.data.get("displayed_coach_event_ids", [])[-8:] if state else []
         if not ids:

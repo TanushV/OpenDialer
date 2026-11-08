@@ -9,7 +9,6 @@ from sqlalchemy import and_, delete, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 
 from app.compliance.policy import authorize
-from app.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
 from app.optimization.learning import (
     choose_cohort_candidate,
     cohort_arm,
@@ -19,6 +18,7 @@ from app.optimization.learning import (
     stable_control,
 )
 from app.optimization.numbering import select_number, timestamp
+from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
 from app.scheduling.models import company_group, profile_current, saved_prediction
 from app.scheduling.policy import queue_decision, rank_candidates
 

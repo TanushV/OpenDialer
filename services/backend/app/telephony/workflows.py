@@ -7,7 +7,7 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from app.compliance.policy import authorize
-from app.db import MODELS, audit, doc, emit, get, put, uid, update
+from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
 from app.telephony.recovery import safe_stop, within_command_window
 from app.telephony.reducer import HUMAN_EVENTS, TERMINAL, owns_effect

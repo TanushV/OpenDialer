@@ -2,8 +2,8 @@
 
 from sqlalchemy import and_, case, exists, func, or_, select
 
-from app.db import MODELS, emit, update
 from app.lead_lists import in_list
+from app.platform.db import MODELS, emit, update
 from app.privacy import usage_metadata
 from app.providers.inference import InferenceResult
 

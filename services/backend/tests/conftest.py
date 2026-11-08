@@ -9,8 +9,8 @@ from contextlib import closing
 from datetime import UTC, datetime
 
 import pytest
-from app.config import Settings
 from app.main import create_app
+from app.platform.config import Settings
 from app.providers.simulated import SimulatedCarrier
 from fastapi.testclient import TestClient
 from sqlalchemy import text

@@ -1,7 +1,7 @@
 """A 0.2/0.3 store is refused with a plain message instead of opening half-readable."""
 
 import pytest
-from app.db import Database, OldStore
+from app.platform.db import Database, OldStore
 from sqlalchemy import create_engine, text
 
 

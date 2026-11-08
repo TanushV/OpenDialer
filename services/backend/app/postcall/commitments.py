@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections import Counter
 
-from app.db import emit, put, update
+from app.platform.db import emit, put, update
 
 ACTIVE = {"open", "snoozed", "needs_confirmation"}
 

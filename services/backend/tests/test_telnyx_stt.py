@@ -88,7 +88,7 @@ def test_live_socket_requires_a_current_local_call(workspace, app):
 def test_managed_socket_delivers_speech_to_existing_pipeline(workspace, app, monkeypatch):
     from time import monotonic
 
-    from app.db import get, update
+    from app.platform.db import get, update
     from app.providers import telnyx_stt
     from conftest import start
 

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from app.secret_files import read_private
+from app.platform.secret_files import read_private
 
 
 @pytest.mark.asyncio

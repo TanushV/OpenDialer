@@ -13,8 +13,8 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
-from app.db import MODELS, Job, doc, emit, put, uid, update
 from app.lead_lists import budget_scope, memberships
+from app.platform.db import MODELS, Job, doc, emit, put, uid, update
 from app.preparation.agent import INSTRUCTIONS, TOOLS, SimulatedAgent, ThreadWork, simulated_page
 from app.preparation.templates import PreparationPolicy, fill_fields, render, template_version
 from app.service import dt
@@ -840,7 +840,7 @@ class Preparation:
         if self.settings.simulation:
             fetch = simulated_page([lead["row"] for lead in leads])
         else:
-            from app.config import LIMITS
+            from app.platform.config import LIMITS
             from app.research.fetch import SafeFetcher
 
             async def fetch(url):
@@ -1181,7 +1181,7 @@ class Preparation:
 
 
 def get_fact(s, p, fact_id):
-    from app.db import get
+    from app.platform.db import get
 
     row = get(s, "research_facts", fact_id, p["tenant_id"])
     return row if row and row.seller_id == p["seller_id"] else None

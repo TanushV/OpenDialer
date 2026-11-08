@@ -138,7 +138,7 @@ def test_version_identity_artifact_contract():
     import hashlib
     import tomllib
 
-    from app.config import Settings
+    from app.platform.config import Settings
 
     tauri = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
     package = json.loads((ROOT / "apps/desktop/package.json").read_text())

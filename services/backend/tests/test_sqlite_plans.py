@@ -1,7 +1,7 @@
 """Fixed SQLite statistics steer subset reads to their partial indexes, whatever the index creation order."""
 
 import pytest
-from app.db import MODELS, plan_statistics
+from app.platform.db import MODELS, plan_statistics
 from sqlalchemy import create_engine, literal_column, select
 
 

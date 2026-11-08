@@ -2,7 +2,7 @@
 
 import pytest
 from app.coaching.context import build_context, ground_guidance, merge_semantic_state
-from app.db import get
+from app.platform.db import get
 from conftest import NOW, start
 from helpers import ordinary_advice, principal
 

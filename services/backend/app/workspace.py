@@ -2,9 +2,9 @@
 
 from sqlalchemy import and_, func, literal_column, or_, select
 
-from app.db import MODELS, ActiveClaim, Event, Job, after_key, doc
 from app.lead_lists import active_membership, in_list
 from app.operational_schema import PAGE_TABLES
+from app.platform.db import MODELS, ActiveClaim, Event, Job, after_key, doc
 from app.service import fail
 
 PAGE_SIZE = 50

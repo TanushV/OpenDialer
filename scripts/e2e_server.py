@@ -10,8 +10,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services/backend"))
 import uvicorn
-from app.config import Settings
 from app.main import create_app
+from app.platform.config import Settings
 from cryptography.fernet import Fernet
 
 os.environ["OPENDIALER_SECRET_KEY"] = Fernet.generate_key().decode()

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from app.coaching.context import lineage_key, state_view
-from app.db import MODELS, audit, doc, put, update
+from app.platform.db import MODELS, audit, doc, put, update
 from app.service import fail
 
 

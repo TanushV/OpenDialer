@@ -14,16 +14,17 @@ from sqlalchemy import delete, or_, select
 
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize, retry_seconds
-from app.config import LIMITS
-from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
-from app.jobs.queue import JobQueue
 from app.lead_lists import LeadLists, memberships
 from app.optimization.geography import plausible_zones
+from app.platform.config import LIMITS
+from app.platform.ctx import Ctx
+from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
+from app.platform.jobs import JobQueue
+from app.platform.security import PASSWORDS, ConfigStore, issue_session
 from app.privacy import event_metadata
+from app.providers.carrier import carrier_factory
 from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
-from app.providers.telnyx import TelnyxCarrier
 from app.scheduling.queue import ReservationPlanner
-from app.security import PASSWORDS, ConfigStore, issue_session
 from app.telephony.reducer import TERMINAL, owns_effect, reduce_state
 
 
@@ -53,6 +54,9 @@ class Service(LeadLists, ReservationPlanner):
         self.injected_carrier = carrier
         self.simulated_carrier = carrier or SimulatedCarrier()
         self.configs = ConfigStore(settings.data_dir)
+        self.ctx = Ctx(
+            db, settings, clock, self.configs, carrier_factory(settings, self.configs, self.simulated_carrier)
+        )
         from app.managed_webhooks import ManagedConnection
 
         self.managed = ManagedConnection(self)
@@ -125,17 +129,7 @@ class Service(LeadLists, ReservationPlanner):
         )
 
     def carrier(self, tenant_id):
-        if self.settings.simulation:
-            return self.simulated_carrier
-        conf = self.configs.read(tenant_id)
-        if not conf.get("telnyx_api_key") or not conf.get("telnyx_connection_id"):
-            fail(503, "TELNYX_NOT_CONFIGURED")
-        return TelnyxCarrier(
-            conf["telnyx_api_key"],
-            conf["telnyx_connection_id"],
-            webhook_url=conf.get("webhook_url", self.settings.webhook_public_url),
-            http=getattr(self, "http", None),
-        )
+        return self.ctx.carrier(tenant_id, http=getattr(self, "http", None))
 
     def setup(self, data, *, first=True):
         now = self.clock()

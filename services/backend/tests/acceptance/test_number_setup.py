@@ -7,8 +7,8 @@ from datetime import timedelta
 
 import httpx
 import pytest
-from app.db import get as db_get
-from app.db import update
+from app.platform.db import get as db_get
+from app.platform.db import update
 from journey import call, get, post, run_jobs
 from test_feature_calling import Telnyx, add_user, inbound, inbound_task, ready_as
 

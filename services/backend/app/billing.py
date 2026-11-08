@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.compliance.operating import COSTS
-from app.db import MODELS, update
+from app.platform.db import MODELS, update
 from app.service import dt
 
 

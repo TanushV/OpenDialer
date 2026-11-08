@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 
-from app.db import Job, insert_jobs, uid
+from app.platform.db import Job, insert_jobs, uid
 from app.privacy import job_metadata
 
 

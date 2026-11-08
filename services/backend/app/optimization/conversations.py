@@ -324,7 +324,7 @@ def conversation_associations(rows, *, as_of, min_support=10, vocabulary=None):
 
 
 def invalidate_report(service, s, p, campaign_id):
-    from app.db import update
+    from app.platform.db import update
 
     campaign = service.required(s, "campaigns", campaign_id, p)
     cached = campaign.data.get("conversation_report")

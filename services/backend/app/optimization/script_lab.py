@@ -15,9 +15,9 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
-from app.db import MODELS, audit, emit, put, uid, update
 from app.optimization import script_learning as learning
 from app.optimization.numbering import timestamp
+from app.platform.db import MODELS, audit, emit, put, uid, update
 
 SETTINGS = {"auto_propose": True, "promotion": "automatic"}
 OPEN = {"suggested", "testing", "won"}

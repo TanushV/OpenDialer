@@ -13,7 +13,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from app.db import get, put, update
+from app.platform.db import get, put, update
 from helpers import async_sql, principal
 
 

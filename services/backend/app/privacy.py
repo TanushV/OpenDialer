@@ -13,7 +13,7 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import NamedTuple
 
-from app.config import LIMITS
+from app.platform.config import LIMITS
 
 RAW_TTL_SECONDS = 300
 
@@ -481,7 +481,7 @@ class SpeechPrivacy:
         return f"speech:{p['tenant_id']}:{p['seller_id']}:{call_id}:{segment_id}"
 
     def speech_revoked(self, s, p, call):
-        from app.db import update
+        from app.platform.db import update
 
         # An opt-out during the call sets this flag (compliance/suppressions.revoke_effects).
         if call.data.get("transcription_disabled"):
@@ -498,7 +498,7 @@ class SpeechPrivacy:
     def transcript_metadata(self, s, p, call_id):
         from sqlalchemy import select
 
-        from app.db import MODELS
+        from app.platform.db import MODELS
 
         model = MODELS["transcript_segments"]
         return list(
@@ -513,7 +513,7 @@ class SpeechPrivacy:
 
     def transcript_rows(self, s, p, call_id, *, metadata=None):
         if metadata is None:
-            from app.db import MODELS
+            from app.platform.db import MODELS
 
             metadata = self.context_rows(
                 s,
@@ -558,7 +558,7 @@ class SpeechPrivacy:
 
         from sqlalchemy import select
 
-        from app.db import MODELS, emit, put, update
+        from app.platform.db import MODELS, emit, put, update
         from app.service import dt, fail
 
         with self.db.transaction(session=session) as s:
@@ -721,7 +721,7 @@ class SpeechPrivacy:
 
         from sqlalchemy import select
 
-        from app.db import MODELS, update
+        from app.platform.db import MODELS, update
 
         self.db.authorize_stream(s, p)
         call = self.required(s, "call_attempts", call_id, p)

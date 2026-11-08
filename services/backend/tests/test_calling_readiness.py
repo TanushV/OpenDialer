@@ -1,7 +1,7 @@
 """Readiness names one next step per real problem instead of one combined SIP message."""
 
 import pytest
-from app.db import MODELS, update
+from app.platform.db import MODELS, update
 from helpers import principal
 from sqlalchemy import select
 

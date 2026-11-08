@@ -23,14 +23,14 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.administration import Dialer
 from app.coaching import knowledge
 from app.compliance.operating import DNCAuthorization, bind_operating_api
-from app.config import Settings
-from app.db import Database, Event, audit, doc, put, rows, update
 from app.lead_lists import memberships
+from app.platform.config import Settings
+from app.platform.db import Database, Event, audit, doc, put, rows, update
+from app.platform.security import PASSWORDS, admin, decode_session, issue_session
 from app.preparation.templates import PreparationPolicy
 from app.providers.telnyx import verify_webhook
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.scheduling.models import ContactRole, OutcomeCode
-from app.security import PASSWORDS, admin, decode_session, issue_session
 from app.service import fail
 from app.telephony.callbacks import CallbackRoutingEdit
 
@@ -406,8 +406,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
     bearer = HTTPBearer(auto_error=False)
     from fastapi.exceptions import RequestValidationError
 
-    from app.secret_files import SecretStorageError
-    from app.security import LoginLimiter
+    from app.platform.secret_files import SecretStorageError
+    from app.platform.security import LoginLimiter
 
     login_limiter = LoginLimiter()
 
@@ -781,7 +781,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             )
 
             def visible(e):
-                from app.db import MODELS
+                from app.platform.db import MODELS
 
                 seller = e.payload.get("_seller_id")
                 rep = e.payload.get("_rep_id")
@@ -921,9 +921,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.get("/v1/admin/settings")
     def read_settings(p=Depends(administrator)):
         from app.compliance.operating import OperatingPolicy
-        from app.config import PROVIDER_DEFAULTS, inference_model
         from app.optimization.api import HealthPolicy
         from app.optimization.workflows import DEFAULTS as OPTIMIZATION_DEFAULTS
+        from app.platform.config import PROVIDER_DEFAULTS, inference_model
         from app.preparation.templates import PreparationPolicy
         from app.scheduling.models import EstimatePolicy
 
@@ -1054,8 +1054,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
         from sqlalchemy import func
 
-        from app.db import MODELS
         from app.optimization.geography import STATES
+        from app.platform.db import MODELS
 
         with db.transaction(False) as s:
             numbers = service.scoped(s, "number_inventory", p)

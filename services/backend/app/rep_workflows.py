@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 
-from app.db import MODELS, audit, doc, emit, get, put, uid, update
 from app.optimization.goals import review_token
+from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
 from app.postcall.commitments import ACTIVE as ACTIVE_TASKS
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL

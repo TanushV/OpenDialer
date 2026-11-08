@@ -24,9 +24,9 @@ from app.coaching.context import (
 )
 from app.coaching.contracts import card_view
 from app.coaching.engine import CardRejected, finish_shielded
-from app.config import LIMITS
-from app.db import MODELS, doc, emit, get, put, uid, update
 from app.grounding import accept_review
+from app.platform.config import LIMITS
+from app.platform.db import MODELS, doc, emit, get, put, uid, update
 from app.privacy import RAW_TTL_SECONDS, persistent_document
 from app.providers.inference import InferenceResult
 from app.service import dt

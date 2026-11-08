@@ -4,7 +4,7 @@ import asyncio
 import json
 from contextlib import contextmanager
 
-from app.db import update
+from app.platform.db import update
 from conftest import disposition_body, start
 from sqlalchemy import event
 

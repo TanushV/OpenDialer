@@ -274,7 +274,7 @@ async def test_a_metered_thread_verifies_pages_publishes_and_charges_its_list(wo
 
 @pytest.mark.asyncio
 async def test_list_progress_names_each_skipped_lead_and_why(workspace, app, monkeypatch):
-    from app.db import Job
+    from app.platform.db import Job
 
     service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent())
     await service.run_prep_thread(who, ids)
@@ -304,7 +304,7 @@ async def test_a_lead_left_open_is_retried_then_released_to_the_base_script(work
             lead = service.required(s, "leads", ids[1], who)
             state = dict(lead.data["preparation"])
             state["next_attempt_at"] = None
-            from app.db import update
+            from app.platform.db import update
 
             update(lead, preparation=state)
         await service.run_prep_thread(who, ids)
@@ -325,7 +325,7 @@ async def test_plan_limits_pause_work_and_a_spent_list_budget_stops_it(workspace
     assert service.prepare_tick(who)["queued"] == 0
     service.resume_preparation(who)
     with service.db.transaction() as s:
-        from app.db import update
+        from app.platform.db import update
 
         update(service.scoped(s, "budgets", who)[0], per_list_usd=0.1)
     monkeypatch.setattr(service, "agent_route", lambda p: ScriptedAgent())

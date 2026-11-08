@@ -6,7 +6,7 @@ import json
 from sqlalchemy import delete, select
 
 from app.compliance.phone import normalize_phone
-from app.db import MODELS, ActiveClaim, audit, doc, emit, put, uid, update
+from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, put, uid, update
 from app.service import dt, fail
 
 

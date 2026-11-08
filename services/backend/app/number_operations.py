@@ -11,8 +11,8 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 from sqlalchemy import select
 
 from app.compliance.phone import normalize_phone
-from app.db import MODELS, ActiveClaim, audit, doc, emit, put, uid, update
 from app.optimization.numbering import assess_number_health, number_ready
+from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, put, uid, update
 from app.scheduling.models import OPTIMIZATION_DEFAULTS
 from app.service import dt, fail
 

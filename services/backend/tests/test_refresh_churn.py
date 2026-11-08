@@ -7,7 +7,7 @@ On 1.0.1 a refresh was queued every ten minutes whatever happened: 1,076 of 1,09
 from datetime import timedelta
 
 import pytest
-from app.db import Event, Job
+from app.platform.db import Event, Job
 from conftest import start
 from sqlalchemy import func, select
 

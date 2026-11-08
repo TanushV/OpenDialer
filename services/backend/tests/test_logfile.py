@@ -2,7 +2,7 @@
 
 import logging
 
-from app.logfile import configure
+from app.platform.logfile import configure
 
 
 def test_warnings_reach_a_private_rotating_log_file(tmp_path):

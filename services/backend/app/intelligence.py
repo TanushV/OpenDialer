@@ -8,8 +8,8 @@ from sqlalchemy import case, func, select
 
 from app.accounting import RequestAccounting
 from app.coaching.workflows import LiveHelper
-from app.config import LIMITS, PROVIDER_DEFAULTS, inference_model
-from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
+from app.platform.config import LIMITS, PROVIDER_DEFAULTS, inference_model
+from app.platform.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.preparation.workflows import Preparation
 from app.privacy import SpeechPrivacy
@@ -433,7 +433,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             return {"notes_version": note.version, "notes_edit_version": edits + 1, "human_notes": text}
 
     async def run_jobs(self, tenant_id=None, queues=None):
-        from app.jobs.queue import LostJobLease
+        from app.platform.jobs import LostJobLease
         from app.postcall.finalize import KIND as FINALIZE_KIND
         from app.postcall.finalize import UnknownJobKind
 

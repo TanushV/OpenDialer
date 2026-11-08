@@ -139,8 +139,8 @@ def test_caller_name_lists_outbound_cnam_only_and_records_the_read_back(workspac
     monkeypatch.setattr(service, "carrier", lambda tenant: TelnyxCarrier("synthetic", "route", http=http))
     client, headers = workspace["client"], workspace["headers"]
     number = next(n for n in client.get("/v1/workspace/numbers", headers=headers).json()["items"])
-    from app.db import get as get_row
-    from app.db import update
+    from app.platform.db import get as get_row
+    from app.platform.db import update
 
     with service.db.transaction() as s:
         update(

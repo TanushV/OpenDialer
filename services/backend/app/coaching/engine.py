@@ -6,7 +6,7 @@ from collections import OrderedDict
 import httpx
 
 from app.coaching.contracts import Guidance
-from app.config import LIMITS
+from app.platform.config import LIMITS
 from app.providers.inference import InferenceError
 
 ADMISSION_SECONDS = 0.1

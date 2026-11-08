@@ -8,7 +8,7 @@ from pathlib import Path
 from time import monotonic
 
 import pytest
-from app.db import MODELS, Job, get
+from app.platform.db import MODELS, Job, get
 from conftest import ready, reserve, start
 from sqlalchemy import select
 

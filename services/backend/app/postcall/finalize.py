@@ -6,7 +6,7 @@ chunks into that same state; selective review is its own queued
 `conversation_review` job. Nothing here runs a model or writes during a read.
 """
 
-from app.db import doc
+from app.platform.db import doc
 
 KIND = "conversation_finalize"
 # One finalizer turn reports at most 32 interpreted segments (StateDelta contract), so a
@@ -89,7 +89,7 @@ def request(service, p, call_id, mode):
 
     from app.coaching import sources
     from app.coaching.context import guidance_sources, persistent_state, upgrade_state
-    from app.db import MODELS
+    from app.platform.db import MODELS
     from app.postcall.rubrics import effective
     from app.telephony.reducer import TERMINAL
 

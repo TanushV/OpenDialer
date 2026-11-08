@@ -3,8 +3,8 @@
 from datetime import timedelta
 
 import pytest
-from app.db import MODELS
-from app.jobs.queue import aware
+from app.platform.db import MODELS
+from app.platform.jobs import aware
 from sqlalchemy import select
 
 
@@ -136,7 +136,7 @@ async def test_failed_import_preserves_existing_refresh_session(app):
 def test_two_second_window_does_not_slide_with_continuous_speech(app, clock):
     from types import SimpleNamespace
 
-    from app.db import Job
+    from app.platform.db import Job
 
     service = app.state.service
     call = SimpleNamespace(
@@ -208,7 +208,7 @@ def test_disconnected_managed_workspace_blocks_new_calls(workspace, app):
 def test_managed_call_uses_direct_transcription_only(workspace, app, clock):
     from time import monotonic
 
-    from app.db import get
+    from app.platform.db import get
     from conftest import start
 
     service = app.state.service
@@ -309,8 +309,8 @@ async def test_restored_session_initializes_refresh_and_realtime(app, monkeypatc
 
 
 def test_managed_setup_cannot_switch_during_an_inbound_conversation(workspace, app):
-    from app.db import put
     from app.managed_webhooks import require_idle
+    from app.platform.db import put
     from fastapi import HTTPException
 
     service = app.state.service

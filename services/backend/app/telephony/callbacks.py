@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete, select
 
 from app.compliance.operating import COSTS
-from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
+from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
 
 DEFAULT_GREETING = (

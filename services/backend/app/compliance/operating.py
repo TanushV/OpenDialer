@@ -10,8 +10,8 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import select
 
-from app.config import PROVIDER_DEFAULTS
-from app.db import MODELS, audit, update
+from app.platform.config import PROVIDER_DEFAULTS
+from app.platform.db import MODELS, audit, update
 from app.service import dt, fail
 
 

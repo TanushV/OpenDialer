@@ -6,9 +6,9 @@ from uuid import uuid4
 
 from fastapi import Depends, WebSocket, WebSocketDisconnect
 
-from app.db import emit, update
+from app.platform.db import emit, update
+from app.platform.security import decode_session
 from app.providers import telnyx_stt
-from app.security import decode_session
 from app.service import fail
 from app.telephony.reducer import TERMINAL
 

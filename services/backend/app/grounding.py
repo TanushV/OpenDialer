@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db import uid
+from app.platform.db import uid
 from app.providers.inference import InferenceResult
 
 REVIEW_INSTRUCTIONS = """Independently review every supplied field against the supplied sources.

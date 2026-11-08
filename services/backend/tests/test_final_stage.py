@@ -4,7 +4,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-from app.db import MODELS, update
+from app.platform.db import MODELS, update
 from sqlalchemy import select
 
 PASSWORD = "a-test-only-password-123"

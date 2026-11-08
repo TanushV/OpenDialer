@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 import pytest
-from app.db import doc
+from app.platform.db import doc
 from app.providers.inference import InferenceResult
 from helpers import (
     ConversationProvider,
@@ -55,8 +55,8 @@ def test_matching_evidence_does_not_authorize_unreviewed_paraphrase(workspace, a
 def test_complete_review_accepts_freeform_paraphrase_and_binds_source_version(
     workspace, app, monkeypatch, change
 ):
-    from app.db import update
     from app.grounding import accept_review
+    from app.platform.db import update
 
     service, who, call, request, owner, review = stage_review(
         workspace, app, monkeypatch, analysis_body("Reconnect about their evaluation")

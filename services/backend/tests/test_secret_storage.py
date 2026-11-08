@@ -5,7 +5,7 @@ import os
 import sys
 
 import pytest
-from app.security import ConfigStore
+from app.platform.security import ConfigStore
 
 
 def test_settings_are_encrypted_and_survive_restart(tmp_path):
@@ -123,7 +123,7 @@ def test_successful_other_account_cannot_clear_a_failed_account_limit(workspace)
 
 
 def test_lost_key_and_modified_ciphertext_never_overwrite_saved_credentials(tmp_path, monkeypatch):
-    from app.secret_files import SecretStorageError, read_private, write_private
+    from app.platform.secret_files import SecretStorageError, read_private, write_private
     from cryptography.fernet import Fernet
 
     path = tmp_path / "secret.json"
@@ -140,7 +140,7 @@ def test_lost_key_and_modified_ciphertext_never_overwrite_saved_credentials(tmp_
 
 
 def test_unavailable_key_store_never_converts_plaintext_or_falls_back(tmp_path, monkeypatch):
-    from app import secret_files
+    from app.platform import secret_files
 
     path = tmp_path / "secret.json"
     path.write_text('{"key":"old-private-value"}')
@@ -160,7 +160,7 @@ def test_unavailable_key_store_never_converts_plaintext_or_falls_back(tmp_path, 
 def test_desktop_key_is_private_persistent_and_never_requests_os_credentials(tmp_path, monkeypatch, platform):
     from pathlib import Path
 
-    from app import secret_files
+    from app.platform import secret_files
 
     monkeypatch.delenv("OPENDIALER_SECRET_KEY")
     monkeypatch.setattr(sys, "platform", platform)
@@ -194,7 +194,7 @@ def test_desktop_key_is_private_persistent_and_never_requests_os_credentials(tmp
 def desktop_storage(tmp_path, monkeypatch):
     from pathlib import Path
 
-    from app import secret_files
+    from app.platform import secret_files
 
     monkeypatch.delenv("OPENDIALER_SECRET_KEY")
     monkeypatch.setattr(sys, "platform", "darwin")
@@ -230,7 +230,7 @@ def test_legacy_desktop_file_with_available_local_key_migrates_without_reimport(
 
 
 def test_server_missing_key_preserves_legacy_files(tmp_path, monkeypatch):
-    from app import secret_files
+    from app.platform import secret_files
 
     path = tmp_path / "credentials.json"
     original = b"OPENDIALER-SECRET-1\n" + secret_files.cipher().encrypt(b'{"secret":"server"}')
@@ -244,7 +244,7 @@ def test_server_missing_key_preserves_legacy_files(tmp_path, monkeypatch):
 
 
 def test_explicit_server_key_preserves_legacy_encrypted_credentials(tmp_path):
-    from app.secret_files import cipher, read_private
+    from app.platform.secret_files import cipher, read_private
 
     path = tmp_path / "credentials.json"
     path.write_bytes(b"OPENDIALER-SECRET-1\n" + cipher().encrypt(b'{"secret":"server-value"}'))

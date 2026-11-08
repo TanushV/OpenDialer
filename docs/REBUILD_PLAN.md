@@ -47,6 +47,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D20 | One worker, in one thread. No subagents, Workflow runs, parallel sessions or concurrent writers at any point. See section 12A. | Owner decision, November 6 |
 | D21 | CI/CD is part of the build. CI changes in the same phase as the code it covers, and a release can only be built from a commit whose CI passed. Publishing and installing stay manual. See section 12A. | Owner decision, November 6 |
 | D22 | Local CI/CD is the working loop. One command, `scripts/check.py`, runs a fast tier on every commit, a full tier that covers everything GitHub CI covers before every push, and an unsigned local package build. Built first, in Phase 0. See section 12A. | Owner decision, November 7 |
+| D24 | Phase 3 moves code by strangling, not in one pass. New packages on `Ctx` start now; each later phase writes its area as plain modules (calling in 4, learning in 8, leads and prep in 9, helper and after-call in 10) and deletes the mixin code it replaces. R3.2, R3.4, R3.5 and R3.6 complete with those phases. The migration, lead fields and package rules land in Phase 3. | Builder decision, November 7, under the owner's end-to-end instruction: a one-pass rewrite of 35,000 lines was the riskiest step in the plan and delivered nothing visible |
 | D15 | The CRM stage owns fit and whether the person is still at the company. This app owns number accuracy. No `# Fit` section and no job-change check. | Owner decision |
 | D16 | One intake path: CSV or HubSpot produces a row, the column map reads it, and everything after that ignores the source. | Owner approved |
 | D17 | HubSpot: a list picks who is called and the app picks the order. The app writes native call records, opt-outs and `phone_status`. No universal writeback layer; HubSpot's call record is the shared format, so other dialers such as Nooks need no adapter. | Owner approved; creating CSV leads in HubSpot only on their first connected call is an assumption the owner may veto |
@@ -922,9 +923,17 @@ optimization workflows (Phase 8), coaching and post-call (R10.1, R10.2) and tele
 
 Goal: remove the shared object, make core data typed, and move the owner's data safely.
 
-- [ ] R3.1 Create `Ctx` and the package layout in section 4. Move code one package at a time, with tests passing.
+Under D24, R3.1 builds `Ctx` and the empty package layout; R3.2, R3.4, R3.5 and R3.6 finish in the phases that rewrite
+each area, and `Dialer`, `Application` and `Service` are gone by the end of Phase 10.
+
+- [x] R3.1 Create `Ctx` and the package layout in section 4. Move code one package at a time, with tests passing.
+      Done November 7: `platform/` holds db, config, jobs, secrets, security, the log file and `Ctx`; the other section 4
+      packages exist and fill as their phases rewrite each area (D24). `Service` builds the `Ctx` and its carrier comes
+      from `providers/carrier.py`.
 - [ ] R3.2 Replace mixins with module functions. `Dialer`, `Application` and `Service` go.
-- [ ] R3.3 Add an import-direction test.
+- [x] R3.3 Add an import-direction test. Done November 7: `tests/test_imports.py` ranks the packages, bans any import
+      from a new package into legacy code, and lists the 9 existing edges with the step that removes each; the list can
+      only shrink.
 - [ ] R3.4 Remove `p`, tenant and seller scoping, roles, password login and sessions; keep the local token.
 - [ ] R3.5 Add Pydantic models for Call, Lead, Number, Task, Reservation, Command and Script with `extra="forbid"`.
 - [ ] R3.6 Remove edit-version conflict checks now that there is one writer; keep the idempotent dial and hang-up keys.
@@ -932,7 +941,9 @@ Goal: remove the shared object, make core data typed, and move the owner's data 
 - [ ] R3.8 Migration tests on a copy of the real database: counts match for 296 leads, 823 facts, 384 script versions,
       6 numbers, 7 calls and 13 tasks; master v3 and credentials still work; `local-2` is byte-identical.
 - [ ] R3.9 If migration fails, the app says so and stays on untouched data.
-- [ ] R3.10 Turn the lint bans and size caps from warnings into CI failures for moved code.
+- [x] R3.10 Turn the lint bans and size caps from warnings into CI failures for moved code. Done November 7: every ban
+      and the per-file and per-function caps fail in the new packages; in `platform` the silent-except ban fails, and
+      `tenant_id` and the simulation setting stay warnings until R3.4 and R4.7.
 - [ ] R3.11 Add Lead fields `source`, `external_id`, `signals` and `number_status`; migrate existing leads as `source: csv`.
 
 Done when: size is measured against the budget, and estimates are corrected in the Status section.

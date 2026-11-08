@@ -10,8 +10,8 @@ from time import monotonic
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.db import MODELS, put, uid
-from app.secret_files import file_lock, protect_existing, read_private, write_private
+from app.platform.db import MODELS, put, uid
+from app.platform.secret_files import file_lock, protect_existing, read_private, write_private
 
 
 class LazyPasswordHash:

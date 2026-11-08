@@ -10,8 +10,8 @@ from datetime import timedelta
 
 from sqlalchemy import inspect, select
 
-from app.db import Job, ReportRevision, emit, put, update
-from app.jobs.queue import jobdoc
+from app.platform.db import Job, ReportRevision, emit, put, update
+from app.platform.jobs import jobdoc
 from app.service import dt, fail
 
 # Writes to these tables change a report; field sets limit invalidation to report inputs
@@ -169,7 +169,7 @@ class ReportProjections:
         if len(epoch) > 200:
             fail(422, "Invalid cohort identity")
         if epoch != current:
-            from app.db import MODELS
+            from app.platform.db import MODELS
 
             model = MODELS["experiment_assignments"]
             exists = s.scalar(

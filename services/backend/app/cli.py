@@ -8,9 +8,9 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.config import Settings
-from app.db import OldStore
-from app.secret_files import SecretStorageError
+from app.platform.config import Settings
+from app.platform.db import OldStore
+from app.platform.secret_files import SecretStorageError
 
 AUTHORITY_BUSY_EXIT = 75  # EX_TEMPFAIL; the desktop maps it to an actionable message.
 SECRET_LINE_LIMIT = 16384
@@ -140,7 +140,7 @@ def main():
 
 
 def run(args, settings, watch_stdin):
-    from app.logfile import configure
+    from app.platform.logfile import configure
 
     configure(settings.data_dir)
     if not os.getenv("OPENDIALER_DATABASE_URL"):

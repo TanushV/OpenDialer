@@ -6,7 +6,7 @@ import json
 from sqlalchemy import select
 
 from app.coaching import library
-from app.db import MODELS, get
+from app.platform.db import MODELS, get
 from app.service import dt
 
 
@@ -55,7 +55,7 @@ def current(service, s, p, receipt):
             return False
         if assignment and assignment.seller_id != p["seller_id"]:
             return False
-        from app.db import doc
+        from app.platform.db import doc
 
         context = service.strategy_context(s, p, campaign, lead, doc(assignment) if assignment else None)
         if digest(context) != strategy["fingerprint"]:

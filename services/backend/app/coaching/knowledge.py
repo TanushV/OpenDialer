@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from app.db import audit, doc, emit, put
+from app.platform.db import audit, doc, emit, put
 from app.service import fail
 
 Line = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1200)]

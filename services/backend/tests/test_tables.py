@@ -2,7 +2,7 @@
 
 import json
 
-from app.db import RETIRED_TABLES, Base
+from app.platform.db import RETIRED_TABLES, Base
 
 # Every table this version creates. Adding one is a deliberate change to this list (section 12 caps).
 ALLOWED = {

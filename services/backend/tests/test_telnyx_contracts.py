@@ -12,7 +12,7 @@ from datetime import timedelta
 
 import httpx
 import pytest
-from app.db import get, update
+from app.platform.db import get, update
 from app.providers.telnyx import CarrierConfigurationError, TelnyxCarrier
 from app.telephony.recovery import COMMAND_RETRY_SECONDS, within_command_window
 from app.telephony.reducer import reduce_state
@@ -334,7 +334,7 @@ def test_a_late_beep_ends_the_call_at_once(workspace, carrier, clock):
 def test_the_final_attempt_stays_on_the_line_to_leave_a_voicemail(workspace, app, carrier, clock):
     from datetime import timedelta
 
-    from app.db import MODELS
+    from app.platform.db import MODELS
     from sqlalchemy import select
 
     with app.state.db.transaction() as s:

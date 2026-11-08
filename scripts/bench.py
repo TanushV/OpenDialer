@@ -20,8 +20,8 @@ from uuid import uuid4
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "services" / "backend")]
 
-from app.config import Settings  # noqa: E402
 from app.main import create_app  # noqa: E402
+from app.platform.config import Settings  # noqa: E402
 from app.providers.simulated import SimulatedCarrier  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: E402
@@ -58,8 +58,8 @@ def settings(directory):
 
 def history(service, p, campaign, attempts, now):
     """Insert finalized attempts against the imported leads, in pages."""
-    from app.db import MODELS
     from app.operational_schema import sync_columns
+    from app.platform.db import MODELS
 
     model = MODELS["call_attempts"]
     with service.db.transaction(False) as s:

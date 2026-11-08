@@ -4,8 +4,8 @@ import math
 
 from sqlalchemy import select
 
-from app.db import MODELS, put, update
 from app.operational_schema import receipt_key
+from app.platform.db import MODELS, put, update
 
 
 class RequestAccounting:
@@ -29,7 +29,7 @@ class RequestAccounting:
 
     def budget_scope(self, s, p, object_id):
         """The lead list an AI request is for: its lead's list, or `other` for work without one."""
-        from app.db import get
+        from app.platform.db import get
 
         for kind in ("leads", "call_attempts"):
             row = get(s, kind, object_id, p["tenant_id"]) if object_id else None

@@ -5,8 +5,8 @@ import re
 
 from app.coaching.contracts import ConversationStateV2, FieldAudit, ObservationDelta, StateDelta
 from app.coaching.engine import CardRejected, validate_card
-from app.config import LIMITS
 from app.grounding import require_review, review_request
+from app.platform.config import LIMITS
 
 STATE_FIELDS = (
     "needs",

@@ -15,7 +15,6 @@ from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 
 from sqlalchemy import select
 
-from app.db import MODELS, doc
 from app.optimization.learning import (
     conversion_at,
     drift_from_counts,
@@ -29,6 +28,7 @@ from app.optimization.learning import (
     trial_values,
 )
 from app.optimization.numbering import timestamp
+from app.platform.db import MODELS, doc
 from app.scheduling.models import derive_labels, estimate_counts
 
 PAGE = 500

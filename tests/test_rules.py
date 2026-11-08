@@ -46,7 +46,22 @@ def test_nested_functions_are_measured_on_their_own():
 
 
 @pytest.mark.slow
-def test_the_report_warns_until_phase_3_and_fails_when_strict(capsys):
+def test_the_report_warns_on_legacy_code_and_fails_when_strict(capsys):
     assert rules.main([]) == 0
-    assert "Warnings only until Phase 3" in capsys.readouterr().out
+    assert "Legacy hits and whole-app caps are warnings" in capsys.readouterr().out
     assert rules.main(["--strict"]) == 1
+
+
+def test_a_hit_inside_a_strict_package_fails_but_platform_and_legacy_do_not():
+    hits = {
+        "tenant_id in core": ["platform/db.py:1"],
+        "silent except Exception": ["service.py:9"],
+        ".data.get( in core": ["calling/state.py:3"],
+    }
+    assert rules.strict_hits(hits, []) == [".data.get( in core: calling/state.py:3"]
+    assert rules.strict_hits({"silent except Exception": ["platform/jobs.py:4"]}, []) == [
+        "silent except Exception: platform/jobs.py:4"
+    ]
+    assert rules.strict_hits({}, [("leads/intake.py:parse", 121, 120), ("service.py", 900, 700)]) == [
+        "121 lines over 120: leads/intake.py:parse"
+    ]

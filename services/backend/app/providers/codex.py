@@ -15,8 +15,8 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from app.platform.secret_files import read_private, write_private
 from app.providers.inference import InferenceError, InferenceResult
-from app.secret_files import read_private, write_private
 
 MAX_LOGIN_BYTES = 65536
 RECONNECT = "Codex could not complete the request. Check your connection and plan limits; if the login expired or was revoked, sign in with Codex again and import a fresh auth.json."

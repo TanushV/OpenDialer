@@ -5,9 +5,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import and_, exists, func, or_, select
 
 from app.compliance.policy import authorize
-from app.db import MODELS, audit, doc, emit, update
 from app.optimization.geography import normalize_state
 from app.optimization.numbering import select_number, timestamp
+from app.platform.db import MODELS, audit, doc, emit, update
 
 
 def memberships(lead):

@@ -4,7 +4,7 @@ import hashlib
 from datetime import timedelta
 
 from app.coaching import sources
-from app.db import emit, put, update
+from app.platform.db import emit, put, update
 from app.service import dt, fail
 
 

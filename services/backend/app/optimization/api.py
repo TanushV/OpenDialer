@@ -6,9 +6,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import Depends
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from app.db import audit, doc, emit, put, uid, update
 from app.optimization.goals import goal_plan
 from app.optimization.numbering import HealthPolicy, timestamp
+from app.platform.db import audit, doc, emit, put, uid, update
 from app.scheduling.models import EstimatePolicy
 from app.service import fail
 
@@ -243,7 +243,7 @@ def register_optimization(app, service, principal, administrator):
             if body.staffed_windows is not None:
                 from sqlalchemy import select
 
-                from app.db import MODELS
+                from app.platform.db import MODELS
 
                 roster = {rep for w in body.staffed_windows for rep in (w.rep_ids or [])}
                 users = MODELS["users"]
