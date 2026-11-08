@@ -1,0 +1,129 @@
+{
+  "source": "real call, sanitized (docs/REBUILD_PLAN.md R0.1)",
+  "attempt": {
+    "outcome": "right_party",
+    "end_reason": "call.hangup",
+    "provider_hangup_cause": "normal_clearing",
+    "provider_hangup_source": "caller",
+    "carrier_outcome": null,
+    "machine_detected": false,
+    "connected_seconds": 51.18,
+    "started_at": -0.82,
+    "answered_at": 9.62,
+    "bridged_at": 10.0,
+    "ended_at": 60.8
+  },
+  "events": [
+    {
+      "t": 0.0,
+      "received_after": 0.553,
+      "event_type": "call.initiated",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": "outgoing",
+      "from": "our-number",
+      "to": "test-line",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 9.62,
+      "received_after": 0.514,
+      "event_type": "call.answered",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "test-line",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 10.0,
+      "received_after": 0.391,
+      "event_type": "call.bridged",
+      "leg": "agent",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "rep-sip",
+      "client_state": {
+        "agent_leg_id": "agent_leg_id-1"
+      }
+    },
+    {
+      "t": 10.0,
+      "received_after": 0.412,
+      "event_type": "call.bridged",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "test-line",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 13.94,
+      "received_after": 0.474,
+      "event_type": "call.machine.premium.detection.ended",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "test-line",
+      "result": "human_residence",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 60.8,
+      "received_after": 0.626,
+      "event_type": "call.hangup",
+      "leg": "agent",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "rep-sip",
+      "hangup_cause": "normal_clearing",
+      "hangup_source": "caller",
+      "sip_hangup_cause": "unspecified",
+      "client_state": {
+        "agent_leg_id": "agent_leg_id-1"
+      }
+    },
+    {
+      "t": 60.8,
+      "received_after": 0.747,
+      "event_type": "call.hangup",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "test-line",
+      "hangup_cause": "normal_clearing",
+      "hangup_source": "caller",
+      "sip_hangup_cause": "unspecified",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 60.866,
+      "received_after": 0.421,
+      "event_type": "call.hangup",
+      "leg": "unmatched-1",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "+15550100001",
+      "hangup_cause": "normal_clearing",
+      "hangup_source": "caller",
+      "sip_hangup_cause": "200"
+    }
+  ]
+}

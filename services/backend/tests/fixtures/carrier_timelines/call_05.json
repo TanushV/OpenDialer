@@ -1,0 +1,189 @@
+{
+  "source": "real call, sanitized (docs/REBUILD_PLAN.md R0.1)",
+  "attempt": {
+    "outcome": "voicemail",
+    "end_reason": "call.hangup",
+    "provider_hangup_cause": "normal_clearing",
+    "provider_hangup_source": "caller",
+    "carrier_outcome": "voicemail",
+    "machine_detected": true,
+    "connected_seconds": 46.06,
+    "started_at": -0.765,
+    "answered_at": 1.62,
+    "bridged_at": 2.04,
+    "ended_at": 47.68
+  },
+  "events": [
+    {
+      "t": 0.0,
+      "received_after": 0.626,
+      "event_type": "call.initiated",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": "outgoing",
+      "from": "our-number",
+      "to": "+15550100001",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 1.62,
+      "received_after": 0.672,
+      "event_type": "call.answered",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "+15550100001",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 2.04,
+      "received_after": 0.392,
+      "event_type": "call.bridged",
+      "leg": "agent",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "rep-sip",
+      "client_state": {
+        "agent_leg_id": "agent_leg_id-1"
+      }
+    },
+    {
+      "t": 2.04,
+      "received_after": 0.402,
+      "event_type": "call.bridged",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "+15550100001",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 6.0,
+      "received_after": 0.559,
+      "event_type": "call.machine.premium.detection.ended",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "+15550100001",
+      "result": "machine",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 31.88,
+      "received_after": 0.545,
+      "event_type": "call.machine.premium.greeting.ended",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "+15550100001",
+      "result": "no_beep_detected",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 47.68,
+      "received_after": 0.574,
+      "event_type": "call.hangup",
+      "leg": "agent",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "rep-sip",
+      "hangup_cause": "normal_clearing",
+      "hangup_source": "caller",
+      "sip_hangup_cause": "unspecified",
+      "client_state": {
+        "agent_leg_id": "agent_leg_id-1"
+      }
+    },
+    {
+      "t": 47.68,
+      "received_after": 0.585,
+      "event_type": "call.hangup",
+      "leg": "prospect",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "+15550100001",
+      "hangup_cause": "normal_clearing",
+      "hangup_source": "caller",
+      "sip_hangup_cause": "unspecified",
+      "client_state": {
+        "call_id": "call_id-1"
+      }
+    },
+    {
+      "t": 47.755,
+      "received_after": 0.346,
+      "event_type": "call.hangup",
+      "leg": "unmatched-1",
+      "session": "session-1",
+      "direction": null,
+      "from": "our-number",
+      "to": "+15550100002",
+      "hangup_cause": "normal_clearing",
+      "hangup_source": "caller",
+      "sip_hangup_cause": "200"
+    },
+    {
+      "t": 56.235,
+      "received_after": 0.654,
+      "event_type": "call.initiated",
+      "leg": "agent-renewed-1",
+      "session": "session-2",
+      "direction": "outgoing",
+      "from": "our-number",
+      "to": "rep-sip",
+      "client_state": {
+        "agent_leg_id": "agent_leg_id-2"
+      }
+    },
+    {
+      "t": 56.471,
+      "received_after": 0.642,
+      "event_type": "call.initiated",
+      "leg": "unmatched-2",
+      "session": "session-2",
+      "direction": "incoming",
+      "from": "our-number",
+      "to": "+15550100002"
+    },
+    {
+      "t": 56.991,
+      "received_after": 0.392,
+      "event_type": "call.answered",
+      "leg": "unmatched-2",
+      "session": "session-2",
+      "direction": null,
+      "from": "our-number",
+      "to": "+15550100002"
+    },
+    {
+      "t": 57.075,
+      "received_after": 0.369,
+      "event_type": "call.answered",
+      "leg": "agent-renewed-1",
+      "session": "session-2",
+      "direction": null,
+      "from": "our-number",
+      "to": "rep-sip",
+      "client_state": {
+        "agent_leg_id": "agent_leg_id-2"
+      }
+    }
+  ]
+}

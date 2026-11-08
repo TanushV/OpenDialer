@@ -801,7 +801,7 @@ Local loop first (section 12A):
 
 Tests first:
 
-- [ ] R0.1 Capture sanitized carrier timelines from the 7 real calls as test fixtures, with no names, numbers or speech.
+- [x] R0.1 Capture sanitized carrier timelines from the 7 real calls as test fixtures, with no names, numbers or speech.
 - [ ] R0.2 Failing regression: a prospect hang-up where audio ends before the hangup event produces no gap and no block.
 - [ ] R0.3 Failing regression: an ended call leaves the rep able to dial again after audio reconnects.
 - [ ] R0.4 Failing regression: an unmatched event from the rep's own SIP leg finishes without a failed job.
