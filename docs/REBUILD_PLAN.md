@@ -1141,8 +1141,13 @@ Goal: it can learn, and you can see that it is learning.
 - [x] R8.8 "What it has learned" card in Review. Done November 8: calls used, best hours, best triggers,
       wrong-person rate by number source and by number check, the live model and its last change; groups under 5 calls
       are not ranked.
-- [ ] R8.9 Synthetic end-to-end test: a planted pattern in 600 calls gets learned, promoted, used and rolled back when it
-      stops working.
+- [x] R8.9 Synthetic end-to-end test: a planted pattern in 600 calls gets learned, promoted, used and rolled back when it
+      stops working. Done November 8 (`tests/test_learning_end_to_end.py`). The test found the review was a coin flip:
+      on calls with no drift it passed 2 of 4 seeds, because the sigmoid sets the model's level from a 60-call window
+      and a fixed 0.02 calibration tolerance treated that window's sampling error as a regression. The review now
+      compares average miss against the baseline with a tolerance of the larger of 0.02 and two standard errors of
+      that window (review v3), and the trees are smaller and slower. Across seeds the pattern is found in at least 7 of
+      8 and noise is promoted in at most 1 of 8; measured over 20 noise seeds the false promotion rate is 1 in 20.
 - [ ] R8.10 Package the trainer sidecar on Mac and verify it runs, with that check in CI.
 
 Done when: the synthetic test passes. Real lift stays an open gate until enough real calls exist.

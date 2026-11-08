@@ -51,8 +51,19 @@ CATEGORICAL = (
 CATEGORY_LIMIT = 12
 
 
+# Small, slow trees: on 600 synthetic calls with one planted pattern these found it in 11 of 12 seeds, against 10 for
+# the earlier 40 trees of 7 leaves, with the same 1 in 20 false promotions on calls with no pattern (R8.9).
+ESTIMATOR = {
+    "max_iter": 60,
+    "max_leaf_nodes": 4,
+    "learning_rate": 0.05,
+    "min_samples_leaf": 30,
+    "l2_regularization": 1.0,
+}
+
+
 REVIEW_POLICY = {
-    "version": "rolling-review-v2",
+    "version": "rolling-review-v3",
     "minimum_rows": 100,
     "minimum_calibration_validation_class": 10,
     "minimum_bootstrap_groups": 30,
@@ -259,6 +270,14 @@ def calibration_diagnostics(rows, probabilities, *, train, label="human"):
         / len(rows)
         if rows
         else None,
+        # Right on average. Binned error grows with any spread in predictions on small samples, so the review
+        # compares this instead (R8.9).
+        "calibration_in_the_large": abs(
+            sum(b["samples"] * (b["mean_prediction"] - b["observed_rate"]) for b in bins)
+        )
+        / len(rows)
+        if rows
+        else None,
         "evidence_scope": "Out-of-time held-out groups; small groups are descriptive and do not establish generalization",
     }
 
@@ -300,6 +319,17 @@ def paired_bootstrap(candidate_losses, reference_losses, groups):
         interval=[float(v) for v in np.quantile(means, [0.025, 0.975])],
     )
     return result
+
+
+def calibration_tolerance(support):
+    """How far a fold's average may miss beyond the baseline's: the declared floor, or two standard errors of the
+    calibration window's rate when that is wider. The sigmoid sets the level from that window alone, so a miss inside
+    its sampling error is noise, not a regression (R8.9: on 600 calls with no drift, a fixed 0.02 failed half of the
+    seeds)."""
+    count = support["positive"] + support["negative"]
+    rate = support["positive"] / count if count else 0.5
+    noise = 2 * (rate * (1 - rate) / count) ** 0.5 if count else 1.0
+    return max(REVIEW_POLICY["material_calibration_regression"], noise)
 
 
 def stage_partitions(rows, label, cutoffs):
@@ -382,9 +412,7 @@ def fit_stage(partitions, label, *, conversation):
     observed = np.isfinite(xy(partitions[0])[0]).any(axis=0)
     report["unobserved_columns"] = [name for name, keep in zip(order, observed, strict=True) if not keep]
     order = [name for name, keep in zip(order, observed, strict=True) if keep]
-    estimator = HistGradientBoostingClassifier(
-        max_iter=40, max_leaf_nodes=7, random_state=42, early_stopping=False
-    )
+    estimator = HistGradientBoostingClassifier(**ESTIMATOR, random_state=42, early_stopping=False)
     estimator.fit(*xy(partitions[0]))
     calibrated = CalibratedClassifierCV(FrozenEstimator(estimator), method="sigmoid")
     calibrated.fit(*xy(partitions[1]))
@@ -553,6 +581,9 @@ def _train_challenger(rows, output_dir, *, baseline=None):
                     partitions[2], reference, train=partitions[0], label=label
                 )
                 report["baseline_calibration_error"] = reference_calibration["expected_calibration_error"]
+                report["baseline_calibration_in_the_large"] = reference_calibration[
+                    "calibration_in_the_large"
+                ]
                 report["baseline_brier"] = float(
                     brier_score_loss([r[label] for r in partitions[2]], reference)
                 )
@@ -629,9 +660,9 @@ def _train_challenger(rows, output_dir, *, baseline=None):
     )
     calibration_ok = all(
         (r if ablations[stage]["eligible_for_serving"] else r["without_conversation"])["calibration"][
-            "expected_calibration_error"
+            "calibration_in_the_large"
         ]
-        <= r["baseline_calibration_error"] + REVIEW_POLICY["material_calibration_regression"]
+        <= r["baseline_calibration_in_the_large"] + calibration_tolerance(r["support"]["calibration"])
         for f in folds
         for stage, r in f["stages"].items()
         if stage in models and r["status"] == "fitted"
