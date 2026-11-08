@@ -15,7 +15,6 @@ class SimulatedCarrier:
     def __init__(self):
         self.actions = []
         self.dials = []
-        self.playbacks = []
         self.hangups = []
         self.purchases = []
         self.calls = {}
@@ -46,10 +45,6 @@ class SimulatedCarrier:
             if call["call_control_id"] == provider_id:
                 call["state"] = "hangup"
         return {"status": "ok"}
-
-    async def playback(self, provider_id, payload):
-        self.playbacks.append({"provider_id": provider_id, **payload})
-        return {"status": "accepted"}
 
     async def action(self, provider_id, action, payload):
         self.actions.append({"provider_id": provider_id, "action": action, "payload": payload})

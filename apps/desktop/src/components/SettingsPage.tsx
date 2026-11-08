@@ -988,9 +988,6 @@ const treatments = (policy: Policy) => ({
   voicemail_enabled: policy.voicemail_enabled || false,
   voicemail_optout_supported: policy.voicemail_optout_supported || false,
   approved_assets: policy.approved_assets || [],
-  detached_topology_verified: policy.detached_topology_verified || false,
-  topology_test_reference: policy.topology_test_reference || "",
-  late_human_recovery_destination: policy.late_human_recovery_destination || "",
 });
 
 function CallingPolicySettings() {

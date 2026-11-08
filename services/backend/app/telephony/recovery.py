@@ -21,7 +21,7 @@ UNACKNOWLEDGED = {"DIALING", "RECONCILING", "ENDING"}
 
 
 # Stopping an existing leg is safe to repeat; starting another effect needs the dedupe window.
-STOP_OPERATIONS = {"hangup", "transcription_stop", "playback_stop", "record_stop"}
+STOP_OPERATIONS = {"hangup", "transcription_stop"}
 
 
 def safe_stop(operation):

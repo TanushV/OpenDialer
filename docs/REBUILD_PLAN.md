@@ -895,7 +895,8 @@ Order, each as its own commit with its tests removed:
       and tests. Done November 7, except the direct `/webhooks/telnyx` route: 20 acceptance tests deliver signed carrier
       events through it, so it goes in R4.7 when the relay rework moves them onto the replay carrier. The LiteLLM chat
       loop in `providers/inference.py` stays for the R9.10 fallback.
-- [ ] R2.7 Dead voicemail drop: `VM_*`, `voicemail_asset`, `detached`, playback, gather, recording and late-human paths.
+- [x] R2.7 Dead voicemail drop: `VM_*`, `voicemail_asset`, `detached`, playback, gather, recording and late-human paths.
+      Done November 7. A saved playback, gather or recording command from an older version is cancelled, never sent.
 - [ ] R2.8 Routes the UI never calls, after confirming each is dead.
 - [ ] R2.9 Unused tables, with a test that lists the allowed tables.
 - [ ] R2.10 Replace the 10-minute refresh churn with the once-a-minute rule from section 8.

@@ -15,8 +15,6 @@ ORDER = {
             "SCREENING",
             "VOICEMAIL_GREETING",
             "VOICEMAIL_READY",
-            "VM_PENDING",
-            "VM_PLAYING",
             "HUMAN",
             "ENDING",
             "ENDED",
@@ -53,8 +51,6 @@ MAPPING = {
     "call.machine.greeting.ended:beep_detected": "VOICEMAIL_READY",
     "call.machine.premium.greeting.ended:beep_detected": "VOICEMAIL_READY",
     "call.machine.premium.call_screening.detected:screening": "SCREENING",
-    "call.playback.started": "VM_PLAYING",
-    "call.playback.ended": "ENDING",
     "human.confirmed": "HUMAN",
 }
 

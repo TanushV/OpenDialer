@@ -613,11 +613,6 @@ class Dialer(
             config["local_end_hour"] = min(17, config["local_end_hour"])
             if not 0 <= config["local_start_hour"] < config["local_end_hour"] <= 24:
                 fail(422, "Invalid reviewed local calling window")
-            if config.get("detached_topology_verified") and not self.settings.simulation:
-                if not config.get("topology_test_reference") or not config.get(
-                    "late_human_recovery_destination"
-                ):
-                    fail(422, "Carrier topology proof and late-human recovery destination required")
             new = put(s, "policy_versions", p["tenant_id"], p["seller_id"], config, now=now)
             update(campaign, policy_id=new.id)
             audit(

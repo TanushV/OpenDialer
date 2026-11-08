@@ -227,13 +227,11 @@ def _instant(value):
 
 
 def attempt_work_seconds(row):
-    """Union observed occupancy; detached playback and missing time are not rep work."""
+    """Union observed occupancy; missing time is not rep work."""
     if row.get("rep_work_incomplete"):
         return None
     start = _instant(row.get("submitted_at") or (row.get("started_at") if row.get("provider_id") else None))
     end = _instant(row.get("rep_released_at") or row.get("ended_at"))
-    if row.get("detached") and not row.get("rep_released_at"):
-        return None
     spans = []
     if start and end and end >= start:
         spans.append((start, end))

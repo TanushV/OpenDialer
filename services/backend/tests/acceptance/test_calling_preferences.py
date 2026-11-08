@@ -33,7 +33,7 @@ def test_voicemail_drop_endpoint_removed(workspace, carrier, detach):
         {"asset_id": "old-asset", "detach": detach},
         status=404,
     )
-    assert not carrier.playbacks
+    assert not any(item["action"] == "playback_start" for item in carrier.actions)
 
 
 @pytest.mark.parametrize("action", ["playback_start", "gather"])
@@ -48,6 +48,6 @@ def test_saved_drop_commands_cannot_play_after_update(workspace, app, carrier, a
         update(row(s, "call_attempts", started["id"]), state="VM_PENDING", voicemail_asset="old-asset")
         service.control_intent(s, p, started["id"], action, {"media_name": "old-asset"}, suffix="old-drop")
     post(workspace, "/v1/admin/control/run", {})
-    assert not carrier.playbacks
+    assert not any(item["action"] == "playback_start" for item in carrier.actions)
     assert not any(item["action"] == "gather" for item in carrier.actions)
     assert get(workspace, f"/v1/calls/{started['id']}")["voicemail_result"] == "blocked_before_playback"

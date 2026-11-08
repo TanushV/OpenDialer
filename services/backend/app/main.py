@@ -255,9 +255,6 @@ class PolicyUpdate(Strict):
     voicemail_enabled: bool | None = None
     voicemail_optout_supported: bool | None = None
     approved_assets: list[str] | None = None
-    detached_topology_verified: bool | None = None
-    topology_test_reference: str | None = None
-    late_human_recovery_destination: str | None = None
 
 
 class CarrierLookup(Strict):

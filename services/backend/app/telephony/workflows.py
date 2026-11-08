@@ -4,10 +4,10 @@ import json
 import re
 from datetime import timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.compliance.policy import authorize
-from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
+from app.db import MODELS, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
 from app.telephony.recovery import safe_stop, within_command_window
 from app.telephony.reducer import HUMAN_EVENTS, TERMINAL, owns_effect
@@ -46,7 +46,7 @@ class TelephonyWorkflows:
                 if prior.data["payload"]["digits"] != digits:
                     fail(409, "Keypad request identity already belongs to different digits")
                 return prior.id
-            if call.data["state"] not in KEYPAD_STATES or call.data.get("detached"):
+            if call.data["state"] not in KEYPAD_STATES:
                 fail(409, "Call is no longer active for this rep")
             if not call.data.get("provider_id"):
                 fail(409, "Wait for the original carrier call reference")
@@ -105,8 +105,6 @@ class TelephonyWorkflows:
             return doc(call)
 
     def control_intent(self, s, p, call_id, action, payload, *, target=None, suffix=None):
-        if action == "record_start":
-            fail(403, "Call recording is disabled by the short-retention policy")
         key = f"{call_id}:{suffix or action}"
         prior = self._by_key(s, p, "command_outbox", key)
         if prior:
@@ -171,7 +169,6 @@ class TelephonyWorkflows:
                     if prior.data.get("effects_complete", False):
                         return result
             payload = payload or {}
-            optout_phone = None
             with self.db.transaction(session=session) as s:
                 call = self.required(s, "call_attempts", call_id, p)
                 lead = self.required(s, "leads", call.data["lead_id"], p)
@@ -244,135 +241,13 @@ class TelephonyWorkflows:
                     if decision.allowed:
                         self.start_transcription_in(s, p, call)
                 if (
-                    event_type == "call.playback.started"
-                    and call.data.get("detach_requested")
-                    and call.data["state"] == "VM_PLAYING"
-                ):
-                    if not policy.get("detached_topology_verified") or not policy.get(
-                        "late_human_recovery_destination"
-                    ):
-                        self.control_intent(s, p, call_id, "playback_stop", {})
-                    else:
-                        update(call, detached=True, rep_released_at=self.clock().isoformat())
-                        s.execute(delete(ActiveClaim).where(ActiveClaim.call_id == call.id))
-                        if not any(r.external_key == call.id for r in self.scoped(s, "number_leases", p)):
-                            put(
-                                s,
-                                "number_leases",
-                                p["tenant_id"],
-                                p["seller_id"],
-                                {
-                                    "call_id": call.id,
-                                    "number_id": call.data["number_id"],
-                                    "active": True,
-                                    "expires_at": call.data["voicemail_deadline"],
-                                },
-                                key=call.id,
-                                now=self.clock(),
-                            )
-                        user = self.required(s, "users", call.data["rep_id"], p)
-                        presence = user.data.get("presence", {})
-                        agent = presence.get("agent_call_control_id")
-                        if agent:
-                            self.control_intent(
-                                s, p, call_id, "hangup", {}, target=agent, suffix="release-agent"
-                            )
-                        if not self.settings.simulation:
-                            update(
-                                user,
-                                presence={
-                                    **presence,
-                                    "status": "paused",
-                                    "audio_ready": False,
-                                    "telephony_ready": False,
-                                    "agent_call_control_id": None,
-                                },
-                            )
-                        audit(
-                            s,
-                            p["tenant_id"],
-                            p["seller_id"],
-                            p["user_id"],
-                            "voicemail.detached",
-                            call.id,
-                            self.clock(),
-                        )
-                if event_type in HUMAN_EVENTS and call.data.get("detached"):
-                    self.control_intent(s, p, call_id, "playback_stop", {}, suffix="late-human-stop")
-                    recovery = policy.get("late_human_recovery_destination")
-                    if recovery:
-                        self.control_intent(
-                            s, p, call_id, "transfer", {"to": recovery}, suffix="late-human-recovery"
-                        )
-                    else:
-                        self.control_intent(s, p, call_id, "hangup", {}, suffix="late-human-no-destination")
-                    update(call, late_human=True, recovery_required=True)
-                if event_type == "call.gather.ended" and call.data.get("voicemail_asset"):
-                    if payload.get("digits") == "9":
-                        optout_phone = lead.data["phone"]
-                        self.control_intent(s, p, call_id, "playback_stop", {}, suffix="optout-stop")
-                        self.control_intent(s, p, call_id, "hangup", {}, suffix="optout-hangup")
-                        if call.data["state"] not in TERMINAL:
-                            update(call, state="ENDING", end_reason="voicemail_optout")
-                            emit(s, p["tenant_id"], "call.updated", call, self.clock())
-                    elif call.data["state"] not in TERMINAL:
-                        self.control_intent(
-                            s,
-                            p,
-                            call_id,
-                            "gather",
-                            {
-                                "minimum_digits": 1,
-                                "maximum_digits": 1,
-                                "valid_digits": "9",
-                                "timeout_millis": 60000,
-                                "initial_timeout_millis": 60000,
-                                "gather_id": call_id,
-                            },
-                            suffix="optout-rearm:" + event_id,
-                        )
-                if event_type == "call.playback.ended":
-                    # Telnyx reports every outcome here; only `completed` played the whole asset.
-                    status = payload.get("status")
-                    self.control_intent(s, p, call_id, "hangup", {}, suffix="voicemail-completion")
-                    update(
-                        call,
-                        voicemail_playback_status=status,
-                        voicemail_result="playback_completed_not_mailbox_receipt"
-                        if status == "completed"
-                        else "playback_failed",
-                    )
-                if (
-                    event_type == "call.dtmf.received"
-                    and payload.get("digit") == "9"
-                    and call.data.get("voicemail_asset")
-                ):
-                    optout_phone = lead.data["phone"]
-                    self.control_intent(s, p, call_id, "playback_stop", {}, suffix="optout-stop")
-                    self.control_intent(s, p, call_id, "hangup", {}, suffix="optout-hangup")
-                    if call.data["state"] not in TERMINAL:
-                        update(call, state="ENDING", end_reason="voicemail_optout")
-                        emit(s, p["tenant_id"], "call.updated", call, self.clock())
-                if event_type == "call.recording.saved":
-                    update(
-                        call,
-                        recording_id=payload.get("recording_id"),
-                        recording_url=None,
-                        recording_review_required=True,
-                    )
-                if (
                     event_type == "call.hangup"
                     and call.data["state"] in TERMINAL
                     and call.data.get("carrier_outcome")
                 ):
                     self.enqueue_finalize(s, p, call, "carrier_hangup")
                 receipt = self._by_key(s, p, "provider_events", event_id)
-                update(receipt, effects_complete=not bool(optout_phone))
-            if optout_phone:
-                self.suppress(p, optout_phone, "opt_out", event_id=event_id, session=session)
-                with self.db.transaction(session=session) as s:
-                    receipt = self._by_key(s, p, "provider_events", event_id)
-                    update(receipt, effects_complete=True)
+                update(receipt, effects_complete=True)
             return result
 
     def start_transcription_in(self, s, p, call):
@@ -444,22 +319,9 @@ class TelephonyWorkflows:
                 )
                 if now >= (dt(r.data.get("not_before")) or now)
             ]
-            model = MODELS["call_attempts"]
-            orphan_vms = [
-                doc(r)
-                for r in s.scalars(
-                    select(model)
-                    .where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.op_control_due_at <= self.clock(),
-                    )
-                    .order_by(model.op_control_due_at, model.id)
-                )
-            ]
         # Answer precedes its dependent inbound transfer even when timestamps tie.
         commands.sort(key=lambda command: bool(command.get("after_command_id")))
-        return commands, orphan_vms
+        return commands
 
     def _claim_control(self, p, command_id):
         with self.db.transaction() as s:
@@ -472,8 +334,7 @@ class TelephonyWorkflows:
             if (
                 self.managed.enabled(p["tenant_id"])
                 and not self.managed.status()["connected"]
-                and command["action"]
-                in {"answer", "bridge", "transfer", "transcription_start", "record_start"}
+                and command["action"] in {"answer", "bridge", "transfer", "transcription_start"}
             ):
                 return None
             sent = dt(current.data.get("sent_at"))
@@ -495,7 +356,6 @@ class TelephonyWorkflows:
                     or user.seller_id != p["seller_id"]
                     or user.data.get("disabled")
                     or (user.id != call.data["rep_id"] and user.data["role"] not in {"owner", "admin"})
-                    or call.data.get("detached")
                     or call.data["state"] not in KEYPAD_STATES
                     or command.get("target") != call.data.get("provider_id")
                     or not command.get("expires_at")
@@ -514,25 +374,23 @@ class TelephonyWorkflows:
             ):
                 update(current, status="cancelled", reason="CALL_NO_LONGER_ACTIVE")
                 return None
-            if not inbound and command["action"] in {"playback_start", "gather"}:
+            if command["action"] in {"playback_start", "gather", "record_start"}:
+                # Saved by a version that had voicemail drop or recording (removed in R2.7): never sent.
                 update(current, status="cancelled", reasons=["VOICEMAIL_DROP_REMOVED"])
-                if call.data.get("voicemail_asset"):
+                if command["action"] != "record_start":
                     update(call, voicemail_result="blocked_before_playback")
                 return None
-            if command["action"] in {"transcription_start", "record_start"}:
+            if command["action"] == "transcription_start":
                 privacy = self.required(s, "sellers", p["seller_id"], p).data.get("operating_policy", {})
-                if command["action"] == "record_start" or (
-                    not self.settings.simulation
-                    and not (
-                        privacy.get("transcription_privacy_verified")
-                        and privacy.get("transcription_privacy_reference")
-                    )
+                if not self.settings.simulation and not (
+                    privacy.get("transcription_privacy_verified")
+                    and privacy.get("transcription_privacy_reference")
                 ):
                     update(current, status="cancelled", reason="RAW_CAPTURE_PRIVACY_NOT_AUTHORIZED")
                     return None
                 lead = self.required(s, "leads", call.data["lead_id"], p)
                 number = self.required(s, "number_inventory", call.data["number_id"], p)
-                permission = "transcription" if command["action"] == "transcription_start" else "recording"
+                permission = "transcription"
                 if (
                     call.data["state"] in TERMINAL
                     or not authorize(
@@ -587,11 +445,7 @@ class TelephonyWorkflows:
                 self.enqueue_finalize(s, p, call, "simulated_control_hangup")
 
     async def dispatch_controls(self, p, *, command_id=None):
-        commands, orphan_vms = (
-            ([{"id": command_id}], []) if command_id else await asyncio.to_thread(self._control_work, p)
-        )
-        for call in orphan_vms:
-            await self.hangup(p, call["id"])
+        commands = [{"id": command_id}] if command_id else await asyncio.to_thread(self._control_work, p)
         for command in commands:
             claimed = await asyncio.to_thread(self._claim_control, p, command["id"])
             if not claimed:
@@ -599,9 +453,7 @@ class TelephonyWorkflows:
             command, _, _, target, _, _ = claimed
             try:
                 provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
-                if command["action"] == "playback_start":
-                    await provider.playback(target, command["payload"])
-                elif command["action"] == "hangup":
+                if command["action"] == "hangup":
                     await provider.hangup(target, command["payload"]["command_id"])
                 else:
                     await provider.action(target, command["action"], command["payload"])
@@ -609,7 +461,7 @@ class TelephonyWorkflows:
                 await asyncio.to_thread(self._control_completed, p, claimed, exc)
             else:
                 await asyncio.to_thread(self._control_completed, p, claimed)
-        return {"processed": len(commands), "voicemail_watchdogs": len(orphan_vms)}
+        return {"processed": len(commands)}
 
     def _simulated_agent(self, p):
         provider_id = "agent-" + uid()

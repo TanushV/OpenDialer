@@ -194,7 +194,6 @@ export interface Call {
   analysis_incomplete?: boolean;
   unprocessed_speech_events?: number;
   coach_preferences?: { muted?: boolean; pinned?: boolean };
-  detached?: boolean;
   /** Frozen at dial time; voicemail is offered only on the final permitted attempt. */
   attempt_ordinal?: number;
   attempt_allowance?: number;
@@ -451,9 +450,6 @@ export interface Policy {
   voicemail_enabled?: boolean;
   voicemail_optout_supported?: boolean;
   approved_assets?: string[];
-  detached_topology_verified?: boolean;
-  topology_test_reference?: string;
-  late_human_recovery_destination?: string;
 }
 export interface Playbook {
   id: string;
@@ -709,7 +705,6 @@ const TERMINAL_STATES = new Set([
 /** No call, or one whose carrier leg has finished. */
 export const isTerminal = (call: { state: string } | null | undefined) =>
   !call || TERMINAL_STATES.has(call.state);
-/** The rep is still on the line: not finished and not a detached voicemail. */
-export const isActiveCall = (
-  call: { state: string; detached?: boolean } | null | undefined,
-) => !!call && !call.detached && !isTerminal(call);
+/** The rep is still on the line: the call has not finished. */
+export const isActiveCall = (call: { state: string } | null | undefined) =>
+  !!call && !isTerminal(call);

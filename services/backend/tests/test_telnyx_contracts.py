@@ -422,33 +422,6 @@ def test_reducer_maps_only_documented_machine_detection_results(state, name, exp
     assert reduce_state(state, name) == expected
 
 
-def test_premium_human_result_recovers_a_detached_voicemail(workspace, app, carrier):
-    call = start(workspace)
-    with app.state.db.transaction() as s:
-        update(get(s, "call_attempts", call["id"]), detached=True, state="VM_PLAYING")
-    event(workspace, call, "call.machine.premium.detection.ended:human_residence")
-    run_controls(workspace)
-    assert any(a["action"] == "playback_stop" for a in carrier.actions)
-
-
-@pytest.mark.parametrize(
-    "status,result",
-    [
-        ("completed", "playback_completed_not_mailbox_receipt"),
-        ("failed", "playback_failed"),
-        ("file_not_found", "playback_failed"),
-        ("call_hangup", "playback_failed"),
-    ],
-)
-def test_playback_outcome_comes_from_the_documented_ended_status(workspace, app, status, result):
-    call = start(workspace)
-    event(workspace, call, "call.playback.ended", {"status": status})
-    with app.state.db.transaction(False) as s:
-        saved = get(s, "call_attempts", call["id"]).data
-    assert saved["voicemail_result"] == result
-    assert saved["voicemail_playback_status"] == status
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("response", [httpx.Response(404, json={}), httpx.Response(422, json={})])
 async def test_expired_call_status_is_reported_as_no_live_leg(response):

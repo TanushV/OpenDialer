@@ -124,9 +124,6 @@ class TelnyxCarrier:
             raise UncertainCarrierResult("Carrier control has no successful acknowledgement")
         return result
 
-    async def playback(self, provider_id, payload):
-        return await self.action(provider_id, "playback_start", payload)
-
     async def reconcile(self, command_id, provider_id=None):
         # The dial command ID is not a provider lookup endpoint. Without its receipt, hold for webhook/manual review.
         if not provider_id:

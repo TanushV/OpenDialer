@@ -281,8 +281,6 @@ def call_work_bounds(data):
 
     if not data.get("rep_id") or not (data.get("submitted_at") or data.get("provider_id")):
         return None, None
-    if data.get("detached") and not data.get("rep_released_at"):
-        return None, None
     start = as_time(data.get("submitted_at") or data.get("started_at"))
     end = as_time(data.get("rep_released_at") or data.get("ended_at"))
     lifetime = data.get("max_call_seconds")
@@ -392,9 +390,7 @@ def sync_columns(row):
             if row.op_status not in TERMINAL | {"DIAL_UNCONFIRMED"}
             else None
         )
-        row.op_control_due_at = (
-            as_time(data.get("voicemail_deadline")) if row.op_status not in TERMINAL | {"ENDING"} else None
-        )
+        row.op_control_due_at = None  # Voicemail-drop deadlines are gone (R2.7).
         work_start, row.op_work_end_at = call_work_bounds(data)
         if work_start:
             row.op_at = min(row.op_at, work_start)

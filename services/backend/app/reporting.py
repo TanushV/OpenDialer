@@ -58,7 +58,6 @@ REPORT_FIELDS = {
         "provider_id",
         "ended_at",
         "rep_released_at",
-        "detached",
         "state",
         "outcome",
         "outcome_history",

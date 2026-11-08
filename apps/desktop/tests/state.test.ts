@@ -43,11 +43,8 @@ describe("one call-state definition", () => {
     expect(isTerminal(null)).toBe(true);
     expect(isTerminal({ state: "RINGING" })).toBe(false);
   });
-  it("does not count a detached voicemail or wrap-up as an active call", () => {
+  it("does not count a finished call or wrap-up as an active call", () => {
     expect(isActiveCall({ state: "HUMAN" })).toBe(true);
-    expect(isActiveCall({ state: "VOICEMAIL_PLAYING", detached: true })).toBe(
-      false,
-    );
     expect(isActiveCall({ state: "NO_ANSWER" })).toBe(false);
     expect(isActiveCall(null)).toBe(false);
   });

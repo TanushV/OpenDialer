@@ -157,7 +157,7 @@ def record(service, p, phone, reason, *, event_id=None, session=None):
 
 
 def revoke_effects(service, s, p, endpoint_id, permissions):
-    """An opt-out stops what a live call to that endpoint is doing: speech, recording, playback, or the dial."""
+    """An opt-out stops what a live call to that endpoint is doing: its speech or the dial."""
     from app.telephony.reducer import TERMINAL
 
     model = MODELS["call_attempts"]
@@ -193,10 +193,6 @@ def revoke_effects(service, s, p, endpoint_id, permissions):
                 s, p, call.id, "transcription_stop", {}, target=call.data.get("provider_id")
             )
             service.stop_agent_transcription_in(s, p, call)
-        if "recording" in permissions:
-            service.control_intent(s, p, call.id, "record_stop", {}, target=call.data.get("provider_id"))
-        if "prerecorded" in permissions:
-            service.control_intent(s, p, call.id, "playback_stop", {}, target=call.data.get("provider_id"))
         if "live" in permissions:
             command = service._by_key(s, p, "command_outbox", call.id)
             if command and command.data["status"] == "pending" and not command.data.get("sent_at"):
