@@ -26,6 +26,9 @@ for (const connected of [false]) {
       await page
         .getByRole("button", { name: "Try a simulated workspace" })
         .click();
+    await expect(
+      page.getByRole("status", { name: "Call status" }),
+    ).toBeVisible();
     if (connected) {
       await page.getByTitle("Sign out").click();
       await page.getByRole("button", { name: "Connect to a server" }).click();
@@ -211,6 +214,7 @@ test("a suggested outcome requires a rep choice and keeps the rep's note and con
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await prepareSimulationCall(
     page,
     "Suggested outcome fixture",
@@ -284,6 +288,9 @@ for (const connected of [false]) {
       await page
         .getByRole("button", { name: "Try a simulated workspace" })
         .click();
+    await expect(
+      page.getByRole("status", { name: "Call status" }),
+    ).toBeVisible();
     if (connected) {
       await page.getByTitle("Sign out").click();
       await page.getByRole("button", { name: "Connect to a server" }).click();
@@ -392,6 +399,7 @@ test("inferred follow-ups show time windows and source correction conflicts", as
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   const task = page.locator('[data-call-id="source-call"]');
   await expect(
@@ -460,6 +468,7 @@ test("an AI-suggested callback shows its confirmation deadline apart from confir
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   const suggested = page.locator('[data-call-id="suggested-source-call"]');
   // Shown in the lead's zone: 18:00 UTC is 2:00 PM in New York.
@@ -486,6 +495,7 @@ test("a callback time that a person already handled names the follow-up to revie
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await prepareSimulationCall(page, "Callback review fixture", "+14155550886");
   await startCalling(page).click();
   await answer(page);
@@ -532,6 +542,7 @@ test("a local callback is confirmed, rescheduled, retained on reload and complet
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await importLead(page, "Local callback fixture", "+14155550703");
   await startCalling(page).click();
   await answer(page);
@@ -578,6 +589,7 @@ test("unfinished wrap-up survives navigation and a full reload", async ({
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   // This journey owns one additional fictional lead; other flows share the authority.
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page
@@ -623,6 +635,7 @@ test("outcome conflict reload and late save preserve the selected review", async
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await prepareSimulationCall(page, "Review response fixture", "+14155550882");
   const calls: { id: string; name: string }[] = [];
   for (let index = 0; index < 2; index++) {

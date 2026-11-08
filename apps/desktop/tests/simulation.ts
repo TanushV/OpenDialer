@@ -7,8 +7,8 @@ import { expect, type Page } from "@playwright/test";
 export async function isolatedSimulationWorkspace(page: Page, name: string) {
   void name;
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
-  // Setup ends by opening the Dialer; navigating before then can be undone by it.
-  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
+  // Setup ends by mounting the Dialer (hidden when another page is open); navigating before then can be undone.
+  await expect(page.locator('[aria-label="Call status"]')).toBeAttached();
 }
 
 /** Imported leads are researched and scripted before they can be called; wait for that. */

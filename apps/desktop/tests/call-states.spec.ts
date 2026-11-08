@@ -19,6 +19,7 @@ async function enter(page: import("@playwright/test").Page) {
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
 }
 
 test("next lead keeps looking while the authority's queue scan continues", async ({

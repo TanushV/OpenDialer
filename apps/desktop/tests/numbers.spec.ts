@@ -14,6 +14,7 @@ test("number review distinguishes operational evidence from unknown external rep
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   for (const state of [
     "Ready",
@@ -175,6 +176,7 @@ test("numbers already in Telnyx are listed and added one at a time", async ({
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(page.getByLabel("Existing owned phone number")).toHaveCount(0);
   await page.getByRole("button", { name: "Check my Telnyx numbers" }).click();
@@ -225,6 +227,7 @@ test("number search names a city and shows where each number is", async ({
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await page.getByText("Add numbers with approval", { exact: true }).click();
   await page.getByLabel("Area code", { exact: true }).fill("628");

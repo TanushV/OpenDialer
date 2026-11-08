@@ -242,6 +242,7 @@ test("settings display the authority cost register, including changed rates", as
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await openMoreSettings(page, "Privacy and spending rules");
   await page.getByText("PAYG cost outline", { exact: true }).click();
   await expect(

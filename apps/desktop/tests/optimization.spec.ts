@@ -25,6 +25,7 @@ async function simulation(page: import("@playwright/test").Page) {
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
   if (await pauseCalling(page).isVisible()) await pauseCalling(page).click();
 }

@@ -24,6 +24,7 @@ test("compact prospect context discloses omitted history", async ({ page }) => {
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page
     .getByRole("button", { name: /^Open lead / })

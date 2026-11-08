@@ -30,6 +30,7 @@ test("keypad preserves a lost-response identity through reload and distinguishes
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await importLead(page, "Keypad identity fixture", "+14155550704");
   await startDialing(page);
   await answer(page);
@@ -83,6 +84,7 @@ test("uncertain keypad lets the rep explicitly resume after checking the live me
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await importLead(page, "Keypad resume fixture", "+14155550705");
   await startDialing(page);
   await answer(page);

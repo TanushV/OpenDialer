@@ -40,6 +40,7 @@ test("a failed evidence review is visible without overwriting the rep note", asy
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await prepareSimulationCall(page, "Grounding Fixture", "+14155550174");
   await startCalling(page).click();
   await answer(page);

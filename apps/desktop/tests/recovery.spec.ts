@@ -74,6 +74,7 @@ test("number route recovery preserves its original target and does not offer cal
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await openMoreSettings(page, "Users, backups and recovery");
   const recovery = page.getByRole("region", {
@@ -160,6 +161,7 @@ test("recovery offers verified reconciliation and keeps failed actions retryable
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await openMoreSettings(page, "Users, backups and recovery");
   const recovery = page.getByRole("region", {
@@ -236,6 +238,7 @@ test("an unconfirmed dial is confirmed not placed only with a recorded reason", 
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await openMoreSettings(page, "Users, backups and recovery");
   const recovery = page.getByRole("region", {
@@ -283,6 +286,7 @@ test("an administrator releases a temporary safety hold with a recorded reason",
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page
     .getByLabel("CSV lead data")

@@ -32,6 +32,7 @@ test("a late duplicate callback routing read cannot erase a typed destination", 
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await openMoreSettings(page, "Callbacks");
   const field = page
@@ -62,6 +63,7 @@ test("callback fallback settings survive reload and explain offline routing", as
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await openMoreSettings(page, "Callbacks");
   const panel = page.getByRole("region", {
@@ -144,6 +146,7 @@ test("a routed inbound call has visible controls and blocks the outbound next bu
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   const inbound = page.getByRole("region", {
     name: "Active return call",
     exact: true,
@@ -201,6 +204,7 @@ test("ringing return call exposes explicit acceptance and waits for the matching
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await isolatedSimulationWorkspace(page, "ringing-return-fixture");
   const inbound = page.getByRole("region", {
     name: "Active return call",

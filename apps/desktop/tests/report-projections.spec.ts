@@ -28,6 +28,7 @@ test("an unfinished report shows pending evidence without invented totals", asyn
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await openScriptSection(page, "Call statistics");
   await expect(
     page.getByText("Preparing the first report in the background.", {
@@ -106,6 +107,7 @@ async function openIntelligence(page: import("@playwright/test").Page) {
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await openScriptSection(page, "Call statistics");
 }
 
