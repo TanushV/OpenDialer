@@ -1130,7 +1130,13 @@ Goal: it can learn, and you can see that it is learning.
       version 3 adds title seniority, industry, company size bucket, number source, trigger type, strength and age, and
       list, one-hot with an "unknown" column each; version 2 rows read as unknown. Role fit is left to the CRM (D15).
       Trigger fields fill once Phase 9 writes the lead record.
-- [ ] R8.4 Compute estimates directly from calls; remove the remaining projection machinery.
+- [x] R8.4 Compute estimates directly from calls; remove the remaining projection machinery.
+      Done November 8: the refresh counts selection estimates, retry continuation and number health in one pass
+      over the campaign's calls (`optimization/projections.py`, 1,334 to about 190 lines), matched first against the old
+      engine on the same calls. `reporting.py`, the report revision, its commit hooks and the `report_projections`
+      and `report_revisions` tables are gone (retired in the migration); `/v1/optimization` is computed when read and
+      the Call statistics panel left the Script page. Found and fixed: a held meeting recorded from the CRM did not
+      count toward the booked-meeting goal.
 - [x] R8.5 Automatic promotion from the existing out-of-time review. Done November 8: a model whose review passes
       replaces the live one at once; manual approval and the online trial are gone. Each promotion is audited.
 - [x] R8.6 Automatic rollback using the 10% comparison group; record each promotion and rollback. Done November 8:

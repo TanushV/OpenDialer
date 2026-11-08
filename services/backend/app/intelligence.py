@@ -504,12 +504,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     await self.coach_turn(p, job["payload"]["call_id"])
                 elif lane == "ml":
                     if job["payload"].get("kind") == "report_refresh":
-                        await asyncio.to_thread(
-                            self.rebuild_optimization_report,
-                            {**p, "role": job["payload"].get("role", "rep")},
-                            job["payload"].get("epoch"),
-                            lease=(job["id"], worker_id),
-                        )
+                        pass  # A saved report view from before R8.4; the report is now computed when read.
                     elif job["payload"].get("kind") == "optimization_refresh":
                         await asyncio.to_thread(
                             self.refresh_optimization_job, p, lease=(job["id"], worker_id)

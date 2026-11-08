@@ -15,7 +15,8 @@ from app.optimization.numbering import (
     timestamp,
     warmup_allowance,
 )
-from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
+from app.platform.db import MODELS, ActiveClaim, Job, audit, doc, emit, get, put, update
+from app.platform.jobs import jobdoc
 from app.scheduling.models import (
     FEATURE_VERSIONS,
     OPTIMIZATION_DEFAULTS,
@@ -355,6 +356,44 @@ class OptimizationWorkflows(ComparisonWorkflows):
                     tenant_id=user["tenant_id"],
                 )
 
+    def learning_owner(self, s, p):
+        """The caller, with an admin role unless either the token or the user is a rep."""
+        from app.service import fail
+
+        user = self.required(s, "users", p["user_id"], p)
+        if user.data.get("disabled"):
+            fail(403, "Account is disabled")
+        return {**p, "role": "rep" if "rep" in (p["role"], user.data["role"]) else "admin"}
+
+    def request_optimization_refresh(self, p):
+        """One refresh job per campaign; asking again requeues it once it has finished."""
+        with self.db.transaction() as s:
+            campaign = self.selected_campaign(s, p)
+            key = f"optimization-refresh:{p['seller_id']}:{campaign.id}:requested"
+            payload = {"kind": "optimization_refresh", "seller_id": p["seller_id"], "user_id": p["user_id"]}
+            job = s.scalar(select(Job).where(Job.tenant_id == p["tenant_id"], Job.key == key))
+            if not job:
+                return self._refresh_status(
+                    self.jobs.enqueue_in(s, "ml", payload, key, tenant_id=p["tenant_id"], priority=10)
+                )
+            if job.status not in {"queued", "running"}:
+                job.payload, job.status, job.error, job.attempts = payload, "queued", None, 0
+                job.lease_owner = job.lease_expires_at = None
+                job.available_at = self.clock()
+            return self._refresh_status(jobdoc(job))
+
+    @staticmethod
+    def _refresh_status(job):
+        return {"status": job["status"], "job_id": job["id"]}
+
+    def refresh_optimization_job(self, p, *, lease=None):
+        from app.service import fail
+
+        with self.db.transaction(False) as s:
+            if self.learning_owner(s, p)["role"] != "admin":
+                fail(403, "Administrator access is required to refresh optimization")
+        return self.refresh_optimization(p, lease=lease)
+
     def optimization_config(self, s, p, campaign_id=None, *, campaign=None):
         campaign = campaign or (
             self.required(s, "campaigns", campaign_id, p) if campaign_id else self.selected_campaign(s, p)
@@ -388,14 +427,21 @@ class OptimizationWorkflows(ComparisonWorkflows):
             s.info[key] = cached
         return cached
 
-    def inventory_evidence(self, s, p, fast=False, totals=None):
-        from app.optimization.projections import compute, read_number_health_metrics
+    def inventory_evidence(self, s, p, fast=False, records=None):
+        from app.optimization.projections import campaign_records, number_health
 
         if fast:
             return self.inventory_capacity(s, p)
-        return self.inventory_capacity(
-            s, p, health=read_number_health_metrics(self, p, totals or compute(self, p))
+        campaign = self.selected_campaign(s, p)
+        records = records or campaign_records(s, p, campaign.id)
+        health = number_health(
+            records["calls"],
+            records["features"],
+            records["callbacks"],
+            policy=self.optimization_config(s, p, campaign.id)["health_policy"],
+            now=self.clock(),
         )
+        return self.inventory_capacity(s, p, health=health)
 
     def inventory_capacity(self, s, p, *, health=None):
         """Current capacity is authoritative; health reads the last derived observation."""
@@ -538,7 +584,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             "retry_observations": statistics["retry_observations"],
         }
 
-    def operational_dataset(self, s, p, config=None, *, limit=20000, now=None):
+    def operational_dataset(self, s, p, config=None, *, limit=20000, now=None, include_unclassified=False):
         """Explicit bounded snapshot, newest attempts first. Filter identities before
         decrypting related content. A bound that omits evidence is recorded, not raised."""
         from decimal import Decimal
@@ -656,6 +702,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 now=now,
                 goal=config["conversion_goal"],
                 window_days=config["window_days"],
+                include_unclassified=include_unclassified,
             )
             # Pages are newest first; within one, keep its newest rows that fit.
             page = sorted(page, key=lambda r: (r["at"], r["call_id"]), reverse=True)
@@ -675,116 +722,34 @@ class OptimizationWorkflows(ComparisonWorkflows):
         result.sort(key=lambda r: (r["at"], r["call_id"]))
         return result
 
-    def report_details(self, s, p):
-        """Bounded saved decisions/plans; no horizon computation or historical dataset."""
-        reservations = MODELS["reservations"]
-        query = select(reservations).where(
-            reservations.tenant_id == p["tenant_id"], reservations.seller_id == p["seller_id"]
-        )
-        if p["role"] == "rep":
-            query = query.where(reservations.op_owner_id == p["user_id"])
-        recent = list(s.scalars(query.order_by(reservations.op_at.desc(), reservations.id.desc()).limit(31)))
-        ids = [
-            r.data["policy_decision_id"] for r in reversed(recent[:30]) if r.data.get("policy_decision_id")
-        ]
-        model = MODELS["policy_decisions"]
-        records = (
-            {
-                r.id: doc(r)
-                for r in s.scalars(
-                    select(model).where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.id.in_(ids),
-                    )
-                )
-            }
-            if ids
-            else {}
-        )
-        decisions = [
-            records[i]
-            for i in ids
-            if i in records and (p["role"] != "rep" or records[i].get("rep_id") == p["user_id"])
-        ]
-        campaign = self.selected_campaign(s, p)
-        saved = self._by_key(s, p, "report_projections", f"planning:{campaign.id}:configured")
-        report = saved.data.get("report", {}) if saved else {}
-        planned = report.get("next_attempts", [])[:100]
-        expires = timestamp(report.get("next_attempts_expire_at"))
-        model = MODELS["leads"]
-        leads = (
-            {
-                r.id: r
-                for r in s.scalars(
-                    select(model).where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.id.in_([row["lead_id"] for row in planned]),
-                    )
-                )
-            }
-            if planned and expires and expires > self.clock()
-            else {}
-        )
-        futures = [
-            {**row, "name": lead.data["name"]}
-            for row in planned
-            if (lead := leads.get(row["lead_id"]))
-            and lead.data.get("status") == "eligible"
-            and not lead.data.get("outreach_hold")
-            and not lead.data.get("goal_completed")
-            and row.get("lead_version") == lead.version
-        ]
-        return {
-            "decisions": decisions,
-            "plans": planned,
-            "future_slots": futures,
-            "detail_coverage": {
-                "decisions_inspected": min(len(recent), 30),
-                "decisions_limited": len(recent) > 30,
-                "plans_inspected": len(planned),
-                "plans_limited": bool(report.get("next_attempts_omitted")),
-            },
-        }
+    def learning_report(self, p):
+        """R8.4: settings, plain call counts, the dataset and number evidence, computed when asked."""
+        from app.optimization.projections import call_counts, campaign_records
 
-    def optimization_report(self, p, epoch=None, totals=None):
-        from app.optimization.projections import (
-            compute,
-            read_coaching_metrics,
-            read_comparison_metrics,
-            read_dataset_metrics,
-            read_drift_metrics,
-            read_metrics,
-            read_trial_metrics,
-        )
-
-        totals = totals or compute(self, p)
         with self.db.transaction(False) as s:
             s.info["row_cache"] = {}
-            trial = read_trial_metrics(self, p, totals, epoch=epoch)
-            cohort_history = trial.pop("cohort_history")
-            measured = read_metrics(self, p, totals)
+            campaign = self.selected_campaign(s, p)
+            config = self.optimization_config(s, p, campaign.id)
+            records = campaign_records(s, p, campaign.id)
+            rows = self.operational_dataset(s, p, config, include_unclassified=True)
+            now = self.clock()
             return {
-                "settings": self.optimization_config(s, p),
-                "comparisons": read_comparison_metrics(self, p, totals),
-                "cohort_history": cohort_history,
-                "numbers": self.inventory_evidence(s, p, totals=totals),
-                "metrics": {
-                    **measured,
-                    "imported_leads": measured["original_cohort"],
-                    "original_eligible_leads": measured["original_eligible_denominator"],
-                    "suppressed_now": measured["suppressed"],
-                    "human_answers": measured["human_pickups"],
-                    "unique_right_party": measured["right_party_unique"],
+                "settings": config,
+                "metrics": call_counts(
+                    records["calls"],
+                    goal=config["conversion_goal"],
+                    window_days=config["window_days"],
+                    now=now,
+                ),
+                "dataset": {
+                    "rows": len(rows),
+                    "pending_rows": sum(r["conversion"] is None for r in rows),
+                    "matured_rows": sum(bool(r["window_closed"]) for r in rows),
+                    "positive_conversions": sum(r["conversion"] == 1 for r in rows),
+                    "snapshots": campaign.data.get("dataset_summaries", [])[-10:],
                 },
-                "dataset": read_dataset_metrics(self, p, totals),
-                **self.report_details(s, p),
-                "drift": read_drift_metrics(self, p, totals),
-                "trial": trial,
-                "coaching": read_coaching_metrics(self, p, totals),
-                "simulation": self.settings.simulation,
-                "as_of": self.clock().isoformat(),
+                "numbers": self.inventory_evidence(s, p, records=records),
+                "as_of": now.isoformat(),
             }
 
     def _check_rollback(self, s, p, rows):
@@ -818,12 +783,12 @@ class OptimizationWorkflows(ComparisonWorkflows):
         the next dataset. Nothing here fences on, or locks, the seller revision."""
         as_of = self.clock()
         with self.db.snapshot() as s:
-            user, _, _, _ = self.report_scope(s, p)
+            user = self.learning_owner(s, p)
             if user["role"] != "admin":
                 from app.service import fail
 
                 fail(403, "Administrator access required for a learning snapshot")
-            watermark = self.report_revision(s, p)
+            watermark = self.finalized_calls(s, p["tenant_id"], p["seller_id"])
             config = self.optimization_config(s, p)
             campaign = self.selected_campaign(s, p)
             campaign_id = campaign.id
@@ -841,7 +806,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             # Campaign row first, then job rows: every campaign publisher takes them in this order.
             campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
             self.jobs.require_owned_in(s, lease)
-            user, _, _, _ = self.report_scope(s, p)
+            user = self.learning_owner(s, p)
             if user["role"] != "admin":
                 from app.service import fail
 
@@ -935,7 +900,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         from app.service import fail
 
         with self.db.transaction(False) as s:
-            user, _, _, _ = self.report_scope(s, p)
+            user = self.learning_owner(s, p)
             if user["role"] != "admin":
                 fail(403, "Administrator access required for health refresh")
             numbers = self.inventory_evidence(s, p)
@@ -945,7 +910,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         for offset in range(0, len(numbers), 100):
             with self.db.transaction() as s:
                 self.jobs.require_owned_in(s, lease)
-                user, _, _, _ = self.report_scope(s, p)
+                user = self.learning_owner(s, p)
                 if user["role"] != "admin":
                     fail(403, "Health owner no longer has administrator access")
                 for number in numbers[offset : offset + 100]:
@@ -998,7 +963,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
         dataset = self.save_operational_dataset(p, lease=lease)
         with self.db.transaction(False) as s:
-            user, _, _, _ = self.report_scope(s, p)
+            user = self.learning_owner(s, p)
             if user["role"] != "admin":
                 from app.service import fail
 
@@ -1022,7 +987,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             # Campaign row first, then job rows: every campaign publisher takes them in this order.
             campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
             self.jobs.require_owned_in(s, lease)
-            owner, _, _, _ = self.report_scope(s, p)
+            owner = self.learning_owner(s, p)
             if owner["role"] != "admin":
                 from app.service import fail
 
@@ -1060,20 +1025,21 @@ class OptimizationWorkflows(ComparisonWorkflows):
         }
 
     def refresh_optimization(self, p, *, lease=None):
-        from app.optimization.projections import compute, read_estimate_statistics
+        from app.optimization.projections import campaign_records, estimate_statistics
 
-        totals = compute(self, p)
         with self.db.transaction(False) as s:
-            user, _, _, _ = self.report_scope(s, p)
+            user = self.learning_owner(s, p)
             if user["role"] != "admin":
                 from app.service import fail
 
                 fail(403, "Administrator access required for optimization refresh")
-            generation = self.report_revision(s, p)
+            generation = self.finalized_calls(s, p["tenant_id"], p["seller_id"])
             campaign = self.selected_campaign(s, p)
             campaign_id = campaign.id
             config = self.optimization_config(s, p, campaign_id)
-            statistics = read_estimate_statistics(self, p, totals)
+            rows = self.operational_dataset(s, p, config, include_unclassified=True)
+            leads = campaign_records(s, p, campaign_id)["leads"]
+            statistics = estimate_statistics(rows, leads, now=self.clock())
             profile = self.selection_profile(s, p, statistics, config)
             stable_statistics = {
                 **statistics,
@@ -1096,7 +1062,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         with self.db.transaction() as s:
             # Campaign row first, then job rows: every campaign publisher takes them in this order.
             campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
-            user, _, _, _ = self.report_scope(s, p)
+            user = self.learning_owner(s, p)
             if user["role"] != "admin":
                 from app.service import fail
 
@@ -1143,7 +1109,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 )
             if changed:  # No UI event unless the estimates moved (section 8).
                 emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
-        self.rebuild_optimization_report(p, lease=lease, totals=totals)
         return {
             "status": "ready",
             "rows": profile["samples"],

@@ -203,8 +203,8 @@ class ObservationReview(Strict):
 def register_optimization(app, service, principal, administrator):
 
     @app.get("/v1/optimization")
-    def report(epoch: str | None = None, p=Depends(principal)):
-        return service.cached_optimization_report(p, epoch=epoch)
+    def report(p=Depends(principal)):
+        return service.learning_report(p)
 
     @app.post("/v1/admin/optimization/preview")
     def preview(body: OptimizationSettings, p=Depends(administrator)):

@@ -40,8 +40,6 @@ ALLOWED = {
     "policy_versions",
     "provider_events",
     "registry_snapshots",
-    "report_projections",
-    "report_revisions",
     "research_facts",
     "research_sources",
     "reservations",

@@ -18,6 +18,8 @@ from app.scheduling.models import (
 
 # R8.1: meeting_booked is known at wrap-up; meeting_held stays as the later correction.
 GOALS = {"qualified_conversation", "meeting_booked", "meeting_held", "sale_won"}
+# A meeting that was held was booked, so a recorded held meeting also answers the booked goal.
+GOAL_EVENTS = {"meeting_booked": {"meeting_booked", "meeting_held"}}
 # Approved trials use their declared two-arm allocation (EXECUTION_SPEC E08.13: default 50/50).
 # Outside an active trial a persistent stable control holdout (configurable, default 10%) keeps
 # measuring a promoted model without withholding it from half of the leads. Both use the same
@@ -197,7 +199,7 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days, include_u
     known_events = {}
     for event in events:
         known = conversion_at(event, now)
-        if known and known.get("kind") == goal:
+        if known and known.get("kind") in GOAL_EVENTS.get(goal, {goal}):
             key = (known.get("lead_id"), known.get("call_id") or None)
             known_events.setdefault(key, []).append(known)
     window = timedelta(days=window_days)

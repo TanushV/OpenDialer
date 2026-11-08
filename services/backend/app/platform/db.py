@@ -74,7 +74,17 @@ class Document:
 # Explicit tables retain the specification's data ownership and lifecycle boundaries.
 # Tables older versions created and this one no longer uses (R2.9). Restore skips them; the
 # migration in Phase 3 (R3.7) drops them from the copied store.
-RETIRED_TABLES = frozenset({"companies", "consent_evidence", "evaluation_reports", "work_intervals"})
+# R8.4 retired the saved report views (`report_projections`, `report_revisions`): estimates come from calls.
+RETIRED_TABLES = frozenset(
+    {
+        "companies",
+        "consent_evidence",
+        "evaluation_reports",
+        "work_intervals",
+        "report_projections",
+        "report_revisions",
+    }
+)
 
 TABLES = [
     "tenants",
@@ -124,10 +134,8 @@ TABLES = [
     "learning_datasets",
     "conversion_events",
     "coaching_feedback",
-    "report_projections",
     "script_memories",
 ]
-DERIVED_TABLES = frozenset({"report_projections"})
 MODELS = {}
 for _name in TABLES:
     MODELS[_name] = type(
@@ -161,13 +169,6 @@ for _name in TABLES:
             "__module__": __name__,
         },
     )
-
-
-class ReportRevision(Base):
-    __tablename__ = "report_revisions"
-    tenant_id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    seller_id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class ActiveClaim(Base):
@@ -430,17 +431,6 @@ def index_pending_rows(session, *_):
     for row in session.new | session.dirty:
         if isinstance(row, Document):
             sync_columns(row)
-    from app.reporting import collect_report_changes
-
-    collect_report_changes(session)
-
-
-@event.listens_for(Session, "before_commit")
-def report_revision_last(session):
-    # Dirty projection jobs, then the seller report revision: always a writer's last locks.
-    from app.reporting import publish_report_changes
-
-    publish_report_changes(session)
 
 
 @event.listens_for(Session, "after_flush")

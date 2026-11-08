@@ -9,7 +9,7 @@ from datetime import timedelta
 from urllib.parse import urlsplit
 
 import httpx
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import func, or_, select, text
 
 from app.calling import audio_leg
 from app.calling.blockers import Facts
@@ -20,9 +20,8 @@ from app.number_operations import NumberOperations
 from app.optimization.script_lab import ScriptLab
 from app.optimization.workflows import OptimizationWorkflows
 from app.platform.config import PROVIDER_DEFAULTS, CapabilityStatus
-from app.platform.db import DERIVED_TABLES, MODELS, RETIRED_TABLES, audit, doc, emit, put, rows, uid, update
+from app.platform.db import MODELS, RETIRED_TABLES, audit, doc, emit, put, rows, uid, update
 from app.rep_workflows import RepWorkflows
-from app.reporting import ReportProjections
 from app.service import dt, fail
 from app.telephony.callbacks import InboundCallbacks
 from app.telephony.ingress import WebhookIngress
@@ -168,7 +167,6 @@ def capability_statuses(
 
 class Dialer(
     WorkspaceReads,
-    ReportProjections,
     RecoveryActions,
     CommandRecovery,
     InboundCallbacks,
@@ -820,7 +818,6 @@ class Dialer(
                         )
                     ]
                     for kind in MODELS
-                    if kind not in DERIVED_TABLES
                 },
             }
         backup_id = uid()
@@ -869,13 +866,6 @@ class Dialer(
             for kind, model in MODELS.items():
                 if kind in {"tenants", "users", "sessions"}:
                     continue  # Business state only, never old access grants, passwords or sessions.
-                if kind in DERIVED_TABLES:
-                    s.execute(
-                        delete(model).where(
-                            model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"]
-                        )
-                    )
-                    continue
                 values = payload["tables"].get(kind, [])
                 for offset in range(0, len(values), 250):
                     batch = values[offset : offset + 250]

@@ -1,9 +1,5 @@
 import { expect, test } from "./fixtures";
-import {
-  openMoreSettings,
-  openScriptSection,
-  openSettingsCard,
-} from "./navigation";
+import { openMoreSettings, openSettingsCard } from "./navigation";
 import {
   answer,
   saveOutcome,
@@ -30,7 +26,7 @@ async function simulation(page: import("@playwright/test").Page) {
   if (await pauseCalling(page).isVisible()) await pauseCalling(page).click();
 }
 
-test("optimization goals, forecast, learning state and provider settings persist", async ({
+test("optimization goals, learning state and provider settings persist", async ({
   page,
 }) => {
   await simulation(page);
@@ -42,19 +38,9 @@ test("optimization goals, forecast, learning state and provider settings persist
     .getByRole("button", { name: "Apply reviewed goal change" })
     .click();
   await expect(page.getByText("Campaign goal saved").first()).toBeVisible();
-  await openScriptSection(page, "Call statistics");
-  await page
-    .getByRole("button", { name: "Refresh learning and capacity" })
-    .click();
-  await expect(
-    page.getByText("Future calling opportunities", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByTestId("saved-goal")).toContainText("Sale won");
-  // Latency breakdowns are diagnostics that no longer sit in the normal view.
-  await expect(page.getByText(/p95 inference/)).toHaveCount(0);
   await openMoreSettings(page, "Learning");
   await expect(
-    page.getByText("Operational training dataset", { exact: true }),
+    page.getByRole("region", { name: "Planning assumptions" }),
   ).toBeVisible();
   await page.reload();
   await openMoreSettings(page, "Campaign goal");

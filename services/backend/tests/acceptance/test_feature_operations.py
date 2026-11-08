@@ -428,10 +428,6 @@ def test_observed_number_health_reports_delivery_pickup_and_case_mix_from_real_c
             hang_up(workspace, placed["id"])
             wrap_up(workspace, placed["id"], outcome=outcome)
         clock.now += timedelta(seconds=20)
-    for _ in range(4):
-        if get(workspace, "/v1/optimization")["projection"]["status"] == "ready":
-            break
-        run_jobs(workspace)
     post(workspace, "/v1/admin/optimization/refresh")
     run_jobs(workspace, rounds=2)
     health = get(workspace, f"/v1/admin/numbers/{number_id}/review")["health"]

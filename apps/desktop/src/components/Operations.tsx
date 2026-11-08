@@ -27,7 +27,6 @@ import { ScriptEditor } from "./ScriptEditor";
 import { TokenUsage } from "./TokenUsage";
 import { ScriptMemory } from "./ScriptMemory";
 import { ScriptReader } from "./ScriptReader";
-import { OptimizationPanel } from "./OptimizationPanel";
 
 export function LeadsPage({
   onNavigate,
@@ -1584,10 +1583,6 @@ export function ScriptPage({
       <details className="card padded">
         <summary>What's working</summary>
         <ScriptMemory />
-      </details>
-      <details className="card padded">
-        <summary>Call statistics</summary>
-        <OptimizationPanel />
       </details>
       <details className="card padded">
         <summary>What you sell</summary>

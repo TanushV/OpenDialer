@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { date, isAdmin, label, percent, useWorkspace } from "../context";
+import { useWorkspace } from "../context";
 import { limits, useDefinitions } from "../state/definitions";
 import type { EstimatePolicy } from "../types";
 
@@ -24,335 +24,32 @@ export interface OptimizationSettings {
   estimate_policy?: EstimatePolicy;
   health_policy?: HealthPolicy;
 }
-export interface OptimizationReport {
-  settings: OptimizationSettings;
-  metrics: {
-    original_eligible_leads: number;
-    unique_conversions: number;
-    unique_right_party: number;
-    conversion_per_original_eligible_lead: number | null;
-    conversions_per_rep_hour: number | null;
-  };
-  dataset: {
-    rows: number;
-    matured_rows: number;
-    pending_rows: number;
-    positive_conversions: number;
-    missing_snapshot_calls: number;
-  };
-  decisions: {
-    id: string;
-    lead_id: string;
-    propensity: number;
-    experiment_arm: string;
-    allocation?: { reason: string; reassignment_reason: string | null };
-  }[];
-  future_slots: {
-    lead_id: string;
-    at: string;
-    reason: string;
-    name: string;
-  }[];
-  drift: {
-    action: string;
-    model_versions?: string[];
-    missingness_shift?: boolean;
-    windows?: string;
-    stage_support?: Record<
-      string,
-      {
-        reference: number;
-        recent: number;
-        paired_support: number;
-        reference_brier: number | null;
-        recent_brier: number | null;
-      }
-    >;
-  };
-  trial: {
-    epoch: string;
-    sufficient_evidence: boolean;
-    pending_leads: number;
-    required_per_arm: number;
-    arms: Record<
-      string,
-      {
-        leads: number;
-        matured_leads: number;
-        conversions: number;
-        rate: number | null;
-        confidence_low: number;
-        confidence_high: number;
-      }
-    >;
-  };
-  cohort_history: string[];
-  coaching: {
-    reviewed_cards: number;
-    useful_fraction: number | null;
-    grounded_fraction: number | null;
-    timely_fraction: number | null;
-  };
-}
-interface ReportProjection {
-  status: "pending" | "stale" | "ready";
-  as_of: string | null;
-  calculated_settings?: OptimizationSettings;
-  refresh_status?: string | null;
-  refresh_error?: string | null;
-}
-type ReportResponse =
-  | (OptimizationReport & { projection: ReportProjection })
-  | { settings: OptimizationSettings; projection: ReportProjection };
-
-/** One saved-report read; pending, stale and failed reads are explicit and retryable. */
-export function useOptimizationReport() {
+/** R8.4: the report is computed when read; Advanced only needs the saved settings from it. */
+function useLearningSettings() {
   const { api, subscribe } = useWorkspace();
-  const [response, setResponse] = useState<ReportResponse | null>(null);
-  const [error, setError] = useState("");
-  const epoch = useRef<string | null>(null);
-  const requestVersion = useRef(0);
+  const [settings, setSettings] = useState<OptimizationSettings | null>(null);
   const load = useCallback(async () => {
-    const version = ++requestVersion.current;
-    try {
-      const next = await api<ReportResponse>(
-        "/v1/optimization" +
-          (epoch.current ? "?epoch=" + encodeURIComponent(epoch.current) : ""),
-      );
-      if (version !== requestVersion.current) return;
-      setResponse(next);
-      setError("");
-    } catch (reason) {
-      if (version === requestVersion.current)
-        setError(reason instanceof Error ? reason.message : String(reason));
-      throw reason;
-    }
+    const report = await api<{ settings: OptimizationSettings }>(
+      "/v1/optimization",
+    );
+    setSettings(report.settings);
   }, [api]);
   useEffect(() => {
     void load().catch(() => {});
-    let pending: ReturnType<typeof setTimeout> | null = null;
-    const stop = subscribe((events) => {
-      if (
-        !pending &&
-        events.some((e) =>
-          [
-            "optimization.updated",
-            "conversion.recorded",
-            "number.updated",
-          ].includes(e.type),
-        )
-      )
-        pending = setTimeout(() => {
-          pending = null;
-          void load().catch(() => {});
-        }, 150);
+    return subscribe((events) => {
+      if (events.some((e) => e.type === "optimization.updated"))
+        void load().catch(() => {});
     });
-    return () => {
-      stop();
-      requestVersion.current++;
-      if (pending) clearTimeout(pending);
-    };
   }, [load, subscribe]);
-  const selectEpoch = useCallback(
-    async (value: string | null) => {
-      epoch.current = value;
-      setResponse(null);
-      await load();
-    },
-    [load],
-  );
-  const report = response && "metrics" in response ? response : null;
-  return {
-    response,
-    report,
-    error,
-    load,
-    epoch: epoch.current,
-    selectEpoch,
-  };
-}
-export type ReportState = ReturnType<typeof useOptimizationReport>;
-
-function ReportStatus({ state }: { state: ReportState }) {
-  const { run } = useWorkspace();
-  const projection = state.response?.projection;
-  if (!state.response)
-    return (
-      <section className="card padded" aria-label="Report freshness">
-        <p role="status">
-          {state.error
-            ? `Learning evidence could not be loaded: ${state.error}`
-            : "Loading allocation and learning evidence…"}
-        </p>
-        {state.error && (
-          <button className="secondary" onClick={() => void run(state.load)}>
-            Retry loading the report
-          </button>
-        )}
-      </section>
-    );
-  return (
-    <section className="card padded" aria-label="Report freshness">
-      <p>
-        {projection?.status === "pending"
-          ? "Preparing the first report in the background."
-          : projection?.refresh_status === "dead"
-            ? "Saved report; refresh failed. Review the job in Recovery."
-            : projection?.status === "stale"
-              ? "Showing saved evidence while the report refreshes."
-              : "Report is current."}
-      </p>
-      {projection?.as_of && (
-        <p className="fine">Calculated {date(projection.as_of)}.</p>
-      )}
-      {projection?.calculated_settings && (
-        <p className="fine">
-          Calculated for{" "}
-          {label(projection.calculated_settings.conversion_goal).toLowerCase()},{" "}
-          {projection.calculated_settings.window_days} days
-          {projection.status === "stale"
-            ? "; totals may differ from current settings."
-            : "."}
-        </p>
-      )}
-      {projection?.refresh_error && projection.refresh_status !== "dead" && (
-        <p className="fine">
-          The last refresh failed; a bounded retry is pending.
-        </p>
-      )}
-      {state.error && (
-        <p role="status" className="notice">
-          The latest read failed: {state.error}
-        </p>
-      )}
-      {projection?.status !== "ready" && (
-        <button className="secondary" onClick={() => void run(state.load)}>
-          Check report status
-        </button>
-      )}
-      {state.epoch && (
-        <button
-          className="secondary"
-          onClick={() => void run(() => state.selectEpoch(null))}
-        >
-          Return to current cohort
-        </button>
-      )}
-    </section>
-  );
+  return { settings, load };
 }
 
-/** Intelligence: measured outcomes for the saved goal. Configuration lives in Settings. */
-export function OptimizationPanel() {
-  const { api, run, notice, refresh, snapshot: w } = useWorkspace();
-  const state = useOptimizationReport();
-  const { response, report } = state;
-  return (
-    <>
-      <ReportStatus state={state} />
-      {response && (
-        <section className="card padded optimization-panel">
-          <span className="eyebrow">PICKUP AND CONVERSION</span>
-          <h2>Learn from the whole eligible cohort</h2>
-          {report && (
-            <p className="muted small">
-              {report.metrics.unique_conversions} unique conversions /{" "}
-              {report.metrics.original_eligible_leads} original eligible leads.{" "}
-              {report.metrics.unique_right_party} people reached. Conversion
-              rate:{" "}
-              {percent(
-                report.metrics.conversion_per_original_eligible_lead,
-                "Awaiting evidence",
-              )}
-              .
-            </p>
-          )}
-          {response.settings.conversion_goal && (
-            <p className="fine" data-testid="saved-goal">
-              Goal: {label(response.settings.conversion_goal)} within{" "}
-              {response.settings.window_days} days.
-              {isAdmin(w.user.role) &&
-                " Change the goal and schedule in Settings → More settings."}
-            </p>
-          )}
-          {isAdmin(w.user.role) && (
-            <button
-              className="primary"
-              onClick={() =>
-                void run(async () => {
-                  await api("/v1/admin/optimization/refresh", "POST", {});
-                  await state.load();
-                  await refresh();
-                  notice("Learning and capacity refresh queued");
-                })
-              }
-            >
-              Refresh learning and capacity
-            </button>
-          )}
-        </section>
-      )}
-      {report && (
-        <section className="card padded optimization-panel">
-          <h2>Future calling opportunities</h2>
-          <div className="optimization-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Lead</th>
-                  <th>Suggested time</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.future_slots.slice(0, 12).map((slot) => (
-                  <tr key={slot.lead_id}>
-                    <td>{slot.name}</td>
-                    <td>{date(slot.at)}</td>
-                    <td>{label(slot.reason)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {!report.future_slots.length && (
-            <p className="fine">No future opportunities in this report.</p>
-          )}
-        </section>
-      )}
-      {report && (
-        <section className="card padded optimization-panel">
-          <h2>Coaching quality</h2>
-          <p>
-            {report.coaching.reviewed_cards} reviewed cards · Useful{" "}
-            {percent(report.coaching.useful_fraction, "Awaiting evidence")} ·
-            Grounded{" "}
-            {percent(report.coaching.grounded_fraction, "Awaiting evidence")} ·
-            Timely{" "}
-            {percent(report.coaching.timely_fraction, "Awaiting evidence")}.
-          </p>
-        </section>
-      )}
-    </>
-  );
-}
-
-/** Settings → Advanced: planning assumptions, experiments and learning diagnostics. */
+/** Settings → Advanced: planning assumptions. What StatML has learned is the card in Review. */
 export function LearningAdvanced() {
-  const state = useOptimizationReport();
-  const { response, report } = state;
-  return (
-    <>
-      <ReportStatus state={state} />
-      {response && (
-        <PlanningAssumptions
-          settings={response.settings}
-          onSaved={state.load}
-        />
-      )}
-      {report && <LearningDiagnostics report={report} />}
-    </>
-  );
+  const { settings, load } = useLearningSettings();
+  return settings ? (
+    <PlanningAssumptions settings={settings} onSaved={load} />
+  ) : null;
 }
 
 const ADVANCED_KEYS = [
@@ -537,69 +234,6 @@ function PlanningAssumptions({
       >
         Save planning assumptions
       </button>
-    </section>
-  );
-}
-
-function LearningDiagnostics({ report }: { report: OptimizationReport }) {
-  const { snapshot: w } = useWorkspace();
-  return (
-    <section
-      className="card padded optimization-panel"
-      aria-label="Learning diagnostics"
-    >
-      <h2>Operational training dataset</h2>
-      <p>
-        {report.dataset.rows} observed attempts · {report.dataset.matured_rows}{" "}
-        closed windows · {report.dataset.pending_rows} pending outcomes ·{" "}
-        {report.dataset.positive_conversions} observed conversions.
-      </p>
-      {report.dataset.missing_snapshot_calls > 0 && (
-        <p className="fine">
-          {report.dataset.missing_snapshot_calls} older attempts lack pre-call
-          snapshots and are retained in history without inventing training
-          features.
-        </p>
-      )}
-      <p className="fine">Drift: {label(report.drift.action)}.</p>
-      {report.drift.stage_support && (
-        <details>
-          <summary>Drift support and missing data</summary>
-          <p>
-            {report.drift.windows}. Compared models:{" "}
-            {report.drift.model_versions?.join(", ") ||
-              "No comparable model evidence"}
-            .
-          </p>
-          {report.drift.missingness_shift && (
-            <p role="status">
-              Missing input coverage changed; check sources before interpreting
-              performance.
-            </p>
-          )}
-          {Object.entries(report.drift.stage_support).map(([stage, v]) => (
-            <p key={stage}>
-              {label(stage)}: {v.reference} reference / {v.recent} recent
-              classified outcomes; {v.paired_support} comparable support.
-            </p>
-          ))}
-        </details>
-      )}
-      <details>
-        <summary>Recent allocation and treatment decisions</summary>
-        {report.decisions
-          .slice(-8)
-          .reverse()
-          .map((decision) => (
-            <p className="fine" key={decision.id}>
-              {w.leads.find((l) => l.id === decision.lead_id)?.name ||
-                "Retained lead"}
-              : {label(decision.allocation?.reason || "authorized allocation")}.{" "}
-              {decision.allocation?.reassignment_reason} Treatment probability{" "}
-              {percent(decision.propensity)}; {label(decision.experiment_arm)}.
-            </p>
-          ))}
-      </details>
     </section>
   );
 }

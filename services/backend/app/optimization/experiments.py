@@ -398,20 +398,8 @@ class ComparisonWorkflows:
                 return None
             choice = strategy_choice(study, lead.id, rep_id)
             if study["strategy_policy"] == "adaptive":
-                saved = self._by_key(s, p, "report_projections", study["report_key"])
-                fresh = bool(
-                    saved
-                    and saved.data["source_revision"] == self.report_revision(s, p)
-                    and timestamp(saved.data["expires_at"]) > self.clock()
-                )
-                report = next(
-                    (
-                        r
-                        for r in (saved.data["report"].get("comparisons", []) if saved else [])
-                        if r["id"] == study["id"] and r.get("strategy_policy_snapshot")
-                    ),
-                    None,
-                )
+                # Saved reward reports went with R8.4; the approved initial policy holds.
+                report, fresh = None, False
                 # Stale rewards hold the last policy actually in force (else the approved initial
                 # one) with its true mixture probabilities; never a deterministic control arm.
                 choice = {

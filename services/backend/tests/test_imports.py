@@ -23,7 +23,6 @@ RANK = {
 # Known edges into legacy code, each removed by the step named. The list only shrinks: a stale entry fails too.
 KNOWN = {
     ("platform/db.py", "app.operational_schema"): "R3.7 folds the schema into platform",
-    ("platform/db.py", "app.reporting"): "R8.4 removes report projections",
     ("platform/db.py", "app.privacy"): "R10.5 replaces the privacy module",
     ("platform/jobs.py", "app.privacy"): "R10.5 replaces the privacy module",
     ("providers/openrouter.py", "app.coaching.contracts"): "R10.1 rebuilds the live helper",

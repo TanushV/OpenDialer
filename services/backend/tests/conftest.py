@@ -277,50 +277,6 @@ def disposition_body(client, headers, call_id, **values):
     return {"request_id": str(uuid4()), "expected_version": current.json()["version"], **values}
 
 
-def completed_report(workspace, *, headers=None, params=None):
-    """Explicitly run the report worker for assertions about its computed evidence."""
-    from functools import partial
-
-    client = workspace["client"]
-    for _ in range(4):
-        response = client.get("/v1/optimization", headers=headers or workspace["headers"], params=params)
-        assert response.status_code == 200, response.text
-        if response.json()["projection"]["status"] == "ready":
-            return response
-        client.portal.call(partial(client.app.state.service.run_jobs, queues=["ml"]))
-    pytest.fail(f"Background report did not finish: {response.json().get('projection')}")
-
-
-def completed_metrics(workspace):
-    """Read the public saved-metrics endpoint and explicitly advance its worker."""
-    from functools import partial
-
-    client = workspace["client"]
-    for _ in range(8):
-        response = client.get("/v1/optimization", headers=workspace["headers"])
-        assert response.status_code == 200, response.text
-        report = response.json()
-        if report["projection"]["status"] == "ready":
-            return {**report["metrics"], "projection": report["projection"]}
-        client.portal.call(partial(client.app.state.service.run_jobs, queues=["ml"]))
-    pytest.fail(f"Background metric projection did not finish: {report['projection']}")
-
-
-def completed_home_metrics(workspace):
-    """Wait for saved home evidence before asserting corrected historical totals."""
-    from functools import partial
-
-    client = workspace["client"]
-    for _ in range(4):
-        response = client.get("/v1/optimization", headers=workspace["headers"])
-        assert response.status_code == 200, response.text
-        report = response.json()
-        if report["projection"]["status"] == "ready":
-            return {**report["metrics"], "projection": report["projection"]}
-        client.portal.call(partial(client.app.state.service.run_jobs, queues=["ml"]))
-    pytest.fail("Background workspace totals did not finish")
-
-
 def save_operating_policy(client, path, *, headers, json):
     """Explicit modern-client fixture, never an application or transport monkeypatch."""
     from uuid import uuid4
