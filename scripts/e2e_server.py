@@ -38,6 +38,18 @@ with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
         return datetime(2026, 10, 14, 18, tzinfo=UTC) + timedelta(seconds=time.monotonic() - began)
 
     app = create_app(settings, clock=clock)
+    if slow_log := os.environ.get("OPENDIALER_E2E_SLOW_LOG"):
+        # Diagnosis only: requests slower than a second, with their path, to find what a browser test waits on.
+        @app.middleware("http")
+        async def time_requests(request, call_next):
+            started = time.monotonic()
+            response = await call_next(request)
+            spent = time.monotonic() - started
+            if spent > 1:
+                with open(slow_log, "a") as log:
+                    log.write(f"{os.getpid()} {spent:.1f}s {request.method} {request.url.path}\n")
+            return response
+
     # Browser tests give each worker its own port (apps/desktop/tests/fixtures.ts).
     port = int(os.environ.get("OPENDIALER_E2E_PORT") or 8765)
     uvicorn.run(app, host="127.0.0.1", port=port, access_log=False, log_level="warning")

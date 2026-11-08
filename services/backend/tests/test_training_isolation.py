@@ -36,7 +36,7 @@ def source(service, p, **fields):
     """An immutable dataset and the job that names it; the job carries no rows."""
     from app.optimization.workflows import dataset_checksum
 
-    value = {"rows": training_rows(), "goal": "meeting_held", **fields}
+    value = {"rows": training_rows(), "goal": "meeting_booked", **fields}
     checksum = dataset_checksum(value)
     with service.db.transaction() as s:
         dataset = put(
@@ -47,7 +47,7 @@ def source(service, p, **fields):
             {**value, "checksum": checksum, "source": "immutable_operational_feature_snapshots"},
         )
         return {
-            "goal": "meeting_held",
+            "goal": "meeting_booked",
             "source_dataset_id": dataset.id,
             "input_fingerprint": checksum,
             **{k: v for k, v in fields.items() if k in {"baseline", "window_days"}},

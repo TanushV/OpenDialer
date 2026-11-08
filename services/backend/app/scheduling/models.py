@@ -53,7 +53,7 @@ REP_CONFIRMED_SOURCES = {"rep_reported"}
 Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 # One optimization defaults registry; the settings API validates bounds on edits.
 OPTIMIZATION_DEFAULTS = {
-    "conversion_goal": "meeting_held",
+    "conversion_goal": "meeting_booked",
     "window_days": 14,
     "exploration": 0.1,
     "auto_train": True,
@@ -187,6 +187,8 @@ def derive_labels(value):
         "human": human,
         "right_party": right,
         "qualified": goal("qualified_conversation"),
+        # R8.1: a held meeting was also booked.
+        "meeting_booked": True if confirmed and code in {"meeting_booked", "meeting_held"} else None,
         "meeting_held": goal("meeting_held"),
         "sale_won": goal("sale_won"),
         "outcome_source": source,

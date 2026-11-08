@@ -15,7 +15,8 @@ from app.scheduling.models import (
     wilson,
 )
 
-GOALS = {"qualified_conversation", "meeting_held", "sale_won"}
+# R8.1: meeting_booked is known at wrap-up; meeting_held stays as the later correction.
+GOALS = {"qualified_conversation", "meeting_booked", "meeting_held", "sale_won"}
 # Approved trials use their declared two-arm allocation (EXECUTION_SPEC E08.13: default 50/50).
 # Outside an active trial a persistent stable control holdout (configurable, default 10%) keeps
 # measuring a promoted model without withholding it from half of the leads. Both use the same
@@ -115,6 +116,10 @@ def freeze_features(lead, *, health, now, calls=()):
     }
 
 
+def is_test_call(call):
+    return bool(call.get("is_test") or (call.get("disposition_input") or {}).get("delivery_test"))
+
+
 def training_rows(calls, snapshots, events, *, now, goal, window_days, include_unclassified=False):
     """As-of rows. Negatives mature only after window close with a classified outcome and known
     attribution; an unattributed lead outcome credits exactly the latest earlier attempt."""
@@ -141,6 +146,8 @@ def training_rows(calls, snapshots, events, *, now, goal, window_days, include_u
                 credited[event["id"]] = max(touching)[1] if touching else None
     result = []
     for call in sorted(calls, key=lambda c: c.get("started_at", "")):
+        if is_test_call(call):
+            continue  # R8.1: the owner's test line and delivery tests never teach the model.
         at = timestamp(call.get("started_at"))
         snapshot = by_id.get(call.get("feature_snapshot_id"))
         if not at or at > now or not snapshot or timestamp(snapshot.get("as_of")) is None:

@@ -143,9 +143,10 @@ def test_goal_change_preview_save_and_reconciliation(workspace, clock):
     )
     assert booked.status_code == 200, booked.text
     report = settled(workspace, "/v1/optimization")
-    assert report["settings"]["conversion_goal"] == "meeting_held"
+    # R8.1: the default goal is a booked meeting, known at wrap-up.
+    assert report["settings"]["conversion_goal"] == "meeting_booked"
     preview = post(workspace, "/v1/admin/optimization/preview", {"conversion_goal": "qualified_conversation"})
-    assert preview["from_goal"] == "meeting_held" and preview["to_goal"] == "qualified_conversation"
+    assert preview["from_goal"] == "meeting_booked" and preview["to_goal"] == "qualified_conversation"
     assert preview["preserved_holds"] == 1
     stale = {
         "conversion_goal": "qualified_conversation",

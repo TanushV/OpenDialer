@@ -1059,7 +1059,9 @@ Goal: nothing moves, nothing gets covered, and the rep always knows what is happ
 - [x] R5.12 Layout audit passes for every phase, using long names and the real script.
       Then set the browser suite's retries to 0 in CI, so any flake fails (one retry since R2.1).
       Done November 8 for every phase the simulation reaches, with a long lead name, in WebKit at both sizes; CI
-      retries are 0. The owner's real script is checked in R5.11.
+      retries were set to 0. Reverted the same day: with no retry, CI showed older flakes the retry had
+      hidden. Under load a test's click sometimes never reaches its handler (no request is sent) while the page
+      re-reads the workspace many times a second. Open: find and fix that, then set CI retries to 0 again.
 - [ ] R5.13 Owner uses the Dialer on test calls and reports anything confusing.
 
 Done when: the audit passes and the owner confirms it reads clearly.
@@ -1119,8 +1121,11 @@ Done when: the owner can read the page without explanation.
 
 Goal: it can learn, and you can see that it is learning.
 
-- [ ] R8.1 Failing tests: test calls never enter datasets; goal `meeting_booked` labels at wrap-up.
-- [ ] R8.2 Add `is_test`; clean existing rows in the migration.
+- [x] R8.1 Failing tests: test calls never enter datasets; goal `meeting_booked` labels at wrap-up. Done November 8:
+      `meeting_booked` is the default goal, labeled when the rep saves it and retracted by a correction; a held meeting
+      also counts as booked.
+- [x] R8.2 Add `is_test`; clean existing rows in the migration. Done November 8: calls carry `is_test` (R3.7 marked the
+      4 existing test calls), and training rows skip test calls and delivery tests.
 - [ ] R8.3 Add features from section 8, bumping the feature schema version; keep old rows usable.
 - [ ] R8.4 Compute estimates directly from calls; remove the remaining projection machinery.
 - [ ] R8.5 Automatic promotion from the existing out-of-time review.

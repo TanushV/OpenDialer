@@ -20,7 +20,7 @@ from app.service import dt, fail
 # An AI-suggested callback time defers automatic outreach this long at most; only a
 # rep-stated callback holds outreach until the rep confirms a time.
 SUGGESTION_HOLD = timedelta(days=7)
-GOAL_OUTCOMES = {"qualified_conversation", "meeting_held", "sale_won"}
+GOAL_OUTCOMES = {"qualified_conversation", "meeting_booked", "meeting_held", "sale_won"}
 PROMISE_STATUS = {
     "open": "confirmed",
     "snoozed": "confirmed",
@@ -780,6 +780,36 @@ class RepWorkflows:
                 continue
             emit(s, p["tenant_id"], "lead.meeting_updated", other, self.clock())
 
+    def _booked_label(self, s, p, lead, *, booked, call_id):
+        """R8.1: the meeting_booked label, known at wrap-up; a correction retracts it."""
+        event = self._by_key(s, p, "conversion_events", "rep-booked:" + lead.id)
+        now = self.clock().isoformat()
+        if booked and not (event and not event.data.get("retracted")):
+            values = {
+                "lead_id": lead.id,
+                "kind": "meeting_booked",
+                "occurred_at": now,
+                "observed_at": now,
+                "label_available_at": now,
+                "source": "rep_reported",
+                "retracted": False,
+                "call_id": call_id,
+            }
+            if event:
+                update(event, **values, retracted_at=None)
+            else:
+                put(
+                    s,
+                    "conversion_events",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    values,
+                    key="rep-booked:" + lead.id,
+                    now=self.clock(),
+                )
+        elif not booked and event and not event.data.get("retracted"):
+            update(event, retracted=True, retracted_at=now)
+
     def _meeting_in(
         self,
         s,
@@ -847,6 +877,9 @@ class RepWorkflows:
                 explicit_replacement=True,
             )
         self._sync_callback(s, p, lead)
+        self._booked_label(
+            s, p, lead, booked=status in {"booked", "rescheduled", "held"}, call_id=source_call_id
+        )
         # Explicit later meeting reports retain occurrence/observation provenance for learning.
         event = self._by_key(s, p, "conversion_events", "rep-meeting:" + lead.id)
         if status == "held":
@@ -1195,6 +1228,7 @@ class RepWorkflows:
                 retraction_reason="corrected_disposition",
             )
         if meeting.get("source_call_id") == call.id:
+            self._booked_label(s, p, lead, booked=False, call_id=call.id)
             update(
                 lead,
                 meeting={
