@@ -179,7 +179,10 @@ for (const pause of [false, true]) {
       .getByRole("button", { name: "Mailbox beep", exact: true })
       .click();
     if (pause) {
-      await expect(callStatus(page)).toContainText("Skipped");
+      // The skip waits at least 7 seconds after the answer (D6), then the carrier result is saved.
+      await expect(callStatus(page)).toContainText("Skipped", {
+        timeout: 30_000,
+      });
       await pauseCalling(page).click();
       await expect(startCalling(page)).toBeVisible();
       // Pass the countdown: no hidden timer may place a call.
