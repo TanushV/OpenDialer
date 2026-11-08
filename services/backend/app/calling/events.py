@@ -5,6 +5,7 @@ commands and starting jobs stays with the caller, so every rule here is testable
 """
 
 import re
+from datetime import datetime, timedelta
 
 from app.calling.state import HUMAN_EVENTS, TERMINAL
 
@@ -59,18 +60,31 @@ def final_attempt(call, policy):
     return call.get("attempt_ordinal", 0) >= call.get("attempt_allowance", policy.get("max_attempts", 4))
 
 
-def machine(call, event_type, *, final):
-    """(changes, hang up now) for a machine or beep result. The last attempt keeps the line open for a message."""
+# D6: a skipped voicemail is never hung up sooner than this after the answer, so a slow "hello" is not cut off.
+VOICEMAIL_MIN_SECONDS = 7
+
+
+def machine(call, event_type, *, final, now):
+    """(changes, when to hang up or None) for a machine or beep result (D6, R6.3).
+
+    Detection skips the mailbox at the later of now and 7 seconds after the answer. A final attempt keeps the line
+    open for the rep's message, and Stay or detected call screening keeps it open too.
+    """
     if event_type not in MACHINE_EVENTS | BEEP_EVENTS or call.get("human_answered_at"):
-        return {}, False
+        return {}, None
     if final:
-        return {"machine_detected": True, "voicemail_turn": True}, False
-    hang_up = (
-        event_type in BEEP_EVENTS
-        and not call.get("stay_on_voicemail")
-        and call.get("state") not in TERMINAL | {"ENDING"}
+        return {"machine_detected": True, "voicemail_turn": True}, None
+    if (
+        call.get("stay_on_voicemail")
+        or call.get("screening_detected")
+        or call.get("state") in TERMINAL | {"ENDING"}
+    ):
+        return {"machine_detected": True}, None
+    answered = call.get("answered_at")
+    earliest = (
+        datetime.fromisoformat(answered) + timedelta(seconds=VOICEMAIL_MIN_SECONDS) if answered else now
     )
-    return {"machine_detected": True}, hang_up
+    return {"machine_detected": True}, max(now, earliest)
 
 
 def screening(call, event_type):

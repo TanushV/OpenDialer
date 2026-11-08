@@ -307,14 +307,17 @@ def test_a_machine_result_alone_never_hangs_up(workspace, app, carrier):
     assert saved["machine_detected"] is True and not saved.get("voicemail_turn")
 
 
-def test_a_voicemail_beep_ends_an_ordinary_attempt_without_a_floor(workspace, carrier, clock):
+def test_a_detected_voicemail_ends_an_ordinary_attempt_at_seven_seconds(workspace, carrier, clock):
+    """D6, R6.3: skipped at detection, but never sooner than 7 seconds after the answer."""
     from datetime import timedelta
 
     call = start(workspace)
     event(workspace, call, "call.answered")
     event(workspace, call, "call.machine.premium.detection.ended:machine")
     clock.now += timedelta(seconds=3)
-    event(workspace, call, "call.machine.premium.greeting.ended:beep_detected")
+    run_controls(workspace)
+    assert carrier.hangups == []
+    clock.now += timedelta(seconds=5)
     run_controls(workspace)
     assert [h["provider_id"] for h in carrier.hangups] == [call["provider_id"]]
 
@@ -376,13 +379,10 @@ def test_the_final_attempt_stays_on_the_line_to_leave_a_voicemail(workspace, app
     [
         "call.machine.premium.call_screening.detected:screening",
         "call.machine.premium.greeting.ended:prompt_ended",
-        "call.machine.premium.greeting.ended:no_beep_detected",
-        "call.machine.premium.detection.ended:silence",
-        "call.machine.premium.detection.ended:not_sure",
     ],
 )
 @pytest.mark.slow
-def test_screening_and_unclear_results_stay_on_the_line(workspace, carrier, clock, name):
+def test_call_screening_withdraws_a_pending_voicemail_skip(workspace, carrier, clock, name):
     from datetime import timedelta
 
     call = start(workspace)

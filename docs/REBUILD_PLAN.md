@@ -1066,8 +1066,10 @@ Goal: the loop runs with almost no decisions.
 - [ ] R6.1 Failing tests for the behavior table in section 6.
 - [x] R6.2 Auto-advance after Saved (3 seconds) and Skipped (1.5 seconds), with Space to go now and `P` to pause. Done
       November 8 with the Dialer loop.
-- [ ] R6.3 Voicemail: on detection, hang up at the later of detection and 7 seconds; final attempt holds; `S` stays;
+- [x] R6.3 Voicemail: on detection, hang up at the later of detection and 7 seconds; final attempt holds; `S` stays;
       screening is not skipped.
+      Done November 8: a machine result schedules the hang-up at the later of now and 7 seconds after the answer; a
+      final attempt opens the line for a message; Stay and detected call screening withdraw a pending skip.
 - [ ] R6.4 Log detection against what really happened; report after 50 calls.
 - [ ] R6.5 Auto-dial stop conditions, each with a plain message.
 - [ ] R6.6 Test-line allowlist enforced in code during test sessions.

@@ -34,22 +34,31 @@ def test_carrier_outcomes_are_settled_only_when_no_person_answered():
     assert events.carrier_outcome({"sip_block_code": "603"}, {"hangup_cause": "timeout"}) is None
 
 
-def test_a_beep_hangs_up_unless_final_staying_or_ending():
-    beep = "call.machine.premium.greeting.ended:beep_detected"
+def test_voicemail_is_skipped_at_detection_but_never_before_seven_seconds():
+    """D6, R6.3: detection skips at the later of now and 7 seconds after the answer."""
+    from datetime import timedelta
+
     machine = "call.machine.premium.detection.ended:machine"
-    assert events.machine({"state": "VOICEMAIL_GREETING"}, beep, final=False) == (
+    beep = "call.machine.premium.greeting.ended:beep_detected"
+    early = {"state": "VOICEMAIL_GREETING", "answered_at": (NOW - timedelta(seconds=2)).isoformat()}
+    late = {"state": "VOICEMAIL_GREETING", "answered_at": (NOW - timedelta(seconds=9)).isoformat()}
+    assert events.machine(early, machine, final=False, now=NOW) == (
         {"machine_detected": True},
-        True,
+        NOW + timedelta(seconds=5),
     )
-    assert events.machine({"state": "VOICEMAIL_GREETING"}, machine, final=False) == (
-        {"machine_detected": True},
-        False,
+    assert events.machine(late, beep, final=False, now=NOW) == ({"machine_detected": True}, NOW)
+
+
+def test_voicemail_stays_open_on_a_final_attempt_stay_screening_or_ending():
+    machine = "call.machine.premium.detection.ended:machine"
+    assert events.machine({}, machine, final=True, now=NOW) == (
+        {"machine_detected": True, "voicemail_turn": True},
+        None,
     )
-    assert events.machine({}, beep, final=True) == ({"machine_detected": True, "voicemail_turn": True}, False)
-    assert events.machine({"stay_on_voicemail": True}, beep, final=False)[1] is False
-    assert events.machine({"state": "ENDING"}, beep, final=False)[1] is False
-    assert events.machine({"human_answered_at": "x"}, beep, final=False) == ({}, False)
-    assert events.machine({}, "call.answered", final=False) == ({}, False)
+    for call in ({"stay_on_voicemail": True}, {"screening_detected": True}, {"state": "ENDING"}):
+        assert events.machine(call, machine, final=False, now=NOW)[1] is None
+    assert events.machine({"human_answered_at": "x"}, machine, final=False, now=NOW) == ({}, None)
+    assert events.machine({}, "call.answered", final=False, now=NOW) == ({}, None)
 
 
 def test_final_attempt_reads_the_allowance_or_the_policy():

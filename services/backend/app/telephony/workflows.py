@@ -171,18 +171,25 @@ class TelephonyWorkflows:
                     if outcome:
                         update(call, carrier_outcome=outcome)
                         self._offer_second_attempt(s, call, lead, policy)
-                changes, hang_up = events.machine(
-                    call.data, event_type, final=events.final_attempt(call.data, policy)
+                changes, hang_up_at = events.machine(
+                    call.data, event_type, final=events.final_attempt(call.data, policy), now=self.clock()
                 )
                 if changes:
                     update(call, **changes)
-                    if hang_up:
+                    if hang_up_at:
                         command = self.control_intent(s, p, call_id, "hangup", {}, suffix="machine-hangup")
-                        if session is not None:
+                        if hang_up_at > self.clock():
+                            # The maintenance pass sends it once due; Space skips sooner.
+                            update(command, not_before=hang_up_at.isoformat())
+                        elif session is not None:
                             result["voicemail_control"] = (p, command.id)
                     emit(s, p["tenant_id"], "call.updated", call, self.clock())
                 changes = events.screening(call.data, event_type)
                 if changes:
+                    # Call screening is a person's gate, never a mailbox: a pending skip is withdrawn (R6.3).
+                    waiting = self._by_key(s, p, "command_outbox", f"{call_id}:machine-hangup")
+                    if waiting and waiting.data["status"] == "pending" and not waiting.data.get("sent_at"):
+                        update(waiting, status="cancelled", reason="SCREENING_DETECTED")
                     update(call, **changes)
                     emit(s, p["tenant_id"], "call.updated", call, self.clock())
                 changes, first_answer = events.human(call.data, event_type, self.clock())
