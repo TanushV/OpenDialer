@@ -1099,7 +1099,8 @@ Goal: plainly what to add and where to get it.
 - [x] R7.3 Check on save for each key; rows show what each powers and link to where to get it. Done November 8 for
       Telnyx and OpenRouter (one authenticated request each, stored with a fingerprint of the key); RealValidito,
       HubSpot and Treg get theirs in Phase 9B.
-- [ ] R7.4 Connection reconnects by itself; the setup-file import appears only when disconnected.
+- [x] R7.4 Connection reconnects by itself; the setup-file import appears only when disconnected. Done November 8:
+      the relay loop reconnects on its own (R4.7); the import field and Reconnect show only while it is down.
 - [ ] R7.5 Test call button to the saved test phone.
       Backend done November 8: `/v1/settings/test-call` adds the test phone to a "Test line" list and starts a test
       session; the queue offers only that list, dialing refuses any other number, and every call in it is a test call.

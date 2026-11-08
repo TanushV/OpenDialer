@@ -7,6 +7,10 @@ export interface ConnectionStatus {
   label?: string;
   numbers?: number;
 }
+/** R7.4: the connection reconnects by itself; the setup file is asked for only while it is down. */
+export const needsSetupFile = (status: ConnectionStatus | null) =>
+  !status?.connected;
+
 export function ManagedConnection({
   changed,
 }: {
@@ -55,38 +59,42 @@ export function ManagedConnection({
           . {status.numbers ?? 0} verified numbers.
         </p>
       )}
-      <label>
-        Import calling setup (.json)
-        <input
-          type="file"
-          accept=".json,application/json"
-          disabled={busy}
-          onChange={(event) => {
-            const file = event.currentTarget.files?.[0];
-            event.currentTarget.value = "";
-            if (!file) return;
-            void run(async () => {
-              setBusy(true);
-              try {
-                if (file.size > 16384)
-                  throw new Error("Choose the small calling setup JSON file.");
-                const value = await api<ConnectionStatus>(
-                  "/v1/admin/managed-connection",
-                  "POST",
-                  JSON.parse(await file.text()),
-                );
-                setStatus(value);
-                changed(value);
-                await refresh();
-                notice("Calling setup imported. Checking the connection…");
-              } finally {
-                setBusy(false);
-              }
-            });
-          }}
-        />
-      </label>
-      {status?.configured && (
+      {needsSetupFile(status) && (
+        <label>
+          Import calling setup (.json)
+          <input
+            type="file"
+            accept=".json,application/json"
+            disabled={busy}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (!file) return;
+              void run(async () => {
+                setBusy(true);
+                try {
+                  if (file.size > 16384)
+                    throw new Error(
+                      "Choose the small calling setup JSON file.",
+                    );
+                  const value = await api<ConnectionStatus>(
+                    "/v1/admin/managed-connection",
+                    "POST",
+                    JSON.parse(await file.text()),
+                  );
+                  setStatus(value);
+                  changed(value);
+                  await refresh();
+                  notice("Calling setup imported. Checking the connection…");
+                } finally {
+                  setBusy(false);
+                }
+              });
+            }}
+          />
+        </label>
+      )}
+      {status?.configured && !status.connected && (
         <button
           className="secondary"
           disabled={busy}
