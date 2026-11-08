@@ -11,6 +11,8 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy import delete, func, or_, select, text
 
+from app.calling.blockers import Facts
+from app.calling.blockers import blockers as dial_gate
 from app.calling.state import TERMINAL
 from app.intelligence import Application
 from app.number_operations import NumberOperations
@@ -39,11 +41,6 @@ NO_LEADS = (
     "No one to call right now. Leads still being researched show on the Leads page; "
     "others may be outside calling hours or already called today."
 )
-NUMBER_STEPS = {
-    "NO_CALLER_NUMBER": "Add a caller number in Numbers: buy one, or add one you own in Telnyx.",
-    "CALLER_NUMBER_ROUTE_REQUIRED": "Set up your caller number's route in Numbers.",
-    "CALLER_NUMBER_PAUSED": "Your caller numbers are paused. Resume one in Numbers.",
-}
 SETUP_REASONS = {"REP_NOT_READY", "AUDIO_NOT_READY", "LIVE_OBLIGATION", "RESERVATION_EXISTS"}
 TIMING_REASONS = {"OUTSIDE_CALLING_WINDOW", "NOT_DUE", "CADENCE_LIMIT", "ENDPOINT_CLAIMED"}
 REGISTRY_REASONS = {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"}
@@ -182,6 +179,38 @@ class Dialer(
     TelephonyWorkflows,
     Application,
 ):
+    def dial_blockers_in(self, s, p, *, rep, integrity_ok=True):
+        """Everything that stops calling now (`calling/blockers.py`). `rep` adds the rep's own audio."""
+        conf = self.configs.read(p["tenant_id"])
+        seller = self.required(s, "sellers", p["seller_id"], p)
+        presence = self.required(s, "users", p["user_id"], p).data.get("presence", {}) if rep else {}
+        numbers = self.scoped(s, "number_inventory", p)
+        audio = None
+        if rep:
+            agent = presence.get("agent_call_control_id")
+            audio = bool(agent and presence.get("audio_ready") and presence.get("telephony_ready"))
+            if audio and not self.settings.simulation:
+                leg = self.agent_leg_in(s, p, provider_id=agent, rep_id=p["user_id"])
+                audio = bool(leg and leg.data.get("state") == "answered")
+        return dial_gate(
+            Facts(
+                carrier_setup_required=not self.settings.simulation,
+                integrity_ok=integrity_ok,
+                restore_hold=bool(seller.data.get("restore_hold")),
+                telnyx_configured=bool(conf.get("telnyx_api_key") and conf.get("telnyx_connection_id")),
+                signature_key=bool(conf.get("telnyx_public_key")),
+                audio_setup=bool(conf.get("sip_username") and conf.get("telephony_credential_id")),
+                connection=self.managed.connection_code(p["tenant_id"]),
+                campaign=bool(next(iter(self.scoped(s, "campaigns", p)), None)),
+                number=self.number_setup_blocker(s, p, numbers),
+                test_number=next(
+                    (n.data["phone"] for n in numbers if n.data.get("identity_configured")), None
+                ),
+                pending_optouts=presence.get("pending_optouts", 0),
+                rep_audio_ready=audio,
+            )
+        )
+
     def preflight(self, p, *, full=True, deep=False):
         if not full:
             cached = self.capability_cache.get((p["tenant_id"], p["seller_id"]), {})
@@ -202,6 +231,7 @@ class Dialer(
             }
         conf = self.configs.read(p["tenant_id"])
         blockers, warnings = [], []
+        integrity = self.database_integrity(deep=deep)
         with self.db.transaction(False) as s:
             # A missing campaign or budget is a named blocker, not an IndexError.
             campaign = next(iter(self.scoped(s, "campaigns", p)), None)
@@ -209,14 +239,8 @@ class Dialer(
             seller = self.required(s, "sellers", p["seller_id"], p)
             operating = dict(seller.data.get("operating_policy", {}))
             source_version = f"{conf.get('version', 0)}:{seller.version}:{policy.version if policy else 0}"
-            if not campaign:
-                blockers.append("NO_CAMPAIGN")
-            if seller.data.get("restore_hold"):
-                blockers.append("RESTORE_RECONCILIATION_REQUIRED")
+            blockers.extend(b.code for b in self.dial_blockers_in(s, p, rep=False, integrity_ok=integrity))
             numbers = self.scoped(s, "number_inventory", p)
-            number_blocker = self.number_setup_blocker(s, p, numbers)
-            if number_blocker:
-                blockers.append(number_blocker)
             from app.compliance.operating import screening_capability, screening_snapshot
 
             screening = screening_capability(screening_snapshot(self, s, p))
@@ -232,18 +256,7 @@ class Dialer(
             )
             if pending:
                 warnings.append("Uncertain commands require reconciliation")
-        if not self.settings.simulation:
-            if not conf.get("telnyx_api_key") or not conf.get("telnyx_connection_id"):
-                blockers.append("TELNYX_NOT_CONFIGURED")
-            if not conf.get("telnyx_public_key"):
-                blockers.append("WEBHOOK_SIGNATURE_KEY_MISSING")
-            if not self.managed.enabled(p["tenant_id"]) and not conf.get(
-                "webhook_url", self.settings.webhook_public_url
-            ).startswith("https://"):
-                blockers.append("PUBLIC_WEBHOOK_URL_MISSING")
-            if not conf.get("sip_username") or not conf.get("telephony_credential_id"):
-                blockers.append("AUDIO_SETUP_MISSING")
-        else:
+        if self.settings.simulation:
             warnings.append("Simulated providers: no real calls, purchases, inference, or carrier billing")
         inference = bool(self.inference(p["tenant_id"], "research_extract", p["user_id"]))
         if not inference:
@@ -251,9 +264,6 @@ class Dialer(
         provider = conf.get("coach_provider", PROVIDER_DEFAULTS.coach_provider)
         if provider == "openrouter" and not conf.get("openrouter_api_key"):
             warnings.append("OpenRouter/Cerebras is unconfigured; approved static coaching remains available")
-        integrity = self.database_integrity(deep=deep)
-        if not integrity:
-            blockers.append("DATABASE_INTEGRITY_FAILURE")
         capabilities = capability_statuses(
             {**conf, "webhook_url": conf.get("webhook_url", self.settings.webhook_public_url)},
             operating,
@@ -265,8 +275,6 @@ class Dialer(
         )
         if self.managed.enabled(p["tenant_id"]):
             connected = self.managed.status()["connected"]
-            if not connected:
-                blockers.append("MANAGED_CONNECTION_UNAVAILABLE")
             for capability in capabilities:
                 if capability["id"] == "local_ingress":
                     capability.update(
@@ -398,20 +406,12 @@ class Dialer(
         detail = {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons), "message": NO_LEADS}
         if not set(reasons) & NUMBER_REASONS:
             return detail
-        numbers = self.scoped(s, "number_inventory", p)
-        blocker = self.number_setup_blocker(s, p, numbers)
-        if blocker == "CALLER_NUMBER_CALLBACK_TEST_REQUIRED":
-            phone = next(n.data["phone"] for n in numbers if n.data.get("identity_configured"))
-            detail["message"] = (
-                f"One test call left: go ready, call {phone} from your phone and answer it here."
-            )
-        elif blocker:
-            detail["message"] = NUMBER_STEPS[blocker]
-        else:
-            detail["message"] = (
-                "No eligible caller number is available now. Check assigned numbers, active calls, "
-                "and daily limits in Numbers."
-            )
+        # Number setup itself is a blocker (`dial_blockers_in`) checked before the queue runs; here a
+        # number exists but none is free for these leads now.
+        detail["message"] = (
+            "No eligible caller number is available now. Check assigned numbers, active calls, "
+            "and daily limits in Numbers."
+        )
         if set(reasons) - NUMBER_REASONS:
             detail["message"] += " Other leads may be outside calling hours or already called today."
         return detail

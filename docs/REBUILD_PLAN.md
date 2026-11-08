@@ -973,7 +973,10 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
 - [x] R4.2 `calling/events.py`: `apply_event` split into small steps, each testable alone.
       Done November 7: hang-up facts, carrier block, carrier outcome, machine, screening and answer are pure steps with
       their own tests; the legacy handler only stores their changes and starts the follow-on work.
-- [ ] R4.3 `calling/blockers.py`: one function; remove every other gate; each code has a message and fix.
+- [x] R4.3 `calling/blockers.py`: one function; remove every other gate; each code has a message and fix.
+      Done November 8: dial, the queue, preflight and the relay all read `blockers()`; `/v1/blockers` lists them for the
+      screen. Every refusal is a 409 with `code`, `message` and `fix`. A test bans readiness codes outside the gate and
+      the modules that supply its facts; the audio-leg setup check joins `calling/` in R4.4.
 - [ ] R4.4 `calling/audio_leg.py`: one fresh leg per call, client stays registered, credential verified once per session.
 - [ ] R4.5 `calling/dial.py`: keep durable dial and hang-up records and read-only reconcile; `save_disposition` under
       120 lines.

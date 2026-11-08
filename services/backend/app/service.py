@@ -12,6 +12,7 @@ import httpx
 from fastapi import HTTPException
 from sqlalchemy import delete, or_, select
 
+from app.calling.blockers import refuse
 from app.calling.state import TERMINAL, transition
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize, retry_seconds
@@ -726,20 +727,7 @@ class Service(LeadLists, ReservationPlanner):
             .execution_options(synchronize_session=False)
         )
 
-    def agent_ready_in(self, s, p):
-        """The rep's audio leg that the dial links to, rechecked at start rather than assumed."""
-        presence = self.required(s, "users", p["user_id"], p).data.get("presence", {})
-        agent = presence.get("agent_call_control_id")
-        ready = bool(agent and presence.get("audio_ready") and presence.get("telephony_ready"))
-        if ready and not self.settings.simulation:
-            leg = self.agent_leg_in(s, p, provider_id=agent, rep_id=p["user_id"])
-            ready = bool(leg and leg.data.get("state") == "answered")
-        if not ready:
-            fail(409, {"code": "REP_AUDIO_NOT_READY", "message": "Reconnect rep audio, then start the call"})
-        return agent
-
     def _prepare_call(self, p, data):
-        self.managed.require_ready(p["tenant_id"])
         now = self.clock()
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
@@ -761,7 +749,8 @@ class Service(LeadLists, ReservationPlanner):
             claim = s.scalar(select(ActiveClaim).where(ActiveClaim.reservation_id == reservation.id))
             if not claim:
                 fail(409, "Reservation claim is no longer valid")
-            agent = self.agent_ready_in(s, p)
+            refuse(self.dial_blockers_in(s, p, rep=True))
+            agent = self.required(s, "users", p["user_id"], p).data["presence"]["agent_call_control_id"]
             lead = self.required(s, "leads", reservation.data["lead_id"], p)
             number = self.required(s, "number_inventory", reservation.data["number_id"], p)
             self.managed.require_number(p["tenant_id"], number.data)
@@ -876,9 +865,9 @@ class Service(LeadLists, ReservationPlanner):
         return await asyncio.to_thread(self._call_snapshot, p, call["id"])
 
     def _claim_dial(self, p, call_id, owner):
-        self.managed.require_ready(p["tenant_id"])
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
+            refuse(self.dial_blockers_in(s, p, rep=False))
             # Lock call, then lead, as other call writers do: the dial claim updates both.
             call = self.required(s, "call_attempts", call_id, p, lock=True)
             model = MODELS["command_outbox"]

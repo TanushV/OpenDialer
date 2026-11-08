@@ -584,6 +584,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def next_lead(data: QueueNext, p=Depends(principal)):
         return service.reserve(p, data.campaign_id, data.list_names, data.callback_lead_id)
 
+    @app.get("/v1/blockers")
+    def calling_blockers(p=Depends(principal)):
+        """What stops calling now, first to fix first; empty when the rep can dial (R4.3)."""
+        with db.transaction(False) as s:
+            return {"blockers": [b.detail() for b in service.dial_blockers_in(s, p, rep=True)]}
+
     @app.post("/v1/calls/start")
     async def start_call(data: CallStart, p=Depends(principal)):
         return await service.start_call(p, data.model_dump())

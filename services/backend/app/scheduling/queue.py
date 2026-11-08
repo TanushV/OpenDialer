@@ -168,15 +168,9 @@ class ReservationPlanner:
         )
 
     def _queue_presence(self, s, p):
-        from app.service import fail
+        from app.calling.blockers import refuse
 
-        presence = self.required(s, "users", p["user_id"], p).data.get("presence", {})
-        if presence.get("pending_optouts", 0):
-            fail(409, "PENDING_LOCAL_OPTOUTS")
-        if presence.get("status") != "ready" or not all(
-            presence.get(k) for k in ("audio_ready", "telephony_ready", "agent_call_control_id")
-        ):
-            fail(409, "REP_OR_AUDIO_NOT_READY")
+        refuse(self.dial_blockers_in(s, p, rep=True))
 
     def _selection(self, s, p, campaign_id):
         from app.service import fail

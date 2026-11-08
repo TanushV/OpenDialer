@@ -38,8 +38,11 @@ def offered(ws):
 
 
 def refused(ws):
+    """Why Next call was refused: the blocker code, or the queue's reasons when leads ran out."""
     status, body = queue(ws)
-    assert status == 409 and body["detail"]["code"] == "NO_ELIGIBLE_LEADS", body
+    assert status == 409, body
+    if body["detail"]["code"] != "NO_ELIGIBLE_LEADS":
+        return {body["detail"]["code"]}
     return set(body["detail"]["reasons"])
 
 
@@ -122,7 +125,7 @@ def test_paused_numbers_block_dialing_until_a_reviewed_resume(workspace, clock):
         )
         assert patched["lifecycle"] == "paused_for_outbound"
     assert get(workspace, "/v1/admin/numbers/summary")["inventory"]["ready"] == 0
-    assert "NUMBER_UNHEALTHY" in refused(workspace)
+    assert refused(workspace) & {"NUMBER_UNHEALTHY", "CALLER_NUMBER_PAUSED"}
     rep = post(
         workspace,
         "/v1/admin/users",
@@ -181,7 +184,7 @@ def test_external_reputation_flags_numbers_until_cleared_and_review_shows_it(wor
     assert {"workload", "policy"} <= set(review)
     assert review["workload"]["current_limit"] == 0
     assert review["workload"]["approved_daily_limit"] == numbers(workspace)["+14155550100"]["daily_limit"]
-    assert "NUMBER_UNHEALTHY" in refused(workspace)
+    assert refused(workspace) & {"NUMBER_UNHEALTHY", "CALLER_NUMBER_PAUSED"}
     future = reputation("clear", now + timedelta(hours=1))
     call(
         workspace,

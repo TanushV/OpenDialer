@@ -61,7 +61,7 @@ def test_going_ready_names_the_missing_piece(workspace, app, config, numbers, co
     if numbers:
         set_numbers(app, **numbers)
     response = workspace["client"].post("/v1/telephony/agent", headers=workspace["headers"])
-    assert response.status_code == 503, response.text
+    assert response.status_code == 409, response.text
     detail = response.json()["detail"]
     assert detail["code"] == code and detail["message"]
     assert "SIP credential and an owned healthy caller ID" not in detail["message"]

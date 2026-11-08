@@ -7,6 +7,7 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from app.calling import events
+from app.calling.blockers import blocked, refuse
 from app.calling.state import TERMINAL
 from app.compliance.policy import authorize
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
@@ -20,11 +21,6 @@ TRANSCRIPTION_ENGINE = "Soniox"
 
 # How long the final-stage second attempt stays offered after the unanswered one ends.
 SECOND_ATTEMPT_WINDOW = timedelta(minutes=5)
-AGENT_STEPS = {
-    "AUDIO_SETUP_MISSING": "This computer has no calling audio login. Import your calling setup in Settings.",
-    "NO_CALLER_NUMBER": "Add a caller number in Numbers: buy one, or add one you own in Telnyx.",
-    "CALLER_NUMBER_ROUTE_REQUIRED": "Set up your caller number's route in Numbers before going ready.",
-}
 
 
 class TelephonyWorkflows:
@@ -512,7 +508,7 @@ class TelephonyWorkflows:
                 conf.get("telephony_credential_id") if p["role"] in {"owner", "admin"} else None
             )
             if not sip or not re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", sip) or not credential:
-                fail(503, {"code": "AUDIO_SETUP_MISSING", "message": AGENT_STEPS["AUDIO_SETUP_MISSING"]})
+                refuse([blocked("AUDIO_SETUP_MISSING")])
             numbers = [
                 n
                 for n in self.scoped(s, "number_inventory", p)
@@ -525,7 +521,7 @@ class TelephonyWorkflows:
             ]
             if not routed:
                 code = "CALLER_NUMBER_ROUTE_REQUIRED" if numbers else "NO_CALLER_NUMBER"
-                fail(503, {"code": code, "message": AGENT_STEPS[code]})
+                refuse([blocked(code)])
             ready = [n for n in routed if n.data["lifecycle"] in {"healthy", "limited_real_use"}]
         return sip, credential, (ready or routed)[0].data["phone"]
 

@@ -10,6 +10,7 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
+from app.calling.blockers import CATALOG, blocked, refuse
 from app.calling.state import TERMINAL
 from app.platform.db import MODELS
 from app.platform.secret_files import read_private, write_private
@@ -114,17 +115,27 @@ class ManagedConnection:
             ),
         }
 
+    def refusal_code(self):
+        """Why new calls are paused, as a blocker code (see `calling/blockers.py`)."""
+        if self.configuring:
+            return "CONNECTION_SETUP_CHANGING"
+        if self.state == "sign_in_required":
+            return "CONNECTION_SIGN_IN_REQUIRED"
+        if self.state == "delivery_gap" or (self.last_probe and not self.caught_up):
+            return "CONNECTION_DELIVERY_GAP"
+        return "CONNECTION_RECONNECTING"
+
     def refusal(self):
         """The real reason new calls are paused, in the rep's words."""
+        return CATALOG[self.refusal_code()][0]
+
+    def connection_code(self, tenant_id):
+        """None while call events flow for this workspace, else the blocker code."""
         if self.configuring:
-            return "Calling setup is being changed; new calls are paused"
-        if self.state == "sign_in_required":
-            return "Call events need a fresh sign-in: import the setup file in Settings. Hangup remains available."
-        if self.state == "delivery_gap":
-            return "Call events had a delivery gap and are catching up; new calls resume by themselves."
-        if self.last_probe and not self.caught_up:
-            return "Catching up on call events; new calls resume by themselves."
-        return "Call events reconnecting; new calls paused. Hangup remains available."
+            return "CONNECTION_SETUP_CHANGING"
+        if not self.enabled(tenant_id) or self.status()["connected"]:
+            return None
+        return self.refusal_code()
 
     def enabled(self, tenant_id):
         return self.config.get("tenant_id") == tenant_id
@@ -157,8 +168,9 @@ class ManagedConnection:
             )
 
     def require_ready(self, tenant_id):
-        if self.configuring or (self.enabled(tenant_id) and not self.status()["connected"]):
-            fail(409, self.refusal())
+        code = self.connection_code(tenant_id)
+        if code:
+            refuse([blocked(code)])
 
     async def make_client(self, config, storage=None):
         from supabase import AsyncClientOptions, acreate_client

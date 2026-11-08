@@ -352,8 +352,8 @@ def test_a_refused_next_call_says_when_a_number_is_the_blocker(workspace):
     ready_as(ws)
     pause_seeded(ws)
     refused = call(ws, "POST", "/v1/queue/next", json={"campaign_id": ws["campaign_id"]}, status=409)
-    assert refused["detail"]["code"] == "NO_ELIGIBLE_LEADS"
-    assert "Numbers" in refused["detail"]["message"]
+    assert refused["detail"]["code"] == "CALLER_NUMBER_PAUSED"
+    assert "Numbers" in refused["detail"]["message"] and refused["detail"]["fix"] == "numbers"
 
 
 def test_a_refused_next_call_asks_for_the_test_call(fresh, carrier):
