@@ -1154,7 +1154,11 @@ Goal: it can learn, and you can see that it is learning.
       compares average miss against the baseline with a tolerance of the larger of 0.02 and two standard errors of
       that window (review v3), and the trees are smaller and slower. Across seeds the pattern is found in at least 7 of
       8 and noise is promoted in at most 1 of 8; measured over 20 noise seeds the false promotion rate is 1 in 20.
-- [ ] R8.10 Package the trainer sidecar on Mac and verify it runs, with that check in CI.
+- [x] R8.10 Package the trainer sidecar on Mac and verify it runs, with that check in CI.
+      Done November 8: `check.py sidecars` sends the R8.9 planted calls to the frozen trainer over the app's own stdin
+      protocol, checks the reply and artifact as the app does, serves the model with the app's serving code (0.69
+      against 0.24 for the planted trigger on this Mac) and starts the frozen backend. CI's Mac job runs it after
+      building the sidecars; `check.py package` runs it after a local build.
 
 Done when: the synthetic test passes. Real lift stays an open gate until enough real calls exist.
 
@@ -1372,3 +1376,10 @@ Done when: every live check passes and the owner signs off. **Owner sitting 5.**
   ordering defects and a goal mismatch, all fixed. Open: CI browser retries are back to 1 while a click flake under
   load is found (R5.12); the older Settings cards still need folding into the rows (R7.2); the rest of Phase 8.
   Waiting on the owner: R5.13, R6.7, R7.8 read-through, live checks, the 1.0.2 rebuild and keys. Next: R8.3.
+- November 8, 2026: Phase 8 done. StatML learns from typed lead, number and trigger features, skips test calls,
+  promotes a model whose out-of-time review passes, rolls it back when the comparison group wins, trains at most
+  nightly and shows what it has learned in Review. The synthetic test found the review was a coin flip on small
+  calibration windows; it now finds a planted pattern in at least 7 of 8 seeds and promotes noise in about 1 of 20.
+  Estimates are counted straight from calls, and the projection engine and its saved report views are gone. The
+  frozen trainer is checked in CI by a real training run. Real lift stays an open gate until enough real calls exist.
+  Carried forward: R4.5 (Phase 9), R5.2, R5.12, R7.2, R7.8. Next: Phase 9, R9.1.

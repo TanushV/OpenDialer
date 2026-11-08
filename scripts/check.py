@@ -3,6 +3,7 @@
 uv run python scripts/check.py                 fast tier (each change, pre-commit hook)
 uv run python scripts/check.py full            everything Verify runs (pre-push hook)
 uv run python scripts/check.py package         frozen sidecars plus a smoke start
+uv run python scripts/check.py sidecars        check sidecars already built: trainer learns, backend starts
 uv run python scripts/check.py KEYWORD         lint plus the backend and frontend tests matching KEYWORD
 uv run python scripts/check.py run STEP...     named steps; GitHub CI calls these
 uv run python scripts/check.py install-hooks   turn on the .githooks pre-commit and pre-push hooks
@@ -57,6 +58,8 @@ STEPS = {
         (["cargo", "clippy", "--locked", "--quiet", "--all-targets", "--", "-D", "warnings"], TAURI),
     ],
     "browser": [(["npx", "playwright", "test"], DESKTOP)],
+    # R8.10: checks sidecars already built (CI's Mac job builds them first); not part of any tier.
+    "sidecars": [([sys.executable, "scripts/check.py", "sidecars"], ROOT)],
 }
 
 TIERS = {
@@ -161,11 +164,17 @@ def install_hooks():
 
 
 def package():
-    """Freeze both sidecars, then prove the frozen backend serves /health and the trainer loads."""
+    """Freeze both sidecars, then prove they run (see `sidecars`)."""
     if platform.system() != "Darwin":
         raise SystemExit("The package tier runs on macOS")
     if not run_steps({"sidecars": [([sys.executable, "scripts/build_sidecar.py"], ROOT)]}):
         return False
+    return sidecars()
+
+
+def sidecars():
+    """R8.10: the frozen trainer starts, learns a planted pattern through its stdin protocol and its model is
+    served; the frozen backend answers /health. Checks the sidecars already built, as CI's Mac job does."""
     host = ["rustc", "--print", "host-tuple"]  # toolchain on PATH, as in CI
     triple = subprocess.run(host, capture_output=True, text=True, check=True)  # noqa: S603
     binaries = TAURI / "binaries"
@@ -175,6 +184,12 @@ def package():
         [str(trainer), "--self-check"], check=True, stdout=subprocess.DEVNULL, timeout=300
     )
     print("  pass  trainer self-check")
+    fitted = subprocess.run(  # noqa: S603 - the check script in this repository
+        [sys.executable, "scripts/trainer_check.py", str(trainer)], cwd=ROOT, timeout=600, check=False
+    )
+    if fitted.returncode:
+        print("  FAIL  frozen trainer did not learn the planted pattern")
+        return False
     return smoke(backend)
 
 
@@ -227,6 +242,8 @@ def main(argv):
         return run_tier("full")
     if command == "package":
         return package()
+    if command == "sidecars":
+        return sidecars()
     if command == "install-hooks":
         return install_hooks()
     if command == "run":

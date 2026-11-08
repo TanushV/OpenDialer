@@ -43,9 +43,13 @@ def make_source(folder):
         )
         put(s, "call_attempts", "t", "s", {"lead_id": real_lead.id, "state": "COMPLETED"})
     db.engine.dispose()
-    with sqlite3.connect(folder / "opendialer.db") as raw:
+    # `with sqlite3.connect()` commits but never closes; a connection closed later by garbage collection
+    # checkpoints the WAL mid-test and changes the source the test proves untouched.
+    raw = sqlite3.connect(folder / "opendialer.db")
+    with raw:
         raw.execute("CREATE TABLE consent_evidence (id TEXT PRIMARY KEY, data TEXT)")
         raw.execute("INSERT INTO consent_evidence VALUES ('old', '{}')")
+    raw.close()
     return folder
 
 

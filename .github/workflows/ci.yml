@@ -99,6 +99,8 @@ jobs:
         working-directory: apps/desktop
       - uses: dtolnay/rust-toolchain@stable
       - run: uv run python scripts/build_sidecar.py
+      # R8.10: the frozen trainer must learn a planted pattern and the frozen backend must start.
+      - run: uv run python scripts/check.py run sidecars
       - run: uv run pytest services/backend/tests/test_codex_native.py services/backend/tests/test_secret_storage.py tests/test_package_macos.py -q
         env:
           OPENDIALER_TEST_CODEX_NATIVE: '1'
