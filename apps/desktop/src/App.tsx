@@ -36,6 +36,7 @@ import {
   assertNoPendingOptouts,
   type RequestOptions,
 } from "./api/client";
+import { listen } from "@tauri-apps/api/event";
 import { DialerPage } from "./components/DialerPage";
 import { LiveConnection, type LiveEvent } from "./api/live";
 import { ListsPage } from "./components/LeadLists";
@@ -90,6 +91,27 @@ export function App() {
     };
   }, []);
   const [runtime, setRuntime] = useState<Runtime | null>(null);
+  // R4.10: the shell restarts a backend that stopped unexpectedly; follow it to its new address.
+  // The session token lives in the workspace database, so it stays valid across the restart.
+  useEffect(() => {
+    if (!native()) return;
+    let stop: (() => void) | undefined;
+    let closed = false;
+    void listen<Runtime>("backend-restarted", (event) =>
+      setRuntime((current) =>
+        current && current.simulation === event.payload.simulation
+          ? event.payload
+          : current,
+      ),
+    ).then((unlisten) => {
+      if (closed) unlisten();
+      else stop = unlisten;
+    });
+    return () => {
+      closed = true;
+      stop?.();
+    };
+  }, []);
   const [session, setSession] = useState<Session | null>(null);
   const [snapshot, setSnapshot] = useState<Workspace | null>(null);
   const [view, setView] = useState<View>("Dialer");

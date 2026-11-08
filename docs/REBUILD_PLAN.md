@@ -998,7 +998,11 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
 - [x] R4.9 Save carrier outcomes directly on hangup. Done November 8: no answer, busy, voicemail and carrier
       failure are saved as soon as the hang-up event commits, before any job; the after-call job still runs for the
       summary.
-- [ ] R4.10 Sidecar auto-restart in `lib.rs`, then a recovery pass; UI reconnects by itself.
+- [x] R4.10 Sidecar auto-restart in `lib.rs`, then a recovery pass; UI reconnects by itself.
+      Done November 8: an unexpected backend exit restarts it after a short backoff, at most 5 times a minute, never
+      while quitting or after a busy or migration exit; the window follows it to the new address and the session
+      carries over. Its first maintenance tick is the recovery pass. The Windows-only shell code is gone. The kill test
+      on the packaged app is live check L13.
 - [ ] R4.11 Keep the Mac awake while Ready.
 - [ ] R4.12 Call timeline visible in Review; one log file with rotation.
 - [ ] R4.13 Crash tests: kill at each dial and hang-up step; no double dial, no lost call.

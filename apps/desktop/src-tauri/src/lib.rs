@@ -1,9 +1,8 @@
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-#[cfg(windows)]
-use std::time::Duration;
-use tauri::{Manager, State};
+use std::time::{Duration, Instant};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
@@ -40,6 +39,23 @@ struct LocalRuntime {
     refused: Option<bool>,
     /// The last authority stopped because moving older data failed; the next start says why, then retries.
     migration_failed: bool,
+    /// Set while the app quits or updates, so an exiting authority is not restarted (R4.10).
+    stopping: bool,
+    /// When the authority was last restarted after an unexpected exit.
+    restarts: Vec<Instant>,
+}
+
+/// At most this many automatic restarts within `RESTART_WINDOW`; after that the next request starts it.
+const RESTART_LIMIT: usize = 5;
+const RESTART_WINDOW: Duration = Duration::from_secs(60);
+
+/// Whether an exit that nobody asked for should start the authority again (G7).
+fn should_restart(code: Option<i32>, stopping: bool, recent: usize) -> bool {
+    !stopping
+        && recent < RESTART_LIMIT
+        && code != Some(AUTHORITY_BUSY_EXIT)
+        && code != Some(MIGRATION_FAILED_EXIT)
+        && code != Some(0)
 }
 #[derive(Default, Clone)]
 struct LocalBackend(Arc<Mutex<LocalRuntime>>);
@@ -65,7 +81,12 @@ impl LocalBackend {
             .take())
     }
     /// Remove only the instance whose event stream ended, recording a lock refusal.
-    fn forget_exited(&self, generation: u64, code: Option<i32>) -> Option<Backend> {
+    /// The exited authority, and the delay before restarting it when the exit was unexpected.
+    fn forget_exited(
+        &self,
+        generation: u64,
+        code: Option<i32>,
+    ) -> Option<(Backend, Option<Duration>)> {
         let mut state = self.0.lock().ok()?;
         if state
             .backend
@@ -81,7 +102,16 @@ impl LocalBackend {
         if code == Some(MIGRATION_FAILED_EXIT) {
             state.migration_failed = true;
         }
-        Some(backend)
+        let now = Instant::now();
+        state
+            .restarts
+            .retain(|at| now.duration_since(*at) < RESTART_WINDOW);
+        let recent = state.restarts.len();
+        let restart = should_restart(code, state.stopping, recent).then(|| {
+            state.restarts.push(now);
+            Duration::from_millis(500 * (1 << recent.min(4)))
+        });
+        Some((backend, restart))
     }
 }
 
@@ -222,10 +252,12 @@ fn start_backend(
         simulation,
     };
     tauri::async_runtime::spawn(drain_backend(
+        app.clone(),
         receiver,
         state.clone(),
         generation,
         exited.clone(),
+        simulation,
     ));
     locked.backend = Some(Backend {
         config: config.clone(),
@@ -261,12 +293,14 @@ fn migration_failure(directory: &std::path::Path) -> String {
 }
 
 /// Drain without forwarding provider or user content into ordinary desktop logs. When the
-/// owned child exits, forget it so the next request starts a fresh authority.
+/// owned child exits unexpectedly, start it again and tell the window its new address (R4.10).
 async fn drain_backend(
+    app: tauri::AppHandle,
     mut events: tauri::async_runtime::Receiver<CommandEvent>,
     local: LocalBackend,
     generation: u64,
     exited: Arc<AtomicBool>,
+    simulation: bool,
 ) {
     let mut code = None;
     while let Some(event) = events.recv().await {
@@ -276,9 +310,17 @@ async fn drain_backend(
     }
     exited.store(true, Ordering::SeqCst);
     let _ = tauri::async_runtime::spawn_blocking(move || {
-        if let Some(backend) = local.forget_exited(generation, code) {
-            // Reap any remaining group/job members; the leader has already exited.
-            let _ = backend.child.kill();
+        let Some((backend, restart)) = local.forget_exited(generation, code) else {
+            return;
+        };
+        // Reap any remaining group members; the leader has already exited.
+        let _ = backend.child.kill();
+        let Some(delay) = restart else {
+            return;
+        };
+        std::thread::sleep(delay);
+        if let Ok(config) = start_backend(&app, &local, simulation) {
+            let _ = app.emit("backend-restarted", config);
         }
     })
     .await;
@@ -317,52 +359,13 @@ async fn save_registry_csv(app: tauri::AppHandle, csv: String) -> Result<String,
     .map_err(|err| err.to_string())?
 }
 
-/// Quit, mode change and updater cleanup: terminate the authority's process group (Unix) or
-/// job object (Windows) and wait for it.
+/// Quit and updater cleanup: terminate the authority's process group, and never restart it.
 fn stop_owned_runtimes(backend: &LocalBackend) {
+    if let Ok(mut state) = backend.0.lock() {
+        state.stopping = true;
+    }
     if let Ok(Some(owned)) = backend.take() {
         let _ = owned.child.kill();
-        #[cfg(windows)]
-        wait_for_backend_release(Duration::from_secs(10));
-    }
-}
-
-/// The updater's installer replaces opendialer-backend.exe and opendialer-trainer.exe right after
-/// cleanup. A training child is the authority's job member, so the job kill also ends it, but a
-/// member that is still terminating keeps its image mapped: wait until each executable can be
-/// opened exclusively, within one shared limit.
-#[cfg(windows)]
-fn wait_for_backend_release(limit: Duration) {
-    use std::os::windows::fs::OpenOptionsExt;
-    let Some(directory) = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
-    else {
-        return;
-    };
-    let deadline = std::time::Instant::now() + limit;
-    for name in [
-        "opendialer-backend.exe",
-        "opendialer-trainer.exe",
-        "opendialer-codex.exe",
-        "codex-code-mode-host.exe",
-    ] {
-        let path = directory.join(name);
-        while path.is_file() && std::time::Instant::now() < deadline {
-            match std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .share_mode(0)
-                .open(&path)
-            {
-                Ok(_) => break,
-                // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION while a process still uses it.
-                Err(error) if matches!(error.raw_os_error(), Some(32 | 33)) => {
-                    std::thread::sleep(Duration::from_millis(100))
-                }
-                Err(_) => break,
-            }
-        }
     }
 }
 
@@ -406,5 +409,16 @@ mod tests {
         std::fs::write(folder.join(MIGRATION_NOTE), "disk full\n").unwrap();
         assert!(migration_failure(&folder).ends_with("Reason: disk full"));
         std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn only_an_unexpected_exit_restarts_the_authority_and_not_forever() {
+        assert!(should_restart(None, false, 0));
+        assert!(should_restart(Some(1), false, RESTART_LIMIT - 1));
+        assert!(!should_restart(Some(1), false, RESTART_LIMIT));
+        assert!(!should_restart(None, true, 0));
+        assert!(!should_restart(Some(0), false, 0));
+        assert!(!should_restart(Some(AUTHORITY_BUSY_EXIT), false, 0));
+        assert!(!should_restart(Some(MIGRATION_FAILED_EXIT), false, 0));
     }
 }
