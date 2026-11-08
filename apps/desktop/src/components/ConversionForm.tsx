@@ -7,13 +7,9 @@ import type { Call } from "../types";
 export function ConversionForm({ call }: { call: Call }) {
   const { api, run, notice, refresh, snapshot } = useWorkspace();
   const kinds = options(useDefinitions()?.conversion?.kind);
-  // The campaign's own goal is the natural default; the authority lists the kinds.
+  // The authority lists the kinds; the first is the default.
   const [chosen, setKind] = useState<string | null>(null);
-  const kind =
-    chosen ??
-    (kinds.includes(snapshot.metrics.outcome_goal ?? "")
-      ? snapshot.metrics.outcome_goal!
-      : (kinds[0] ?? ""));
+  const kind = chosen ?? kinds[0] ?? "";
   const [reference, setReference] = useState("");
   const [eventId, setEventId] = useState(() => crypto.randomUUID());
   const [saved, setSaved] = useState(false);

@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.optimization.geography import area_code, caller_region_rank, coverage_region, metro
-from app.scheduling.models import OPTIMIZATION_DEFAULTS, contact_labels
+from app.scheduling.models import contact_labels
 from app.scheduling.models import wilson as wilson
 
 
@@ -391,54 +391,6 @@ def select_number(lead, inventory, *, bound_id=None, strategy="regional_first"):
         "remaining_daily_capacity": max(0, selected.get("daily_limit", 0) - selected.get("used_today", 0)),
         "inbound_retained": True,
     }
-
-
-def capacity_forecast(
-    leads,
-    inventory,
-    *,
-    now,
-    horizon_hours=OPTIMIZATION_DEFAULTS["horizon_hours"],
-    rep_minutes=OPTIMIZATION_DEFAULTS["rep_minutes"],
-    handling_seconds=OPTIMIZATION_DEFAULTS["handling_seconds"],
-    daily_capacity_per_number=OPTIMIZATION_DEFAULTS["daily_capacity_per_number"],
-    policy=None,
-    staffed_windows=None,
-    additional_ready_after_hours=OPTIMIZATION_DEFAULTS["additional_ready_after_hours"],
-    rep_busy_until=None,
-    retry_observations=(),
-    schedule_row_limit=1000,
-):
-    if (
-        daily_capacity_per_number < 1
-        or not 1 <= horizon_hours <= 168
-        or rep_minutes < 0
-        or handling_seconds <= 0
-    ):
-        raise ValueError("Positive bounded horizon/capacity and nonnegative available rep time required")
-    policy = policy or {}
-    from app.optimization.capacity import time_forecast
-
-    normalized_policy = dict(policy)
-    if policy.get("proposed_number_classes"):
-        normalized_policy["proposed_number_classes"] = [
-            {**n, "region": coverage_region(n)} for n in policy["proposed_number_classes"]
-        ]
-    return time_forecast(
-        [{**lead, "region": coverage_region(lead)} for lead in leads],
-        [{**number, "region": coverage_region(number)} for number in inventory],
-        now=now,
-        horizon_hours=horizon_hours,
-        rep_minutes=rep_minutes,
-        handling_seconds=handling_seconds,
-        daily_capacity_per_number=daily_capacity_per_number,
-        policy=normalized_policy,
-        staffed_windows=staffed_windows,
-        additional_ready_after_hours=additional_ready_after_hours,
-        rep_busy_until=rep_busy_until,
-        retry_observations=retry_observations,
-        schedule_row_limit=schedule_row_limit,
-    )
 
 
 def warmup_allowance(number, attempts, now):

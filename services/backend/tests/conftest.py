@@ -297,13 +297,13 @@ def completed_metrics(workspace):
 
     client = workspace["client"]
     for _ in range(8):
-        response = client.get("/v1/metrics", headers=workspace["headers"])
+        response = client.get("/v1/optimization", headers=workspace["headers"])
         assert response.status_code == 200, response.text
-        metrics = response.json()
-        if metrics["projection"]["status"] == "ready":
-            return metrics
+        report = response.json()
+        if report["projection"]["status"] == "ready":
+            return {**report["metrics"], "projection": report["projection"]}
         client.portal.call(partial(client.app.state.service.run_jobs, queues=["ml"]))
-    pytest.fail(f"Background metric projection did not finish: {metrics['projection']}")
+    pytest.fail(f"Background metric projection did not finish: {report['projection']}")
 
 
 def completed_home_metrics(workspace):
@@ -312,11 +312,11 @@ def completed_home_metrics(workspace):
 
     client = workspace["client"]
     for _ in range(4):
-        response = client.get("/v1/workspace", headers=workspace["headers"])
+        response = client.get("/v1/optimization", headers=workspace["headers"])
         assert response.status_code == 200, response.text
-        metrics = response.json()["metrics"]
-        if metrics["projection"]["status"] == "ready":
-            return metrics
+        report = response.json()
+        if report["projection"]["status"] == "ready":
+            return {**report["metrics"], "projection": report["projection"]}
         client.portal.call(partial(client.app.state.service.run_jobs, queues=["ml"]))
     pytest.fail("Background workspace totals did not finish")
 

@@ -1,5 +1,4 @@
 import { coalesceRefresh } from "./state/refresh";
-import { useWorkHeartbeat } from "./state/useWorkHeartbeat";
 import { countLabel } from "./state/useHistory";
 import { receiveSpeech } from "./state/privacy";
 import {
@@ -230,7 +229,6 @@ export function App() {
     [runtime, session, sessionExpired],
   );
   const notice = useCallback((message: string) => setToast({ message }), []);
-  useWorkHeartbeat(snapshot, api, refresh, notice);
   const activeConversation =
     !!snapshot &&
     (snapshot.calls.some(

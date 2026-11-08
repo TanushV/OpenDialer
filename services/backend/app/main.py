@@ -28,7 +28,6 @@ from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.config import Settings
 from app.db import Database, Event, audit, doc, put, rows, update
 from app.lead_lists import memberships
-from app.measurement import WorkEdit
 from app.preparation.templates import PreparationPolicy
 from app.providers.telnyx import verify_webhook
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
@@ -98,10 +97,6 @@ class Presence(Strict):
     telephony_ready: bool = False
     agent_call_control_id: str | None = None
     pending_optouts: int = Field(default=0, ge=0)
-
-
-class Heartbeat(Strict):
-    activity: Literal["ready", "call", "wrapup", "idle"]
 
 
 class QueueNext(Strict):
@@ -486,9 +481,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return p
 
     bind_operating_api(app, service, administrator)
-    from app.billing import bind_api as bind_billing_api
 
-    bind_billing_api(app, service, administrator)
     from app.providers.codex import bind_api as bind_codex_api
 
     bind_codex_api(app, service, principal)
@@ -566,7 +559,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
             if not status["can_disconnect"]:
                 fail(409, {"code": "AUTHORITY_HAS_OBLIGATIONS", "reasons": status["reasons"]})
             service.release_unused_reservation_in(s, p)
-            service.record_work_in(s, p, False)
             session = service.required(s, "sessions", p["session_id"], p)
             if not session.data.get("logout_completed_at"):
                 update(session, revoked=True, logout_completed_at=clock().isoformat())
@@ -592,10 +584,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     ):
         return service.workspace_page(p, section, cursor=cursor, q=q, filter=filter, list_name=list_name)
 
-    @app.get("/v1/metrics")
-    def metrics(p=Depends(principal)):
-        return service.cached_home_metrics(p)
-
     @app.post("/v1/simulation/seed")
     def seed(p=Depends(administrator)):
         return service.seed(p)
@@ -603,18 +591,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/rep/presence")
     def presence(data: Presence, p=Depends(principal)):
         return service.presence(p, data.model_dump())
-
-    @app.post("/v1/rep/heartbeat")
-    def heartbeat(data: Heartbeat, p=Depends(principal)):
-        return service.heartbeat(p, data.activity)
-
-    @app.get("/v1/rep/work")
-    def work_intervals(p=Depends(principal)):
-        return service.work_intervals(p)
-
-    @app.patch("/v1/rep/work/{interval_id}")
-    def edit_work(interval_id: str, data: WorkEdit, p=Depends(principal)):
-        return service.edit_work(p, interval_id, data.model_dump())
 
     @app.post("/v1/queue/release")
     def release_reservation(p=Depends(principal)):
@@ -1111,10 +1087,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def caller_name(data: CallerName, p=Depends(administrator)):
         return await service.save_caller_name(p, data.name)
 
-    @app.get("/v1/admin/connect-report")
-    def connect_report(days: int = Query(default=28, ge=28, le=56), p=Depends(administrator)):
-        return service.connect_report(p, days)
-
     @app.get("/v1/admin/numbers/registry-export")
     def registry_export(p=Depends(administrator)):
         return service.registry_export(p)
@@ -1125,13 +1097,13 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.get("/v1/admin/numbers/summary")
     def numbers_summary(list_name: str | None = None, p=Depends(administrator)):
-        """Whole-inventory counts and the saved capacity plan. Reading never queues planning."""
+        """Whole-inventory counts."""
         from collections import Counter
 
-        from sqlalchemy import func, or_
+        from sqlalchemy import func
 
-        from app.db import MODELS, Job
-        from app.optimization.geography import STATES, planning_key
+        from app.db import MODELS
+        from app.optimization.geography import STATES
 
         with db.transaction(False) as s:
             numbers = service.scoped(s, "number_inventory", p)
@@ -1144,7 +1116,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 .select_from(binding)
                 .where(binding.tenant_id == p["tenant_id"], binding.seller_id == p["seller_id"])
             )
-            forecast = service.saved_forecast(s, p, list_name=list_name)
             campaign = service.selected_campaign(s, p)
             model = MODELS["leads"]
             lists = sorted(
@@ -1162,30 +1133,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
             lists = sorted(
                 name for name in set(lists) | set(catalog) if not catalog.get(name, {}).get("archived")
             )
-            key = planning_key(campaign.id, list_name=list_name)
-            job = s.scalar(
-                select(Job)
-                .where(
-                    Job.tenant_id == p["tenant_id"],
-                    or_(
-                        Job.key.startswith(key + ":", autoescape=True)
-                        if list_name is not None
-                        else Job.key.like(key + ":%") & ~Job.key.like(key + ":list-%"),
-                        (Job.key == "optimization-work:forecast_refresh:" + campaign.id)
-                        if list_name is None
-                        else False,
-                    ),
-                    Job.status.in_(["queued", "running", "dead"]),
-                )
-                .order_by(Job.available_at.desc(), Job.id)
-                .limit(1)
-            )
-        forecast["projection"].update(
-            job_id=job.id if job else None,
-            refresh_status=job.status if job else None,
-            refresh_error=job.error if job else None,
-            attempts=job.attempts if job else None,
-        )
         return {
             "lists": lists,
             "states": [{"code": code, "name": info["name"]} for code, info in STATES.items()],
@@ -1200,7 +1147,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "lifecycles": dict(lifecycles),
             },
             "stable_assignments": stable,
-            "forecast": forecast,
         }
 
     @app.patch("/v1/admin/numbers/{number_id}")
@@ -1221,12 +1167,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
         if set(data) - allowed:
             fail(422, "Unrecognized number settings")
         return service.edit_number(p, number_id, data)
-
-    @app.post("/v1/admin/numbers/proposal")
-    def number_proposal(data: dict, p=Depends(administrator)):
-        return service.proposal(
-            p, data["campaign_id"], data.get("daily_capacity_per_number"), data.get("list_name")
-        )
 
     @app.post("/v1/admin/numbers/sync")
     async def sync_numbers(p=Depends(administrator)):

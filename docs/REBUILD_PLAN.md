@@ -877,7 +877,9 @@ Order, each as its own commit with its tests removed:
       Done November 7. Password sign-in, users and roles stay until R3.4, which removes them with sessions; the
       Windows `#[cfg(windows)]` blocks in `lib.rs` stay until it is reworked (R2.6, R4.10). The local/hosted browser
       spec loops keep their local variant until the specs are rewritten (Phase 10).
-- [ ] R2.2 Capacity planner, forecasts, staffing, work time, report projections, home metrics, billing reconciliation.
+- [x] R2.2 Capacity planner, forecasts, staffing, work time, report projections, home metrics, billing reconciliation.
+      Done November 7. The optimization report keeps its projections for StatML until R8.4; the per-number ceiling is
+      the configured daily cap; staffing fields stay in the optimization config, unused, until R3.5 types it.
 - [ ] R2.3 Experiments UI, comparisons, trials, drift, treatment variants, conversation associations; keep holdout
       assignment and training.
 - [ ] R2.4 Coaching: practice, goals, library, snippets, trackers, comments, replay, strategies; rubric scorecards,

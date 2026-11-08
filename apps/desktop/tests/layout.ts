@@ -58,3 +58,10 @@ export async function drift(target: Locator, ms = 1500) {
   }
   return most;
 }
+
+/** Wait until `target` holds still for 600 ms (up to 15 s): checks then see the settled screen. */
+export async function settled(target: Locator) {
+  await expect(async () => {
+    expect(await drift(target, 600)).toBeLessThan(1);
+  }).toPass({ timeout: 15_000 });
+}

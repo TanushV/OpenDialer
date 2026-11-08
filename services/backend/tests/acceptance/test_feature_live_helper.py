@@ -235,7 +235,7 @@ def test_raw_speech_expires_at_five_minutes_while_notes_comments_and_outcome_rem
     assert analysis["human_notes"] == "Wants a pricing sheet." and analysis["status"] == "human_confirmed"
     assert [c["text"] for c in analysis["comments"]] == ["Handled the objection well"]
     assert analysis["call"]["outcome"] == "not_interested"
-    for path in ("/v1/events", "/v1/workspace", "/v1/coaching", "/v1/metrics", f"/v1/leads/{lead_id}/packet"):
+    for path in ("/v1/events", "/v1/workspace", "/v1/coaching", f"/v1/leads/{lead_id}/packet"):
         assert MARKER not in json.dumps(get(ws, path)), path
 
 

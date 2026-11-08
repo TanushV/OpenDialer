@@ -64,7 +64,7 @@ def test_workspace_snapshot_sections_search_and_event_feed(workspace):
     ws = workspace
     snapshot = get(ws, "/v1/workspace")
     assert snapshot["campaign"]["id"] == ws["campaign_id"] and snapshot["policy"]["id"] == ws["policy_id"]
-    assert {"leads", "calls", "tasks", "numbers", "readiness", "metrics", "event_cursor"} <= snapshot.keys()
+    assert {"leads", "calls", "tasks", "numbers", "readiness", "event_cursor"} <= snapshot.keys()
     listing = get(ws, "/v1/workspace/leads")
     assert {lead["name"] for lead in listing["items"]} == {"Jordan Ellis", "Morgan Reed", "Casey Nguyen"}
     assert [lead["name"] for lead in get(ws, "/v1/workspace/leads", params={"q": "harbor"})["items"]] == [

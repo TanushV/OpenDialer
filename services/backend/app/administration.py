@@ -14,7 +14,6 @@ from sqlalchemy import delete, func, or_, select, text
 from app.config import PROVIDER_DEFAULTS, CapabilityStatus
 from app.db import DERIVED_TABLES, MODELS, audit, doc, emit, put, rows, uid, update
 from app.intelligence import Application
-from app.measurement import Measurement
 from app.number_operations import NumberOperations
 from app.optimization.script_lab import ScriptLab
 from app.optimization.workflows import OptimizationWorkflows
@@ -175,7 +174,6 @@ class Dialer(
     RecoveryActions,
     CommandRecovery,
     InboundCallbacks,
-    Measurement,
     RepWorkflows,
     NumberOperations,
     WebhookIngress,
@@ -722,96 +720,6 @@ class Dialer(
                 **doc(number),
                 **({"receipt": self.local_edit_receipt(s, p, identity, number)} if identity else {}),
             }
-
-    def proposal(self, p, campaign_id, capacity=None, list_name=None):
-        if capacity is not None and (type(capacity) is not int or not 1 <= capacity <= 1000):
-            fail(422, "Positive daily capacity required")
-        from sqlalchemy import func
-
-        from app.db import Job
-        from app.optimization.geography import planning_key
-        from app.service import dt
-
-        if list_name is not None and (not isinstance(list_name, str) or len(list_name) > 120):
-            fail(422, "Invalid list name")
-        key = planning_key(campaign_id, capacity, list_name)
-        with self.db.transaction(False) as s:
-            self.required(s, "campaigns", campaign_id, p)
-            if list_name is not None:
-                model = MODELS["leads"]
-                if not s.scalar(
-                    select(model.id)
-                    .where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.op_campaign_id == campaign_id,
-                        func.coalesce(model.data["list_name"].as_string(), "") == list_name,
-                    )
-                    .limit(1)
-                ):
-                    fail(404, "Lead list not found in this campaign")
-            current, _, _, _ = self.report_scope(s, p)
-            if current["role"] != "admin":
-                fail(403, "Administrator access is required to plan inventory")
-            generation = self.report_revision(s, current)
-            row = self._by_key(s, p, "report_projections", key)
-            saved = dict(row.data) if row else {}
-        fresh = bool(
-            saved and saved["source_revision"] == generation and dt(saved["expires_at"]) > self.clock()
-        )
-        job_id, refresh_status, refresh_error, attempts = None, None, None, None
-        if not fresh:
-            with self.db.transaction() as s:
-                self.db.authorize_stream(s, current)
-                # Only live work for the current source generation counts; a dead or older
-                # job is history, and the minute bucket below bounds new attempts.
-                pending = s.scalar(
-                    select(Job)
-                    .where(
-                        Job.tenant_id == p["tenant_id"],
-                        Job.key.startswith(f"{key}:{generation}:", autoescape=True),
-                        Job.status.in_(["queued", "running"]),
-                    )
-                    .order_by(Job.available_at.desc(), Job.id)
-                    .limit(1)
-                )
-                if pending:
-                    job_id = pending.id
-                    refresh_status, refresh_error, attempts = pending.status, pending.error, pending.attempts
-                else:
-                    job = self.jobs.enqueue_in(
-                        s,
-                        "ml",
-                        {
-                            "kind": "forecast_refresh",
-                            "seller_id": p["seller_id"],
-                            "user_id": p["user_id"],
-                            "role": current["role"],
-                            "campaign_id": campaign_id,
-                            "capacity": capacity,
-                            "list_name": list_name,
-                        },
-                        f"{key}:{generation}:{int(self.clock().timestamp()) // 60}",
-                        tenant_id=p["tenant_id"],
-                        priority=15,
-                    )
-                    job_id = job["id"]
-                    refresh_status, refresh_error, attempts = job["status"], job.get("error"), job["attempts"]
-        return {
-            "regions": [],
-            "purchased": False,
-            **saved.get("report", {}),
-            "projection": {
-                "status": "ready" if fresh else "stale" if saved else "pending",
-                "job_id": job_id,
-                "as_of": saved.get("as_of"),
-                "source_revision": saved.get("source_revision"),
-                "current_revision": generation,
-                "refresh_status": refresh_status,
-                "refresh_error": refresh_error,
-                "attempts": attempts,
-            },
-        }
 
     def backup(self, p):
         directory = self.settings.data_dir / "backups"

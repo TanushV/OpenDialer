@@ -22,90 +22,6 @@ async function simulation(page: import("@playwright/test").Page) {
     await page.getByRole("button", { name: "Pause dialing" }).click();
 }
 
-test("missing and stale capacity estimates are explicit", async ({ page }) => {
-  await simulation(page);
-  let state = "pending";
-  await page.route("**/v1/admin/numbers/summary", async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.forecast = {
-      regions: [],
-      capacity_shortfall: null,
-      staffing_shortfall: null,
-      number_shortfall: null,
-      projection: { status: state, as_of: null },
-    };
-    await route.fulfill({ response, json: body });
-  });
-  await page.getByRole("button", { name: "Numbers", exact: true }).click();
-  await expect(
-    page.getByText(
-      "No capacity plan yet. Plan state coverage to prepare one.",
-      { exact: true },
-    ),
-  ).toBeVisible();
-  state = "stale";
-  await page.reload();
-  await page.getByRole("button", { name: "Numbers", exact: true }).click();
-  await expect(
-    page.getByText(
-      "Capacity plan is out of date. Plan state coverage before acting on it.",
-      { exact: true },
-    ),
-  ).toBeVisible();
-});
-
-test("capacity discloses screening exclusions without spending on refresh", async ({
-  page,
-}) => {
-  await simulation(page);
-  const paidRequests: string[] = [];
-  page.on("request", (request) => {
-    if (request.method() === "POST" && /screen|registry/.test(request.url()))
-      paidRequests.push(request.url());
-  });
-  await page.route("**/v1/admin/numbers/summary", async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.forecast = {
-      regions: [],
-      forecast_attempts: 3,
-      staffing_shortfall: 0,
-      number_shortfall: 0,
-      projection: { status: "ready", as_of: "2026-10-14T18:00:00Z" },
-      screening: {
-        cleared_count: 1,
-        blocked_count: 2,
-        blocked_reasons: { prepaid_result_missing: 1, source_expired: 1 },
-        as_of: "2026-10-14T18:00:00Z",
-      },
-    };
-    await route.fulfill({ response, json: body });
-  });
-  await page.getByRole("button", { name: "Numbers", exact: true }).click();
-  const capacity = page.getByRole("region", {
-    name: "Capacity before procurement",
-  });
-  await expect(
-    capacity.getByText(
-      "1 lead has current screening; 2 are excluded from executable capacity.",
-      { exact: true },
-    ),
-  ).toBeVisible();
-  await expect(
-    capacity.getByText("Prepaid result missing: 1", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    capacity.getByText("Source expired: 1", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    capacity.getByText(
-      /Review source authorization and current coverage in Settings/,
-    ),
-  ).toBeVisible();
-  expect(paidRequests).toEqual([]);
-});
-
 test("pending report refresh preserves comparison input", async ({ page }) => {
   await simulation(page);
   await openMoreSettings(page, "Learning experiments and trackers");
@@ -157,7 +73,7 @@ test("optimization goals, forecast, learning state and provider settings persist
   page,
 }) => {
   await simulation(page);
-  await openMoreSettings(page, "Campaign goal and team schedule");
+  await openMoreSettings(page, "Campaign goal");
   await page.getByLabel("Conversion goal").selectOption("sale_won");
   await page.getByLabel("Outcome window (days)").fill("30");
   await page.getByRole("button", { name: "Save campaign goal" }).click();
@@ -200,7 +116,7 @@ test("optimization goals, forecast, learning state and provider settings persist
     .click();
   await expect(page.getByText(/Saved cohort report:/)).toBeVisible();
   await page.reload();
-  await openMoreSettings(page, "Campaign goal and team schedule");
+  await openMoreSettings(page, "Campaign goal");
   await expect(page.getByLabel("Conversion goal")).toHaveValue("sale_won");
   // ChatGPT and the live help key share the AI card.
   const ai = await openSettingsCard(page, "AI");

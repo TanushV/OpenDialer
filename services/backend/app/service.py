@@ -728,9 +728,6 @@ class Service(LeadLists, ReservationPlanner):
                     fail(403, "Agent leg must be established and verified by the server")
             if data.get("status") == "paused":
                 self.release_unused_reservation_in(s, p)
-                self.pause_work_in(s, p)
-            else:
-                self.record_work_in(s, p, True)
             update(user, presence={**user.data.get("presence", {}), **data, "at": self.clock().isoformat()})
             return user.data["presence"]
 

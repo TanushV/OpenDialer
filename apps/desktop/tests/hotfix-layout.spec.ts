@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures";
 import { chooseOutcome, prepareSimulationCall } from "./simulation";
-import { uncovered } from "./layout";
+import { settled, uncovered } from "./layout";
 
 /** R0.12: at 1024x720 nothing may sit on top of the rep's next action. */
 test.use({ viewport: { width: 1024, height: 720 } });
@@ -25,6 +25,8 @@ test("the dock never covers Save outcome and a toast never covers Next call", as
   await expect(save).toBeVisible();
   // The import notice is still showing: it must not cover the wrap-up either.
   await expect(page.locator(".toast")).toBeVisible();
+  // Checked once it settles; the movement itself is the audit's known Phase 5 failure.
+  await settled(save);
   await uncovered(save);
   await page.screenshot({ path: testInfo.outputPath("wrap-up-1024x720.png") });
   await chooseOutcome(page, "no_answer");
@@ -35,6 +37,8 @@ test("the dock never covers Save outcome and a toast never covers Next call", as
     exact: true,
   });
   await expect(next).toBeVisible();
+  // Checked once it settles; the movement itself is the audit's known Phase 5 failure.
+  await settled(next);
   await uncovered(next);
   await page.screenshot({
     path: testInfo.outputPath("next-call-1024x720.png"),

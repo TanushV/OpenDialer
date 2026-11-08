@@ -326,13 +326,8 @@ class NumberOperations:
             }
 
     def number_workload_ceiling(self, config):
-        from app.optimization.capacity import normalize_availability, staffed_slots
-
-        now, end = self.clock(), self.clock() + timedelta(days=1)
-        windows = normalize_availability(config["staffed_windows"], now, end, config["rep_minutes"], config)
-        slots, _, limited = staffed_slots(windows, now, end, config["handling_seconds"])
-        # A bounded lower staffed count never promises capacity omitted by the planner.
-        return min(config["daily_capacity_per_number"], sum(count for _, count in slots))
+        """The per-number daily cap; the staffing planner that once lowered it is gone (R2.2)."""
+        return config["daily_capacity_per_number"]
 
     def reassign_number(self, p, number_id, body):
         change = body["reassignment"]

@@ -30,7 +30,8 @@ def settled(ws, path, **params):
 
 
 def metrics(ws):
-    return settled(ws, "/v1/metrics")
+    # Home metrics are gone (R2.2); the optimization report carries the same counted totals.
+    return settled(ws, "/v1/optimization")["metrics"]
 
 
 def lead_rows(count, prefix="L", segment=None):
@@ -87,8 +88,6 @@ def test_reports_count_exactly_the_calls_that_happened(workspace, clock):
     assert totals["pending_outcome_windows"] == 10 and totals["unknown_cost_calls"] == 10
     assert totals["health"]["connect_rate"]["samples"] == 10
     assert totals["health"]["connect_rate"]["rate"] == humans / 10
-    home = get(workspace, "/v1/workspace")["metrics"]
-    assert {k: home[k] for k in METRIC_KEYS} == {k: totals[k] for k in METRIC_KEYS}
 
     report = settled(workspace, "/v1/optimization")
     assert report["metrics"]["attempts"] == 10 and report["dataset"]["rows"] == 10
@@ -123,41 +122,6 @@ def test_reports_count_exactly_the_calls_that_happened(workspace, clock):
         {"reason": "Entered against the wrong lead"},
     )
     assert metrics(workspace)["unique_conversions"] == 0
-
-
-def test_work_time_follows_presence_and_corrections(workspace, clock):
-    started = clock.now
-    ready(workspace)
-    for _ in range(10):
-        clock.now += timedelta(seconds=60)
-        post(workspace, "/v1/rep/heartbeat", {"activity": "ready"})
-    post(workspace, "/v1/rep/presence", {"status": "paused"})
-    clock.now += timedelta(minutes=5)
-    interval = get(workspace, "/v1/rep/work")["intervals"][0]
-    assert interval["started_at"] == started.isoformat()
-    assert interval["ended_at"] == (started + timedelta(minutes=10)).isoformat()
-    assert metrics(workspace)["rep_work_seconds"] == 600
-    edit = {
-        "expected_version": interval["version"],
-        "started_at": started.isoformat(),
-        "ended_at": (started + timedelta(minutes=4)).isoformat(),
-        "reason": "Took an unlogged break",
-    }
-    path = f"/v1/rep/work/{interval['id']}"
-    corrected = workspace["client"].patch(path, headers=workspace["headers"], json=edit)
-    assert corrected.status_code == 200, corrected.text
-    assert corrected.json()["correction_reason"] == "Took an unlogged break"
-    stale = workspace["client"].patch(path, headers=workspace["headers"], json=edit)
-    assert stale.status_code == 409
-    future = {
-        **edit,
-        "expected_version": corrected.json()["version"],
-        "ended_at": clock.now.isoformat() + "1",
-    }
-    assert workspace["client"].patch(path, headers=workspace["headers"], json=future).status_code == 422
-    totals = metrics(workspace)
-    assert totals["rep_work_seconds"] == 240 and totals["work_time"]["seconds"] == 240
-    assert totals["conversions_per_rep_hour"] == 0
 
 
 @pytest.mark.slow

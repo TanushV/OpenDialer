@@ -228,7 +228,7 @@ test("settings is one short page with everything else folded away", async ({
   const more = await openMore(page, "AI budget");
   await expect(more.getByLabel("AI budget per lead list (USD)")).toBeVisible();
   for (const section of [
-    "Campaign goal and team schedule",
+    "Campaign goal",
     "Do-not-call checks and consent",
     "Callbacks",
     "Call scoring",
@@ -312,55 +312,6 @@ test("form bounds come from the authority's definitions", async ({ page }) => {
     "max",
     "7",
   );
-});
-
-test("the weekly schedule and dated periods share one picked IANA zone", async ({
-  page,
-}) => {
-  await enter(page);
-  await openSettings(page);
-  await openMore(page, "Campaign goal and team schedule");
-  const zone = page.getByRole("combobox", { name: "Staffing time zone" });
-  await zone.selectOption("America/New_York");
-  const saved = page.waitForResponse(
-    (r) =>
-      r.url().endsWith("/v1/admin/optimization") &&
-      r.request().method() === "PUT",
-  );
-  await page.getByRole("button", { name: "Save rep schedule" }).click();
-  expect((await saved).ok()).toBeTruthy();
-  await openMore(page, "Learning experiments and trackers");
-  await page.getByRole("button", { name: "Add staffed period" }).click();
-  await page.getByLabel("Staffed start 1").fill("2026-10-19T09:00");
-  await page.getByLabel("Staffed end 1").fill("2026-10-19T12:00");
-  const advanced = page.waitForRequest(
-    (r) => r.method() === "PUT" && r.url().endsWith("/v1/admin/optimization"),
-  );
-  await page.getByRole("button", { name: "Save planning assumptions" }).click();
-  const body = (await advanced).postDataJSON();
-  // 09:00 in New York on 19 October is 13:00 UTC, whatever the device zone.
-  expect(body.staffed_windows[0].start_at).toBe("2026-10-19T13:00:00.000Z");
-  expect(body).not.toHaveProperty("conversion_goal");
-  // Restore the shared fixture schedule.
-  await page.getByRole("button", { name: "Remove staffed period 1" }).click();
-  const cleared = page.waitForResponse(
-    (r) =>
-      r.request().method() === "PUT" &&
-      r.url().endsWith("/v1/admin/optimization"),
-  );
-  await page.getByRole("button", { name: "Save planning assumptions" }).click();
-  const clearedResponse = await cleared;
-  expect(clearedResponse.ok()).toBeTruthy();
-  expect(clearedResponse.request().postDataJSON().staffed_windows).toEqual([]);
-  await zone.selectOption("UTC");
-  const restored = page.waitForResponse(
-    (r) =>
-      r.request().method() === "PUT" &&
-      r.url().endsWith("/v1/admin/optimization"),
-  );
-  await page.getByRole("button", { name: "Save rep schedule" }).click();
-  expect((await restored).ok()).toBeTruthy();
-  await expect(page.getByText("Rep schedule saved").first()).toBeVisible();
 });
 
 test("advanced detail is one collapsed view and debug controls are gone", async ({
@@ -464,54 +415,6 @@ test("trial review and activation send only identities, never evidence", async (
     .click();
   await expect.poll(() => bodies.activate).toBeTruthy();
   expect(bodies.activate).toEqual({});
-});
-
-test("numbers show whole-inventory counts and one capacity view without a planning loop", async ({
-  page,
-}) => {
-  const proposals: string[] = [];
-  page.on("request", (r) => {
-    if (r.url().endsWith("/v1/admin/numbers/proposal"))
-      proposals.push(r.method());
-  });
-  await page.route("**/v1/admin/numbers/summary", async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.inventory = {
-      ...body.inventory,
-      total: 120,
-      ready: 7,
-      pending_setup: 11,
-    };
-    body.stable_assignments = 64;
-    await route.fulfill({ response, json: body });
-  });
-  await enter(page);
-  await page.getByRole("button", { name: "Numbers", exact: true }).click();
-  const status = page.getByRole("region", { name: "Inventory status" });
-  await expect(status.getByText("11", { exact: true })).toBeVisible();
-  await expect(page.getByText("120", { exact: true })).toBeVisible();
-  await expect(page.getByText("64", { exact: true })).toBeVisible();
-  await expect(page.getByText("Stable", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("Procurement area code")).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Get carrier quotes" }),
-  ).toHaveCount(0);
-  await page.waitForTimeout(4500);
-  expect(proposals).toEqual([]);
-  await page
-    .getByRole("button", { name: "Plan state coverage", exact: true })
-    .click();
-  await expect(page.getByTestId("capacity-proposal")).toBeVisible({
-    timeout: 20000,
-  });
-  expect(proposals).toEqual(["POST"]);
-  await expect(
-    page.getByRole("region", { name: "Capacity before procurement" }),
-  ).toHaveCount(1);
-  await expect(
-    page.getByText(/This plan does not purchase numbers/),
-  ).toBeVisible();
 });
 
 test("an imported list is researched and scripted before it can be called", async ({

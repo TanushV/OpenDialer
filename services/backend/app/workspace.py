@@ -355,4 +355,4 @@ class WorkspaceReads:
                     for section, value in pages.items()
                 },
             }
-        return {**current, "metrics": self.cached_home_metrics(p), "readiness": self.preflight(p, full=False)}
+        return {**current, "readiness": self.preflight(p, full=False)}

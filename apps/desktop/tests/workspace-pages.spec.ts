@@ -24,25 +24,6 @@ test("app updates explain the 0.4.0 fresh workspace", async ({ page }) => {
   await expect(page.getByText(/old data stays untouched/)).toBeVisible();
 });
 
-test("home metrics show pending and stale evidence without invented zeros", async ({
-  page,
-}) => {
-  await page.route("**/v1/workspace", async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
-    data.metrics = { projection: { status: "pending", as_of: null } };
-    await route.fulfill({ response, json: data });
-  });
-  await enter(page);
-  await expect(
-    page.getByText("Preparing workspace totals in the background.", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(page.getByText("undefined", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("undefined currently eligible")).toHaveCount(0);
-});
-
 test("lead search continues beyond an empty bounded page without hiding older leads", async ({
   page,
 }) => {
@@ -230,28 +211,6 @@ test("a newer searched lead is not overwritten by an older workspace preview", a
     .click();
   await expect(
     page.getByRole("button", { name: "Open lead Corrected Name", exact: true }),
-  ).toBeVisible();
-});
-
-test("failed workspace totals expose recovery even before the first result", async ({
-  page,
-}) => {
-  await page.route("**/v1/workspace", async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
-    data.calls = [];
-    data.metrics = {
-      projection: {
-        status: "pending",
-        refresh_status: "dead",
-        refresh_error: "Workspace totals need recovery",
-      },
-    };
-    await route.fulfill({ response, json: data });
-  });
-  await enter(page);
-  await expect(
-    page.getByText("Workspace totals need recovery", { exact: true }),
   ).toBeVisible();
 });
 

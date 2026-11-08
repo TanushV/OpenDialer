@@ -1,4 +1,4 @@
-from app.optimization.numbering import capacity_forecast, select_number
+from app.optimization.numbering import select_number
 
 
 def number(identity, region, **values):
@@ -48,20 +48,6 @@ def test_explicit_lead_state_wins_over_ported_phone_and_unknown_is_not_a_state()
         == "ca"
     )
     assert select_number({"region": "416"}, [number("ca", "415")])["number_id"] is None
-
-
-def test_capacity_uses_one_state_pool_across_area_codes(clock):
-    leads = [
-        {"id": str(i), "region": r, "timezone": "UTC", "status": "eligible"}
-        for i, r in enumerate(["213", "415", "650"])
-    ]
-    result = capacity_forecast(
-        leads, [number("owned", "619")], now=clock.now.replace(hour=10), policy={"max_attempts": 1}
-    )
-    assert result["existing_only_capacity"] == 3
-    assert result["minimum_additional_numbers"] == 0
-    assert len(result["regions"]) == 1
-    assert result["regions"][0]["region"] == "CA"
 
 
 def test_number_comparison_groups_shared_state_inventory_and_rejects_old_basis(workspace, app):

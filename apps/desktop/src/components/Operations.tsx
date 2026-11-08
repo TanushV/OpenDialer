@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { NumberPurchasing } from "./NumberPurchasing";
-import { ConnectDelivery } from "./WorkTime";
 import { ProductKnowledge } from "./ProductKnowledge";
 import {
   ArrowRight,
@@ -142,12 +141,7 @@ export function LeadsPage({
           />
         )}
         <div className="table-toolbar">
-          <h3>
-            {history.totalLabel ?? w.leads.length} leads{" "}
-            <span className="subtle-count">
-              {w.metrics.suppressed ?? "Unknown"} suppressed
-            </span>
-          </h3>
+          <h3>{history.totalLabel ?? w.leads.length} leads</h3>
           <div className="search">
             <Search size={16} />
             <input
@@ -606,90 +600,6 @@ function EndpointCorrection({
   );
 }
 
-interface RetryCapacity {
-  status: string;
-  planned_attempts?: number;
-  existing_capacity?: number;
-  expanded_capacity?: number;
-  additional_numbers?: number | null;
-  unserved_attempts?: number;
-  minimum_proven_on_grid?: boolean;
-}
-/** The saved capacity plan, read from the same projection the optimization report uses. */
-interface Forecast {
-  list_name?: string | null;
-  estimated_state_leads?: number;
-  forecast_attempts?: number;
-  existing_only_capacity?: number;
-  capacity_shortfall?: number | null;
-  staffing_shortfall: number | null;
-  number_shortfall: number | null;
-  minimum_additional_numbers?: number | null;
-  best_found_additional_numbers?: number;
-  monthly_rental_estimate_usd?: number | null;
-  owner_unavailable_attempts?: number | null;
-  unavailable_staff_count?: number;
-  occupied_rep_count?: number;
-  binding_shortfall?: number | null;
-  setup_shortfall?: number | null;
-  planning_limited?: boolean;
-  optimality?: string;
-  optimality_scope?: string;
-  schedule_scope?: string;
-  existing_plus_addition_capacity?: number;
-  conditional_pending_schedule?: unknown[];
-  contingent_capacity?: {
-    status: string;
-    low?: RetryCapacity;
-    mean?: RetryCapacity;
-    high?: RetryCapacity;
-  };
-  contingent_retry_low_mean_high?: {
-    low: number;
-    mean: number;
-    high: number;
-    support: number;
-    omitted_leads: number;
-  };
-  expansion_review?: {
-    status: string;
-    reason: string;
-    next_review_at: string | null;
-  };
-  assumptions?: {
-    staffing_grid_seconds: number;
-    handling_seconds: number;
-    account_channel_limit: number | null;
-    additional_ready_after_hours: number;
-  };
-  screening?: {
-    cleared_count: number;
-    blocked_count: number;
-    blocked_reasons: Record<string, number>;
-    as_of: string;
-  };
-  regions: {
-    region: string;
-    state_name?: string;
-    preferred_metros?: string;
-    suggested_area_codes?: string[];
-    forecast_attempts?: number;
-    planned_attempts?: number;
-    usable_existing_capacity?: number;
-    general_fallback_capacity?: number;
-    out_of_state_capacity?: number;
-    capacity_waiting_for_review?: number;
-    proposed_additional: number | null;
-  }[];
-  projection: {
-    status: "pending" | "stale" | "ready";
-    as_of?: string | null;
-    job_id?: string | null;
-    refresh_status?: string | null;
-    refresh_error?: string | null;
-    attempts?: number | null;
-  };
-}
 interface NumbersSummary {
   lists?: string[];
   states?: { code: string; name: string }[];
@@ -703,11 +613,7 @@ interface NumbersSummary {
     investigating: number;
   };
   stable_assignments: number;
-  forecast: Forecast;
 }
-/** Poll a queued plan with growing delays; never re-request planning in a loop. */
-const BACKOFF_MS = [1000, 2000, 4000, 8000, 15000, 30000];
-const MAX_CHECKS = 12;
 
 function useNumbersSummary(listName: string | null) {
   const { api, subscribe } = useWorkspace();
@@ -715,7 +621,6 @@ function useNumbersSummary(listName: string | null) {
   scope.current = { api, listName };
   const [summary, setSummary] = useState<NumbersSummary | null>(null);
   const [error, setError] = useState("");
-  const [checks, setChecks] = useState(0);
   const version = useRef(0);
   const load = useCallback(async () => {
     if (scope.current.api !== api || scope.current.listName !== listName)
@@ -747,16 +652,11 @@ function useNumbersSummary(listName: string | null) {
   }, [api, listName]);
   useEffect(() => {
     setSummary(null);
-    setChecks(0);
     void load();
     const stop = subscribe((events) => {
       if (
         events.some((e) =>
-          [
-            "optimization.updated",
-            "number.updated",
-            "planning.changed",
-          ].includes(e.type),
+          ["optimization.updated", "number.updated"].includes(e.type),
         )
       )
         void load();
@@ -766,30 +666,7 @@ function useNumbersSummary(listName: string | null) {
       version.current++;
     };
   }, [load, subscribe]);
-  const projection = summary?.forecast.projection;
-  const waiting =
-    !!projection &&
-    projection.status !== "ready" &&
-    ["queued", "running"].includes(projection.refresh_status ?? "");
-  useEffect(() => {
-    if (!waiting || checks >= MAX_CHECKS) return;
-    const timer = setTimeout(
-      () => {
-        setChecks((n) => n + 1);
-        void load();
-      },
-      BACKOFF_MS[Math.min(checks, BACKOFF_MS.length - 1)],
-    );
-    return () => clearTimeout(timer);
-  }, [waiting, checks, load, summary]);
-  return {
-    summary,
-    error,
-    load,
-    waiting,
-    exhausted: waiting && checks >= MAX_CHECKS,
-    restart: () => setChecks(0),
-  };
+  return { summary, error, load };
 }
 
 /** The business name carriers may show with outbound calls, and the free spam-label registry. */
@@ -920,28 +797,9 @@ export function NumbersPage() {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const history = useHistory("numbers", w.numbers);
   const [listName, setListName] = useState<string | null>(null);
-  const [stateSearch, setStateSearch] = useState<{
-    state: string;
-    revision: number;
-  } | null>(null);
   const plan = useNumbersSummary(listName);
   const inventory = plan.summary?.inventory;
-  const [planning, setPlanning] = useState(false);
   const [owned, setOwned] = useState<OwnedNumber[] | null>(null);
-  const requestPlan = async () => {
-    setPlanning(true);
-    try {
-      // One explicit request queues (or reuses) the plan; reads then back off.
-      await api("/v1/admin/numbers/proposal", "POST", {
-        campaign_id: w.campaign.id,
-        list_name: listName,
-      });
-      plan.restart();
-      await plan.load();
-    } finally {
-      setPlanning(false);
-    }
-  };
   const testNumber = history.items.find((n) => n.identity_configured)?.phone;
   const checkTelnyx = async () => {
     const result = await api<{
@@ -964,23 +822,14 @@ export function NumbersPage() {
           <span className="eyebrow">A CONSISTENT CALLING IDENTITY</span>
           <h1>Numbers &amp; callbacks</h1>
           <p>
-            Calling capacity adapts to staffing and observed delivery, up to
-            each number’s reviewed daily maximum.
+            Each number’s daily cap rises with real use, up to its reviewed
+            maximum.
           </p>
           <p>
             Use owned numbers, keep familiar identities, and stay reachable.
           </p>
         </div>
-        <button
-          className="primary"
-          disabled={planning}
-          onClick={() => void run(requestPlan)}
-        >
-          <Layers3 size={17} />
-          Plan state coverage
-        </button>
       </div>
-      <ConnectDelivery />
       <section
         className="card padded"
         aria-label="Free Caller Registry and label checks"
@@ -1103,7 +952,6 @@ export function NumbersPage() {
       <NumberPurchasing
         states={plan.summary?.states ?? []}
         listName={listName}
-        stateSearch={stateSearch}
         onChanged={async () => {
           await refresh();
           await history.load();
@@ -1192,440 +1040,10 @@ export function NumbersPage() {
           </div>
         </div>
       </section>
-      <CapacityPlan
-        state={plan}
-        planning={planning}
-        onPlan={() => void run(requestPlan)}
-        onFindState={(state) =>
-          setStateSearch((current) => ({
-            state,
-            revision: (current?.revision ?? 0) + 1,
-          }))
-        }
-      />
     </>
   );
 }
 
-function CapacityPlan({
-  state,
-  planning,
-  onPlan,
-  onFindState,
-}: {
-  state: ReturnType<typeof useNumbersSummary>;
-  planning: boolean;
-  onPlan: () => void;
-  onFindState: (state: string) => void;
-}) {
-  const { api, run } = useWorkspace();
-  const forecast = state.summary?.forecast;
-  if (!forecast) return null;
-  const projection = forecast.projection;
-  const queued = ["queued", "running"].includes(
-    projection.refresh_status ?? "",
-  );
-  const computed = forecast.forecast_attempts !== undefined;
-  const status = (
-    <section className="card padded" aria-label="Capacity planning status">
-      <p role="status">
-        {projection.refresh_status === "dead"
-          ? "Capacity planning failed. Retry the saved job after reviewing its error."
-          : projection.status === "ready"
-            ? "Capacity plan is current."
-            : queued
-              ? projection.status === "pending"
-                ? "Capacity plan is being prepared in the background."
-                : "Showing a saved capacity plan while current inputs are recalculated."
-              : projection.status === "pending"
-                ? "No capacity plan yet. Plan state coverage to prepare one."
-                : "Capacity plan is out of date. Plan state coverage before acting on it."}
-      </p>
-      {projection.as_of && (
-        <p className="fine">Calculated {date(projection.as_of)}.</p>
-      )}
-      {projection.refresh_error && (
-        <p className="notice">{projection.refresh_error}</p>
-      )}
-      {state.exhausted && (
-        <p className="fine">
-          Still preparing. Automatic checks have stopped; check again later.
-        </p>
-      )}
-      {(state.exhausted || projection.status !== "ready") && (
-        <button
-          className="secondary"
-          disabled={planning}
-          onClick={() =>
-            void run(async () => {
-              state.restart();
-              await state.load();
-            })
-          }
-        >
-          Check capacity plan
-        </button>
-      )}
-      {projection.refresh_status === "dead" && projection.job_id && (
-        <button
-          className="secondary"
-          disabled={planning}
-          onClick={() =>
-            void run(async () => {
-              await api(
-                `/v1/admin/recovery/jobs/${projection.job_id}/retry`,
-                "POST",
-                { expected_attempts: projection.attempts },
-              );
-              state.restart();
-              await state.load();
-            })
-          }
-        >
-          Retry capacity planning
-        </button>
-      )}
-      {!computed && projection.status === "pending" && !queued && (
-        <button className="secondary" disabled={planning} onClick={onPlan}>
-          Prepare a capacity plan
-        </button>
-      )}
-    </section>
-  );
-  if (!computed) return status;
-  const minimum =
-    forecast.minimum_additional_numbers ??
-    forecast.best_found_additional_numbers;
-  return (
-    <>
-      {status}
-      <section
-        className="card proposal"
-        data-testid="capacity-proposal"
-        aria-label="Capacity before procurement"
-      >
-        <span className="eyebrow">PLAN BEFORE PROCUREMENT</span>
-        <h2>State coverage proposal</h2>
-        <p>
-          {forecast.list_name === null || forecast.list_name === undefined
-            ? "All campaign leads"
-            : forecast.list_name || "Unnamed imports"}
-          . Owned numbers are shared across lists; this preview does not reserve
-          them. The Dialer keeps existing caller identities. For new leads it
-          prefers numbers in the same state and uses out-of-state capacity as a
-          last resort.
-        </p>
-        {!!forecast.estimated_state_leads && (
-          <p className="fine">
-            {forecast.estimated_state_leads} leads use estimated or unknown
-            states. Phone area codes do not confirm where someone lives. Metro
-            suggestions are preferences, not a prediction of better pickup.
-          </p>
-        )}
-        <div className="optimization-table">
-          <table>
-            <thead>
-              <tr>
-                <th>State</th>
-                <th>Due attempts</th>
-                <th>Rep capacity allocated</th>
-                <th>In-state capacity</th>
-                <th>General fallback</th>
-                <th>Out-of-state fallback</th>
-                <th>Awaiting review</th>
-                <th>Additional proposed</th>
-                <th>Preferred metros</th>
-              </tr>
-            </thead>
-            <tbody>
-              {forecast.regions.map((r) => (
-                <tr key={r.region}>
-                  <td>{r.state_name || r.region}</td>
-                  <td>{r.forecast_attempts ?? "Unknown"}</td>
-                  <td>{r.planned_attempts ?? "Unknown"}</td>
-                  <td>{r.usable_existing_capacity ?? "Unknown"}</td>
-                  <td>{r.general_fallback_capacity ?? "Unknown"}</td>
-                  <td>{r.out_of_state_capacity ?? "Unknown"}</td>
-                  <td>{r.capacity_waiting_for_review ?? "Unknown"}</td>
-                  <td>{r.proposed_additional ?? "Not established"}</td>
-                  <td>
-                    {r.preferred_metros && (
-                      <>
-                        <small>
-                          {r.preferred_metros} ·{" "}
-                          {r.suggested_area_codes?.join(", ")}
-                        </small>
-                        <button
-                          className="secondary small"
-                          onClick={() => onFindState(r.region)}
-                        >
-                          Find numbers in {r.state_name}
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {forecast.schedule_scope === "declared_staffed_windows" && (
-          <p className="pill subtle">Declared staffed periods</p>
-        )}
-        {forecast.schedule_scope === "normalized_simple_windows" && (
-          <p className="pill subtle">Saved simple staffing schedule</p>
-        )}
-        {forecast.planning_limited && (
-          <p className="notice">
-            Allocation is incomplete; remaining bottlenecks are not established.
-            Shown schedules are feasible examples. Narrow the horizon or cohort
-            to review a smaller plan.
-          </p>
-        )}
-        {forecast.screening && (
-          <div className="fine" aria-label="Screening constraints">
-            <p>
-              {forecast.screening.cleared_count}{" "}
-              {forecast.screening.cleared_count === 1
-                ? "lead has"
-                : "leads have"}{" "}
-              current screening; {forecast.screening.blocked_count} are excluded
-              from executable capacity.
-            </p>
-            <p>
-              Screening as of {date(forecast.screening.as_of)}. All leads remain
-              in list coverage totals; clearance is checked again before
-              calling.
-            </p>
-            {forecast.screening.blocked_count > 0 && (
-              <>
-                <ul>
-                  {Object.entries(forecast.screening.blocked_reasons).map(
-                    ([reason, count]) => (
-                      <li key={reason}>
-                        {label(reason)}: {count}
-                      </li>
-                    ),
-                  )}
-                </ul>
-                <p>
-                  Review source authorization and current coverage in Settings.
-                  Viewing this plan does not purchase screening.
-                </p>
-              </>
-            )}
-          </div>
-        )}
-        <dl className="capacity-summary">
-          <div>
-            <dt>Due attempt demand</dt>
-            <dd>{forecast.forecast_attempts}</dd>
-          </div>
-          <div>
-            <dt>Existing-only capacity</dt>
-            <dd>{forecast.existing_only_capacity ?? "Not established"}</dd>
-          </div>
-          <div>
-            <dt>Staffing shortfall</dt>
-            <dd>{forecast.staffing_shortfall ?? "Not established"}</dd>
-          </div>
-          <div>
-            <dt>Number shortfall</dt>
-            <dd>{forecast.number_shortfall ?? "Not established"}</dd>
-          </div>
-          <div>
-            <dt>
-              {forecast.optimality === "best_feasible_found"
-                ? "Best additional-number proposal"
-                : "Minimum additional numbers"}
-            </dt>
-            <dd>{minimum ?? "Not established"}</dd>
-          </div>
-          {forecast.schedule_scope && (
-            <>
-              <div>
-                <dt>Callbacks without owner availability</dt>
-                <dd>
-                  {forecast.owner_unavailable_attempts ?? "Not established"}
-                </dd>
-              </div>
-              <div>
-                <dt>Stable-identity shortfall</dt>
-                <dd>{forecast.binding_shortfall ?? "Not established"}</dd>
-              </div>
-              <div>
-                <dt>Setup-delay shortfall</dt>
-                <dd>{forecast.setup_shortfall ?? "Not established"}</dd>
-              </div>
-            </>
-          )}
-        </dl>
-        {!forecast.planning_limited &&
-          !!forecast.capacity_shortfall &&
-          forecast.capacity_shortfall > 0 && (
-            <p className="fine">
-              {forecast.staffing_shortfall} attempts exceed declared rep time;{" "}
-              {forecast.number_shortfall} staffed attempts lack usable number
-              capacity. These are separate constraints.
-            </p>
-          )}
-        {forecast.contingent_retry_low_mean_high && (
-          <>
-            <p className="fine">
-              Known next attempts are separate from uncertain later retries.
-              Neither schedule authorizes a call.
-            </p>
-            <dl className="capacity-summary">
-              <div>
-                <dt>Possible later retries</dt>
-                <dd>
-                  {forecast.contingent_retry_low_mean_high.low.toFixed(1)}–
-                  {forecast.contingent_retry_low_mean_high.high.toFixed(1)};
-                  mean {forecast.contingent_retry_low_mean_high.mean.toFixed(1)}
-                </dd>
-              </div>
-              <div>
-                <dt>Observed retry support</dt>
-                <dd>
-                  {forecast.contingent_retry_low_mean_high.support ||
-                    "Cold prior; no matured observations"}
-                </dd>
-              </div>
-              <div>
-                <dt>Capacity with hypothetical additions</dt>
-                <dd>
-                  {forecast.existing_plus_addition_capacity ??
-                    "Not established"}
-                </dd>
-              </div>
-              <div>
-                <dt>Pending inventory scenario</dt>
-                <dd>
-                  {forecast.conditional_pending_schedule?.length ??
-                    "Not established"}{" "}
-                  displayed attempts, conditional on setup
-                </dd>
-              </div>
-            </dl>
-          </>
-        )}
-        {!!forecast.contingent_retry_low_mean_high?.omitted_leads && (
-          <p className="notice">
-            Retry scenarios are incomplete:{" "}
-            {forecast.contingent_retry_low_mean_high.omitted_leads} leads
-            omitted from this bounded calculation.
-          </p>
-        )}
-        {forecast.contingent_capacity && (
-          <section>
-            <h3>Later capacity scenarios</h3>
-            <p className="small muted">
-              Conditional retries use the same rep time, number limits and
-              stable caller identity. These are scenarios, not reservations or a
-              reason to purchase numbers. Another number cannot replace a bound
-              identity.
-            </p>
-            {forecast.contingent_capacity.status === "not_needed" ? (
-              <p>No later permitted attempts in this forecast.</p>
-            ) : (
-              <table aria-label="Conditional retry capacity">
-                <thead>
-                  <tr>
-                    <th>Scenario</th>
-                    <th>Known + later attempts</th>
-                    <th>Existing capacity</th>
-                    <th>Capacity with additions</th>
-                    <th>Additional numbers</th>
-                    <th>Unserved</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(["low", "mean", "high"] as const).map((name) => {
-                    const row = forecast.contingent_capacity?.[name];
-                    return (
-                      <tr key={name}>
-                        <td>
-                          {label(name)}
-                          {row?.status !== "ready" ? " · Incomplete" : ""}
-                        </td>
-                        <td>{row?.planned_attempts ?? "Unknown"}</td>
-                        <td>{row?.existing_capacity ?? "Unknown"}</td>
-                        <td>{row?.expanded_capacity ?? "Unknown"}</td>
-                        <td>
-                          {row?.additional_numbers ?? "Unknown"}
-                          {row?.additional_numbers != null &&
-                            (row.minimum_proven_on_grid
-                              ? " · minimum on grid"
-                              : " · best feasible")}
-                        </td>
-                        <td>{row?.unserved_attempts ?? "Unknown"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </section>
-        )}
-        {forecast.assumptions && (
-          <p className="fine">
-            Grid: {forecast.assumptions.staffing_grid_seconds}s. Cold work
-            assumption: {forecast.assumptions.handling_seconds}s; observed
-            estimates replace it when available. Setup delay:{" "}
-            {forecast.assumptions.additional_ready_after_hours}h. Account
-            channels:{" "}
-            {forecast.assumptions.account_channel_limit ??
-              "unknown; not provider-verified"}
-            .
-          </p>
-        )}
-        {forecast.expansion_review && (
-          <div>
-            <h3>Expansion review</h3>
-            <p>
-              {label(forecast.expansion_review.reason)}.{" "}
-              {forecast.expansion_review.status === "observing" &&
-              forecast.expansion_review.next_review_at
-                ? `Review again after ${date(forecast.expansion_review.next_review_at)}. `
-                : ""}
-              Review available numbers and their costs under Add numbers with
-              approval. This plan does not place an order.
-            </p>
-          </div>
-        )}
-        {!!forecast.unavailable_staff_count && (
-          <p className="notice">
-            {forecast.unavailable_staff_count} configured{" "}
-            {forecast.unavailable_staff_count === 1 ? "rep is" : "reps are"}{" "}
-            unavailable; their time is excluded.
-          </p>
-        )}
-        {!!forecast.occupied_rep_count && (
-          <p className="notice">
-            {forecast.occupied_rep_count}{" "}
-            {forecast.occupied_rep_count === 1 ? "rep has" : "reps have"} an
-            existing call or reservation; occupied time is excluded.
-          </p>
-        )}
-        {forecast.optimality_scope && (
-          <p className="fine">
-            {forecast.optimality_scope}. Pending inventory requires review
-            before any addition; no predicted conversion lift is assumed.
-          </p>
-        )}
-        <p className="small muted">
-          Indicative monthly rental:{" "}
-          {forecast.monthly_rental_estimate_usd == null
-            ? "Not established"
-            : `$${forecast.monthly_rental_estimate_usd.toFixed(2)}`}
-          . This plan does not purchase numbers. Review an exact quote under Add
-          numbers with approval before accepting any rental. Existing rental
-          obligations remain.
-        </p>
-      </section>
-    </>
-  );
-}
 interface NumberEvidence {
   number: NumberRecord;
   health: {

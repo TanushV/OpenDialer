@@ -159,23 +159,6 @@ class Telnyx:
         return response.json()
 
 
-def test_presence_heartbeats_idle_pause_and_stale_work_intervals(workspace, clock):
-    ws = workspace
-    next_lead(ws, status=409)
-    ready_as(ws)
-    call(ws, "POST", "/v1/rep/heartbeat", json={"activity": "ready"})
-    open_rows = [i for i in get(ws, "/v1/rep/work")["intervals"] if i["ended_at"] is None]
-    assert len(open_rows) == 1 and open_rows[0]["source"] == "declared_presence"
-    clock.now += timedelta(minutes=5)
-    call(ws, "POST", "/v1/rep/heartbeat", json={"activity": "ready"})
-    stale = [i for i in get(ws, "/v1/rep/work")["intervals"] if i.get("close_reason") == "heartbeat_expired"]
-    assert len(stale) == 1 and stale[0]["ended_at"]
-    call(ws, "POST", "/v1/rep/heartbeat", json={"activity": "idle"})
-    assert get(ws, "/v1/workspace")["user"]["presence"]["status"] == "paused"
-    next_lead(ws, status=409)
-    call(ws, "POST", "/v1/rep/heartbeat", json={"activity": "ready"}, status=409)
-
-
 def test_an_unstarted_reservation_lapses_and_frees_the_rep_and_lead(workspace, clock):
     ws = workspace
     ready_as(ws)

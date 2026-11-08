@@ -299,20 +299,3 @@ def test_shared_preparation_progress_follows_secondary_list_membership(workspace
     import_leads(workspace, [{"phone": lead["phone"]}], list_name="Prepared secondary")
     lists = get(workspace, "/v1/preparation")["lists"]
     assert next(row for row in lists if row["list_name"] == "Prepared secondary")["total"] == 1
-
-
-def test_pausing_a_list_marks_its_saved_capacity_plan_stale(workspace):
-    from journey import run_jobs
-
-    imported(workspace, "Capacity list", "+14155550900")
-    post(
-        workspace,
-        "/v1/admin/numbers/proposal",
-        {"campaign_id": workspace["campaign_id"], "list_name": "Capacity list"},
-    )
-    run_jobs(workspace, 4)
-    before = get(workspace, "/v1/admin/numbers/summary", params={"list_name": "Capacity list"})["forecast"]
-    assert before["projection"]["status"] == "ready"
-    manage(workspace, "Capacity list", "pause")
-    after = get(workspace, "/v1/admin/numbers/summary", params={"list_name": "Capacity list"})["forecast"]
-    assert after["projection"]["status"] == "stale"

@@ -7,7 +7,6 @@ state and its area code's state), so an uncertain location narrows the window in
 """
 
 from collections import Counter
-from hashlib import sha256
 
 # state | name | preferred metros | preferred area codes | in-service area codes
 _STATE_DATA = """
@@ -192,8 +191,3 @@ def suggested_codes(state, leads=()):
             [*ordered, *sorted(counts, key=lambda code: (-counts[code], code)), *STATES[state]["areas"]]
         )
     )
-
-
-def planning_key(campaign_id, capacity=None, list_name=None):
-    key = f"planning:{campaign_id}:{capacity or 'configured'}"
-    return key if list_name is None else key + ":list-" + sha256(list_name.encode()).hexdigest()[:20]

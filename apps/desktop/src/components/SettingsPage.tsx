@@ -1,9 +1,7 @@
 import { ManagedConnection, type ConnectionStatus } from "./ManagedConnection";
 import { countLabel, useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
-import { BillingReconciliation } from "./BillingReconciliation";
 import { OperatingPolicySettings } from "./OperatingPolicySettings";
-import { WorkTime } from "./WorkTime";
 import { CallbackRouting } from "./CallbackRouting";
 import { RecoveryPanel } from "./RecoveryPanel";
 import { RubricSettings } from "./Rubrics";
@@ -13,7 +11,6 @@ import {
   LearningAdvanced,
   type OptimizationSettings,
 } from "./OptimizationPanel";
-import { WeeklySchedule, type SimpleStaffing } from "./Staffing";
 import { CredentialField } from "./CredentialField";
 import { CodexLogin, type LoginStatus as CodexLoginStatus } from "./CodexLogin";
 import type { Update } from "@tauri-apps/plugin-updater";
@@ -73,10 +70,9 @@ export function SettingsPage({
         <div className="page-heading">
           <div>
             <h1>Settings</h1>
-            <p>Your working time, workspace and app updates.</p>
+            <p>Your workspace and app updates.</p>
           </div>
         </div>
-        <WorkTime />
         <WorkspaceConnection onDisconnect={onDisconnect} />
         <UpdateSettings />
       </>
@@ -975,65 +971,6 @@ function CallingWindow() {
   );
 }
 
-function ScheduleStep({
-  current,
-  bounds,
-  onSaved,
-}: {
-  current: OptimizationSettings;
-  bounds: ReturnType<typeof useDefinitions>;
-  onSaved: () => Promise<void>;
-}) {
-  const { api, run, notice, refresh } = useWorkspace();
-  const pick = (value: OptimizationSettings): SimpleStaffing => ({
-    staffing_timezone: value.staffing_timezone,
-    staffing_start_hour: value.staffing_start_hour,
-    staffing_end_hour: value.staffing_end_hour,
-    staffing_reps: value.staffing_reps,
-    staffing_weekdays: value.staffing_weekdays,
-  });
-  const [draft, setDraft] = useState(() => pick(current));
-  const dirty = useRef(false);
-  useEffect(() => {
-    if (!dirty.current) setDraft(pick(current));
-  }, [current]);
-  return (
-    <div className="setup-form">
-      <p className="fine">
-        When reps call, in one IANA time zone. Dated exceptions and named roster
-        pools are under Advanced. Total available rep minutes still caps the
-        plan.
-      </p>
-      <WeeklySchedule
-        value={draft}
-        bounds={bounds}
-        onChange={(patch) => {
-          dirty.current = true;
-          setDraft((old) => ({ ...old, ...patch }));
-        }}
-      />
-      <button
-        className="primary"
-        disabled={!draft.staffing_weekdays.length}
-        onClick={() =>
-          void run(async () => {
-            await api("/v1/admin/optimization", "PUT", draft);
-            dirty.current = false;
-            await onSaved();
-            await refresh();
-            notice("Rep schedule saved");
-          })
-        }
-      >
-        Save rep schedule
-      </button>
-      {!draft.staffing_weekdays.length && (
-        <p className="fine">Choose at least one staffed weekday.</p>
-      )}
-    </div>
-  );
-}
-
 function BudgetSettings({ settings }: { settings: AdminSettingsState }) {
   const { api, run, notice } = useWorkspace();
   const [value, setValue] = useState(settings.data?.budget.per_list_usd ?? 25);
@@ -1439,15 +1376,10 @@ function MoreSettings({
             <BudgetSettings settings={settings} />
           </details>
           <details>
-            <summary>Campaign goal and team schedule</summary>
+            <summary>Campaign goal</summary>
             {settings.data && (
               <>
                 <CampaignGoal
-                  current={settings.data.optimization}
-                  bounds={bounds}
-                  onSaved={settings.load}
-                />
-                <ScheduleStep
                   current={settings.data.optimization}
                   bounds={bounds}
                   onSaved={settings.load}
@@ -1470,14 +1402,6 @@ function MoreSettings({
           <details>
             <summary>Call scoring</summary>
             <RubricSettings />
-          </details>
-          <details>
-            <summary>Work time</summary>
-            <WorkTime />
-          </details>
-          <details>
-            <summary>Billing records</summary>
-            <BillingReconciliation />
           </details>
           <details>
             <summary>Learning experiments and trackers</summary>

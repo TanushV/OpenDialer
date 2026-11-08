@@ -122,11 +122,6 @@ def publish_report_changes(session):
         )
 
 
-def home_key(epoch):
-    """Workspace totals are one seller-wide view per campaign cohort, not per viewer."""
-    return "home:" + hashlib.sha256(epoch.encode()).hexdigest()
-
-
 def projection_status(saved, revision, fresh, job, now):
     return {
         "status": "ready" if fresh else "stale" if saved else "pending",
@@ -202,7 +197,8 @@ class ReportProjections:
             "seller_id": p["seller_id"],
             "campaign_id": p.get("campaign_id"),
             "epoch": epoch,
-            **({} if kind == "home_refresh" else {"user_id": p["user_id"], "role": p["role"]}),
+            "user_id": p["user_id"],
+            "role": p["role"],
         }
         with self.db.transaction() as s:
             job = s.scalar(select(Job).where(Job.tenant_id == p["tenant_id"], Job.key == "refresh:" + key))
@@ -237,41 +233,6 @@ class ReportProjections:
             )
             emit(s, p["tenant_id"], event, row, self.clock())
             return row
-
-    def cached_home_metrics(self, p):
-        with self.db.transaction(False) as s:
-            p, _, epoch, _ = self.report_scope(s, p)
-            key = home_key(epoch)
-            saved, revision, fresh, job = self._saved_view(s, p, key)
-        if not fresh and not (job and job["status"] in {"queued", "running"}):
-            job = self.request_report(p, key, "home_refresh", epoch)
-        return {
-            **saved.get("report", {}),
-            "projection": projection_status(saved, revision, fresh, None if fresh else job, self.clock()),
-        }
-
-    def rebuild_home_metrics(self, p, *, lease=None):
-        """Seller-wide totals; the reader's authority is checked when it is served."""
-        from app.optimization.projections import compute, read_metrics
-
-        with self.db.transaction(False) as s:
-            campaign = self.selected_campaign(s, p)
-            epoch = campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
-            revision = self.report_revision(s, p)
-        totals = compute(self, {**p, "campaign_id": campaign.id}, details=False)
-        report = read_metrics(self, {**p, "campaign_id": campaign.id}, totals)
-        row = self._publish_view(
-            p,
-            home_key(epoch),
-            report,
-            revision,
-            report["next_refresh_at"],
-            "workspace.metrics_ready",
-            lease,
-            definition_version=report["definition_version"],
-            epoch=epoch,
-        )
-        return {"status": "ready", "id": row.id}
 
     def cached_optimization_report(self, p, epoch=None):
         with self.db.transaction(False) as s:

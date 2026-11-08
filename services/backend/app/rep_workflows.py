@@ -1090,7 +1090,6 @@ class RepWorkflows:
                         ),
                     ],
                 )
-                self.record_attempt_work_in(s, p, call, closing=True)
                 update(lead, last_outcome=outcome, last_outcome_at=self.clock().isoformat())
                 if outcome in {"wrong_party", "invalid_endpoint"}:
                     update(lead, status="needs_correction")

@@ -503,41 +503,6 @@ export interface Workspace {
   leads: Lead[];
   numbers: NumberRecord[];
   calls: Call[];
-  metrics: {
-    original_cohort?: number;
-    eligible_now?: number;
-    right_party_unique?: number;
-    held_meetings?: number;
-    coverage_overdue?: number;
-    suppressed?: number;
-    reserved_cost_usd?: number;
-    billing_verified?: boolean;
-    projection?: {
-      status: string;
-      as_of?: string | null;
-      refresh_status?: string;
-      refresh_error?: string | null;
-    };
-    rep_work_seconds?: number | null;
-    conversions_per_rep_hour?: number | null;
-    work_time?: { note: string };
-    outcome_goal?: string;
-    outcome_window_days?: number;
-    warnings?: string[];
-    health?: {
-      connect_rate: {
-        status: string;
-        samples: number;
-        unknown: number;
-        rate: number | null;
-        reference_rate: number | null;
-        comparison: string;
-        confidence_low: number;
-        confidence_high: number;
-        all_attempt_rate: number | null;
-      };
-    };
-  };
   readiness: Readiness;
   playbooks: Playbook[];
   registries: {

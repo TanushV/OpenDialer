@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { date, isAdmin, label, percent, useWorkspace } from "../context";
 import { limits, useDefinitions } from "../state/definitions";
 import { Experiments, type ControlledComparison } from "./TrialControls";
-import { DatedStaffing, type StaffedWindow } from "./Staffing";
 import type { EstimatePolicy } from "../types";
 
 export interface HealthPolicy {
@@ -21,13 +20,6 @@ export interface OptimizationSettings {
   handling_seconds: number;
   daily_capacity_per_number: number;
   training_min_rows: number;
-  staffed_windows: StaffedWindow[];
-  additional_ready_after_hours: number;
-  staffing_timezone: string;
-  staffing_start_hour: number;
-  staffing_end_hour: number;
-  staffing_reps: number;
-  staffing_weekdays: number[];
   account_channel_limit: number | null;
   minimum_expansion_age_hours: number;
   estimate_policy?: EstimatePolicy;
@@ -376,8 +368,6 @@ const ADVANCED_KEYS = [
   "auto_train",
   "account_channel_limit",
   "minimum_expansion_age_hours",
-  "additional_ready_after_hours",
-  "staffed_windows",
   "health_policy",
 ] as const;
 type AdvancedKey = (typeof ADVANCED_KEYS)[number];
@@ -459,10 +449,6 @@ function PlanningAssumptions({
           "minimum_expansion_age_hours",
           "Shortfall review interval (hours)",
         )}
-        {number(
-          "additional_ready_after_hours",
-          "New number setup delay (hours)",
-        )}
       </div>
       <label className="check-row">
         <input
@@ -472,12 +458,6 @@ function PlanningAssumptions({
         />
         Automatic training from call history
       </label>
-      <DatedStaffing
-        windows={draft.staffed_windows || []}
-        zone={settings.staffing_timezone ?? "UTC"}
-        bounds={bounds}
-        onChange={(value) => change("staffed_windows", value)}
-      />
       {draft.health_policy && (
         <details>
           <summary>Advanced number evidence policy</summary>

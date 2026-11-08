@@ -835,8 +835,6 @@ def _record(totals, snapshot, *, details):
 
 def compute(service, p, *, details=True):
     """Evaluate every record of the selected campaign. Memory stays bounded to one page."""
-    from app.measurement import work_summary
-
     now = service.clock()
     with service.db.snapshot() as session:
         primary = service.selected_campaign(session, {k: v for k, v in p.items() if k != "campaign_id"})
@@ -875,8 +873,6 @@ def compute(service, p, *, details=True):
         for model in session.scalars(_scoped(p, "model_versions")):
             if model.data.get("trial_epoch"):
                 studies.setdefault(model.data["trial_epoch"], model.data.get("trial_study", {}))
-        intervals = _docs(session, p, "work_intervals")
-        work_calls = []
         lead_ids = sorted(i for i, c in lead_campaign.items() if c == campaign.id)
         for page in _chunks(lead_ids):
             people = _docs(session, p, "leads", leads.id.in_(page))
@@ -957,7 +953,6 @@ def compute(service, p, *, details=True):
                     details=details,
                 )
             for call in calls:
-                work_calls.append(call)
                 if not resolved(call):
                     continue
                 attempt = work.get(call["id"])
@@ -1076,25 +1071,7 @@ def compute(service, p, *, details=True):
                     details=details,
                 )
             session.expunge_all()
-    work = work_summary(intervals, work_calls, now=now)
     total = totals.group(bucket_kind="total")
-    totals.add(
-        total,
-        {
-            "rep_work_seconds": work["seconds"] or 0,
-            "work_evidence_count": len(work["by_rep"]),
-            "stale_intervals": work["stale_intervals"],
-        },
-    )
-    for rep, seconds in work["by_rep"].items():
-        totals.add(
-            totals.group(bucket_kind="rep_total", rep_id=rep),
-            {"rep_work_seconds": seconds, "work_evidence_count": 1},
-        )
-    for row in intervals:
-        lease = timestamp(row.get("lease_until"))
-        if not row.get("ended_at") and lease and lease > now:
-            totals.due(lease)
     costs = {}
     for entry in totals.buckets("call_cost"):
         for name, value in observed_call_cost(entry["values"]).items():
@@ -1294,10 +1271,9 @@ def read_trial_metrics(service, p, totals, *, epoch=None):
 
 def read_metrics(service, p, totals):
     """Seller totals plus bounded rep totals; never source history or a training dataset."""
-    from app.measurement import WORK_LEASE_SECONDS, WORK_NOTE, connect_health_counts
+    from app.measurement import connect_health_counts
 
     config, values = totals.config, totals.total
-    reps = [r for r in totals.buckets("rep_total") if r["values"].get("work_evidence_count")]
     counts = {
         key: values.get(key, 0)
         for key in (
@@ -1318,15 +1294,6 @@ def read_metrics(service, p, totals):
             "pending_outcome_windows",
         )
     }
-    work = {
-        "seconds": values.get("rep_work_seconds", 0) if values.get("work_evidence_count") else None,
-        "by_rep": {r["group"]["rep_id"]: r["values"]["rep_work_seconds"] for r in reps[:500]},
-        "stale_intervals": values.get("stale_intervals", 0),
-        "source": "declared_presence_heartbeat_and_verified_calls",
-        "lease_seconds": WORK_LEASE_SECONDS,
-        "note": WORK_NOTE,
-        "rep_details_complete": len(reps) <= 500,
-    }
     health = connect_health_counts(values)
     denominator = counts["original_eligible_denominator"]
     return {
@@ -1339,11 +1306,6 @@ def read_metrics(service, p, totals):
         "held_meetings_per_original_lead": counts["held_meetings"] / denominator if denominator else 0,
         "conversion_per_original_eligible_lead": counts["unique_conversions"] / denominator
         if denominator
-        else None,
-        "rep_work_seconds": work["seconds"],
-        "work_time": work,
-        "conversions_per_rep_hour": counts["unique_conversions"] * 3600 / work["seconds"]
-        if work["seconds"]
         else None,
         "outcome_goal": config["conversion_goal"],
         "outcome_window_days": config["window_days"],

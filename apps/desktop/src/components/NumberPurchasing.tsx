@@ -33,12 +33,10 @@ export function NumberPurchasing({
   onChanged,
   states,
   listName,
-  stateSearch,
 }: {
   onChanged: () => Promise<unknown>;
   states: { code: string; name: string }[];
   listName: string | null;
-  stateSearch: { state: string; revision: number } | null;
 }) {
   const { api, run, snapshot: w, notice, subscribe } = useWorkspace();
   const [settings, setSettings] = useState<Limits | null>(null);
@@ -90,15 +88,6 @@ export function NumberPurchasing({
     setApproved(false);
     setSearchedAreas([]);
   }, [listName, state, region, city]);
-  useEffect(() => {
-    if (!stateSearch) return;
-    setState(stateSearch.state);
-    setRegion("");
-    if (details.current) {
-      details.current.open = true;
-      details.current.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [stateSearch]);
   const action = (work: () => Promise<unknown>) =>
     void run(async () => {
       setBusy(true);

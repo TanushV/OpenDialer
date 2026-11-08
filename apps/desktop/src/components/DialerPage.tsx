@@ -2,7 +2,6 @@ import { captureSpeech } from "../telephony/speech";
 import { useSpeechExpiry } from "../state/useSpeechExpiry";
 import { ScriptReader } from "./ScriptReader";
 import { LiveCoach } from "./LiveCoach";
-import { CallingHealth } from "./WorkTime";
 import { ProspectBrief } from "./ProspectBrief";
 import {
   ArrowRight,
@@ -47,7 +46,6 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
     notice,
     run,
     subscribe,
-    liveStatus,
   } = useWorkspace();
   const scopeKey = `dial-lists:${session.tenant_id}:${session.seller_id}:${session.user_id}`;
   const [dialLists, setDialLists] = useState<string[] | null>(() => {
@@ -801,36 +799,6 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
         </details>
       )}
       {betweenCalls && <DueTasks />}
-      {idle && <CallingHealth />}
-      {idle && (
-        <details className="dialer-details">
-          <summary>Details</summary>
-          <p className="fine">Conversation updates: {label(liveStatus)}</p>
-          <div className="metric-row">
-            <Metric
-              title="LEADS IN YOUR COHORT"
-              value={String(w.metrics.original_cohort ?? "—")}
-              detail={`${w.metrics.eligible_now ?? "Unknown"} currently eligible`}
-            />
-            <Metric
-              title="UNIQUE RIGHT-PARTY REACH"
-              value={String(w.metrics.right_party_unique ?? "—")}
-              detail="Across the original cohort"
-            />
-            <Metric
-              title="HELD MEETINGS"
-              value={String(w.metrics.held_meetings ?? "—")}
-              detail="Confirmed outcomes"
-            />
-            <Metric
-              title="COVERAGE OVERDUE"
-              value={String(w.metrics.coverage_overdue ?? "—")}
-              detail="No lead left behind"
-              last
-            />
-          </div>
-        </details>
-      )}
       {call && wrapUpPending && (
         <WrapUp
           key={call.id}
@@ -1196,26 +1164,4 @@ function UsersIcon() {
 }
 function ActivityIcon() {
   return <span className="tiny-circle">≋</span>;
-}
-function Metric({
-  title,
-  value,
-  detail,
-  last,
-}: {
-  title: string;
-  value: string;
-  detail: string;
-  last?: boolean;
-}) {
-  return (
-    <div className={`metric ${last ? "last" : ""}`}>
-      <span>{title}</span>
-      <strong>
-        {value}
-        <small>{title.includes("REACH") ? " people" : ""}</small>
-      </strong>
-      <p>{detail}</p>
-    </div>
-  );
 }

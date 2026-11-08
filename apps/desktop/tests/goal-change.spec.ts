@@ -4,7 +4,7 @@ import { chooseOutcome, waitForPreparation } from "./simulation";
 
 /** The campaign goal lives under Settings → More settings. */
 async function openGoal(page: import("@playwright/test").Page) {
-  await openMoreSettings(page, "Campaign goal and team schedule");
+  await openMoreSettings(page, "Campaign goal");
 }
 
 test("campaign goal changes are previewed before application and survive reload", async ({

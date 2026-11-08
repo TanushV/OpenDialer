@@ -1,20 +1,17 @@
 import hashlib
 import json
-import math
 from collections import defaultdict
 from datetime import UTC, timedelta
 
 from sqlalchemy import func, or_, select
 
 from app.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
-from app.lead_lists import in_list
 from app.optimization.experiments import ComparisonWorkflows
 from app.optimization.geography import planning_zones
 from app.optimization.learning import training_rows
 from app.optimization.numbering import (
     HealthPolicy,
     adaptive_daily_limit,
-    capacity_forecast,
     number_health,
     timestamp,
     warmup_allowance,
@@ -651,326 +648,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
         result.sort(key=lambda r: (r["at"], r["call_id"]))
         return result
 
-    def forecast_input(self, s, p, *, campaign_id=None, capacity=None, lead_ids=None, list_name=None):
-        from collections import Counter
-
-        from app.compliance.operating import screening_page
-        from app.optimization.geography import STATES, coverage_region, suggested_codes
-
-        if lead_ids is not None and len(lead_ids) > 100:
-            raise ValueError("At most100 changed leads per planning page")
-        config = self.optimization_config(s, p, campaign_id)
-        campaign = (
-            self.required(s, "campaigns", campaign_id, p) if campaign_id else self.selected_campaign(s, p)
-        )
-        policy_row = self.required(s, "policy_versions", campaign.data["policy_id"], p)
-        profile = campaign.data.get("selection_profile", {})
-        if not profile_current(profile, config):
-            profile = {}
-        policy = {
-            **policy_row.data,
-            **{k: v for k, v in config.items() if k.startswith("staffing_")},
-            "handling_seconds": config["handling_seconds"],
-            "estimate_policy": config["estimate_policy"],
-            "version": f"{policy_row.id}:{policy_row.version}",
-            "goal_version": campaign.data.get("optimization_epoch", config["conversion_goal"]),
-            "estimate_version": profile.get("version") or profile.get("as_of") or "pooled-v1",
-        }
-        if config.get("account_channel_limit") is not None:
-            policy["account_channel_limit"] = config["account_channel_limit"]
-        claims = list(
-            s.scalars(
-                select(ActiveClaim).where(
-                    ActiveClaim.tenant_id == p["tenant_id"],
-                    ActiveClaim.seller_id == p["seller_id"],
-                    or_(ActiveClaim.call_id.is_not(None), ActiveClaim.expires_at > self.clock()),
-                )
-            )
-        )
-        claimed_leads = {claim.lead_id for claim in claims}
-        pooled = saved_prediction(profile, {}, config)
-        # Live work occupies its rep for the predicted remaining work from call start.
-        ends = self.obligation_ends(s, p, claims, pooled["expected_rep_seconds"])
-        busy = {claim.rep_id: ends[claim.id].isoformat() for claim in claims}
-        windows = config["staffed_windows"]
-        roster = {rep for window in windows for rep in window.get("rep_ids", [])}
-        users = MODELS["users"]
-        available = {
-            u.id
-            for u in s.scalars(
-                select(users).where(
-                    users.tenant_id == p["tenant_id"],
-                    users.seller_id == p["seller_id"],
-                    users.id.in_(roster),
-                )
-            )
-            if not u.data.get("disabled") and u.data.get("role") in {"owner", "admin", "rep"}
-        }
-        windows = [
-            {**w, "rep_ids": [rep for rep in w["rep_ids"] if rep in available]} if "rep_ids" in w else w
-            for w in windows
-        ]
-        leads, cursor = [], None
-        screening_counts, screening_reasons = Counter(), Counter()
-        model = MODELS["leads"]
-        while True:
-            page = list(
-                s.scalars(
-                    select(model)
-                    .where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.op_campaign_id == campaign.id,
-                        *([in_list(model, list_name)] if list_name is not None else []),
-                        *([model.id.in_(lead_ids)] if lead_ids is not None else []),
-                        *([model.id > cursor] if cursor else []),
-                    )
-                    .order_by(model.id)
-                    .limit(500)
-                )
-            )
-            if not page:
-                break
-            ids = [row.id for row in page]
-            keys = [row.data["phone"] for row in page]
-            bindings, denied = {}, set()
-            for kind, identities in (("lead_number_bindings", ids), ("suppressions", keys)):
-                related = MODELS[kind]
-                for row in s.scalars(
-                    select(related).where(
-                        related.tenant_id == p["tenant_id"],
-                        related.seller_id == p["seller_id"],
-                        related.external_key.in_(identities),
-                    )
-                ):
-                    if kind == "lead_number_bindings":
-                        bindings[row.data["lead_id"]] = row.data["number_id"]
-                    elif row.data.get("active", True):
-                        denied.add(row.data["phone"])
-            # With screening off nothing is looked up and no lead is excluded as "not cleared".
-            screening = (
-                screening_page(self, s, p, [row.data["phone"] for row in page], denied)
-                if policy_row.data.get("dnc_screening")
-                else {}
-            )
-            for row in page:
-                decision = screening.get(row.data["phone"])
-                if decision is None:
-                    screening_counts["not_checked_count"] += 1
-                    continue
-                screening_counts["cleared_count" if decision["decision"] == "clear" else "blocked_count"] += 1
-                if decision["decision"] != "clear":
-                    screening_reasons.update(decision["reason_codes"])
-            leads.extend(
-                {
-                    **doc(row),
-                    "suppressed": row.data["phone"] in denied or not self.list_permitted(s, p, row),
-                    "bound_number_id": bindings.get(row.id),
-                    "active_obligation": row.id in claimed_leads,
-                    **({"screening": screening[row.data["phone"]]} if row.data["phone"] in screening else {}),
-                }
-                for row in page
-            )
-            cursor = page[-1].id
-            if len(page) < 500:
-                break
-        list_staffing_fingerprint = hashlib.sha256(
-            json.dumps(
-                {
-                    "list": [(row["id"], row.get("endpoint_id"), coverage_region(row)) for row in leads],
-                    "staff": {
-                        k: v
-                        for k, v in config.items()
-                        if k.startswith("staff") or k in {"rep_minutes", "horizon_hours"}
-                    },
-                },
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
-        # Slot values depend on local time only; no location effect is assumed without support.
-        estimate_cache, by_key = {}, {}
-        for lead in leads:
-            cell = (str(lead.get("segment", "unknown")), lead.get("attempt_count", 0))
-            if cell not in estimate_cache:
-                values = {}
-                for day in range(7):
-                    for hour in range(24):
-                        features = {
-                            "segment": cell[0],
-                            "attempt_count": cell[1],
-                            "local_hour": hour,
-                            "local_weekday": day,
-                        }
-                        key = prediction_key(features)
-                        if key not in by_key:
-                            prediction = saved_prediction(profile, features, config)
-                            by_key[key] = math.prod(prediction[k] for k in STAGES)
-                        values[f"{day}:{hour}"] = by_key[key]
-                estimate_cache[cell] = values
-            lead.update(
-                predicted_work_seconds=pooled["expected_rep_seconds"],
-                outcome_estimates=pooled,
-                slot_estimates=estimate_cache[cell],
-            )
-        inventory = self.inventory_evidence(s, p, fast=True)
-        # Reuse all owned capacity; additions serve states, not one pool per area code.
-        regions = sorted({coverage_region(row) for row in leads})
-        policy["proposed_number_classes"] = [
-            {
-                "id": region,
-                "region": region,
-                "daily_limit": capacity or config["daily_capacity_per_number"],
-                "capacity": 1,
-            }
-            for region in regions
-        ]
-        return {
-            "leads": leads,
-            "inventory": inventory,
-            "now": self.clock(),
-            "horizon_hours": config["horizon_hours"],
-            "rep_minutes": config["rep_minutes"],
-            "handling_seconds": config["handling_seconds"],
-            "daily_capacity_per_number": capacity or config["daily_capacity_per_number"],
-            "policy": policy,
-            "staffed_windows": windows,
-            "additional_ready_after_hours": config["additional_ready_after_hours"],
-            "rep_busy_until": busy,
-            "retry_observations": profile.get("retry_observations", []),
-        }, {
-            "list_name": list_name,
-            "allocation_basis": "state",
-            "state_suggestions": {
-                state: {
-                    "state_name": STATES[state]["name"],
-                    "preferred_metros": STATES[state]["metros"],
-                    "suggested_area_codes": suggested_codes(state, leads)[:3],
-                }
-                for state in regions
-                if state in STATES
-            },
-            "estimated_state_leads": sum(row.get("state_source") != "provided" for row in leads),
-            "unavailable_staff_count": len(roster - available),
-            "occupied_rep_count": len(busy),
-            "list_staffing_fingerprint": list_staffing_fingerprint,
-            "minimum_expansion_age_hours": config["minimum_expansion_age_hours"],
-            "screening": {
-                "enabled": bool(policy_row.data.get("dnc_screening")),
-                "not_checked_count": screening_counts["not_checked_count"],
-                "cleared_count": screening_counts["cleared_count"],
-                "blocked_count": screening_counts["blocked_count"],
-                "blocked_reasons": dict(screening_reasons),
-                "as_of": self.clock().isoformat(),
-            },
-        }
-
-    def forecast(self, s, p, *, campaign_id=None, capacity=None):
-        inputs, metadata = self.forecast_input(s, p, campaign_id=campaign_id, capacity=capacity)
-        return {**capacity_forecast(**inputs), **metadata}
-
-    def build_forecast(self, p, campaign_id, capacity=None, *, lease=None, list_name=None):
-        """Snapshot/read, pure calculation, then a short source-checked publication."""
-        from app.optimization.geography import planning_key
-        from app.service import fail
-
-        key = planning_key(campaign_id, capacity, list_name)
-        with self.db.transaction(False) as s:
-            current, _, _, _ = self.report_scope(s, p)
-            if current["role"] != "admin":
-                fail(403, "Administrator access is required to plan inventory")
-            generation = self.report_revision(s, current)
-            inputs, metadata = self.forecast_input(
-                s, current, campaign_id=campaign_id, capacity=capacity, list_name=list_name
-            )
-            config = self.optimization_config(s, current, campaign_id)
-            profile = self.required(s, "campaigns", campaign_id, current).data.get("selection_profile", {})
-            profile = profile if profile_current(profile, config) else {}
-        result = {**capacity_forecast(**inputs, schedule_row_limit=None), **metadata}
-        for region in result["regions"]:
-            region.update(metadata["state_suggestions"].get(region["region"], {}))
-        # One bounded per-campaign summary is the per-lead view; nothing here gates a call.
-        result["next_attempts"], result["next_attempts_omitted"] = next_attempts(
-            inputs["leads"], result["existing_schedule"], lambda f: saved_prediction(profile, f, config)
-        )
-        result["next_attempts_expire_at"] = (inputs["now"] + timedelta(minutes=10)).isoformat()
-        omitted = max(0, len(result["expanded_schedule"]) - 1000)
-        for field in (
-            "existing_schedule",
-            "expanded_schedule",
-            "hypothetical_added_schedule",
-            "conditional_pending_schedule",
-        ):
-            result[field] = result[field][:1000]
-        result["schedule_rows_omitted"] = omitted
-        result["omitted_rows"]["schedule"] = omitted
-        with self.db.transaction() as s:
-            # Published with its as-of watermark; a newer source change marks it stale.
-            self.jobs.require_owned_in(s, lease)
-            user, _, _, _ = self.report_scope(s, p)
-            if user["role"] != "admin":
-                return {"status": "superseded"}
-            prior = self._by_key(s, p, "report_projections", key)
-            previous = prior.data.get("report", {}) if prior else {}
-            old_review = previous.get("expansion_review", {})
-            shortfall = result.get("number_shortfall")
-            first = (
-                timestamp(old_review.get("first_shortfall_at"))
-                if old_review.get("status") in {"observing", "eligible"}
-                else None
-            ) or inputs["now"]
-            changed = bool(
-                previous and previous.get("list_staffing_fingerprint") != result["list_staffing_fingerprint"]
-            )
-            matured = (inputs["now"] - first).total_seconds() >= 3600 * metadata[
-                "minimum_expansion_age_hours"
-            ]
-            result["expansion_review"] = {
-                "status": "unknown"
-                if shortfall is None
-                else "sufficient"
-                if shortfall == 0
-                else "eligible"
-                if changed or matured
-                else "observing",
-                "reason": "incomplete_plan"
-                if shortfall is None
-                else "existing_capacity_sufficient"
-                if shortfall == 0
-                else "list_or_staffing_changed"
-                if changed
-                else "persistent_shortfall"
-                if matured
-                else "awaiting_second_observation",
-                "first_shortfall_at": first.isoformat() if shortfall else None,
-                "observed_at": inputs["now"].isoformat(),
-                "next_review_at": (
-                    first + timedelta(hours=metadata["minimum_expansion_age_hours"])
-                ).isoformat()
-                if shortfall
-                else None,
-                "purchase_allowed": False,
-            }
-            value = {
-                "report": result,
-                "source_revision": generation,
-                "as_of": result["as_of"],
-                "expires_at": (inputs["now"] + timedelta(seconds=60)).isoformat(),
-                "campaign_id": campaign_id,
-            }
-            row = (
-                update(prior, **value)
-                if prior
-                else put(
-                    s, "report_projections", p["tenant_id"], p["seller_id"], value, key=key, now=self.clock()
-                )
-            )
-            emit(s, p["tenant_id"], "planning.changed", row, self.clock())
-        return {
-            "status": "ready",
-            "source_revision": generation,
-            "input_fingerprint": result["input_fingerprint"],
-        }
-
     def report_details(self, s, p):
         """Bounded saved decisions/plans; no horizon computation or historical dataset."""
         reservations = MODELS["reservations"]
@@ -1044,31 +721,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
             },
         }
 
-    def saved_forecast(self, s, p, list_name=None):
-        from app.optimization.geography import planning_key
-
-        campaign = self.selected_campaign(s, p)
-        row = self._by_key(s, p, "report_projections", planning_key(campaign.id, list_name=list_name))
-        saved = row.data if row else {}
-        current = self.report_revision(s, p)
-        fresh = (
-            saved.get("source_revision") == current
-            and (timestamp(saved.get("expires_at")) or self.clock()) > self.clock()
-        )
-        return {
-            "regions": [],
-            "capacity_shortfall": None,
-            "staffing_shortfall": None,
-            "number_shortfall": None,
-            **saved.get("report", {}),
-            "projection": {
-                "status": "ready" if fresh else "stale" if saved else "pending",
-                "as_of": saved.get("as_of"),
-                "source_revision": saved.get("source_revision"),
-                "current_revision": current,
-            },
-        }
-
     def optimization_report(self, p, epoch=None, totals=None):
         from app.optimization.projections import (
             compute,
@@ -1090,7 +742,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "settings": self.optimization_config(s, p),
                 "comparisons": read_comparison_metrics(self, p, totals),
                 "cohort_history": cohort_history,
-                "forecast": self.saved_forecast(s, p),
                 "numbers": self.inventory_evidence(s, p, totals=totals),
                 "metrics": {
                     **measured,
@@ -1388,7 +1039,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             self.jobs.require_owned_in(s, lease)
             update(campaign, selection_profile=profile)
             jobs = []
-            for kind in ("health_refresh", "forecast_refresh", "learning_refresh"):
+            for kind in ("health_refresh", "learning_refresh"):
                 key = (
                     "operational-train:snapshot:"
                     if kind == "learning_refresh"
