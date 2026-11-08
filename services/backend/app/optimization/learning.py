@@ -137,6 +137,7 @@ def lead_features(lead, now):
         "trigger_strength": strength,
         "trigger_age_days": max(0.0, (now - trigger_date).total_seconds() / 86400) if trigger_date else None,
         "list": (lead.get("list_name") or "unknown")[:60],
+        "number_status": lead.get("number_status") or "unknown",
     }
 
 

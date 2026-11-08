@@ -616,6 +616,20 @@ def create_app(settings=None, *, clock=None, carrier=None):
         service.configs.write(p["tenant_id"], {"test_session": False})
         return {"test_session": False}
 
+    @app.get("/v1/learning/summary")
+    def learning_summary(p=Depends(principal)):
+        """The Review card: what StatML has learned from real calls (R8.8)."""
+        from app.learning.summary import summary
+        from app.platform.db import get
+
+        with db.transaction(False) as s:
+            campaign = next(iter(service.scoped(s, "campaigns", p)), None)
+            latest = (campaign.data.get("dataset_summaries") or [None])[-1] if campaign else None
+            dataset = get(s, "learning_datasets", latest["id"], p["tenant_id"]) if latest else None
+            models = [m.data for m in service.scoped(s, "model_versions", p)]
+            required = service.optimization_config(s, p)["training_min_rows"] if campaign else 100
+        return summary(dataset.data.get("rows", []) if dataset else [], models, required_rows=required)
+
     @app.get("/v1/calling/voicemail-report")
     def voicemail_report(p=Depends(principal)):
         """Voicemail detection against what the rep found when they stayed (R6.4)."""

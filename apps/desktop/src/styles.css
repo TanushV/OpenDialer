@@ -2662,3 +2662,17 @@ details.transcript-card {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Learning card (R8.8). */
+.learning-facts {
+  display: grid;
+  grid-template-columns: minmax(180px, max-content) 1fr;
+  gap: 6px 14px;
+  margin: 10px 0 0;
+}
+.learning-facts dt {
+  color: #667085;
+}
+.learning-facts dd {
+  margin: 0;
+}

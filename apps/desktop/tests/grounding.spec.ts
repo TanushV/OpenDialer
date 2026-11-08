@@ -49,6 +49,9 @@ test("a failed evidence review is visible without overwriting the rep note", asy
   await saveOutcome(page, "not_interested");
   await expect(startCalling(page)).toBeVisible();
   await page.getByRole("button", { name: "Review", exact: true }).click();
+  await expect(
+    page.getByRole("region", { name: "What it has learned" }),
+  ).toContainText("calls used");
   await page
     .getByRole("button", { name: /^Review call / })
     .first()

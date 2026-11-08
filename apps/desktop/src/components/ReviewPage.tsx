@@ -15,6 +15,7 @@ import { Empty } from "./Operations";
 import { FollowupTasks } from "./FollowupTasks";
 import { WrapUp } from "./WrapUp";
 import { CallTimeline } from "./CallTimeline";
+import { LearningCard } from "./LearningCard";
 
 export function ReviewPage() {
   const { snapshot: w, api, run, notice, refresh } = useWorkspace();
@@ -86,6 +87,7 @@ export function ReviewPage() {
             </select>
           </label>
         </div>
+        <LearningCard />
         <section className="card padded" aria-label="Follow-ups">
           <h2>Follow-ups</h2>
           <FollowupTasks />

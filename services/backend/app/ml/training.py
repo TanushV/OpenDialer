@@ -46,6 +46,7 @@ CATEGORICAL = (
     "trigger_type",
     "trigger_strength",
     "list",
+    "number_status",
 )
 CATEGORY_LIMIT = 12
 

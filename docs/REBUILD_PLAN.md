@@ -1138,7 +1138,9 @@ Goal: it can learn, and you can see that it is learning.
       100 decided calls in each group rolls it back, with the evidence audited.
 - [x] R8.7 Training schedule from section 8; no UI churn. Done November 8: training starts at most once in 20 hours and only when
       labeled calls grew; the learning refresh announces a report only when it changed.
-- [ ] R8.8 "What it has learned" card in Review.
+- [x] R8.8 "What it has learned" card in Review. Done November 8: calls used, best hours, best triggers,
+      wrong-person rate by number source and by number check, the live model and its last change; groups under 5 calls
+      are not ranked.
 - [ ] R8.9 Synthetic end-to-end test: a planted pattern in 600 calls gets learned, promoted, used and rolled back when it
       stops working.
 - [ ] R8.10 Package the trainer sidecar on Mac and verify it runs, with that check in CI.
@@ -1176,7 +1178,8 @@ Goal: criteria are enforced in code, and research keeps working if ChatGPT is un
 - [ ] R9.21 Failing test: a CSV import makes no Treg, Trestle or RealValidito request, and its leads show "Not checked (CSV)".
 - [ ] R9.22 Number status and its reason show in Leads and the Dialer; auto-dial skips Conflict, Bad and No valid number; the rep
       can dial a Conflict by hand. The number-check work itself is in Phase 9B, because it runs only on CRM leads.
-- [ ] R9.25 The learning card shows wrong-party rate by number status as well as number source (T3).
+- [x] R9.25 The learning card shows wrong-party rate by number status as well as number source (T3). Done November 8;
+      `number_status` is also a learning feature.
 
 Done when: no lead claims a trigger that fails the criteria, and the owner accepts the 20-lead sample.
 
