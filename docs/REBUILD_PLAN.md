@@ -1218,3 +1218,8 @@ Done when: every live check passes and the owner signs off. **Owner sitting 5.**
   (Verify passed; Mac only; `latest.json`, archive, signature, disk image). Not published or installed: both wait for
   the owner. Next: R2.3. Its experiments module also serves coaching strategies (R2.4) and the StatML comparison group
   (kept), so remove comparisons, trials, drift and variants while keeping `assign_arm` and the holdout path.
+- November 7, 2026: Phase 2 done and pushed (`0610378`, CI green on each push). Routes 162 to 117, tables 57 to 53,
+  backend 39,428 to 34,716 lines (target missed; see Phase 2 result). Deferred on purpose, with the step that owns each:
+  password sign-in and roles (R3.4), the direct webhook route (R4.7), coaching library and scorecard internals (R10.1,
+  R10.2), saved trial state in projections (R8.4 to R8.6). Still waiting on the owner: publish and install of the 1.0.2
+  draft, live calls (R0.15 and later), RealValidito key, HubSpot key. Next: Phase 3, starting with R3.1.
