@@ -842,10 +842,10 @@ Goal: today's failures become failing tests before any structure changes.
       Then add it to the local full tier. Meet the full-tier target in section 12A, or record why not.
 - [ ] R1.3 Add the layout audit: for every Dialer phase at 1024x720 and 1440x940, the primary action is visible and not
       covered, no sideways scroll, no clipping, and layout shift stays under a set limit.
-- [ ] R1.4 Build `providers/replay_carrier.py`: replays recorded timelines, including rep-leg teardown, unmatched legs,
+- [x] R1.4 Build `providers/replay_carrier.py`: replays recorded timelines, including rep-leg teardown, unmatched legs,
       relay delay and track end before event.
-- [ ] R1.5 Add scripted variants: hang-up during dial, answer after hang-up, duplicate events, reversed order.
-- [ ] R1.6 Add the shuffled-order property test: every order reaches a terminal state, with one active call at most.
+- [x] R1.5 Add scripted variants: hang-up during dial, answer after hang-up, duplicate events, reversed order.
+- [x] R1.6 Add the shuffled-order property test: every order reaches a terminal state, with one active call at most.
 - [x] R1.7 Add lint bans as warnings (`scripts/rules.py`): bare `except Exception`, `.data.get(` in new core, `simulation` outside the
       provider, `tenant_id` in new core.
 - [x] R1.8 Add the caps in section 12 to `scripts/rules.py`, as warnings for now. Run it and the R1.7 bans in CI.
