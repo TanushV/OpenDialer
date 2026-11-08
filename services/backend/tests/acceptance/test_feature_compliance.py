@@ -217,12 +217,6 @@ def test_calling_needs_no_approval_paperwork_and_screening_is_optional(workspace
     assert check["screening"]["enabled"] is False
     for code in ("SELLER_NOT_APPROVED", "POLICY_NOT_PUBLISHED", "CARRIER_TRAFFIC_APPROVAL_MISSING"):
         assert code not in check["blockers"]
-    # Withdrawing the old business confirmation no longer gates the queue.
-    post(
-        workspace,
-        "/v1/admin/seller/approve",
-        {"identity_reference": "Identity record 2026-10-01", "approved": False},
-    )
     # A fresh list with no registry coverage and no time zone column is callable when screening is off.
     for phone in PHONES:
         post(workspace, "/v1/suppressions", {"phone": phone, "reason": "opt_out"})

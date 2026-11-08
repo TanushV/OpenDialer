@@ -767,6 +767,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             p, call_id, data.expected_version, data.text, expected_edit_version=data.expected_edit_version
         )
 
+    # The live stream's read, also served over HTTP for catch-up and tests.
     @app.get("/v1/events")
     def events(after: int = 0, p=Depends(principal)):
         with db.transaction(False) as s:
@@ -1335,31 +1336,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "email": user.data["email"],
             }
 
-    @app.post("/v1/admin/models/{model_id}/activate")
-    def activate(model_id: str, data: dict, p=Depends(administrator)):
-        from app.ml.training import predict_funnel, promotion_allowed
-
-        with db.transaction() as s:
-            model = service.required(s, "model_versions", model_id, p)
-            # This authenticated administrator request is the manual approval. Every evidence
-            # gate comes from the stored, report-derived review; the request body adds nothing.
-            candidate = {**model.data, "manual_approved": True}
-            if not promotion_allowed(candidate):
-                fail(409, "Model has not passed calibration, online trial, coverage and policy gates")
-            if not service.model_source_current(
-                s, p, model, service.optimization_config(s, p)
-            ) or not predict_funnel(model.data, {}, service.settings.data_dir / "models"):
-                fail(
-                    409,
-                    "Model source, evaluated baseline or owned artifact changed; evaluate current settings",
-                )
-            for previous in service.scoped(s, "model_versions", p):
-                if previous.data.get("active"):
-                    update(previous, active=False, trial_active=False)
-            update(model, **{**candidate, "active": True, "trial_active": False, "ever_activated": True})
-            audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "model.activated", model.id, clock())
-            return doc(model)
-
     @app.post("/webhooks/telnyx")
     async def webhook(request: Request):
         body = await request.body()
@@ -1482,29 +1458,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def keypad_status(call_id: str, request_id: str, p=Depends(principal)):
         return service.keypad_status(p, call_id, request_id)
 
-    @app.post("/v1/admin/seller/approve")
-    def approve_seller(data: dict, p=Depends(administrator)):
-        if not data.get("identity_reference"):
-            fail(422, "Verified business identity evidence is required")
-        with db.transaction() as session:
-            seller = service.required(session, "sellers", p["seller_id"], p)
-            # Recording reviewed evidence is the approval; only an explicit false revokes it.
-            update(
-                seller,
-                approved=data.get("approved") is not False,
-                identity_reference=data["identity_reference"],
-            )
-            audit(
-                session,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "seller.identity_reviewed",
-                seller.id,
-                clock(),
-            )
-            return doc(seller)
-
     @app.post("/v1/telephony/agent")
     async def agent_leg(p=Depends(principal)):
         return await service.create_agent(p)
@@ -1520,12 +1473,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/admin/control/run")
     async def control_run(p=Depends(administrator)):
         return await service.dispatch_controls(p)
-
-    @app.post("/v1/admin/models/train")
-    def train_model(data: dict, p=Depends(administrator)):
-        if data:
-            fail(422, "Training accepts only authority-owned call-history snapshots")
-        return service.train_operational(p)
 
     @app.post("/v1/admin/models/{model_id}/rollback")
     def rollback_model(model_id: str, data: dict, p=Depends(administrator)):

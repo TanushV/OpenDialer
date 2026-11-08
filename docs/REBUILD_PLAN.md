@@ -897,7 +897,11 @@ Order, each as its own commit with its tests removed:
       loop in `providers/inference.py` stays for the R9.10 fallback.
 - [x] R2.7 Dead voicemail drop: `VM_*`, `voicemail_asset`, `detached`, playback, gather, recording and late-human paths.
       Done November 7. A saved playback, gather or recording command from an older version is cancelled, never sent.
-- [ ] R2.8 Routes the UI never calls, after confirming each is dead.
+- [x] R2.8 Routes the UI never calls, after confirming each is dead. Done November 7: 117 routes, down from 162.
+      Removed manual model training and activation, the optimization train trigger, the memory download and seller
+      approval. Kept, though the UI does not call them: the job and control runners and `/v1/events` (test seams that
+      share the live stream's code), research batches (re-preparing a lead; R9.15), agent recovery (R4.6), password
+      sign-in (R3.4) and the direct webhook (R4.7).
 - [ ] R2.9 Unused tables, with a test that lists the allowed tables.
 - [ ] R2.10 Replace the 10-minute refresh churn with the once-a-minute rule from section 8.
 

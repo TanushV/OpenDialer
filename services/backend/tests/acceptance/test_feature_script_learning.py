@@ -194,7 +194,7 @@ def test_section_and_call_shape_effects_on_close_reach_the_markdown_memory(works
 
 
 @pytest.mark.slow
-def test_team_notes_survive_every_rewrite_with_versions_and_a_markdown_download(workspace, clock):
+def test_team_notes_survive_every_rewrite_with_versions(workspace, clock):
     ws = workspace
     use_template(ws)
     lab = refresh_learning(ws)
@@ -211,16 +211,8 @@ def test_team_notes_survive_every_rewrite_with_versions_and_a_markdown_download(
     assert rewritten["version"] > saved["version"]
     assert rewritten["team_notes"] == "Prospects in logistics prefer email first."
     assert rewritten["markdown"].rstrip().endswith("Prospects in logistics prefer email first.")
-    download = ws["client"].get("/v1/optimization/script/memory.md", headers=ws["headers"])
-    assert download.status_code == 200 and download.headers["content-type"].startswith("text/markdown")
-    assert download.text == rewritten["markdown"]
     versions = get(ws, "/v1/optimization/script")["memory_versions"]
     assert [v["version"] for v in versions][:2] == [rewritten["version"], saved["version"]]
-
-
-def propose(ws, status=200, **body):
-    payload = {"review_reference": "Reviewed by the sales lead", "rationale": "Ask sooner", **body}
-    return call(ws, "POST", "/v1/admin/script/proposals", json=payload, status=status)
 
 
 def opening(template):

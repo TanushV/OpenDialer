@@ -323,10 +323,6 @@ def register_optimization(app, service, principal, administrator):
     def refresh(p=Depends(administrator)):
         return service.request_optimization_refresh(p)
 
-    @app.post("/v1/admin/optimization/train")
-    def train(body: Empty, p=Depends(administrator)):
-        return service.train_operational(p)
-
     @app.get("/v1/leads/{lead_id}/conversions")
     def list_conversions(lead_id: str, p=Depends(principal)):
         with service.db.transaction(False) as s:

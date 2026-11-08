@@ -12,7 +12,6 @@ from datetime import timedelta
 from typing import Literal
 
 from fastapi import Depends
-from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -671,14 +670,6 @@ def register_script_lab(app, service, principal, administrator):
         # Prepared leads are rewritten in the background for the new script.
         service.prepare_tick(p)
         return {**adopted, "refresh_required": refresh_required, "preparation": service.preparation_status(p)}
-
-    @app.get("/v1/optimization/script/memory.md")
-    def script_memory(p=Depends(principal)):
-        with service.db.transaction(False) as s:
-            latest = service.latest_memory(s, p, service.selected_campaign(s, p))
-            if not latest:
-                fail(404, "No script memory yet")
-            return PlainTextResponse(latest.data["markdown"], media_type="text/markdown")
 
     @app.put("/v1/admin/script/memory")
     def edit_memory(body: NotesBody, p=Depends(administrator)):
