@@ -1011,7 +1011,11 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
 - [x] R4.13 Crash tests: kill at each dial and hang-up step; no double dial, no lost call.
       Done November 8: `tests/test_crash_steps.py` stops the process at four dial steps and three hang-up steps; after
       recovery each lead has one call record, the carrier placed at most one call, and every call has ended.
-- [ ] R4.14 Fault injection for every row in the outage table in section 5.
+- [x] R4.14 Fault injection for every row in the outage table in section 5.
+      Done November 8 for the rows that exist now: Telnyx down at dial (never resent, settles with a review flag) and at
+      hang-up (sent when it returns), relay down (named blocker, hang-up still works), missing speech (warning only),
+      live helper down (calling continues) and a lost microphone (named blocker that clears). The ChatGPT, DDGS,
+      HubSpot and Treg rows are tested with their code in R9.13, R9B.5 and R9B.14.
 - [ ] R4.15 Live L1, L2, L3, L9, L10, L13.
 
 Done when: all automated guarantees pass and the live checks pass. **Owner sitting 2.**
