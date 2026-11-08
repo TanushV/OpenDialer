@@ -2603,3 +2603,21 @@ details.transcript-card {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Script tables (R5.11): a wide table scrolls inside its own box, never the page. */
+.script-table {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.script-table table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.script-table th,
+.script-table td {
+  border: 1px solid #e3e0d4;
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}

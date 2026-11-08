@@ -1050,7 +1050,9 @@ Goal: nothing moves, nothing gets covered, and the rep always knows what is happ
 - [x] R5.9 Move Dial from and list choice out of the call view; remove Get next lead, View next lead, Start call,
       Pause after call and the voicemail checkbox. Done November 8: list choice and Check audio show only while paused.
 - [x] R5.10 Error boundaries per region so the action bar survives a crash elsewhere. Done November 8.
-- [ ] R5.11 Render real script Markdown, including tables, without overflow; test with the owner's master script.
+- [x] R5.11 Render real script Markdown, including tables, without overflow; test with the owner's master script.
+      Done November 8: tables render as tables that scroll in their own box. A copy of the owner's master script has no
+      tables, so its rendering is unchanged; the owner's read-through is R5.13.
 - [x] R5.12 Layout audit passes for every phase, using long names and the real script.
       Then set the browser suite's retries to 0 in CI, so any flake fails (one retry since R2.1).
       Done November 8 for every phase the simulation reaches, with a long lead name, in WebKit at both sizes; CI

@@ -20,6 +20,63 @@ function withWritten(text: string, written: string[]): ReactNode {
   );
 }
 
+const cells = (line: string) =>
+  line
+    .trim()
+    .replace(/^\||\|$/g, "")
+    .split("|")
+    .map((cell) => cell.trim());
+const isRow = (line: string) => /^\s*\|.*\|\s*$/.test(line);
+const isRule = (line: string) =>
+  /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line);
+
+/** Script text with Markdown tables drawn as tables (R5.11); a wide table scrolls inside its box. */
+function ScriptText({ text, written }: { text: string; written: string[] }) {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let prose: string[] = [];
+  const flush = () => {
+    const value = prose.join("\n").trim();
+    if (value)
+      blocks.push(<p key={blocks.length}>{withWritten(value, written)}</p>);
+    prose = [];
+  };
+  for (let i = 0; i < lines.length; i++) {
+    if (isRow(lines[i]) && i + 1 < lines.length && isRule(lines[i + 1])) {
+      flush();
+      const head = cells(lines[i]);
+      const body: string[][] = [];
+      for (i += 2; i < lines.length && isRow(lines[i]); i++)
+        body.push(cells(lines[i]));
+      i--;
+      blocks.push(
+        <div className="script-table" key={blocks.length}>
+          <table>
+            <thead>
+              <tr>
+                {head.map((cell, c) => (
+                  <th key={c}>{cell}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {body.map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => (
+                    <td key={c}>{withWritten(cell, written)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      );
+    } else prose.push(lines[i]);
+  }
+  flush();
+  return <>{blocks}</>;
+}
+
 function Option({
   option,
   written,
@@ -30,7 +87,7 @@ function Option({
   return (
     <div className="script-option">
       {option.title && <strong>{option.title}</strong>}
-      <p>{withWritten(option.text, written)}</p>
+      <ScriptText text={option.text} written={written} />
       {option.notes && (
         <aside className="script-cue">
           <strong>Rep directions</strong>
@@ -82,7 +139,7 @@ export function ScriptReader({ script }: { script: Partial<Script> }) {
               {section.options.map((option) => (
                 <details key={option.id} className="script-objection">
                   <summary>{option.title}</summary>
-                  <p>{withWritten(option.text, written)}</p>
+                  <ScriptText text={option.text} written={written} />
                   {option.notes && (
                     <aside className="script-cue">
                       <strong>Rep directions</strong>
