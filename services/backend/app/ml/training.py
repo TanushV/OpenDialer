@@ -700,11 +700,12 @@ def _train_challenger(rows, output_dir, *, baseline=None):
 
 
 def promotion_allowed(model):
+    """R8.5: a model goes live by itself once its out-of-time review passes. `reviewable` already requires enough
+    rows, no calibration regression and better held-out error than the estimates in use; the 10% comparison group
+    and automatic rollback (R8.6) guard it afterwards. No manual approval or online trial."""
     return bool(
         model.get("feature_schema_version", 1) in FEATURE_VERSIONS
         and model.get("reviewable")
-        and model.get("manual_approved")
-        and model.get("online_trial_passed")
         and model.get("coverage_delta", -1) >= 0
         and model.get("policy_violations", 1) == 0
     )

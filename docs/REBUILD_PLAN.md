@@ -1131,8 +1131,11 @@ Goal: it can learn, and you can see that it is learning.
       list, one-hot with an "unknown" column each; version 2 rows read as unknown. Role fit is left to the CRM (D15).
       Trigger fields fill once Phase 9 writes the lead record.
 - [ ] R8.4 Compute estimates directly from calls; remove the remaining projection machinery.
-- [ ] R8.5 Automatic promotion from the existing out-of-time review.
-- [ ] R8.6 Automatic rollback using the 10% comparison group; record each promotion and rollback.
+- [x] R8.5 Automatic promotion from the existing out-of-time review. Done November 8: a model whose review passes
+      replaces the live one at once; manual approval and the online trial are gone. Each promotion is audited.
+- [x] R8.6 Automatic rollback using the 10% comparison group; record each promotion and rollback. Done November 8:
+      each saved dataset compares goal rates since promotion; the comparison group beating the model by 5 points with
+      100 decided calls in each group rolls it back, with the evidence audited.
 - [ ] R8.7 Training schedule from section 8; no UI churn.
 - [ ] R8.8 "What it has learned" card in Review.
 - [ ] R8.9 Synthetic end-to-end test: a planted pattern in 600 calls gets learned, promoted, used and rolled back when it

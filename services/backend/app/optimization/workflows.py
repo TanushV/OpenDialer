@@ -778,6 +778,30 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "as_of": self.clock().isoformat(),
             }
 
+    def _check_rollback(self, s, p, rows):
+        """R8.6: roll the live model back when its comparison group beats it; record why."""
+        from app.optimization.learning import arm_comparison, rollback_due
+
+        for model in self.scoped(s, "model_versions", p):
+            promoted = timestamp(model.data.get("promoted_at"))
+            if not model.data.get("active") or not promoted:
+                continue
+            comparison = arm_comparison(rows, promoted)
+            if rollback_due(comparison):
+                update(
+                    model, active=False, rolled_back_at=self.clock().isoformat(), rollback_evidence=comparison
+                )
+                audit(
+                    s,
+                    p["tenant_id"],
+                    p["seller_id"],
+                    None,
+                    "model.rolled_back",
+                    model.id,
+                    self.clock(),
+                    {"comparison": {arm: list(value) for arm, value in comparison.items()}},
+                )
+
     def save_operational_dataset(self, p, *, lease=None):
         """One consistent read, published as an immutable content-addressed dataset.
 
@@ -837,6 +861,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 "as_of": result.data["as_of"],
                 "goal": result.data["goal"],
             }
+            self._check_rollback(s, p, result.data.get("rows", []))
             manifest = campaign.data.get("dataset_summaries", [])
             revised = sorted(
                 [r for r in manifest if r["id"] != result.id] + [summary],

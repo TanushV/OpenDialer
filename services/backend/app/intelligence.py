@@ -649,20 +649,39 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 fail(409, "Training dataset changed during fitting")
             if prior:
                 return False
-            put(
+            from app.ml.training import promotion_allowed
+
+            promote = promotion_allowed(result)
+            if promote:
+                for other in self.scoped(s, "model_versions", p):
+                    if other.data.get("active"):
+                        update(other, active=False, replaced_at=self.clock().isoformat())
+            model = put(
                 s,
                 "model_versions",
                 p["tenant_id"],
                 p["seller_id"],
                 {
                     **result,
-                    "active": False,
+                    "active": promote,
+                    "promoted_at": self.clock().isoformat() if promote else None,
                     "source_dataset_id": payload.get("source_dataset_id"),
-                    "goal": payload.get("goal", "meeting_held"),
+                    "goal": payload.get("goal", "meeting_booked"),
                     "window_days": payload.get("window_days"),
                 },
                 key="training:" + payload["source_dataset_id"],
                 now=self.clock(),
+            )
+            # R8.5, R8.6: each promotion is recorded; a model that does not pass stays as evidence only.
+            audit(
+                s,
+                p["tenant_id"],
+                p["seller_id"],
+                None,
+                "model.promoted" if promote else "model.kept_inactive",
+                model.id,
+                self.clock(),
+                {"reviewable": bool(result.get("reviewable"))},
             )
         return True
 

@@ -746,3 +746,29 @@ def choose_cohort_candidate(candidates, *, now, draw=None, control_fraction=PROD
         "selection_reason": reason,
         "eligible_lead_ids": [r["id"] for r in candidates],
     }
+
+
+# R8.6: a promoted model is rolled back when the 10% comparison group beats it by this margin, with enough decided
+# calls in each group to tell.
+ROLLBACK_MIN_DECIDED = 100
+ROLLBACK_MARGIN = 0.05
+
+
+def arm_comparison(rows, since):
+    """Decided goal outcomes per group since `since`: {"candidate": (decided, converted), "control": (...)}."""
+    counts = {"candidate": [0, 0], "control": [0, 0]}
+    for row in rows:
+        arm = row.get("experiment_arm")
+        at = timestamp(row.get("at"))
+        if arm in counts and at and at >= since and row.get("conversion") is not None:
+            counts[arm][0] += 1
+            counts[arm][1] += int(row["conversion"])
+    return {arm: tuple(value) for arm, value in counts.items()}
+
+
+def rollback_due(comparison):
+    """True when the comparison group's goal rate beats the model's by the margin, each with enough calls."""
+    (model_n, model_won), (control_n, control_won) = comparison["candidate"], comparison["control"]
+    if model_n < ROLLBACK_MIN_DECIDED or control_n < ROLLBACK_MIN_DECIDED:
+        return False
+    return control_won / control_n - model_won / model_n >= ROLLBACK_MARGIN

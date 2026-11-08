@@ -127,3 +127,55 @@ def test_new_fields_are_one_hot_and_old_rows_read_as_unknown():
     old = dict(zip(order, vector_v2({"feature_schema_version": 2}, order, vocabulary), strict=True))
     assert new["cat:title_seniority=vp"] == 1.0 and new["cat:title_seniority=unknown"] == 0.0
     assert old["cat:title_seniority=unknown"] == 1.0 and old["cat:industry=unknown"] == 1.0
+
+
+def test_a_reviewed_model_goes_live_without_manual_approval():
+    """R8.5: the out-of-time review is the gate; no manual approval or trial."""
+    from app.ml.training import promotion_allowed
+
+    passed = {"feature_schema_version": 3, "reviewable": True, "coverage_delta": 0, "policy_violations": 0}
+    assert promotion_allowed(passed)
+    assert not promotion_allowed({**passed, "reviewable": False})
+    assert not promotion_allowed({**passed, "coverage_delta": -1})
+
+
+def test_the_comparison_group_rolls_a_worse_model_back_only_with_enough_calls():
+    """R8.6: control beating the model by 5 points over 100 decided calls each rolls it back."""
+    from app.optimization.learning import ROLLBACK_MIN_DECIDED, arm_comparison, rollback_due
+
+    since = NOW - timedelta(days=5)
+
+    def rows(arm, n, won):
+        at = (since + timedelta(hours=1)).isoformat()
+        return [{"experiment_arm": arm, "at": at, "conversion": int(i < won)} for i in range(n)]
+
+    n = ROLLBACK_MIN_DECIDED
+    worse = arm_comparison(rows("candidate", n, 5) + rows("control", n, 12), since)
+    assert worse == {"candidate": (n, 5), "control": (n, 12)} and rollback_due(worse)
+    assert not rollback_due(arm_comparison(rows("candidate", n, 10) + rows("control", n, 12), since))
+    assert not rollback_due(arm_comparison(rows("candidate", n - 1, 0) + rows("control", n, 50), since))
+    older = [{"experiment_arm": "control", "at": (since - timedelta(days=1)).isoformat(), "conversion": 1}]
+    assert arm_comparison(older, since)["control"] == (0, 0)
+
+
+def test_publishing_a_reviewed_model_makes_it_the_only_live_one(workspace, app):
+    from app.platform.db import MODELS
+    from helpers import principal
+
+    service, p = app.state.service, principal(workspace)
+    reviewed = {"feature_schema_version": 3, "reviewable": True, "coverage_delta": 0, "policy_violations": 0}
+    with service.db.transaction() as s:
+        old = service.scoped(s, "model_versions", p)
+    assert not [m for m in old if m.data.get("active")]
+
+    def publish(dataset_id, result):
+        service._training_source = lambda s, p, payload, rows=False: ("v", None, None)
+        service._training_publish(p, {"source_dataset_id": dataset_id}, "v", result)
+
+    publish("first", reviewed)
+    publish("second", reviewed)
+    publish("third", {**reviewed, "reviewable": False})
+    with service.db.transaction(False) as s:
+        models = {m.external_key: m.data for m in s.query(MODELS["model_versions"]).all()}
+    assert [k for k, m in models.items() if m["active"]] == ["training:second"]
+    assert models["training:first"]["replaced_at"] and models["training:third"]["promoted_at"] is None
