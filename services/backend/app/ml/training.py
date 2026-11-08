@@ -16,7 +16,13 @@ from pathlib import Path
 from app.ml import serving
 from app.optimization.learning import funnel_predictions
 from app.optimization.numbering import timestamp
-from app.scheduling.models import OPTIMIZATION_DEFAULTS, EstimatePolicy, prediction_key
+from app.scheduling.models import (
+    FEATURE_SCHEMA_VERSION,
+    FEATURE_VERSIONS,
+    OPTIMIZATION_DEFAULTS,
+    EstimatePolicy,
+    prediction_key,
+)
 
 FEATURE_ORDER = [
     "local_hour",
@@ -31,6 +37,17 @@ FEATURE_ORDER = [
     "requested_contact",
     *[f"segment_bucket_{i}" for i in range(8)],
 ]
+# R8.3: one-hot fields, each with a learned vocabulary and an "unknown" column.
+CATEGORICAL = (
+    "title_seniority",
+    "industry",
+    "company_size",
+    "number_source",
+    "trigger_type",
+    "trigger_strength",
+    "list",
+)
+CATEGORY_LIMIT = 12
 
 
 REVIEW_POLICY = {
@@ -61,10 +78,21 @@ def fitted_vocabulary(rows):
         if not features.get("conversation_evidence_missing", True):
             concepts.update(set(features.get("conversation_concepts", [])))
 
+    categories = {field: Counter() for field in CATEGORICAL}
+    for row in rows:
+        for field in CATEGORICAL:
+            value = str(row["features"].get(field) or "unknown")
+            if value not in {"unknown", "none"}:
+                categories[field][value] += 1
+
     def top(counts, limit):
         return sorted(counts, key=lambda v: (-counts[v], v))[:limit]
 
-    return {"segments": top(segments, 32), "concepts": top(concepts, 24)}
+    return {
+        "segments": top(segments, 32),
+        "concepts": top(concepts, 24),
+        "categories": {field: top(categories[field], CATEGORY_LIMIT) for field in CATEGORICAL},
+    }
 
 
 def feature_order(vocabulary, *, conversation):
@@ -73,6 +101,12 @@ def feature_order(vocabulary, *, conversation):
         "local_time_uncertain",
         *["segment:" + value for value in vocabulary["segments"]],
         "segment:unknown",
+        "trigger_age_days",
+        *[
+            f"cat:{field}={value}"
+            for field in CATEGORICAL
+            for value in [*vocabulary.get("categories", {}).get(field, []), "unknown"]
+        ],
         *(
             [
                 name
@@ -97,6 +131,11 @@ def vector_v2(features, order, vocabulary):
     for name in order:
         if name.startswith("segment:"):
             value = float(name[8:] == segment)
+        elif name.startswith("cat:"):
+            field, wanted = name[4:].split("=", 1)
+            known = vocabulary.get("categories", {}).get(field, [])
+            actual = str(features.get(field) or "unknown")
+            value = float((actual if actual in known else "unknown") == wanted)
         elif name.startswith("concept:"):
             missing = name.endswith(":missing")
             known = name[8:-8] in concepts if missing else name[8:] in concepts
@@ -433,7 +472,11 @@ def export_stage(calibrated, feature_order, vocabulary):
         )
     return {
         "feature_order": list(feature_order),
-        "vocabulary": {k: list(vocabulary[k]) for k in ("segments", "concepts")},
+        "vocabulary": {
+            "segments": list(vocabulary["segments"]),
+            "concepts": list(vocabulary["concepts"]),
+            "categories": {k: list(v) for k, v in vocabulary.get("categories", {}).items()},
+        },
         "link": "logistic",
         "calibration": "sigmoid",
         "members": members,
@@ -602,10 +645,12 @@ def _train_challenger(rows, output_dir, *, baseline=None):
         and no_regression
         and calibration_ok
     )
-    vocabulary = final["human"][2]["vocabulary"] if final else {"segments": [], "concepts": []}
+    vocabulary = (
+        final["human"][2]["vocabulary"] if final else {"segments": [], "concepts": [], "categories": {}}
+    )
     artifact = {
         "format": serving.FORMAT,
-        "feature_schema_version": 2,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "stages": {name: packed["export"] for name, packed in models.items()},
         "review_policy": REVIEW_POLICY,
     }
@@ -619,7 +664,7 @@ def _train_challenger(rows, output_dir, *, baseline=None):
         "artifact": str(path),
         "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
         "artifact_format": serving.FORMAT,
-        "feature_schema_version": 2,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "baseline": baseline,
         "feature_order": models.get("human", {}).get("feature_order", []),
         "vocabulary": vocabulary,
@@ -656,7 +701,7 @@ def _train_challenger(rows, output_dir, *, baseline=None):
 
 def promotion_allowed(model):
     return bool(
-        model.get("feature_schema_version", 1) == 2
+        model.get("feature_schema_version", 1) in FEATURE_VERSIONS
         and model.get("reviewable")
         and model.get("manual_approved")
         and model.get("online_trial_passed")
@@ -693,7 +738,10 @@ def predict_funnel_batch(model, features, artifact_root):
         return []
     empty = [{} for _ in features]
     try:
-        if model.get("artifact_format") != serving.FORMAT or model.get("feature_schema_version", 1) != 2:
+        if (
+            model.get("artifact_format") != serving.FORMAT
+            or model.get("feature_schema_version", 1) not in FEATURE_VERSIONS
+        ):
             return empty
         stages = _verified_stages(model, artifact_root)
         if stages is None:

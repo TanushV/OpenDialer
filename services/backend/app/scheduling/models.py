@@ -166,6 +166,11 @@ def saved_prediction(profile, features, config):
     }
 
 
+# R8.3: feature rows of version 3 carry lead, number-source and trigger fields; version 2 rows stay usable.
+FEATURE_SCHEMA_VERSION = 3
+FEATURE_VERSIONS = frozenset({2, 3})
+
+
 def derive_labels(value):
     """EXECUTION_SPEC 20.2: nullable labels; goal labels stay pending until evidence or window close."""
     row = value if isinstance(value, dict) else {"outcome": value}

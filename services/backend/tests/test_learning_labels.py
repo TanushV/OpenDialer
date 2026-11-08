@@ -64,3 +64,66 @@ def test_a_booked_meeting_is_labeled_at_wrap_up_and_a_correction_retracts_it(wor
     body["expected_edit_version"] = 1
     assert client.post(f"/v1/calls/{call['id']}/disposition", headers=headers, json=body).status_code == 200
     assert labels() == [("meeting_booked", True)]
+
+
+def test_lead_features_read_seniority_size_source_and_trigger():
+    """R8.3: who the lead is, where the number came from and why now."""
+    from app.optimization.learning import lead_features, size_bucket, title_seniority
+
+    assert [
+        title_seniority(t)
+        for t in ("Chief Revenue Officer", "VP Sales", "Sales Director", "Account Manager", "AE", "")
+    ] == [
+        "c_level",
+        "vp",
+        "director",
+        "manager",
+        "individual",
+        "unknown",
+    ]
+    assert [size_bucket(v) for v in ("8", "51-200", "1,200 employees", "")] == [
+        "1-10",
+        "51-200",
+        "1000+",
+        "unknown",
+    ]
+    lead = {
+        "row": {
+            "Title": "VP of Sales",
+            "Industry": "Software",
+            "Employees": "120",
+            "Number source": "LeadOcean",
+        },
+        "list_name": "Agencies",
+        "trigger": {"type": "hiring_sdrs", "strength": "A", "date": (NOW - timedelta(days=10)).isoformat()},
+    }
+    features = lead_features(lead, NOW)
+    assert {
+        k: features[k] for k in ("title_seniority", "industry", "company_size", "number_source", "list")
+    } == {
+        "title_seniority": "vp",
+        "industry": "software",
+        "company_size": "51-200",
+        "number_source": "leadocean",
+        "list": "Agencies",
+    }
+    assert (features["trigger_type"], features["trigger_strength"], round(features["trigger_age_days"])) == (
+        "hiring_sdrs",
+        "A",
+        10,
+    )
+    assert lead_features({}, NOW)["trigger_strength"] == "none"
+
+
+def test_new_fields_are_one_hot_and_old_rows_read_as_unknown():
+    from app.ml.training import feature_order, fitted_vocabulary, vector_v2
+
+    rows = [{"features": {"title_seniority": "vp", "segment": "general"}}] * 3
+    vocabulary = fitted_vocabulary(rows)
+    assert vocabulary["categories"]["title_seniority"] == ["vp"]
+    order = feature_order(vocabulary, conversation=False)
+    assert "cat:title_seniority=vp" in order and "cat:title_seniority=unknown" in order
+    new = dict(zip(order, vector_v2({"title_seniority": "vp"}, order, vocabulary), strict=True))
+    old = dict(zip(order, vector_v2({"feature_schema_version": 2}, order, vocabulary), strict=True))
+    assert new["cat:title_seniority=vp"] == 1.0 and new["cat:title_seniority=unknown"] == 0.0
+    assert old["cat:title_seniority=unknown"] == 1.0 and old["cat:industry=unknown"] == 1.0

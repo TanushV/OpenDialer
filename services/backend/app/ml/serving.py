@@ -146,9 +146,19 @@ def stage_from_document(document, budget=None):
         raise ArtifactError("Unsupported link or calibration")
     order = _strings(document.get("feature_order"), MAX_FEATURES)
     vocabulary = document.get("vocabulary")
-    if not isinstance(vocabulary, dict) or set(vocabulary) != {"segments", "concepts"}:
+    if not isinstance(vocabulary, dict) or not {"segments", "concepts"} <= set(vocabulary) <= {
+        "segments",
+        "concepts",
+        "categories",
+    }:
         raise ArtifactError("Vocabulary must name segments and concepts")
-    vocabulary = {k: _strings(vocabulary[k], MAX_VOCABULARY) for k in ("segments", "concepts")}
+    categories = vocabulary.get("categories", {})
+    if not isinstance(categories, dict) or len(categories) > 16:
+        raise ArtifactError("Categories must be a small map of value lists")
+    vocabulary = {
+        **{k: _strings(vocabulary[k], MAX_VOCABULARY) for k in ("segments", "concepts")},
+        "categories": {_strings([k], 1)[0]: _strings(v, MAX_VOCABULARY) for k, v in categories.items()},
+    }
     members = document.get("members")
     if not isinstance(members, list) or not 1 <= len(members) <= MAX_MEMBERS:
         raise ArtifactError("Stage needs a bounded, non-empty member list")

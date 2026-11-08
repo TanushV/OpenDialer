@@ -1,5 +1,6 @@
 import hashlib
 import math
+import re
 from datetime import timedelta
 from statistics import NormalDist
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -74,6 +75,71 @@ def conversion_at(event, now):
     return max(reversed(known), key=lambda value: value["available"], default=None)
 
 
+# R8.3: version 3 adds who the lead is, where the number came from and why now. Version 2 rows stay usable;
+# their new fields read as unknown.
+from app.scheduling.models import FEATURE_SCHEMA_VERSION  # noqa: E402
+
+SENIORITY = (
+    ("c_level", ("chief", "ceo", "cfo", "coo", "cro", "cmo", "cto", "founder", "owner", "president")),
+    ("vp", ("vp", "vice president", "svp", "evp", "head of")),
+    ("director", ("director",)),
+    ("manager", ("manager", "lead", "supervisor")),
+)
+TRIGGER_STRENGTHS = {"A", "B", "C"}
+
+
+def _column(lead, *names):
+    row = {str(k).strip().lower(): v for k, v in (lead.get("row") or {}).items()}
+    return next((str(row[name]).strip() for name in names if row.get(name)), "")
+
+
+def title_seniority(title):
+    text = f" {title.lower()} "
+    for level, words in SENIORITY:
+        if any(f" {word} " in text or text.strip().startswith(word) for word in words):
+            return level
+    return "individual" if title.strip() else "unknown"
+
+
+def size_bucket(value):
+    digits = re.findall(r"\d[\d,]*", value or "")
+    if not digits:
+        return "unknown"
+    size = int(digits[-1].replace(",", ""))
+    return next(
+        name
+        for limit, name in (
+            (10, "1-10"),
+            (50, "11-50"),
+            (200, "51-200"),
+            (1000, "201-1000"),
+            (10**12, "1000+"),
+        )
+        if size <= limit
+    )
+
+
+def lead_features(lead, now):
+    """Who the lead is, where the number came from and the trigger, for StatML (section 8)."""
+    trigger = lead.get("trigger") or {}
+    trigger_date = timestamp(trigger.get("date")) if trigger.get("date") else None
+    strength = trigger.get("strength") if trigger.get("strength") in TRIGGER_STRENGTHS else "none"
+    return {
+        "title_seniority": title_seniority(_column(lead, "title", "job title", "headline")),
+        "industry": (_column(lead, "industry") or "unknown").lower()[:40],
+        "company_size": size_bucket(
+            _column(lead, "company size", "employees", "employee count", "headcount")
+        ),
+        "number_source": (
+            lead.get("number_source") or _column(lead, "number source", "phone source") or "unknown"
+        ).lower()[:40],
+        "trigger_type": (trigger.get("type") or "none").lower()[:40],
+        "trigger_strength": strength,
+        "trigger_age_days": max(0.0, (now - trigger_date).total_seconds() / 86400) if trigger_date else None,
+        "list": (lead.get("list_name") or "unknown")[:60],
+    }
+
+
 def freeze_features(lead, *, health, now, calls=()):
     from app.optimization.conversations import prior_features
 
@@ -91,8 +157,9 @@ def freeze_features(lead, *, health, now, calls=()):
     last = max(previous, default=timestamp(lead.get("last_attempt_at")))
     created = timestamp(lead.get("source_at") or lead.get("created_at")) or now
     return {
-        "feature_schema_version": 2,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "decision_at": now.isoformat(),
+        **lead_features(lead, now),
         "local_time_uncertain": not time_known,
         **prior_features(lead, calls, now=now),
         "segment": lead.get("segment", "unknown"),

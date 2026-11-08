@@ -19,7 +19,7 @@ from app.optimization.learning import (
 )
 from app.optimization.numbering import select_number, timestamp
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
-from app.scheduling.models import company_group, profile_current, saved_prediction
+from app.scheduling.models import FEATURE_SCHEMA_VERSION, company_group, profile_current, saved_prediction
 from app.scheduling.policy import queue_decision, rank_candidates
 
 # Top K per page: only these leads and their endpoints are decrypted, scored and checked.
@@ -542,7 +542,7 @@ class ReservationPlanner:
                 "allowed_actions": choice["eligible_actions"],
                 "chosen_action": choice["action"],
                 "action_distribution": choice["action_distribution"],
-                "feature_schema_version": 2,
+                "feature_schema_version": FEATURE_SCHEMA_VERSION,
                 "campaign_id": campaign_id,
                 "features": plan["features"],
                 "predictions": plan["prediction"],

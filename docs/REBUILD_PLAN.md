@@ -1126,7 +1126,10 @@ Goal: it can learn, and you can see that it is learning.
       also counts as booked.
 - [x] R8.2 Add `is_test`; clean existing rows in the migration. Done November 8: calls carry `is_test` (R3.7 marked the
       4 existing test calls), and training rows skip test calls and delivery tests.
-- [ ] R8.3 Add features from section 8, bumping the feature schema version; keep old rows usable.
+- [x] R8.3 Add features from section 8, bumping the feature schema version; keep old rows usable. Done November 8:
+      version 3 adds title seniority, industry, company size bucket, number source, trigger type, strength and age, and
+      list, one-hot with an "unknown" column each; version 2 rows read as unknown. Role fit is left to the CRM (D15).
+      Trigger fields fill once Phase 9 writes the lead record.
 - [ ] R8.4 Compute estimates directly from calls; remove the remaining projection machinery.
 - [ ] R8.5 Automatic promotion from the existing out-of-time review.
 - [ ] R8.6 Automatic rollback using the 10% comparison group; record each promotion and rollback.

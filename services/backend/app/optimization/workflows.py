@@ -17,6 +17,7 @@ from app.optimization.numbering import (
 )
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, update
 from app.scheduling.models import (
+    FEATURE_VERSIONS,
     OPTIMIZATION_DEFAULTS,
     EstimatePolicy,
     prediction_key,
@@ -177,7 +178,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         value = model.data
         if value.get("goal", config["conversion_goal"]) != config["conversion_goal"]:
             return False
-        if value.get("feature_schema_version", 1) != 2:
+        if value.get("feature_schema_version", 1) not in FEATURE_VERSIONS:
             return value.get("window_days", config["window_days"]) == config["window_days"]
         baseline = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
         if value.get("baseline") != baseline or value.get("window_days") != config["window_days"]:

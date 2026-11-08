@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.optimization.geography import area_code, caller_region_rank, coverage_region, metro
-from app.scheduling.models import contact_labels
+from app.scheduling.models import FEATURE_VERSIONS, contact_labels
 from app.scheduling.models import wilson as wilson
 
 
@@ -41,7 +41,7 @@ def health_values(row, *, now, policy):
     comparable = bool(
         human is not None
         and valid_prediction
-        and row.get("feature_schema_version") == 2
+        and row.get("feature_schema_version") in FEATURE_VERSIONS
         and known_at
         and start
         and known_at <= start
