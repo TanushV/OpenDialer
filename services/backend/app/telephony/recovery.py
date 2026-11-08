@@ -9,7 +9,9 @@ from datetime import timedelta
 from sqlalchemy import or_, select
 
 from app.calling import audio_leg
-from app.calling.state import TERMINAL, transition
+from app.calling.records import CallView
+from app.calling.recovery import next_step, pollable
+from app.calling.state import TERMINAL, moved
 from app.platform.db import MODELS, ActiveClaim, doc, emit, uid, update
 from app.platform.leases import owns_effect
 from app.service import dt, fail
@@ -140,14 +142,16 @@ class CommandRecovery:
                 update(command, **changes, status="completed", recovery_reason=None)
                 update(
                     call,
-                    state=transition(
-                        call.data["state"], "call.ringing" if self.settings.simulation else "call.initiated"
+                    **moved(
+                        call.data,
+                        "call.ringing" if self.settings.simulation else "call.initiated",
+                        self.clock(),
                     ),
                 )
                 if alive:
                     lead = self.required(s, "leads", call.data["lead_id"], p)
                     if self.suppressed(s, p, lead.data["phone"]):
-                        update(call, state=transition(call.data["state"], "hangup.requested"))
+                        update(call, **moved(call.data, "hangup.requested", self.clock()))
                         self.control_intent(s, p, call.id, "hangup", {}, suffix="recovered-suppressed-call")
             elif not alive:
                 update(
@@ -315,7 +319,7 @@ class CommandRecovery:
                 )
         update(
             call,
-            state=transition(call.data["state"], "dial.unconfirmed"),
+            **moved(call.data, "dial.unconfirmed", self.clock()),
             review_required=True,
             recovery_reason=reason,
         )
@@ -335,17 +339,78 @@ class CommandRecovery:
             "confirm the end time and duration from the carrier statement",
         )
 
+    async def _recover_call(self, p, call):
+        """Carry out `calling.recovery.next_step` for one due call (R4.6, R4.8, G3)."""
+        step = next_step(call, self.clock())
+        if step is None:
+            return
+        if pollable(CallView.model_validate(call)):
+            alive = await self._poll_call(p, call)
+            if alive is False or step == "poll":
+                return  # Ended by the status read, or alive and inside its limit.
+            if step == "call.ended" and alive:
+                step = "hangup.requested"  # Still live after the hang-up was sent: send it again.
+        if step == "hangup.requested":
+            await self.hangup(p, call["id"], recovery_expected=call)
+        elif step == "dial.unconfirmed":
+            await asyncio.to_thread(self._settle_unacknowledged, p, call)
+        elif step == "call.ended":
+            await asyncio.to_thread(self._end_unsettled, p, call)
+
+    async def _poll_call(self, p, call):
+        """True or False from a carrier status read; None when the carrier cannot answer. A dead leg is finished."""
+        receipt = None
+        try:
+            receipt = await self.carrier(p["tenant_id"]).reconcile(call["id"], call["provider_id"])
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Call status unavailable: %s", type(exc).__name__)
+        verified = call_receipt(receipt, call["provider_id"], simulation=self.settings.simulation)
+        if not verified:
+            return None
+        if not verified[1]:
+            await asyncio.to_thread(self._finish_orphan, p, call, receipt)
+        return verified[1]
+
     def _finish_orphan(self, p, snapshot, receipt):
         with self.db.transaction() as s:
             call = self.required(s, "call_attempts", snapshot["id"], p)
             s.refresh(call, with_for_update=True)
             if (
                 call.version != snapshot["version"]
-                or call.data["state"] != "ENDING"
+                or call.data["state"] in TERMINAL
                 or call.data.get("provider_id") != snapshot.get("provider_id")
             ):
                 return
             self.finish_terminal_in(s, p, call, receipt)
+
+    def _settle_unacknowledged(self, p, snapshot):
+        """A dial that was never sent ends; one sent without any carrier answer becomes unconfirmed."""
+        with self.db.transaction() as s:
+            call = self.required(s, "call_attempts", snapshot["id"], p)
+            s.refresh(call, with_for_update=True)
+            if call.version != snapshot["version"] or call.data.get("provider_id"):
+                return
+            if call.data.get("submitted_at"):
+                self.dial_unconfirmed_in(s, p, call)
+                return
+            # Nothing was sent: the dial claim sets submitted_at before any request leaves.
+            command = self._by_key(s, p, "command_outbox", call.id)
+            if command and command.data.get("status") == "pending" and not command.data.get("sent_at"):
+                update(command, status="cancelled", reason="DIAL_NOT_SENT")
+            self.finish_call(s, p, call, "dial_not_sent")
+
+    def _end_unsettled(self, p, snapshot):
+        """The state ran out and the carrier cannot settle it: end it here and list it under Needs attention."""
+        with self.db.transaction() as s:
+            call = self.required(s, "call_attempts", snapshot["id"], p)
+            s.refresh(call, with_for_update=True)
+            if call.version != snapshot["version"] or call.data["state"] in TERMINAL:
+                return
+            reason = call.data.get("recovery_reason") or (
+                "The carrier never confirmed how this call ended. Check the carrier account for its duration."
+            )
+            self.finish_call(s, p, call, "recovery_timeout")
+            update(call, review_required=True, recovery_reason=reason)
 
     def _expired_agents(self, p):
         """Keep an interrupted setup actionable without placing another carrier dial."""
@@ -427,18 +492,5 @@ class CommandRecovery:
             except Exception as exc:
                 logging.getLogger(__name__).warning("Agent reconciliation deferred: %s", type(exc).__name__)
         for call in calls:
-            if call["state"] == "ENDING" and call.get("provider_id"):
-                receipt = None
-                try:
-                    receipt = await self.carrier(p["tenant_id"]).reconcile(call["id"], call["provider_id"])
-                except Exception as exc:
-                    logging.getLogger(__name__).warning("Call status unavailable: %s", type(exc).__name__)
-                verified = call_receipt(receipt, call["provider_id"], simulation=self.settings.simulation)
-                if verified and not verified[1]:
-                    await asyncio.to_thread(self._finish_orphan, p, call, receipt)
-                    continue
-            if call.get("started_at") and (self.clock() - dt(call["started_at"])).total_seconds() >= call.get(
-                "max_call_seconds", self.settings.max_call_seconds
-            ):
-                await self.hangup(p, call["id"], recovery_expected=call)
+            await self._recover_call(p, call)
         return {"reconciled": len(commands), "examined_calls": len(calls)}

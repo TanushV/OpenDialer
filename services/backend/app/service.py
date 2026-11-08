@@ -14,7 +14,8 @@ from sqlalchemy import delete, or_, select
 
 from app.calling import audio_leg
 from app.calling.blockers import refuse
-from app.calling.state import TERMINAL, transition
+from app.calling.recovery import next_step
+from app.calling.state import TERMINAL, moved, transition
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize, retry_seconds
 from app.lead_lists import LeadLists, memberships
@@ -765,6 +766,7 @@ class Service(LeadLists, ReservationPlanner):
                         s, p, lead, assignment=reservation.data.get("script_comparison")
                     )[0],
                     "state": "AUTHORIZED",
+                    "state_at": now.isoformat(),
                     "started_at": now.isoformat(),
                     "max_call_seconds": self.settings.max_call_seconds,
                     "provider_id": None,
@@ -896,7 +898,7 @@ class Service(LeadLists, ReservationPlanner):
             )
             update(
                 call,
-                state=transition(call.data["state"], "dial.sent"),
+                **moved(call.data, "dial.sent", self.clock()),
                 submission_decision_id=submission_decision.id,
                 submitted_at=self.clock().isoformat(),
             )
@@ -939,7 +941,7 @@ class Service(LeadLists, ReservationPlanner):
                 elif rejected:
                     self.finish_call(s, p, call, "provider_rejected")
                 elif call.data["state"] == "DIALING" and not call.data.get("provider_id"):
-                    update(call, state=transition(call.data["state"], "dial.uncertain"))
+                    update(call, **moved(call.data, "dial.uncertain", self.clock()))
                     emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "RECONCILING"})
 
     def _dial_completed(self, p, call_id, claimed, owner, receipt):
@@ -958,8 +960,8 @@ class Service(LeadLists, ReservationPlanner):
             )
             update(
                 call,
-                state=transition(
-                    call.data["state"], "call.ringing" if self.settings.simulation else "call.initiated"
+                **moved(
+                    call.data, "call.ringing" if self.settings.simulation else "call.initiated", self.clock()
                 ),
             )
             emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": call.data["state"]})
@@ -1024,7 +1026,7 @@ class Service(LeadLists, ReservationPlanner):
             ended = dt(call.data.get("ended_at")) or self.clock()
             update(
                 call,
-                state=transition(call.data["state"], "call.ended"),
+                **moved(call.data, "call.ended", self.clock()),
                 ended_at=ended.isoformat(),
                 end_reason=reason or "hangup",
             )
@@ -1058,14 +1060,10 @@ class Service(LeadLists, ReservationPlanner):
                 fail(403, "Call belongs to another rep")
             if call.data["state"] in TERMINAL:
                 return doc(call), None
+            # A recovery hang-up goes ahead only if the pass's decision still holds for the call as it is now.
             if recovery_expected is not None and (
-                any(
-                    call.data.get(key) != recovery_expected.get(key)
-                    for key in ("provider_id", "started_at", "max_call_seconds")
-                )
-                or not call.data.get("started_at")
-                or (self.clock() - dt(call.data["started_at"])).total_seconds()
-                < call.data.get("max_call_seconds", self.settings.max_call_seconds)
+                call.data.get("provider_id") != recovery_expected.get("provider_id")
+                or next_step(call.data, self.clock()) not in {"hangup.requested", "call.ended"}
             ):
                 return doc(call), None
             provider_id = call.data.get("provider_id")
@@ -1102,7 +1100,7 @@ class Service(LeadLists, ReservationPlanner):
                 if provider_id
                 else "Await the signed dial receipt or attach a verified carrier call reference",
             )
-            update(call, state=transition(call.data["state"], "hangup.requested"))
+            update(call, **moved(call.data, "hangup.requested", self.clock()))
             self.stop_agent_transcription_in(s, p, call)
             self.coach.cancel(call.id)
             emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "ENDING"})
@@ -1195,6 +1193,6 @@ class Service(LeadLists, ReservationPlanner):
             if target == "ENDED":
                 self.finish_call(s, p, call, event_type)
             else:
-                update(call, state=target)
+                update(call, **moved(call.data, event_type, self.clock()))
                 emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": target})
             return {"duplicate": False, "event_id": event_id, "state": target}

@@ -9,7 +9,7 @@ from datetime import timedelta
 from sqlalchemy import or_, select
 
 from app.calling import audio_leg
-from app.calling.state import transition
+from app.calling.state import moved
 from app.platform.db import MODELS, Job, audit, doc, get, uid, update
 from app.platform.leases import owns_effect
 from app.service import dt, fail
@@ -254,7 +254,7 @@ class RecoveryActions:
                         "ENDED",
                         "FINALIZED",
                     }:
-                        update(call, state=transition(call.data["state"], "hangup.requested"))
+                        update(call, **moved(call.data, "hangup.requested", self.clock()))
                 update(command, recovery_reason="Stop requested; awaiting terminal carrier evidence")
             audit(
                 s,

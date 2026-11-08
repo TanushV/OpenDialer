@@ -54,3 +54,14 @@ class NumberView(View):
 
 def presence_of(user_data):
     return UserView.model_validate(user_data).presence
+
+
+class CallView(View):
+    """The fields recovery reads from a call; the full `Call` record arrives with the dial rewrite (R4.5)."""
+
+    state: str
+    state_at: str | None = None
+    submitted_at: str | None = None
+    started_at: str | None = None
+    provider_id: str | None = None
+    max_call_seconds: int | None = None

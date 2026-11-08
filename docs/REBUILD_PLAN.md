@@ -985,11 +985,16 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
 - [ ] R4.5 `calling/dial.py`: keep durable dial and hang-up records and read-only reconcile; `save_disposition` under
       120 lines.
       In progress: `save_disposition` is 66 lines (November 8). The dial code still sits in `service.py`.
-- [ ] R4.6 `calling/recovery.py`: one automatic pass at startup and every minute; open calls, uncertain dials, stuck
+- [x] R4.6 `calling/recovery.py`: one automatic pass at startup and every minute; open calls, uncertain dials, stuck
       hang-ups. Needs attention lists only what software cannot settle.
+      Done November 8: every call records when it entered its state; `calling/recovery.py` decides when each
+      unfinished call is due and what the pass does: read a quiet live leg, hang up a call that overran its state, end a
+      dial that was never sent, mark an unanswered one unconfirmed, and end what the carrier can no longer settle with a
+      review flag. Before this, a call stuck ringing waited two hours. Needs attention itself is R7.6.
 - [ ] R4.7 `calling/relay.py`: gate on HTTP exchange success; Realtime only wakes it; handle restart lease conflicts
       without a block.
-- [ ] R4.8 Poll carrier status during an active call as the fallback for missed events.
+- [x] R4.8 Poll carrier status during an active call as the fallback for missed events. Done November 8: a live
+      leg with no state change for 30 seconds is read from the carrier, every 30 seconds, and finished when it is gone.
 - [x] R4.9 Save carrier outcomes directly on hangup. Done November 8: no answer, busy, voicemail and carrier
       failure are saved as soon as the hang-up event commits, before any job; the after-call job still runs for the
       summary.

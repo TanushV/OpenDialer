@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 
-from app.calling.state import TERMINAL, transition
+from app.calling.state import TERMINAL, moved
 from app.optimization.goals import review_token
 from app.platform.config import TEST_LINES
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
@@ -1110,7 +1110,7 @@ class RepWorkflows:
         update(
             call,
             outcome=outcome,
-            state=transition(call.data["state"], "outcome.saved"),
+            **moved(call.data, "outcome.saved", self.clock()),
             callback_at=canonical["callback_at"],
             disposition_input=canonical,
             is_test=lead.data["phone"] in TEST_LINES or bool(canonical.get("delivery_test")),

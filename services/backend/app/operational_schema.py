@@ -364,26 +364,10 @@ def sync_columns(row):
 
         row.op_amount = float(Decimal(str(data["cost_usd"])) - Decimal(str(data.get("credited_usd", 0))))
     if row.__tablename__ == "call_attempts":
-        from app.calling.state import TERMINAL
+        from app.calling.recovery import due_at
 
-        started, lifetime = as_time(data.get("started_at")), data.get("max_call_seconds")
-        last_check = as_time(data.get("orphan_checked_at"))
-        epoch = datetime(1970, 1, 1, tzinfo=UTC)
-        deadline = epoch
-        if started and type(lifetime) is int and lifetime > 0:
-            try:
-                deadline = started + timedelta(seconds=lifetime)
-            except OverflowError:
-                pass  # Corrupt legacy deadlines must remain visible for recovery.
-        row.op_due_at = (
-            max(
-                epoch if row.op_status == "ENDING" else deadline,
-                last_check + timedelta(seconds=30) if last_check else epoch,
-            )
-            # An unconfirmed dial waits for an operator, not the 30-second recovery loop.
-            if row.op_status not in TERMINAL | {"DIAL_UNCONFIRMED"}
-            else None
-        )
+        # Each unfinished call is due when its state runs out or its live leg needs a status read (R4.6, R4.8).
+        row.op_due_at = due_at(data, as_time(data.get("orphan_checked_at")))
         row.op_control_due_at = None  # Voicemail-drop deadlines are gone (R2.7).
         work_start, row.op_work_end_at = call_work_bounds(data)
         if work_start:

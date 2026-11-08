@@ -85,3 +85,9 @@ def transition(state, event):
         return state
     target = CARRIER.get(event, state)
     return target if ORDER[target] >= ORDER[state] else state
+
+
+def moved(call, event, now):
+    """The fields to store after `event`: the state, and when it was entered if it changed."""
+    after = transition(call["state"], event)
+    return {"state": after} if after == call["state"] else {"state": after, "state_at": now.isoformat()}
