@@ -331,3 +331,29 @@ class TelnyxCarrier:
                 "the server's agent leg and 'unrestricted' lets anyone ring the rep's browser"
             )
         return True
+
+
+async def check_key(api_key, http=None):
+    """(ok, detail) from one authenticated Telnyx request (section 7: a row turns green only after a real check)."""
+    return await _check(
+        "https://api.telnyx.com/v2/balance", api_key, "Telnyx", http, accepted="Telnyx accepted this key"
+    )
+
+
+async def _check(url, key, name, http, *, accepted):
+    import httpx
+
+    headers = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
+    try:
+        if http is not None:
+            response = await http.get(url, headers=headers, timeout=10)
+        else:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(url, headers=headers)
+    except httpx.HTTPError:
+        return False, f"{name} could not be reached. Check the internet connection, then check again."
+    if response.status_code == 200:
+        return True, accepted
+    if response.status_code in {401, 403}:
+        return False, f"{name} refused this key. Copy it again from {name}."
+    return False, f"{name} answered {response.status_code}. Check again in a minute."

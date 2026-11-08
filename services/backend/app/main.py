@@ -263,6 +263,7 @@ class ProviderSettings(Strict):
     outbound_ring_seconds: int | None = Field(default=None, ge=5, le=600, strict=True)
     # R6.6: while on, only the owner's test line can be dialed (section 10).
     test_session: bool | None = None
+    test_phone: str | None = Field(default=None, max_length=32)
     maximum_owned_numbers: int | None = Field(default=None, ge=0, le=1000)
     number_initial_limit_usd: float | None = Field(default=None, ge=0, le=10000, allow_inf_nan=False)
     number_monthly_limit_usd: float | None = Field(default=None, ge=0, le=10000, allow_inf_nan=False)
@@ -593,6 +594,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/calls/start")
     async def start_call(data: CallStart, p=Depends(principal)):
         return await service.start_call(p, data.model_dump())
+
+    @app.get("/v1/settings/rows")
+    def settings_rows(p=Depends(administrator)):
+        return service.setup_rows(p)
+
+    @app.post("/v1/settings/rows/{row_id}/check")
+    async def check_settings_row(row_id: str, p=Depends(administrator)):
+        return await service.check_setup_row(p, row_id)
 
     @app.get("/v1/calling/voicemail-report")
     def voicemail_report(p=Depends(principal)):

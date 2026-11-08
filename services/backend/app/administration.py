@@ -212,6 +212,84 @@ class Dialer(
             )
         )
 
+    def setup_rows(self, p):
+        """Settings: one true status and one row per thing to set (section 7, R7.2)."""
+        from app.calling.blockers import CATALOG
+        from app.calling.setup import rows
+        from app.compliance.phone import normalize_phone
+        from app.providers.codex import profile_home
+
+        conf = self.configs.read(p["tenant_id"])
+        live = {}
+        if self.settings.simulation:
+            live["connection"] = (True, "Simulated workspace: call events are simulated")
+        elif not self.managed.enabled(p["tenant_id"]):
+            live["connection"] = (False, "Import your calling setup file to connect call events")
+        else:
+            code = self.managed.connection_code(p["tenant_id"])
+            live["connection"] = (code is None, "Connected" if code is None else CATALOG[code][0])
+        home = profile_home(self.settings.data_dir, p["user_id"])
+        signed_in = (home / "auth.json").is_file() and (home / "account.json").is_file()
+        live["chatgpt"] = (signed_in, "Signed in on this Mac" if signed_in else "Not signed in")
+        phone = normalize_phone(conf.get("test_phone") or "")
+        live["test_phone"] = (bool(phone.e164), phone.e164 or "Add your own number for test calls")
+        with self.db.transaction(False) as s:
+            numbers = self.scoped(s, "number_inventory", p)
+            code = self.number_setup_blocker(s, p, numbers)
+            ready = sum(1 for n in numbers if n.data.get("lifecycle") in {"healthy", "limited_real_use"})
+            live["numbers"] = (code is None, f"{ready} ready" if code is None else CATALOG[code][0])
+            campaign = next(iter(self.scoped(s, "campaigns", p)), None)
+            script = (campaign.data.get("script") or {}) if campaign else {}
+            live["script"] = (
+                bool(script.get("template")),
+                f"Version {script.get('version')} saved" if script.get("template") else "No script saved yet",
+            )
+            policy = (
+                self.required(s, "policy_versions", campaign.data["policy_id"], p).data if campaign else {}
+            )
+            start, end = policy.get("local_start_hour", 9), policy.get("local_end_hour", 17)
+            valid = isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= 24
+            live["hours"] = (
+                valid,
+                f"{start}:00 to {end}:00 in each lead's time" if valid else "Fix the hours",
+            )
+            first = next(iter(self.dial_blockers_in(s, p, rep=False)), None)
+        return {
+            "status": first.detail() if first else None,
+            "rows": rows(conf, conf.get("_setup_checks") or {}, live),
+        }
+
+    async def check_setup_row(self, p, row_id):
+        """Run the real check behind one row and store its result with the value it checked (R7.3)."""
+        from fastapi import HTTPException
+
+        from app.calling import setup
+        from app.providers import openrouter, telnyx
+
+        spec = setup.BY_ID.get(row_id)
+        if not spec:
+            raise HTTPException(404, "Unknown setting")
+        conf = self.configs.read(p["tenant_id"])
+        if row_id in setup.LIVE:
+            return self.setup_rows(p)
+        if not all(conf.get(field) for field in spec.fields):
+            raise HTTPException(409, f"Add the {spec.label} first")
+        http = getattr(self, "http", None)
+        if self.settings.simulation:
+            ok, detail = True, "Simulated workspace: not checked with the provider"
+        elif row_id == "telnyx":
+            ok, detail = await telnyx.check_key(conf["telnyx_api_key"], http)
+        elif row_id == "openrouter":
+            ok, detail = await openrouter.check_key(conf["openrouter_api_key"], http)
+        else:
+            raise HTTPException(409, f"The {spec.label} check arrives with its integration")
+        checks = {
+            **(conf.get("_setup_checks") or {}),
+            row_id: setup.check_record(spec, conf, ok, detail, self.clock().isoformat()),
+        }
+        self.configs.write(p["tenant_id"], {"_setup_checks": checks})
+        return self.setup_rows(p)
+
     def preflight(self, p, *, full=True, deep=False):
         if not full:
             cached = self.capability_cache.get((p["tenant_id"], p["seller_id"]), {})

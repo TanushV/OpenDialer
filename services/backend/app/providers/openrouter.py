@@ -547,3 +547,16 @@ class OpenRouterCoach:
             return ReviewOutput.model_validate(result).model_dump()
         except ValueError as exc:
             raise InferenceError("Invalid independent meaning review") from exc
+
+
+async def check_key(api_key, http=None):
+    """(ok, detail) from OpenRouter's key endpoint, one authenticated request."""
+    from app.providers.telnyx import _check
+
+    return await _check(
+        "https://openrouter.ai/api/v1/key",
+        api_key,
+        "OpenRouter",
+        http,
+        accepted="OpenRouter accepted this key",
+    )
