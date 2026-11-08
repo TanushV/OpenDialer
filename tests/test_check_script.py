@@ -108,3 +108,10 @@ def test_an_unmarked_slow_test_fails_the_run_and_a_marked_one_passes(tmp_path, w
         timeout=120,
     )
     assert result.returncode == 0, result.stdout
+
+
+def test_the_full_tier_runs_the_browser_suite_after_the_rest(monkeypatch):
+    order = []
+    monkeypatch.setattr(check, "run_steps", lambda steps, note=None: order.append(set(steps)) or True)
+    assert check.run_tier("full")
+    assert order == [set(check.TIERS["full"]) - {"browser"}, {"browser"}]

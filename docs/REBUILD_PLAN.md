@@ -747,6 +747,7 @@ Measured on this Mac, November 7, 2026, from `730a80d`. The Mac is shared, so th
 | Browser suite | Cannot run locally | The config always starts the hosted server, which requires a PostgreSQL address. The only browser run is CI's, at about 21 minutes with one worker |
 | `check.py` fast, after R0.0 | 39 seconds at load average 22 | 820 backend tests run; 59 marked `slow` are left out. Backend startup across workers is most of it |
 | `check.py full`, after R0.0 | 92 seconds at load average 31 | Backend and Rust run side by side; browser suite still CI only |
+| `check.py full`, after R1.2a | About 2 minutes, then the browser suite alone in about 4.5 | Running the browser suite beside the backend starved both: 281 seconds for the backend and load-caused failures, so it runs second. Misses the 5-minute target on this shared Mac |
 | Browser suite without hosted specs | 26 minutes, one worker | 81 passed, 40 failed: 7 still reach the hosted server through `tests/simulation.ts`, and most of the rest timed out on a loaded Mac. The same commit passes in CI, so the suite is not reliable outside CI today |
 
 **CI/CD today, measured November 6, 2026**

@@ -65,8 +65,22 @@ TIERS = {
 }
 
 
+# The browser suite runs after the rest, alone: run beside the backend on a shared Mac it starves
+# both, and the slow-test guard and browser timeouts fail on load, not on defects.
+STAGED = {"browser"}
+
+
 def tier_steps(name):
     return {step: STEPS[step] for step in TIERS[name]}
+
+
+def run_tier(name):
+    steps = tier_steps(name)
+    first = {k: v for k, v in steps.items() if k not in STAGED}
+    after = {k: v for k, v in steps.items() if k in STAGED}
+    if not run_steps(first):
+        return False
+    return not after or run_steps(after)
 
 
 def keyword_steps(keyword):
@@ -205,10 +219,10 @@ def _free_port():
 
 def main(argv):
     if not argv or argv[0] == "fast":
-        return run_steps(tier_steps("fast"))
+        return run_tier("fast")
     command, rest = argv[0], argv[1:]
     if command == "full":
-        return run_steps(tier_steps("full"))
+        return run_tier("full")
     if command == "package":
         return package()
     if command == "install-hooks":
