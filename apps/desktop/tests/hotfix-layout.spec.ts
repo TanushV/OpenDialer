@@ -1,34 +1,9 @@
 import { expect, test } from "./fixtures";
 import { chooseOutcome, prepareSimulationCall } from "./simulation";
-import type { Locator } from "@playwright/test";
+import { uncovered } from "./layout";
 
 /** R0.12: at 1024x720 nothing may sit on top of the rep's next action. */
 test.use({ viewport: { width: 1024, height: 720 } });
-
-async function uncovered(target: Locator) {
-  // Checked where the app leaves it, without test scrolling: top, middle and
-  // bottom rows across the button, so a partial overlap still fails.
-  const box = await target.boundingBox();
-  expect(box).not.toBeNull();
-  const points = [3, box!.height / 2, box!.height - 3].flatMap((dy) =>
-    [0.1, 0.3, 0.5, 0.7, 0.9].map((fx) => ({
-      x: box!.x + box!.width * fx,
-      y: box!.y + dy,
-    })),
-  );
-  const cover = await target.evaluate((element, points) => {
-    for (const point of points) {
-      const hit = document.elementFromPoint(point.x, point.y);
-      if (hit && (element === hit || element.contains(hit))) continue;
-      const owner = hit?.closest("[class]");
-      return owner
-        ? `${owner.tagName.toLowerCase()}.${owner.className}`
-        : "nothing";
-    }
-    return "";
-  }, points);
-  expect(cover, `covers ${await target.textContent()}`).toBe("");
-}
 
 test("the dock never covers Save outcome and a toast never covers Next call", async ({
   page,

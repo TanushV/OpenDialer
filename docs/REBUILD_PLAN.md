@@ -845,7 +845,7 @@ Goal: today's failures become failing tests before any structure changes.
       fail under that load pass alone, so the local run retries once and reports a retried test as flaky; CI does not
       retry. The run found two real WebKit bugs, now fixed: a reload undid the rep's dialing-list choice, and dates read
       differently by engine. Hosted mode stays on a Linux CI job until R2.1.
-- [ ] R1.3 Add the layout audit: for every Dialer phase at 1024x720 and 1440x940, the primary action is visible and not
+- [x] R1.3 Add the layout audit: for every Dialer phase at 1024x720 and 1440x940, the primary action is visible and not
       covered, no sideways scroll, no clipping, and layout shift stays under a set limit.
 - [x] R1.4 Build `providers/replay_carrier.py`: replays recorded timelines, including rep-leg teardown, unmatched legs,
       relay delay and track end before event.
