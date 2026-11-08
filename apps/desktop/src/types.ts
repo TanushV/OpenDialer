@@ -1,3 +1,5 @@
+import { TERMINAL_STATES } from "./state/callStates";
+
 export interface Session {
   access_token: string;
   tenant_id: string;
@@ -694,14 +696,6 @@ export interface Analysis {
   recording_available: boolean;
   provider: string;
 }
-const TERMINAL_STATES = new Set([
-  "ENDED",
-  "FINALIZED",
-  "BUSY",
-  "NO_ANSWER",
-  "INVALID_ENDPOINT",
-  "TEMPORARY_FAILURE",
-]);
 /** No call, or one whose carrier leg has finished. */
 export const isTerminal = (call: { state: string } | null | undefined) =>
   !call || TERMINAL_STATES.has(call.state);

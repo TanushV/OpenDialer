@@ -6,11 +6,11 @@ from uuid import uuid4
 
 from fastapi import Depends, WebSocket, WebSocketDisconnect
 
+from app.calling.state import TERMINAL
 from app.platform.db import emit, update
 from app.platform.security import decode_session
 from app.providers import telnyx_stt
 from app.service import fail
-from app.telephony.reducer import TERMINAL
 
 
 def admission(service, p, call_id, *, finishing=False):

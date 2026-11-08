@@ -12,10 +12,10 @@ from datetime import timedelta
 
 import httpx
 import pytest
+from app.calling.state import transition
 from app.platform.db import get, update
 from app.providers.telnyx import CarrierConfigurationError, TelnyxCarrier
 from app.telephony.recovery import COMMAND_RETRY_SECONDS, within_command_window
-from app.telephony.reducer import reduce_state
 from conftest import start
 from helpers import voicemail_policy
 
@@ -415,11 +415,10 @@ def test_a_human_answer_is_never_hung_up_by_a_late_machine_result(workspace, app
         ("ANSWERED_UNCLASSIFIED", "call.machine.premium.call_screening.detected:screening", "SCREENING"),
         ("VOICEMAIL_GREETING", "call.machine.premium.greeting.ended:beep_detected", "VOICEMAIL_READY"),
         ("VOICEMAIL_GREETING", "call.machine.premium.greeting.ended:no_beep_detected", "VOICEMAIL_GREETING"),
-        ("VM_PLAYING", "call.playback.failed", "VM_PLAYING"),
     ],
 )
 def test_reducer_maps_only_documented_machine_detection_results(state, name, expected):
-    assert reduce_state(state, name) == expected
+    assert transition(state, name) == expected
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy import delete, func, or_, select, text
 
+from app.calling.state import TERMINAL
 from app.intelligence import Application
 from app.number_operations import NumberOperations
 from app.optimization.script_lab import ScriptLab
@@ -24,7 +25,6 @@ from app.telephony.callbacks import InboundCallbacks
 from app.telephony.ingress import WebhookIngress
 from app.telephony.recovery import CommandRecovery, call_receipt
 from app.telephony.recovery_actions import RecoveryActions
-from app.telephony.reducer import TERMINAL
 from app.telephony.workflows import TelephonyWorkflows
 from app.workspace import WorkspaceReads
 

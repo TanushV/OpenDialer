@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
+from app.calling.state import TERMINAL
 from app.coaching import engine, library, sources
 from app.coaching import requests as help_requests
 from app.coaching.context import (
@@ -30,7 +31,6 @@ from app.platform.db import MODELS, doc, emit, get, put, uid, update
 from app.privacy import RAW_TTL_SECONDS, persistent_document
 from app.providers.inference import InferenceResult
 from app.service import dt
-from app.telephony.reducer import TERMINAL
 
 LINEAGE_DEPTH = 8  # Observation lineage is checkpointed by review before it grows deeper.
 

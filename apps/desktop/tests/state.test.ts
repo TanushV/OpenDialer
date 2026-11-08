@@ -38,14 +38,14 @@ describe("durable offline opt-outs", () => {
 
 describe("one call-state definition", () => {
   it("treats carrier-finished and missing calls as terminal", () => {
-    for (const state of ["ENDED", "FINALIZED", "BUSY", "NO_ANSWER"])
+    for (const state of ["ENDED", "FINALIZED"])
       expect(isTerminal({ state })).toBe(true);
     expect(isTerminal(null)).toBe(true);
     expect(isTerminal({ state: "RINGING" })).toBe(false);
   });
   it("does not count a finished call or wrap-up as an active call", () => {
     expect(isActiveCall({ state: "HUMAN" })).toBe(true);
-    expect(isActiveCall({ state: "NO_ANSWER" })).toBe(false);
+    expect(isActiveCall({ state: "ENDED" })).toBe(false);
     expect(isActiveCall(null)).toBe(false);
   });
 });

@@ -10,10 +10,10 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
+from app.calling.state import TERMINAL
 from app.platform.db import MODELS
 from app.platform.secret_files import read_private, write_private
 from app.service import dt, fail
-from app.telephony.reducer import TERMINAL
 
 
 class ConnectionProfile(BaseModel):

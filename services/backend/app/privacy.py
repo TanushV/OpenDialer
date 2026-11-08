@@ -748,7 +748,7 @@ class SpeechPrivacy:
             )
         eligible = bool(segment.get("is_final") and not result["expired"])
         if eligible and queue_coach:
-            from app.telephony.reducer import TERMINAL
+            from app.calling.state import TERMINAL
 
             if call.data["state"] in TERMINAL | {"ENDING"}:
                 self.enqueue_finalize(s, p, call, "late_segment")

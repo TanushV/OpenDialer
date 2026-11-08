@@ -8,9 +8,10 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
+from app.calling.state import TERMINAL, transition
 from app.platform.db import MODELS, ActiveClaim, doc, emit, uid, update
+from app.platform.leases import owns_effect
 from app.service import dt, fail
-from app.telephony.reducer import TERMINAL, owns_effect, reduce_state
 
 CALL_COMMAND_KINDS = {"dial", "hangup", "action"}
 # Conservative application window inside Telnyx's documented 60-second dedupe.
@@ -138,14 +139,14 @@ class CommandRecovery:
                 update(command, **changes, status="completed", recovery_reason=None)
                 update(
                     call,
-                    state=reduce_state(
+                    state=transition(
                         call.data["state"], "call.ringing" if self.settings.simulation else "call.initiated"
                     ),
                 )
                 if alive:
                     lead = self.required(s, "leads", call.data["lead_id"], p)
                     if self.suppressed(s, p, lead.data["phone"]):
-                        update(call, state="ENDING")
+                        update(call, state=transition(call.data["state"], "hangup.requested"))
                         self.control_intent(s, p, call.id, "hangup", {}, suffix="recovered-suppressed-call")
             elif not alive:
                 update(
@@ -311,7 +312,12 @@ class CommandRecovery:
                 update(
                     command, status="unconfirmed", lease_owner=None, lease_until=None, recovery_reason=reason
                 )
-        update(call, state="DIAL_UNCONFIRMED", review_required=True, recovery_reason=reason)
+        update(
+            call,
+            state=transition(call.data["state"], "dial.unconfirmed"),
+            review_required=True,
+            recovery_reason=reason,
+        )
         for claim in s.scalars(select(ActiveClaim).where(ActiveClaim.call_id == call.id)):
             claim.rep_id = call.id  # Unique per call; the endpoint and lead stay claimed.
         emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "DIAL_UNCONFIRMED"})

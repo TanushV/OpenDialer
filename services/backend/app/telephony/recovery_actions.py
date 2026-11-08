@@ -8,10 +8,11 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
+from app.calling.state import transition
 from app.platform.db import MODELS, Job, audit, doc, get, uid, update
+from app.platform.leases import owns_effect
 from app.service import dt, fail
 from app.telephony.recovery import CALL_COMMAND_KINDS, call_receipt
-from app.telephony.reducer import owns_effect
 
 UNFINISHED = {"pending", "sending", "uncertain", "reconciling", "review_required", "unconfirmed"}
 
@@ -252,7 +253,7 @@ class RecoveryActions:
                         "ENDED",
                         "FINALIZED",
                     }:
-                        update(call, state="ENDING")
+                        update(call, state=transition(call.data["state"], "hangup.requested"))
                 update(command, recovery_reason="Stop requested; awaiting terminal carrier evidence")
             audit(
                 s,

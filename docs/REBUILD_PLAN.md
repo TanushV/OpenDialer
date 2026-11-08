@@ -966,7 +966,10 @@ each rewrite deletes the mixin code it replaces, not as a separate pass.
 
 Goal: one state machine, one gate, and guarantees G1 to G8.
 
-- [ ] R4.1 `calling/state.py`: one pure transition table; generate the TypeScript state list.
+- [x] R4.1 `calling/state.py`: one pure transition table; generate the TypeScript state list.
+      Done November 7: every state write goes through `transition()` (a test bans literal state writes elsewhere),
+      every non-terminal state has a limit and an exit that reaches a terminal state, and
+      `scripts/gen_call_states.py` writes `state/callStates.ts`, checked for drift. `telephony/reducer.py` is gone.
 - [ ] R4.2 `calling/events.py`: `apply_event` split into small steps, each testable alone.
 - [ ] R4.3 `calling/blockers.py`: one function; remove every other gate; each code has a message and fix.
 - [ ] R4.4 `calling/audio_leg.py`: one fresh leg per call, client stays registered, credential verified once per session.

@@ -276,7 +276,7 @@ def as_time(value):
 
 def call_work_bounds(data):
     """Verified occupancy bounds; unknown detachment never counts as rep time."""
-    from app.telephony.reducer import TERMINAL
+    from app.calling.state import TERMINAL
 
     if not data.get("rep_id") or not (data.get("submitted_at") or data.get("provider_id")):
         return None, None
@@ -364,7 +364,7 @@ def sync_columns(row):
 
         row.op_amount = float(Decimal(str(data["cost_usd"])) - Decimal(str(data.get("credited_usd", 0))))
     if row.__tablename__ == "call_attempts":
-        from app.telephony.reducer import TERMINAL
+        from app.calling.state import TERMINAL
 
         started, lifetime = as_time(data.get("started_at")), data.get("max_call_seconds")
         last_check = as_time(data.get("orphan_checked_at"))

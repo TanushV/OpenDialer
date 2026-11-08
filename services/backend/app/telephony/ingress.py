@@ -9,10 +9,10 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.calling.state import TERMINAL
 from app.platform.db import MODELS, Job, emit, get, put, uid, update
 from app.privacy import RAW_TTL_SECONDS, event_metadata
 from app.service import dt, fail
-from app.telephony.reducer import TERMINAL
 from app.transcripts import normalize_transcription
 
 

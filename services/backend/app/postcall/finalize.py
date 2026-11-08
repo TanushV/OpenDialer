@@ -87,11 +87,11 @@ def request(service, p, call_id, mode):
     """
     from sqlalchemy import select
 
+    from app.calling.state import TERMINAL
     from app.coaching import sources
     from app.coaching.context import guidance_sources, persistent_state, upgrade_state
     from app.platform.db import MODELS
     from app.postcall.rubrics import effective
-    from app.telephony.reducer import TERMINAL
 
     with service.db.transaction(False) as s:
         call = service.required(s, "call_attempts", call_id, p)

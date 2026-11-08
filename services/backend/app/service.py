@@ -12,6 +12,7 @@ import httpx
 from fastapi import HTTPException
 from sqlalchemy import delete, or_, select
 
+from app.calling.state import TERMINAL, transition
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize, retry_seconds
 from app.lead_lists import LeadLists, memberships
@@ -21,12 +22,12 @@ from app.platform.config import LIMITS, TEST_LINES
 from app.platform.ctx import Ctx
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.platform.jobs import JobQueue
+from app.platform.leases import owns_effect
 from app.platform.security import PASSWORDS, ConfigStore, issue_session
 from app.privacy import event_metadata
 from app.providers.carrier import carrier_factory
 from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
 from app.scheduling.queue import ReservationPlanner
-from app.telephony.reducer import TERMINAL, owns_effect, reduce_state
 
 
 def dt(value):
@@ -926,7 +927,7 @@ class Service(LeadLists, ReservationPlanner):
             )
             update(
                 call,
-                state="DIALING",
+                state=transition(call.data["state"], "dial.sent"),
                 submission_decision_id=submission_decision.id,
                 submitted_at=self.clock().isoformat(),
             )
@@ -969,7 +970,7 @@ class Service(LeadLists, ReservationPlanner):
                 elif rejected:
                     self.finish_call(s, p, call, "provider_rejected")
                 elif call.data["state"] == "DIALING" and not call.data.get("provider_id"):
-                    update(call, state="RECONCILING")
+                    update(call, state=transition(call.data["state"], "dial.uncertain"))
                     emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "RECONCILING"})
 
     def _dial_completed(self, p, call_id, claimed, owner, receipt):
@@ -988,7 +989,7 @@ class Service(LeadLists, ReservationPlanner):
             )
             update(
                 call,
-                state=reduce_state(
+                state=transition(
                     call.data["state"], "call.ringing" if self.settings.simulation else "call.initiated"
                 ),
             )
@@ -1052,7 +1053,12 @@ class Service(LeadLists, ReservationPlanner):
         self.coach.cancel(call.id)
         if call.data["state"] != "FINALIZED":
             ended = dt(call.data.get("ended_at")) or self.clock()
-            update(call, state="ENDED", ended_at=ended.isoformat(), end_reason=reason or "hangup")
+            update(
+                call,
+                state=transition(call.data["state"], "call.ended"),
+                ended_at=ended.isoformat(),
+                end_reason=reason or "hangup",
+            )
             answered = dt(call.data.get("answered_at"))
             if answered and answered <= ended:
                 update(call, connected_seconds=(ended - answered).total_seconds())
@@ -1127,7 +1133,7 @@ class Service(LeadLists, ReservationPlanner):
                 if provider_id
                 else "Await the signed dial receipt or attach a verified carrier call reference",
             )
-            update(call, state="ENDING")
+            update(call, state=transition(call.data["state"], "hangup.requested"))
             self.stop_agent_transcription_in(s, p, call)
             self.coach.cancel(call.id)
             emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "ENDING"})
@@ -1214,7 +1220,7 @@ class Service(LeadLists, ReservationPlanner):
             timing = call_timing(call.data, event_type, payload, now=self.clock())
             if timing:
                 update(call, **timing)
-            target = reduce_state(call.data["state"], event_type)
+            target = transition(call.data["state"], event_type)
             if payload.get("call_control_id"):
                 self.bind_dial_receipt(s, p, call, payload["call_control_id"])
             if target == "ENDED":

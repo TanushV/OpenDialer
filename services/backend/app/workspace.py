@@ -38,7 +38,7 @@ def after(model, anchor, descending):
 class WorkspaceReads:
     def quiescence_in(self, s, p):
         """Indexed authority obligations; signing out stops the whole local process."""
-        from app.telephony.reducer import TERMINAL
+        from app.calling.state import TERMINAL
 
         reasons = []
         for table, condition, reason in (

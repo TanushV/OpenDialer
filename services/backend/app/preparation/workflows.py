@@ -289,8 +289,8 @@ class Preparation:
         run, so it is current after every call or correction and needs no model to be up.
         It never mentions a conversation that did not happen.
         """
+        from app.calling.state import TERMINAL
         from app.postcall.commitments import ACTIVE as ACTIVE_TASKS
-        from app.telephony.reducer import TERMINAL
 
         attempts = lead.data.get("attempt_count", 0)
         calls = self.lead_records(

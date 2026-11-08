@@ -158,7 +158,7 @@ def record(service, p, phone, reason, *, event_id=None, session=None):
 
 def revoke_effects(service, s, p, endpoint_id, permissions):
     """An opt-out stops what a live call to that endpoint is doing: its speech or the dial."""
-    from app.telephony.reducer import TERMINAL
+    from app.calling.state import TERMINAL, transition
 
     model = MODELS["call_attempts"]
     calls = list(
@@ -200,7 +200,7 @@ def revoke_effects(service, s, p, endpoint_id, permissions):
                 service.finish_call(s, p, call, "consent_revoked_before_submission")
             else:
                 if call.data["state"] != "ENDING":
-                    update(call, state="ENDING")
+                    update(call, state=transition(call.data["state"], "hangup.requested"))
                 service.control_intent(s, p, call.id, "hangup", {}, target=call.data.get("provider_id"))
         if call.version != version:
             emit(s, p["tenant_id"], "call.updated", call, service.clock(), {"permission_changed": True})

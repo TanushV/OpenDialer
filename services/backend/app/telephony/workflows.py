@@ -6,11 +6,12 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
+from app.calling.state import HUMAN_EVENTS, TERMINAL
 from app.compliance.policy import authorize
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
+from app.platform.leases import owns_effect
 from app.service import dt, fail
 from app.telephony.recovery import safe_stop, within_command_window
-from app.telephony.reducer import HUMAN_EVENTS, TERMINAL, owns_effect
 
 KEYPAD_STATES = {"DIALING", "RINGING", "ANSWERED_UNCLASSIFIED", "HUMAN", "SCREENING"}
 MACHINE_EVENTS = {"call.machine.detection.ended:machine", "call.machine.premium.detection.ended:machine"}
@@ -221,7 +222,7 @@ class TelephonyWorkflows:
                 if event_type in SCREENING_EVENTS and not call.data.get("human_answered_at"):
                     update(call, screening_detected=True, machine_detected=False)
                     emit(s, p["tenant_id"], "call.updated", call, self.clock())
-                if event_type in HUMAN_EVENTS | {"human.confirmed"}:
+                if event_type in {*HUMAN_EVENTS, "human.confirmed"}:
                     waiting = self._by_key(s, p, "command_outbox", f"{call_id}:machine-hangup")
                     if waiting and waiting.data["status"] == "pending":
                         update(waiting, status="cancelled", reason="HUMAN_ANSWERED")
