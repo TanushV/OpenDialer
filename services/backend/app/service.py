@@ -32,6 +32,8 @@ from app.providers.carrier import carrier_factory
 from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
 from app.scheduling.queue import ReservationPlanner
 
+TEST_LIST = "Test line"
+
 
 def dt(value):
     return datetime.fromisoformat(value) if value else None
@@ -708,9 +710,46 @@ class Service(LeadLists, ReservationPlanner):
             .execution_options(synchronize_session=False)
         )
 
+    def test_lines(self, p):
+        """The owner's test line, and the test phone typed in Settings (section 10)."""
+        from app.compliance.phone import normalize_phone
+
+        typed = normalize_phone(self.configs.read(p["tenant_id"]).get("test_phone") or "").e164
+        return TEST_LINES | ({typed} if typed else set())
+
+    def in_test_session(self, p):
+        return bool(self.configs.read(p["tenant_id"]).get("test_session"))
+
     def refuse_outside_test_line(self, p, lead):
-        test_session = bool(self.configs.read(p["tenant_id"]).get("test_session"))
-        refuse(test_line_refusal(lead.data["phone"], test_session=test_session, test_lines=TEST_LINES))
+        refuse(
+            test_line_refusal(
+                lead.data["phone"], test_session=self.in_test_session(p), test_lines=self.test_lines(p)
+            )
+        )
+
+    def start_test_session(self, p):
+        """R7.5: the test phone becomes a lead on the Test line list and calling is limited to it."""
+        from app.compliance.phone import normalize_phone
+
+        phone = normalize_phone(self.configs.read(p["tenant_id"]).get("test_phone") or "").e164
+        if not phone:
+            fail(409, "Add your test phone in Settings first")
+        with self.db.transaction(False) as s:
+            campaign = next(iter(self.scoped(s, "campaigns", p)), None)
+        if not campaign:
+            fail(409, "Import a lead list first")
+        self.import_leads(
+            p,
+            {
+                "campaign_id": campaign.id,
+                "list_name": TEST_LIST,
+                "rows": [{"name": "Your test phone", "phone": phone, "company": "Test call"}],
+            },
+        )
+        self.configs.write(p["tenant_id"], {"test_session": True})
+        with self.db.transaction(False) as s:
+            lead = next(row for row in self.scoped(s, "leads", p) if row.data.get("phone") == phone)
+        return {"test_session": True, "lead_id": lead.id, "phone": phone}
 
     def _prepare_call(self, p, data):
         now = self.clock()
@@ -778,7 +817,7 @@ class Service(LeadLists, ReservationPlanner):
                     "outcome": None,
                     "transcript_version": 0,
                     "synthetic": self.settings.simulation,
-                    "is_test": lead.data["phone"] in TEST_LINES,
+                    "is_test": lead.data["phone"] in TEST_LINES or self.in_test_session(p),
                     "transcription_source": "direct" if self.managed.enabled(p["tenant_id"]) else "webhook",
                 },
                 key=data["idempotency_key"],

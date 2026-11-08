@@ -115,12 +115,29 @@ def test_a_test_session_dials_only_the_owners_test_line(workspace, app):
     assert test_line_refusal("+12038211101", test_session=True, test_lines={"+12038211101"}) == []
     client, headers = workspace["client"], workspace["headers"]
     assert client.put("/v1/admin/settings", headers=headers, json={"test_session": True}).status_code == 200
-    packet = reserve(workspace).json()
-    refused = client.post(
+    # The queue offers nothing outside the Test line list, so no prospect is reserved.
+    assert reserve(workspace).status_code == 409
+    assert app.state.service.carrier(workspace["tenant_id"]).dials == []
+
+
+def test_a_test_call_dials_only_the_typed_test_phone_and_counts_as_a_test(workspace, app):
+    """R7.5: Test call adds the test phone as a lead and the queue offers only it."""
+    client, headers = workspace["client"], workspace["headers"]
+    assert client.post("/v1/settings/test-call", headers=headers).status_code == 409
+    client.put("/v1/admin/settings", headers=headers, json={"test_phone": "+12025550199"})
+    started = client.post("/v1/settings/test-call", headers=headers).json()
+    assert started["phone"] == "+12025550199"
+    from conftest import ready
+
+    ready(workspace)
+    packet = client.post(
+        "/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]}
+    ).json()
+    assert packet["lead"]["id"] == started["lead_id"]
+    call = client.post(
         "/v1/calls/start",
         headers=headers,
-        json={"reservation_id": packet["reservation_id"], "idempotency_key": "test-session"},
-    )
-    assert refused.status_code == 409
-    assert refused.json()["detail"]["code"] == "TEST_SESSION_TEST_LINE_ONLY"
-    assert app.state.service.carrier(workspace["tenant_id"]).dials == []
+        json={"reservation_id": packet["reservation_id"], "idempotency_key": "test-call"},
+    ).json()
+    assert call["is_test"] is True
+    assert client.delete("/v1/settings/test-call", headers=headers).json() == {"test_session": False}

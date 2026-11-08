@@ -14,6 +14,7 @@ async function add(page: Page, list: string, csv: string) {
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page.getByLabel("List name", { exact: true }).fill(list);
   await page.getByLabel("CSV lead data").fill(csv);
+  await expect(page.getByLabel("List name", { exact: true })).toHaveValue(list);
   const response = page.waitForResponse(
     (r) =>
       r.url().endsWith("/v1/leads/import") && r.request().method() === "POST",
