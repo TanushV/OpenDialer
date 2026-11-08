@@ -76,7 +76,7 @@ test("number route recovery preserves its original target and does not offer cal
       .click();
   await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await openMoreSettings(page, "Users, backups and recovery");
+  await openMoreSettings(page, "Needs attention");
   const recovery = page.getByRole("region", {
     name: "Work needing recovery",
     exact: true,
@@ -163,7 +163,7 @@ test("recovery offers verified reconciliation and keeps failed actions retryable
       .click();
   await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await openMoreSettings(page, "Users, backups and recovery");
+  await openMoreSettings(page, "Needs attention");
   const recovery = page.getByRole("region", {
     name: "Work needing recovery",
     exact: true,
@@ -240,7 +240,7 @@ test("an unconfirmed dial is confirmed not placed only with a recorded reason", 
       .click();
   await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await openMoreSettings(page, "Users, backups and recovery");
+  await openMoreSettings(page, "Needs attention");
   const recovery = page.getByRole("region", {
     name: "Work needing recovery",
     exact: true,

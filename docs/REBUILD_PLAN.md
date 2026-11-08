@@ -1106,7 +1106,8 @@ Goal: plainly what to add and where to get it.
       session; the queue offers only that list, dialing refuses any other number, and every call in it is a test call.
       The test phone joins 203-821-1101 on the allowlist because the row asks for your own number. The Test call and End
       test session buttons sit on the test phone row (WebKit test, November 8).
-- [ ] R7.6 Advanced section; Needs attention list.
+- [x] R7.6 Advanced section; Needs attention list. Done November 8: "More settings" is Advanced, and Needs attention is its first
+      entry, listing only what recovery could not settle.
 - [ ] R7.7 Confirm the Telnyx and OpenRouter links land on the right screens.
 - [ ] R7.8 Fresh-install walkthrough on an empty `local-3` copy.
 

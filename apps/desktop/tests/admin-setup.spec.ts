@@ -226,6 +226,7 @@ test("settings is one short page with everything else folded away", async ({
   const more = await openMore(page, "AI budget");
   await expect(more.getByLabel("AI budget per lead list (USD)")).toBeVisible();
   for (const section of [
+    "Needs attention",
     "Campaign goal",
     "Do-not-call checks and consent",
     "Callbacks",

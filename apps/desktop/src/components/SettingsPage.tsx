@@ -986,9 +986,14 @@ function MoreSettings({
       className="card padded more-settings"
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
-      <summary>More settings</summary>
+      <summary>Advanced</summary>
       {open && (
         <div className="more-list">
+          <details>
+            {/* R7.6: only what software could not settle by itself. */}
+            <summary>Needs attention</summary>
+            <RecoveryPanel />
+          </details>
           <details>
             <summary>AI budget</summary>
             <BudgetSettings settings={settings} />
@@ -1093,7 +1098,6 @@ function MoreSettings({
               </button>
             </div>
             <AccessAndRecovery />
-            <RecoveryPanel />
           </details>
           <details>
             <summary>Workspace and app updates</summary>

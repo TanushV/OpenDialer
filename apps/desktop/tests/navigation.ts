@@ -14,7 +14,7 @@ export async function openDetails(section: Locator) {
   }).toPass({ timeout: 20_000 });
 }
 
-/** Settings is one page: a card per thing to set, the rest under "More settings". */
+/** Settings is one page: a card per thing to set, the rest under "Advanced". */
 export async function openSettingsCard(page: Page, title: string) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   const card = page.getByTestId(`setting-${title}`);
