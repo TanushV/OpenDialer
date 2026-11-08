@@ -1184,3 +1184,9 @@ Done when: every live check passes and the owner signs off. **Owner sitting 5.**
   RealValidito do-not-call check on CRM leads (D23, API read from its public docs). Number work moved to Phase 9B (R9B.14 to
   R9B.20); estimate now 19.5 to 25 days. Owner asked for the whole plan to be built end to end in this thread. Next: commit
   the plan, then R0.0.
+- November 7, 2026: building end to end in this thread. Done: R0.0 to R0.13a (local check loop, hotfix fixes, release
+  gate, version 1.0.2), Phase 1 except R1.1 (replay carrier, variants, property test, WebKit suite locally and on a
+  macOS CI job, layout audit, rules and caps as warnings, baselines), and R2.1 (hosted mode, PostgreSQL, deploy and
+  Windows removed). Waiting on the owner: R0.14 publish and install of 1.0.2 (the draft is built from the first green
+  commit after R2.1), R0.15 and the other live calls, R1.1 (tag `v1.0.2` once published). Next: the 1.0.2 draft, then
+  R2.2.
