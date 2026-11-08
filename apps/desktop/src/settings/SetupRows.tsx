@@ -44,8 +44,20 @@ const WORD = {
   optional: "Optional",
 };
 
-export function SetupRows({ version }: { version?: number }) {
-  const { api, run } = useWorkspace();
+export function SetupRows({
+  version,
+  testSession,
+  onTestCall,
+  reload,
+}: {
+  version?: number;
+  /** A test session is on: calling reaches only the test phone. */
+  testSession?: boolean;
+  onTestCall: () => void;
+  /** Re-read the saved settings after a change made here. */
+  reload: () => Promise<void>;
+}) {
+  const { api, run, notice, refresh } = useWorkspace();
   const [data, setData] = useState<Rows | null>(null);
   const load = useCallback(
     async () => setData(await api<Rows>("/v1/settings/rows")),
@@ -62,6 +74,26 @@ export function SetupRows({ version }: { version?: number }) {
       >
         <strong>{data.status ? data.status.message : "Ready to call"}</strong>
       </Panel>
+      {testSession && (
+        <Panel className="setup-status blocked">
+          <strong>
+            Test session on: Start calling dials only your test phone.
+          </strong>{" "}
+          <Button
+            onClick={() =>
+              void run(async () => {
+                await api("/v1/settings/test-call", "DELETE");
+                await Promise.all([refresh(), reload()]);
+                notice(
+                  "Test session ended. Calling uses your lead lists again.",
+                );
+              })
+            }
+          >
+            End test session
+          </Button>
+        </Panel>
+      )}
       {data.rows.map((row) => (
         <SetupRow
           key={row.id}
@@ -80,6 +112,19 @@ export function SetupRows({ version }: { version?: number }) {
               ),
             )
           }
+          testCall={
+            row.id === "test_phone" && row.state === "ok"
+              ? () =>
+                  run(async () => {
+                    await api("/v1/settings/test-call", "POST");
+                    await Promise.all([refresh(), reload()]);
+                    notice(
+                      "Test session on. Press Start calling to call your test phone.",
+                    );
+                    onTestCall();
+                  })
+              : undefined
+          }
         />
       ))}
     </section>
@@ -90,10 +135,12 @@ function SetupRow({
   row,
   save,
   check,
+  testCall,
 }: {
   row: Row;
   save: (value: string) => Promise<void>;
   check: () => Promise<void>;
+  testCall?: () => Promise<void>;
 }) {
   const { run } = useWorkspace();
   const [value, setValue] = useState("");
@@ -143,6 +190,11 @@ function SetupRow({
             Save and check
           </Button>
         </form>
+      )}
+      {testCall && (
+        <Button variant="primary" onClick={() => void testCall()}>
+          Test call
+        </Button>
       )}
       {!field && (row.state === "unchecked" || row.state === "failed") && (
         <Button variant="text" onClick={() => void check()}>

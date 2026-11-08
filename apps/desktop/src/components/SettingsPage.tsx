@@ -118,7 +118,12 @@ function AdminSettings({
           <p>Set these once. Everything else has sensible defaults.</p>
         </div>
       </div>
-      <SetupRows version={settings.data?.version} />
+      <SetupRows
+        version={settings.data?.version}
+        testSession={Boolean(settings.data?.test_session)}
+        onTestCall={() => onNavigate("Dialer")}
+        reload={settings.load}
+      />
       {!settings.data ? (
         <section className="card padded">
           <p role="status">

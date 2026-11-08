@@ -491,3 +491,34 @@ test("a settings row turns green only after its check and says what it powers", 
   await expect(status).toContainText("Checked");
   await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
 });
+
+test("Test call limits calling to the test phone until the session ends", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  const sample = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await sample.isVisible()) await sample.click();
+  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const row = page.getByTestId("setup-test_phone");
+  await row.getByLabel("New Test phone").fill("+1 202 555 0199");
+  await row.getByRole("button", { name: "Save and check" }).click();
+  await row.getByRole("button", { name: "Test call", exact: true }).click();
+  await page.getByRole("button", { name: /^Start calling/ }).click();
+  await expect(page.getByTestId("lead-name")).toHaveText("Your test phone");
+  await page.getByRole("button", { name: /^Pause/ }).click();
+  await page.getByRole("button", { name: /^Skip/ }).click();
+  await expect(
+    page.getByRole("button", { name: /^Start calling/ }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page
+    .getByRole("button", { name: "End test session", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "End test session", exact: true }),
+  ).toBeHidden();
+});

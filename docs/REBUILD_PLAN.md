@@ -1101,11 +1101,11 @@ Goal: plainly what to add and where to get it.
       HubSpot and Treg get theirs in Phase 9B.
 - [x] R7.4 Connection reconnects by itself; the setup-file import appears only when disconnected. Done November 8:
       the relay loop reconnects on its own (R4.7); the import field and Reconnect show only while it is down.
-- [ ] R7.5 Test call button to the saved test phone.
+- [x] R7.5 Test call button to the saved test phone.
       Backend done November 8: `/v1/settings/test-call` adds the test phone to a "Test line" list and starts a test
       session; the queue offers only that list, dialing refuses any other number, and every call in it is a test call.
-      The test phone joins 203-821-1101 on the allowlist because the row asks for your own number. The button follows
-      with the Settings screen.
+      The test phone joins 203-821-1101 on the allowlist because the row asks for your own number. The Test call and End
+      test session buttons sit on the test phone row (WebKit test, November 8).
 - [ ] R7.6 Advanced section; Needs attention list.
 - [ ] R7.7 Confirm the Telnyx and OpenRouter links land on the right screens.
 - [ ] R7.8 Fresh-install walkthrough on an empty `local-3` copy.
