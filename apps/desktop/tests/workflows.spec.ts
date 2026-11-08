@@ -115,7 +115,6 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
     page.getByRole("heading", { name: "Numbers & callbacks" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Check readiness" }).click();
   await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
 });
 

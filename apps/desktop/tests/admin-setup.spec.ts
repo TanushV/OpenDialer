@@ -215,7 +215,6 @@ test("settings is one short page with everything else folded away", async ({
   await expect(page.locator(".tabs")).toHaveCount(0);
   await expect(page.getByLabel("Voice API connection ID")).toBeHidden();
   expect(await visibleControls(page)).toBeLessThanOrEqual(30);
-  await page.getByRole("button", { name: "Check readiness" }).click();
   await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
   for (const gone of [
     "Publication reason",
@@ -471,4 +470,24 @@ test("managed setup import shows connection and hides tunnel fields", async ({
   await expect(
     page.getByLabel("Telnyx API key", { exact: true }),
   ).toBeVisible();
+});
+
+test("a settings row turns green only after its check and says what it powers", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  const sample = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await sample.isVisible()) await sample.click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const row = page.getByTestId("setup-openrouter");
+  await expect(row).toContainText("Live helper, summaries, fallback agent");
+  const status = row.getByRole("status", { name: "OpenRouter key status" });
+  await expect(status).not.toContainText("Checked");
+  await row.getByLabel("New OpenRouter key").fill("sk-or-test-only");
+  await row.getByRole("button", { name: "Save and check" }).click();
+  await expect(status).toContainText("Checked");
+  await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
 });

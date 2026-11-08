@@ -24,9 +24,6 @@ test("setup saves a write-only live help key", async ({ page }) => {
   );
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   const settingsVersion = (await (await settingsRead).json()).version;
-  await page
-    .getByRole("button", { name: "Check readiness", exact: true })
-    .click();
   await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
   await openSettingsCard(page, "AI");
   const field = page.getByTestId("credential-openrouter_api_key");

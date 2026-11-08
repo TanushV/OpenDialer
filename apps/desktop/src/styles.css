@@ -2626,3 +2626,39 @@ details.transcript-card {
   text-align: left;
   vertical-align: top;
 }
+
+/* Settings rows (section 7). */
+.setup-rows {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.setup-status.ready strong {
+  color: #286548;
+}
+.setup-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.2fr) minmax(160px, 1fr) minmax(
+      220px,
+      1.2fr
+    );
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid #e3e0d4;
+  border-radius: 10px;
+  background: #fbfaf6;
+}
+.setup-row-text {
+  display: grid;
+  gap: 2px;
+}
+.setup-row-form {
+  display: flex;
+  gap: 8px;
+}
+@media (max-width: 1100px) {
+  .setup-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

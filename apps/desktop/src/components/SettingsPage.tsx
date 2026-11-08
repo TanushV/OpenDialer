@@ -17,7 +17,6 @@ import {
   Download,
   LoaderCircle,
   RefreshCw,
-  ShieldCheck,
   Wifi,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -31,7 +30,8 @@ import {
 } from "../api/client";
 import { isAdmin, label, useWorkspace } from "../context";
 import { limits, options, useDefinitions } from "../state/definitions";
-import type { Policy, Readiness } from "../types";
+import type { Policy } from "../types";
+import { SetupRows } from "../settings/SetupRows";
 
 type BudgetData = {
   per_list_usd: number;
@@ -99,37 +99,6 @@ function useAdminSettings() {
 }
 type AdminSettingsState = ReturnType<typeof useAdminSettings>;
 
-const READINESS: Record<string, string> = {
-  NO_CAMPAIGN: "Create a campaign.",
-  RESTORE_RECONCILIATION_REQUIRED: "Finish checking the restored backup.",
-  BUDGET_NOT_CONFIGURED: "Set an AI budget.",
-  TELNYX_NOT_CONFIGURED: "Connect Telnyx under Calling.",
-  AUDIO_SETUP_MISSING:
-    "This computer has no calling audio login. Import your calling setup under Calling.",
-  WEBHOOK_SIGNATURE_KEY_MISSING: "Import your calling setup under Calling.",
-  MANAGED_CONNECTION_UNAVAILABLE:
-    "Call events are reconnecting. Keep OpenDialer open; reconnect under Calling if it stays off.",
-  NO_CALLER_NUMBER:
-    "Add a caller number in Numbers: buy one, or add one you own in Telnyx.",
-  CALLER_NUMBER_ROUTE_REQUIRED:
-    "In Numbers, choose Set up route on your caller number.",
-  CALLER_NUMBER_CALLBACK_TEST_REQUIRED:
-    "One test call left: go ready, call one of your numbers from your own phone and answer it here. Every number opens after that.",
-  CALLER_NUMBER_PAUSED:
-    "Your caller numbers are paused. Review them in Numbers.",
-  NO_LEADS: "Import a lead list.",
-  TIMEZONE_UNCERTAIN:
-    "Some leads have no usable state or time zone. Add a state column to the CSV.",
-  INTERNAL_SUPPRESSION: "Every remaining lead is on your do-not-call list.",
-  ATTEMPT_LIMIT: "Every remaining lead has used all its attempts.",
-  OUTREACH_HOLD:
-    "The remaining leads are on hold (booked, waiting or held by you).",
-  REGISTRY_NOT_CLEARED_FOR_ENDPOINT:
-    "The do-not-call check is on, but no current list covers these leads. Load one or turn the check off.",
-  SCREENING_PENDING:
-    "The do-not-call check is on, but no current list covers these leads. Load one or turn the check off.",
-};
-
 function AdminSettings({
   onDisconnect,
   onNavigate,
@@ -137,12 +106,10 @@ function AdminSettings({
   onDisconnect: () => void;
   onNavigate: (view: View) => void;
 }) {
-  const { api, run, snapshot: w } = useWorkspace();
+  const { snapshot: w } = useWorkspace();
   const settings = useAdminSettings();
   // Null until the AI card has read the ChatGPT login.
   const [chatGpt, setChatGpt] = useState<boolean | null>(null);
-  const [preflight, setPreflight] = useState<Readiness | null>(null);
-  useEffect(() => setPreflight(null), [settings.data?.version]);
   return (
     <>
       <div className="page-heading">
@@ -150,43 +117,8 @@ function AdminSettings({
           <h1>Settings</h1>
           <p>Set these once. Everything else has sensible defaults.</p>
         </div>
-        <button
-          className="secondary"
-          onClick={() =>
-            void run(async () => setPreflight(await api("/v1/admin/preflight")))
-          }
-        >
-          <ShieldCheck size={16} />
-          Check readiness
-        </button>
       </div>
-      {preflight && (
-        <section
-          className={`card padded readiness ${preflight.ready_to_call ? "passed" : ""}`}
-          aria-label="Readiness"
-        >
-          <h3>
-            {preflight.ready_to_call
-              ? "Ready to call"
-              : `${preflight.blockers.length} thing${preflight.blockers.length === 1 ? "" : "s"} left before live calls`}
-          </h3>
-          <ul>
-            {preflight.blockers.map((b) => (
-              <li key={b}>{READINESS[b] ?? label(b)}</li>
-            ))}
-          </ul>
-          {preflight.warnings.length > 0 && (
-            <details>
-              <summary>Notes</summary>
-              {preflight.warnings.map((warning) => (
-                <p className="small" key={warning}>
-                  {warning}
-                </p>
-              ))}
-            </details>
-          )}
-        </section>
-      )}
+      <SetupRows version={settings.data?.version} />
       {!settings.data ? (
         <section className="card padded">
           <p role="status">

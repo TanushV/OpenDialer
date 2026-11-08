@@ -1091,9 +1091,14 @@ Done when: a 20-call run passes. **Owner sitting 3.** Real lists wait for the la
 
 Goal: plainly what to add and where to get it.
 
-- [ ] R7.1 Failing tests: a row is green only after its real check; a failed check shows the reason.
+- [x] R7.1 Failing tests: a row is green only after its real check; a failed check shows the reason. Done November 8
+      (`tests/test_settings_rows.py`, and a WebKit test of saving and checking a key).
 - [ ] R7.2 Build the page in section 7 from `blockers()`.
-- [ ] R7.3 Check on save for each key; rows show what each powers and link to where to get it.
+      In part, November 8: the page opens with one status from `blockers()` and the eleven rows; the older cards stay
+      below as the edit surfaces until they fold into the rows.
+- [x] R7.3 Check on save for each key; rows show what each powers and link to where to get it. Done November 8 for
+      Telnyx and OpenRouter (one authenticated request each, stored with a fingerprint of the key); RealValidito,
+      HubSpot and Treg get theirs in Phase 9B.
 - [ ] R7.4 Connection reconnects by itself; the setup-file import appears only when disconnected.
 - [ ] R7.5 Test call button to the saved test phone.
 - [ ] R7.6 Advanced section; Needs attention list.
