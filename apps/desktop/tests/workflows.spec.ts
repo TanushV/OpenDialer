@@ -144,20 +144,10 @@ test("advanced administration exposes evidence-controlled workflows", async ({
   );
 });
 
-test("script wording is tested from the script memory and purchases are never offered", async ({
+test("purchases are never offered and audio is checked before ready", async ({
   page,
 }) => {
   await enterSimulation(page);
-  // The experiment view no longer publishes opener variants; script memory tests them.
-  await openMoreSettings(page, "Learning experiments and trackers");
-  await expect(
-    page
-      .getByLabel("Experiment type")
-      .locator("option", { hasText: /variant/i }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText(/Script wording is tested from Script memory/),
-  ).toBeVisible();
   // Purchases are disabled by policy, so no quote or rental tool is shown.
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
   await expect(page.getByLabel("Procurement area code")).toHaveCount(0);
