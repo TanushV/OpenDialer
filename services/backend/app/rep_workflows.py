@@ -39,6 +39,28 @@ def zoned_time(value):
     return parsed.astimezone(UTC).isoformat()
 
 
+MEETINGS = {"meeting_booked", "meeting_held"}
+# Outcomes that stop dialing this number.
+NUMBER_STOPS = {"opt_out", "wrong_party", "invalid_endpoint"}
+
+
+def disposition_input(call, data, outcome, due):
+    """The saved form of a wrap-up: optional flags not resent keep their previous values."""
+    canonical = {
+        "outcome": outcome,
+        "callback_at": due,
+        "callback_note": data.get("callback_note", ""),
+        "contact_role": data.get("contact_role", "unknown"),
+    }
+    previous = call.get("disposition_input") or {}
+    for key in ("audio_result", "screened", "delivery_test"):
+        if data.get(key) is not None:
+            canonical[key] = data[key]
+        elif key in previous:
+            canonical[key] = previous[key]
+    return canonical
+
+
 class DatedEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: UUID | None = None
@@ -950,6 +972,7 @@ class RepWorkflows:
                 raise
 
     def save_disposition(self, p, call_id, data, *, source="rep_reported"):
+        """Save the rep's (or a tool's) outcome for an ended call, with its effects, in one transaction."""
         outcome = data["outcome"]
         due = zoned_time(data.get("callback_at"))
         with self.db.transaction() as s:
@@ -962,59 +985,23 @@ class RepWorkflows:
             if call.data["state"] not in TERMINAL:
                 fail(409, "End the call before wrap-up")
             lead = self.required(s, "leads", call.data["lead_id"], p, lock=True)  # Call, then lead.
-            canonical = {
-                "outcome": outcome,
-                "callback_at": due,
-                "callback_note": data.get("callback_note", ""),
-                "contact_role": data.get("contact_role", "unknown"),
-            }
-            previous_disposition = call.data.get("disposition_input") or {}
-            for key in ("audio_result", "screened", "delivery_test"):
-                value = data.get(key)
-                if value is not None:
-                    canonical[key] = value
-                elif key in previous_disposition:
-                    canonical[key] = previous_disposition[key]
+            canonical = disposition_input(call.data, data, outcome, due)
             duplicate = (
                 call.data.get("disposition_input") == canonical and call.data.get("outcome_source") == source
             )
-            task = callback_review = tasks = None
             edit_version = call.data.get("edit_version", 0)
-            if not identity[2]:
-                if data.get("expected_edit_version") is not None:
-                    if data["expected_edit_version"] != edit_version:
-                        fail(
-                            409,
-                            {
-                                "code": "version_conflict",
-                                "current_version": call.version,
-                                "current_edit_version": edit_version,
-                                "message": "This call's outcome changed; reload before saving",
-                            },
-                        )
-                else:
-                    self.check_edit_version(call, data)  # Older clients: whole-row version.
+            replayed = bool(identity[2])
+            if not replayed:
+                self._check_disposition_version(call, data, edit_version)
             if source != "rep_reported" and (edit_version or call.data.get("outcome")):
                 fail(409, "A human or previous tool already saved this outcome")
             previous_outcome = call.data.get("outcome")
             correcting_confirmed = call.data["state"] == "FINALIZED"
             correcting_meeting = (
-                not identity[2]
-                and not duplicate
-                and previous_outcome in {"meeting_booked", "meeting_held"}
-                and outcome not in {"meeting_booked", "meeting_held"}
+                not replayed and not duplicate and previous_outcome in MEETINGS and outcome not in MEETINGS
             )
             meeting = lead.data.get("meeting", {})
-            if (
-                correcting_meeting
-                and "source_call_id" not in meeting
-                and outcome
-                not in {
-                    "opt_out",
-                    "wrong_party",
-                    "invalid_endpoint",
-                }
-            ):
+            if correcting_meeting and "source_call_id" not in meeting and outcome not in NUMBER_STOPS:
                 fail(
                     409,
                     {
@@ -1022,198 +1009,22 @@ class RepWorkflows:
                         "message": "Record the current meeting outcome and next outreach action first; this legacy meeting is not linked to a specific call.",
                     },
                 )
-            if outcome in {"wrong_party", "invalid_endpoint", "opt_out"}:
+            if outcome in NUMBER_STOPS:
                 # Journal the denial before any wrap-up mutation or receipt can
                 # commit. A rollback retains the journal and recovery hold.
                 self.suppress(
                     p, lead.data["phone"], outcome, event_id=f"disposition:{call_id}:{outcome}", session=s
                 )
-            if not identity[2] and not duplicate:
-                if canonical["callback_note"] and canonical["callback_note"] != call.data.get(
-                    "disposition_input", {}
-                ).get("callback_note"):
-                    note = self._by_key(s, p, "notes", call_id)
-                    previous = note.data.get("human_text") if note else None
-                    text = (previous + "\n\nWrap-up: " if previous else "") + canonical["callback_note"]
-                    if len(text) > 20000:
-                        fail(422, "The human note is full; review it before adding another wrap-up note")
-                    values = {
-                        "human_text": text,
-                        "status": "human_confirmed",
-                        "editor_id": p["user_id"],
-                        "human_edit_version": (note.data.get("human_edit_version", 0) if note else 0) + 1,
-                    }
-                    if note:
-                        update(note, **values)
-                    else:
-                        put(
-                            s,
-                            "notes",
-                            p["tenant_id"],
-                            p["seller_id"],
-                            {
-                                **values,
-                                "call_id": call_id,
-                                "privacy_contract": 1,
-                                "notes": {
-                                    "call_id": call_id,
-                                    "transcript_version": call.data["transcript_version"],
-                                    "outcome": outcome,
-                                },
-                                "derived_state_revision": 0,
-                            },
-                            key=call_id,
-                            now=self.clock(),
-                        )
-                update(
-                    call,
-                    outcome=outcome,
-                    state=transition(call.data["state"], "outcome.saved"),
-                    callback_at=due,
-                    disposition_input=canonical,
-                    is_test=lead.data["phone"] in TEST_LINES or bool(canonical.get("delivery_test")),
-                    edit_version=edit_version + 1,
-                    outcome_available_at=self.clock().isoformat(),
-                    outcome_source=source,
-                    contact_role=canonical["contact_role"],
-                    outcome_history=[
-                        *call.data.get("outcome_history", []),
-                        *(
-                            [
-                                {
-                                    "outcome": call.data["outcome"],
-                                    "outcome_available_at": call.data.get("outcome_available_at"),
-                                    "outcome_source": call.data.get("outcome_source", "legacy_unknown"),
-                                    "contact_role": call.data.get("contact_role"),
-                                }
-                            ]
-                            if call.data.get("outcome")
-                            else []
-                        ),
-                    ],
+            task = callback_review = tasks = None
+            if not replayed and not duplicate:
+                self._wrapup_note(s, p, call, canonical, outcome)
+                self._apply_outcome(s, p, call, lead, canonical, source, edit_version)
+                tasks = self.lead_records(s, p, "followup_tasks", lead.id)  # One scan serves the save.
+                task, callback_review = self._wrapup_callbacks(s, p, call, lead, canonical, source, tasks)
+                self._wrapup_meeting(
+                    s, p, call, lead, outcome, meeting, correcting_confirmed, correcting_meeting
                 )
-                update(lead, last_outcome=outcome, last_outcome_at=self.clock().isoformat())
-                if outcome in {"wrong_party", "invalid_endpoint"}:
-                    update(lead, status="needs_correction")
-                    endpoint = self.required(s, "phone_endpoints", lead.data["endpoint_id"], p)
-                    update(
-                        endpoint,
-                        **(
-                            {"ownership_status": "wrong_party"}
-                            if outcome == "wrong_party"
-                            else {"reachability_status": "invalid_endpoint"}
-                        ),
-                    )
-                callback_key = "wrapup-callback:" + call_id
-                # One scan of the lead's tasks serves the whole save.
-                tasks = self.lead_records(s, p, "followup_tasks", lead.id)
-                if outcome == "callback_requested":
-                    task, callback_review = self._callback_task(
-                        s,
-                        p,
-                        lead,
-                        key=callback_key,
-                        call_id=call_id,
-                        owner_id=call.data["rep_id"],
-                        due_at=due,
-                        timezone=lead.data.get("timezone"),
-                        note=canonical["callback_note"],
-                        tasks=tasks,
-                    )
-                elif source == "rep_reported":
-                    # The rep's outcome says no callback: close this call's untouched callbacks,
-                    # the wrap-up one and model-inferred ones alike. Human edits are kept.
-                    wrapup = self._callback_by_key(s, p, lead, callback_key, tasks)
-                    closed = [
-                        t
-                        for t in tasks
-                        if (
-                            t is wrapup
-                            or t.data.get("call_id") == call.id
-                            and t.data.get("source") == "inferred"
-                        )
-                        and t.data.get("kind") == "callback"
-                        and t.data["status"] in ACTIVE_TASKS
-                        and not t.data.get("human_edited")
-                    ]
-                    for old_task in closed:
-                        update(old_task, status="cancelled", reason="corrected_disposition")
-                        if old_task.data.get("commitment_id"):
-                            update(
-                                self.required(s, "commitments", old_task.data["commitment_id"], p),
-                                status="cancelled",
-                                task_status="cancelled",
-                            )
-                        emit(s, p["tenant_id"], "task.updated", old_task, self.clock())
-                    if closed:
-                        self._sync_callback(s, p, lead, tasks)
-                independent_meeting = (
-                    correcting_confirmed
-                    and "source_call_id" in meeting
-                    and meeting["source_call_id"] != call.id
-                )
-                if outcome in {"meeting_booked", "meeting_held"} and not independent_meeting:
-                    self._meeting_in(
-                        s,
-                        p,
-                        lead,
-                        "booked" if outcome == "meeting_booked" else "held",
-                        source_call_id=call.id,
-                    )
-                elif correcting_meeting:
-                    event = self._by_key(s, p, "conversion_events", "rep-meeting:" + lead.id)
-                    if event and event.data.get("call_id") == call.id and not event.data.get("retracted"):
-                        update(
-                            event,
-                            retracted=True,
-                            retracted_at=self.clock().isoformat(),
-                            retraction_reason="corrected_disposition",
-                        )
-                    if meeting.get("source_call_id") == call.id:
-                        update(
-                            lead,
-                            meeting={
-                                **meeting,
-                                "status": "needs_review",
-                                "held": False,
-                                "correction_reason": "Call outcome corrected. Confirm the meeting status and next outreach action.",
-                                "corrected_at": self.clock().isoformat(),
-                            },
-                            outreach_hold="meeting_next_action",
-                        )
-                        self.company_hold_in(s, p, lead, booked=False)
-                record = self._by_key(s, p, "outcomes", "disposition:" + call_id)
-                values = {
-                    "call_id": call_id,
-                    "lead_id": lead.id,
-                    "outcome": outcome,
-                    "at": self.clock().isoformat(),
-                    "window_status": "pending",
-                    "source": source,
-                    "contact_role": canonical["contact_role"],
-                }
-                if record:
-                    audit(
-                        s,
-                        p["tenant_id"],
-                        p["seller_id"],
-                        p["user_id"],
-                        "outcome.corrected",
-                        call_id,
-                        self.clock(),
-                        {"previous": record.data["outcome"], "new": outcome},
-                    )
-                    update(record, **values)
-                else:
-                    put(
-                        s,
-                        "outcomes",
-                        p["tenant_id"],
-                        p["seller_id"],
-                        values,
-                        key="disposition:" + call_id,
-                        now=self.clock(),
-                    )
+                self._outcome_record(s, p, call, lead, canonical, source)
                 if {outcome, previous_outcome} & GOAL_OUTCOMES or lead.data.get("status") == "converted":
                     # Only an outcome that can change goal completion is reconciled in the
                     # save; the packet refresh job reconciles every other change.
@@ -1225,28 +1036,235 @@ class RepWorkflows:
                 self.enqueue_finalize(s, p, call, "wrapup")
                 emit(s, p["tenant_id"], "call.updated", call, self.clock())
             receipt = identity[2] or self.local_edit_receipt(s, p, identity, call)
-            if task is None and callback_review is None:
-                task = next(
-                    (
-                        t
-                        for t in (tasks or self.lead_records(s, p, "followup_tasks", lead.id))
-                        if t.data.get("call_id") == call.id and t.data.get("kind") == "callback"
-                    ),
-                    None,
-                )
-            memory = self._by_key(s, p, "conversation_states", call.id)
-            from app.postcall.analysis import suggested_outcome
+            return self._disposition_result(s, p, call, lead, receipt, task, callback_review, tasks)
 
-            result = {
-                **doc(call),
-                "edit_receipt": receipt,
-                "canonical_task_id": task.id if task else None,
-                # An existing callback a person edited, closed or duplicated is not
-                # overwritten; the save succeeds and names what needs review.
-                "callback_review": callback_review,
-                "rundown_status": (
-                    memory.data.get("finalization", {}).get("status", "pending") if memory else "pending"
+    def _check_disposition_version(self, call, data, edit_version):
+        if data.get("expected_edit_version") is None:
+            self.check_edit_version(call, data)  # Older clients: whole-row version.
+        elif data["expected_edit_version"] != edit_version:
+            fail(
+                409,
+                {
+                    "code": "version_conflict",
+                    "current_version": call.version,
+                    "current_edit_version": edit_version,
+                    "message": "This call's outcome changed; reload before saving",
+                },
+            )
+
+    def _wrapup_note(self, s, p, call, canonical, outcome):
+        """A wrap-up callback note is appended to the call's human note."""
+        if not canonical["callback_note"] or canonical["callback_note"] == call.data.get(
+            "disposition_input", {}
+        ).get("callback_note"):
+            return
+        note = self._by_key(s, p, "notes", call.id)
+        previous = note.data.get("human_text") if note else None
+        text = (previous + "\n\nWrap-up: " if previous else "") + canonical["callback_note"]
+        if len(text) > 20000:
+            fail(422, "The human note is full; review it before adding another wrap-up note")
+        values = {
+            "human_text": text,
+            "status": "human_confirmed",
+            "editor_id": p["user_id"],
+            "human_edit_version": (note.data.get("human_edit_version", 0) if note else 0) + 1,
+        }
+        if note:
+            update(note, **values)
+            return
+        put(
+            s,
+            "notes",
+            p["tenant_id"],
+            p["seller_id"],
+            {
+                **values,
+                "call_id": call.id,
+                "privacy_contract": 1,
+                "notes": {
+                    "call_id": call.id,
+                    "transcript_version": call.data["transcript_version"],
+                    "outcome": outcome,
+                },
+                "derived_state_revision": 0,
+            },
+            key=call.id,
+            now=self.clock(),
+        )
+
+    def _apply_outcome(self, s, p, call, lead, canonical, source, edit_version):
+        """The outcome on the call, the lead and, for a bad number, its endpoint."""
+        outcome = canonical["outcome"]
+        prior = (
+            [
+                {
+                    "outcome": call.data["outcome"],
+                    "outcome_available_at": call.data.get("outcome_available_at"),
+                    "outcome_source": call.data.get("outcome_source", "legacy_unknown"),
+                    "contact_role": call.data.get("contact_role"),
+                }
+            ]
+            if call.data.get("outcome")
+            else []
+        )
+        update(
+            call,
+            outcome=outcome,
+            state=transition(call.data["state"], "outcome.saved"),
+            callback_at=canonical["callback_at"],
+            disposition_input=canonical,
+            is_test=lead.data["phone"] in TEST_LINES or bool(canonical.get("delivery_test")),
+            edit_version=edit_version + 1,
+            outcome_available_at=self.clock().isoformat(),
+            outcome_source=source,
+            contact_role=canonical["contact_role"],
+            outcome_history=[*call.data.get("outcome_history", []), *prior],
+        )
+        update(lead, last_outcome=outcome, last_outcome_at=self.clock().isoformat())
+        if outcome in {"wrong_party", "invalid_endpoint"}:
+            update(lead, status="needs_correction")
+            endpoint = self.required(s, "phone_endpoints", lead.data["endpoint_id"], p)
+            update(
+                endpoint,
+                **(
+                    {"ownership_status": "wrong_party"}
+                    if outcome == "wrong_party"
+                    else {"reachability_status": "invalid_endpoint"}
                 ),
-                "suggested_outcome": suggested_outcome(memory.data if memory else {}),
-            }
-        return result
+            )
+
+    def _wrapup_callbacks(self, s, p, call, lead, canonical, source, tasks):
+        """(task, review): a requested callback is scheduled; any other rep outcome closes this call's open ones."""
+        callback_key = "wrapup-callback:" + call.id
+        if canonical["outcome"] == "callback_requested":
+            return self._callback_task(
+                s,
+                p,
+                lead,
+                key=callback_key,
+                call_id=call.id,
+                owner_id=call.data["rep_id"],
+                due_at=canonical["callback_at"],
+                timezone=lead.data.get("timezone"),
+                note=canonical["callback_note"],
+                tasks=tasks,
+            )
+        if source != "rep_reported":
+            return None, None
+        # The rep's outcome says no callback: close this call's untouched callbacks,
+        # the wrap-up one and model-inferred ones alike. Human edits are kept.
+        wrapup = self._callback_by_key(s, p, lead, callback_key, tasks)
+        closed = [
+            t
+            for t in tasks
+            if (t is wrapup or t.data.get("call_id") == call.id and t.data.get("source") == "inferred")
+            and t.data.get("kind") == "callback"
+            and t.data["status"] in ACTIVE_TASKS
+            and not t.data.get("human_edited")
+        ]
+        for old_task in closed:
+            update(old_task, status="cancelled", reason="corrected_disposition")
+            if old_task.data.get("commitment_id"):
+                update(
+                    self.required(s, "commitments", old_task.data["commitment_id"], p),
+                    status="cancelled",
+                    task_status="cancelled",
+                )
+            emit(s, p["tenant_id"], "task.updated", old_task, self.clock())
+        if closed:
+            self._sync_callback(s, p, lead, tasks)
+        return None, None
+
+    def _wrapup_meeting(self, s, p, call, lead, outcome, meeting, correcting_confirmed, correcting_meeting):
+        """A booked or held meeting is recorded; a corrected one is retracted and put up for review."""
+        independent = (
+            correcting_confirmed and "source_call_id" in meeting and meeting["source_call_id"] != call.id
+        )
+        if outcome in MEETINGS and not independent:
+            status = "booked" if outcome == "meeting_booked" else "held"
+            self._meeting_in(s, p, lead, status, source_call_id=call.id)
+            return
+        if not correcting_meeting:
+            return
+        event = self._by_key(s, p, "conversion_events", "rep-meeting:" + lead.id)
+        if event and event.data.get("call_id") == call.id and not event.data.get("retracted"):
+            update(
+                event,
+                retracted=True,
+                retracted_at=self.clock().isoformat(),
+                retraction_reason="corrected_disposition",
+            )
+        if meeting.get("source_call_id") == call.id:
+            update(
+                lead,
+                meeting={
+                    **meeting,
+                    "status": "needs_review",
+                    "held": False,
+                    "correction_reason": "Call outcome corrected. Confirm the meeting status and next outreach action.",
+                    "corrected_at": self.clock().isoformat(),
+                },
+                outreach_hold="meeting_next_action",
+            )
+            self.company_hold_in(s, p, lead, booked=False)
+
+    def _outcome_record(self, s, p, call, lead, canonical, source):
+        """One outcome record per call; a correction is audited."""
+        record = self._by_key(s, p, "outcomes", "disposition:" + call.id)
+        values = {
+            "call_id": call.id,
+            "lead_id": lead.id,
+            "outcome": canonical["outcome"],
+            "at": self.clock().isoformat(),
+            "window_status": "pending",
+            "source": source,
+            "contact_role": canonical["contact_role"],
+        }
+        if not record:
+            put(
+                s,
+                "outcomes",
+                p["tenant_id"],
+                p["seller_id"],
+                values,
+                key="disposition:" + call.id,
+                now=self.clock(),
+            )
+            return
+        audit(
+            s,
+            p["tenant_id"],
+            p["seller_id"],
+            p["user_id"],
+            "outcome.corrected",
+            call.id,
+            self.clock(),
+            {"previous": record.data["outcome"], "new": canonical["outcome"]},
+        )
+        update(record, **values)
+
+    def _disposition_result(self, s, p, call, lead, receipt, task, callback_review, tasks):
+        from app.postcall.analysis import suggested_outcome
+
+        if task is None and callback_review is None:
+            task = next(
+                (
+                    t
+                    for t in (tasks or self.lead_records(s, p, "followup_tasks", lead.id))
+                    if t.data.get("call_id") == call.id and t.data.get("kind") == "callback"
+                ),
+                None,
+            )
+        memory = self._by_key(s, p, "conversation_states", call.id)
+        return {
+            **doc(call),
+            "edit_receipt": receipt,
+            "canonical_task_id": task.id if task else None,
+            # An existing callback a person edited, closed or duplicated is not
+            # overwritten; the save succeeds and names what needs review.
+            "callback_review": callback_review,
+            "rundown_status": (
+                memory.data.get("finalization", {}).get("status", "pending") if memory else "pending"
+            ),
+            "suggested_outcome": suggested_outcome(memory.data if memory else {}),
+        }
