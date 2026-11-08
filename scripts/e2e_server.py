@@ -35,6 +35,9 @@ with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
         local_token="e2e-local-token",
         bootstrap_token="e2e-bootstrap-token",
     )
+    if origin := os.environ.get("OPENDIALER_E2E_ORIGIN"):
+        # A browser-test worker serves its frontend on its own port (apps/desktop/tests/fixtures.ts).
+        settings.allowed_origins = [*settings.allowed_origins, origin]
 
     began = time.monotonic()
 
@@ -60,6 +63,6 @@ with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
                 "role": "owner",
             }
         )
-    uvicorn.run(
-        app, host="127.0.0.1", port=8765 if mode == "local" else 8766, access_log=False, log_level="warning"
-    )
+    # Browser tests give each worker its own port (apps/desktop/tests/fixtures.ts).
+    port = int(os.environ.get("OPENDIALER_E2E_PORT") or (8765 if mode == "local" else 8766))
+    uvicorn.run(app, host="127.0.0.1", port=port, access_log=False, log_level="warning")

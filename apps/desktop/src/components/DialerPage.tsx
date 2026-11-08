@@ -17,7 +17,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { openSource } from "../api/client";
+import { ApiError, openSource } from "../api/client";
 import { label, useWorkspace } from "../context";
 import { OptOutJournal } from "../state/optouts";
 import { afterAudioStatus, Telephony } from "../telephony/client";
@@ -668,8 +668,13 @@ export function DialerPage({ visible = true }: { visible?: boolean }) {
             setCall(null);
             await refresh();
           } catch (error) {
-            setDialLists(previous);
-            localStorage.setItem(scopeKey, JSON.stringify(previous));
+            // Only a refusal from the authority undoes the choice. A request cut off by a
+            // reload or a dropped network keeps it: WebKit reports the aborted request
+            // before the page unloads, which used to revert the rep's choice.
+            if (error instanceof ApiError) {
+              setDialLists(previous);
+              localStorage.setItem(scopeKey, JSON.stringify(previous));
+            }
             throw error;
           } finally {
             setFinding(false);

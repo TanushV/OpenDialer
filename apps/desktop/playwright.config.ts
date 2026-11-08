@@ -1,35 +1,38 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
+
+// WebKit is the engine the Mac app runs (R1.2); Chromium stays available with PW_BROWSER=chromium.
+const browser = process.env.PW_BROWSER === "chromium" ? "chromium" : "webkit";
+// Each worker serves its own frontend and each test its own authority (tests/fixtures.ts).
+const hosted = !!process.env.OPENDIALER_E2E_DATABASE_URL;
+
 export default defineConfig({
   testDir: "./tests",
   testMatch: "**/*.spec.ts",
-  workers: 1,
-  // Connected-mode steps make several PostgreSQL round trips; allow for a loaded machine.
+  workers: Number(process.env.PW_WORKERS ?? 4),
+  fullyParallel: true,
+  // Locally, other work on this shared Mac can starve a step; one retry, reported as flaky.
+  // CI runs on dedicated runners with no retry, so a real flake still fails there.
+  retries: process.env.CI ? 0 : 1,
+  // Steps poll the authority; allow for a loaded machine.
   expect: { timeout: 10_000 },
   timeout: 60_000,
   use: {
-    baseURL: "http://127.0.0.1:1420",
+    ...(browser === "webkit"
+      ? devices["Desktop Safari"]
+      : devices["Desktop Chrome"]),
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  webServer: [
-    {
-      command: "../../.venv/bin/python ../../scripts/e2e_server.py local",
-      url: "http://127.0.0.1:8765/health",
-      reuseExistingServer: false,
-    },
-    {
-      command: "../../.venv/bin/python ../../scripts/e2e_server.py connected",
-      url: "http://127.0.0.1:8766/health",
-      reuseExistingServer: false,
-    },
-    {
-      command: "npm run dev",
-      url: "http://127.0.0.1:1420",
-      env: {
-        VITE_BACKEND_URL: "http://127.0.0.1:8765",
-        VITE_LOCAL_TOKEN: "e2e-local-token",
-      },
-      reuseExistingServer: false,
-    },
-  ],
+  projects: [{ name: browser }],
+  // Hosted mode needs PostgreSQL; CI-only until Phase 2 removes it.
+  webServer: hosted
+    ? [
+        {
+          command:
+            "../../.venv/bin/python ../../scripts/e2e_server.py connected",
+          url: "http://127.0.0.1:8766/health",
+          reuseExistingServer: false,
+        },
+      ]
+    : [],
 });

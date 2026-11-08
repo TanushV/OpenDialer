@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, AUTHORITY } from "./fixtures";
 import { chooseOutcome, finishCall, prepareSimulationCall } from "./simulation";
 import { zonedInstant } from "../src/state/zones";
 
@@ -16,6 +16,12 @@ async function enter(page: Page) {
     name: "Try a simulated workspace",
   });
   if (await choice.isVisible()) await choice.click();
+  // Setup finishes with its own workspace load; tests that intercept loads start after it.
+  await expect(
+    page
+      .getByRole("button", { name: "Go ready" })
+      .or(page.getByRole("button", { name: "Pause dialing" })),
+  ).toBeVisible();
 }
 
 /** One owned fictional lead in a live simulated call; returns its packet. */
@@ -60,13 +66,13 @@ test("at 1024x720 the helper, script opener, hangup and pause-after stay visible
   const updated = page.waitForResponse(
     (r) => r.url().endsWith(`/v1/calls/${call.id}`) && r.ok(),
   );
-  const local = await page.request.post(
-    "http://127.0.0.1:8765/v1/local/session",
-    { headers: { "X-Local-Token": "e2e-local-token" }, data: {} },
-  );
+  const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
   const token = (await local.json()).access_token;
   const turn = await page.request.post(
-    `http://127.0.0.1:8765/v1/calls/${call.id}/transcript`,
+    `${AUTHORITY}/v1/calls/${call.id}/transcript`,
     {
       headers: { authorization: `Bearer ${token}` },
       data: {

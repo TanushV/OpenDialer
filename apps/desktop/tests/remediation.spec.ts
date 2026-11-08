@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
 import { openMoreSettings, openSettingsCard } from "./navigation";
 import {
   chooseOutcome,
@@ -17,6 +17,7 @@ async function enter(page: Page, connected = false) {
     await expect(signOut.or(connect).first()).toBeVisible();
     if (await signOut.isVisible()) await signOut.click();
     await connect.click();
+    test.skip(!hosted, HOSTED_ONLY);
     await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
     await page.getByLabel("Email").fill("team@example.test");
     await page

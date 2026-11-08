@@ -1,8 +1,11 @@
+import { hosted } from "./fixtures";
 import { expect, type Page } from "@playwright/test";
 
 /** A configuration journey must not revoke evidence used by unrelated call tests. */
 export async function isolatedSimulationWorkspace(page: Page, name: string) {
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
+  // Locally every test already has a fresh authority of its own (fixtures.ts).
+  if (!hosted) return;
   const url = "http://127.0.0.1:8766";
   const login = await page.request.post(`${url}/v1/auth/session`, {
     data: {
@@ -60,7 +63,7 @@ export async function importLead(page: Page, name: string, phone: string) {
       `name,phone,company,timezone,region\n${name},${phone},${name} Co,America/Los_Angeles,415`,
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
-  await expect(page.getByText(/^1 imported/)).toBeVisible();
+  await expect(page.getByText(/^1 imported/)).toBeVisible({ timeout: 30_000 });
   await waitForPreparation(page);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
 }
@@ -87,9 +90,10 @@ export async function prepareSimulationCall(
     .getByLabel("CSV lead data")
     .fill(`name,phone,company,timezone,region\n${rows}`);
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
+  // Import is a server job; on a loaded machine it can take longer than one expect window.
   await expect(
     page.getByText(new RegExp(`^${1 + more.length} imported`)),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 30_000 });
   await waitForPreparation(page);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   const ready = page.getByRole("button", { name: "Go ready", exact: true });
@@ -134,17 +138,9 @@ export async function finishCall(page: Page) {
   }
   if (await save.isVisible()) {
     await chooseOutcome(page, "no_answer");
-    // Cleanup saves again, as a rep would, when the shared PostgreSQL
-    // authority answers a conflict with a concurrent post-hangup write.
-    for (let attempt = 1; ; attempt++) {
-      await save.click();
-      try {
-        await expect(save).toBeHidden();
-        return;
-      } catch (error) {
-        if (attempt >= 3) throw error;
-      }
-    }
+    // One save, as a rep makes it: a conflict here is a defect, never retried away (R1.9).
+    await save.click();
+    await expect(save).toBeHidden();
   }
 }
 

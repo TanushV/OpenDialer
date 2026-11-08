@@ -1,7 +1,5 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, AUTHORITY, setUpAuthority } from "./fixtures";
 import { openScreening } from "./navigation";
-
-const AUTHORITY = "http://127.0.0.1:8765";
 
 test("saving Telnyx saves the pasted key and connection together", async ({
   page,
@@ -688,6 +686,8 @@ test("managed setup import shows connection and hides tunnel fields", async ({
       },
     });
   });
+  // A returning, non-simulated local session: the restore path shows the setup-file import.
+  await setUpAuthority(page);
   await enter(page);
   await openSettings(page);
   await openCard(page, "Calling");

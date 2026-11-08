@@ -61,10 +61,8 @@ STEPS = {
 
 TIERS = {
     "fast": ["lint", "rules", "types", "format", "frontend-fast", "edge", "backend-fast"],
-    # The browser suite joins the full tier at R1.2a, once it passes outside CI.
-    "full": ["lint", "rules", "types", "format", "frontend", "edge", "backend", "rust"],
+    "full": ["lint", "rules", "types", "format", "frontend", "edge", "backend", "rust", "browser"],
 }
-NOT_YET_LOCAL = {"full": "browser suite: CI only until R1.2a (docs/REBUILD_PLAN.md)"}
 
 
 def tier_steps(name):
@@ -210,7 +208,7 @@ def main(argv):
         return run_steps(tier_steps("fast"))
     command, rest = argv[0], argv[1:]
     if command == "full":
-        return run_steps(tier_steps("full"), NOT_YET_LOCAL["full"])
+        return run_steps(tier_steps("full"))
     if command == "package":
         return package()
     if command == "install-hooks":

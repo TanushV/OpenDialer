@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { expect, test, AUTHORITY } from "./fixtures";
 import { waitForPreparation } from "./simulation";
 import { openMoreSettings } from "./navigation";
 
@@ -270,7 +270,7 @@ test("an administrator releases a temporary safety hold with a recorded reason",
   let authorization = "";
   page.on("request", (request) => {
     const value = request.headers()["authorization"];
-    if (value && request.url().startsWith("http://127.0.0.1:8765/"))
+    if (value && request.url().startsWith(`${AUTHORITY}/`))
       authorization = value;
   });
   await page.goto("/");
@@ -293,17 +293,14 @@ test("an administrator releases a temporary safety hold with a recorded reason",
   await expect(page.getByText(/1 imported/)).toBeVisible();
   await waitForPreparation(page);
   expect(authorization).not.toBe("");
-  const held = await page.request.post(
-    "http://127.0.0.1:8765/v1/suppressions",
-    {
-      headers: { authorization },
-      data: {
-        phone: "+14155550889",
-        reason: "temporary_hold",
-        event_id: crypto.randomUUID(),
-      },
+  const held = await page.request.post(`${AUTHORITY}/v1/suppressions`, {
+    headers: { authorization },
+    data: {
+      phone: "+14155550889",
+      reason: "temporary_hold",
+      event_id: crypto.randomUUID(),
     },
-  );
+  });
   expect(held.ok()).toBeTruthy();
   await page.reload();
   await page.getByRole("button", { name: "Leads", exact: true }).click();

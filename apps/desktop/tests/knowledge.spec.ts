@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { expect, test, AUTHORITY } from "./fixtures";
 import { openScriptSection } from "./navigation";
 
 test("reviewed business knowledge and current version survive publication and reload", async ({
@@ -185,27 +185,24 @@ test("published knowledge withdraws obsolete live advice without changing the ac
     ).not.toHaveText("Waiting for a lead");
     const script = await page.getByTestId("prepared-script").innerText();
     published = true;
-    const result = await page.request.post(
-      "http://127.0.0.1:8765/v1/admin/playbooks",
-      {
-        headers: { authorization: headers.authorization },
-        data: {
-          name: "Updated seller knowledge",
-          opener: current.opener,
-          screening_intro: current.screening_intro,
-          // Keep the approved examples: later specs share this authority and
-          // its cached-knowledge tips.
-          claims: current.claims ?? [],
-          cards: current.cards ?? [],
-          product_description: "Updated business capabilities.",
-          prohibited_claims: current.prohibited_claims ?? [],
-          approved: true,
-          reason: "Reviewed new product facts",
-          expected_previous_id: current.id,
-          expected_previous_version: current.version,
-        },
+    const result = await page.request.post(`${AUTHORITY}/v1/admin/playbooks`, {
+      headers: { authorization: headers.authorization },
+      data: {
+        name: "Updated seller knowledge",
+        opener: current.opener,
+        screening_intro: current.screening_intro,
+        // Keep the approved examples: later specs share this authority and
+        // its cached-knowledge tips.
+        claims: current.claims ?? [],
+        cards: current.cards ?? [],
+        product_description: "Updated business capabilities.",
+        prohibited_claims: current.prohibited_claims ?? [],
+        approved: true,
+        reason: "Reviewed new product facts",
+        expected_previous_id: current.id,
+        expected_previous_version: current.version,
       },
-    );
+    });
     expect(result.status()).toBe(200);
     await expect(page.getByText(advice, { exact: true })).toBeHidden();
     expect(await page.getByTestId("prepared-script").innerText()).toBe(script);

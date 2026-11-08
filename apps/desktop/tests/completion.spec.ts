@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
 import { openMoreSettings, openSettingsCard } from "./navigation";
 import { importLead, finishCall, waitForPreparation } from "./simulation";
 
@@ -115,6 +115,7 @@ test("inbound arrival exposes call controls while an admin page is open", async 
 test("selected prepared lead survives navigation before dialing", async ({
   page,
 }) => {
+  test.skip(!hosted, HOSTED_ONLY);
   await enter(page, false);
   await importLead(page, "Selected lead fixture", "+14155550701");
   if (await page.getByRole("button", { name: "Go ready" }).isVisible())
@@ -147,6 +148,7 @@ async function enter(page: Page, connected: boolean) {
     if (await page.getByTitle("Sign out").isVisible())
       await page.getByTitle("Sign out").click();
     await page.getByRole("button", { name: "Connect to a server" }).click();
+    test.skip(!hosted, HOSTED_ONLY);
     await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
     await page.getByLabel("Email").fill("team@example.test");
     await page

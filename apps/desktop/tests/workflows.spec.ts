@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { expect, test, hosted, HOSTED_ONLY } from "./fixtures";
 import { openMoreSettings, openSettingsCard } from "./navigation";
 import { chooseOutcome, waitForPreparation } from "./simulation";
 
@@ -132,6 +132,7 @@ test("connected authentication and shared state survive reconnect", async ({
   if (await page.getByTitle("Sign out").isVisible())
     await page.getByTitle("Sign out").click();
   await page.getByRole("button", { name: "Connect to a server" }).click();
+  test.skip(!hosted, HOSTED_ONLY);
   await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
   await page.getByLabel("Email").fill("team@example.test");
   await page

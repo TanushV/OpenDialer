@@ -835,11 +835,15 @@ Done when: 5 live calls need no Go ready and produce no false block. **Owner sit
 Goal: today's failures become failing tests before any structure changes.
 
 - [ ] R1.1 Confirm `main` is at the `v1.0.2` tag with CI passing, and record the CI time as the baseline.
-- [ ] R1.2 Add a WebKit Playwright project and make it the default, locally and in CI. Move the CI browser job to WebKit on
+- [x] R1.2 Add a WebKit Playwright project and make it the default, locally and in CI. Move the CI browser job to WebKit on
       `macos-15`, because the app only runs on Mac. The repository is public, so this adds no CI cost.
-- [ ] R1.2a Make the browser suite pass locally: parallel workers, each with its own server and SQLite file; the hosted server
+- [x] R1.2a Make the browser suite pass locally: parallel workers, each with its own server and SQLite file; the hosted server
       and the hosted calls in `tests/simulation.ts` only when a PostgreSQL address is set; timeouts that hold on a loaded Mac.
       Then add it to the local full tier. Meet the full-tier target in section 12A, or record why not.
+      Done November 7: 169 pass and 16 hosted-only skip in 4.1 to 4.6 minutes with 4 workers at load 16 to 21. Runs that
+      fail under that load pass alone, so the local run retries once and reports a retried test as flaky; CI does not
+      retry. The run found two real WebKit bugs, now fixed: a reload undid the rep's dialing-list choice, and dates read
+      differently by engine. Hosted mode stays on a Linux CI job until R2.1.
 - [ ] R1.3 Add the layout audit: for every Dialer phase at 1024x720 and 1440x940, the primary action is visible and not
       covered, no sideways scroll, no clipping, and layout shift stays under a set limit.
 - [x] R1.4 Build `providers/replay_carrier.py`: replays recorded timelines, including rep-leg teardown, unmatched legs,
@@ -852,7 +856,7 @@ Goal: today's failures become failing tests before any structure changes.
       Baseline, November 7: backend 39,428 lines, frontend 22,223 with CSS, tests 29,407, 57 tables, 162 routes,
       largest function `save_disposition` 301, largest file `styles.css` 2,506; 20 silent `except Exception`, 119
       `simulation` references outside the replay carrier.
-- [ ] R1.9 Remove the retry from `finishCall` in `tests/simulation.ts`; find and fix any save conflict it hid.
+- [x] R1.9 Remove the retry from `finishCall` in `tests/simulation.ts`; find and fix any save conflict it hid.
 - [ ] R1.10 Save baselines for `scripts/bench.py`, `scripts/size.py` and the three `check.py` tiers.
 
 Tests that are expected to fail until a later phase are marked as expected failures, so `main` stays green and CI flags one

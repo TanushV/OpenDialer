@@ -41,15 +41,19 @@ export function label(value: string) {
 }
 /** A short date; with `timeZone`, shown in that zone and labelled with it. */
 export function date(value?: string | null, timeZone?: string) {
-  return value
-    ? new Date(value).toLocaleString([], {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        ...(timeZone ? { timeZone, timeZoneName: "short" } : {}),
-      })
-    : "Needs confirmation";
+  if (!value) return "Needs confirmation";
+  // Built from parts: WebKit and Chromium join the same format differently ("at" or ",").
+  const parts = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...(timeZone ? { timeZone, timeZoneName: "short" } : {}),
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  const text = `${part("month")} ${part("day")}, ${part("hour")}:${part("minute")} ${part("dayPeriod")}`;
+  return timeZone ? `${text} ${part("timeZoneName")}` : text;
 }
 /** The one fraction formatter: missing evidence is stated, never shown as zero. */
 export function percent(

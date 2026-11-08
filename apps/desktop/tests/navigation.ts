@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
 /** Settings is one page: a card per thing to set, the rest under "More settings". */
 export async function openSettingsCard(page: Page, title: string) {
@@ -46,7 +46,14 @@ export async function openScriptSection(page: Page, summary: string) {
     has: page.locator(":scope > summary", { hasText: summary }),
   });
   await section.waitFor();
-  if (!(await section.evaluate((d) => (d as HTMLDetailsElement).open)))
-    await section.locator(":scope > summary").click();
+  // Panels above still grow while background preparation reports progress (fixed in Phase 5,
+  // R5.3), so a click can land after the summary moved: confirm it opened, and retry.
+  await expect(async () => {
+    if (!(await section.evaluate((d) => (d as HTMLDetailsElement).open)))
+      await section.locator(":scope > summary").click({ timeout: 2000 });
+    expect(await section.evaluate((d) => (d as HTMLDetailsElement).open)).toBe(
+      true,
+    );
+  }).toPass({ timeout: 20_000 });
   return section;
 }

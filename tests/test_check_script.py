@@ -46,9 +46,9 @@ def test_fast_tier_skips_slow_tests_and_the_browser_suite():
     assert command[-2:] == ["-m", "not slow"]
 
 
-def test_full_tier_says_what_it_leaves_to_ci():
-    assert "browser" not in check.TIERS["full"]
-    assert "R1.2a" in check.NOT_YET_LOCAL["full"]
+def test_full_tier_runs_the_browser_suite_locally():
+    # R1.2a: each worker serves its own frontend and each test its own authority.
+    assert "browser" in check.TIERS["full"]
 
 
 def test_a_keyword_reaches_each_test_runner_as_one_argument():
