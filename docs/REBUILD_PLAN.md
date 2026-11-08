@@ -1108,7 +1108,9 @@ Goal: plainly what to add and where to get it.
       test session buttons sit on the test phone row (WebKit test, November 8).
 - [x] R7.6 Advanced section; Needs attention list. Done November 8: "More settings" is Advanced, and Needs attention is its first
       entry, listing only what recovery could not settle.
-- [ ] R7.7 Confirm the Telnyx and OpenRouter links land on the right screens.
+- [x] R7.7 Confirm the Telnyx and OpenRouter links land on the right screens. Done November 8 in the in-app
+      browser: signed out, each opens its sign-in page with a redirect back to the API keys page
+      (`redirectTo=/api-keys`, `redirect_url=…/keys`). Signed in, the owner lands on the keys page.
 - [ ] R7.8 Fresh-install walkthrough on an empty `local-3` copy.
 
 Done when: the owner can read the page without explanation.
