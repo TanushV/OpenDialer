@@ -16,7 +16,8 @@ def shell_arguments():
     source = LIB.read_text()
     block = source[source.index("let mut args = vec![") :]
     block = block[: block.index("];")]
-    return [match.group(1) for match in re.finditer(r'"([^"]*)"', block)]
+    pushed = re.findall(r'args\.push\("([^"]*)"\.into\(\)\)', source)
+    return [match.group(1) for match in re.finditer(r'"([^"]*)"', block)] + pushed
 
 
 def test_the_shell_passes_only_arguments_the_backend_accepts():
@@ -25,6 +26,7 @@ def test_the_shell_passes_only_arguments_the_backend_accepts():
     # The port and data folder are computed in Rust; give each a stand-in value.
     filled = []
     for arg in args:
-        filled += [arg, *{"--port": ["1"], "--data-dir": ["data"]}.get(arg, [])]
+        filled += [arg, *{"--port": ["1"], "--data-dir": ["data"], "--migrate-from": ["old"]}.get(arg, [])]
     parsed = parser().parse_args(filled)
     assert parsed.command == "serve"
+    assert {"--migrate-from", "--simulation"} <= set(args)

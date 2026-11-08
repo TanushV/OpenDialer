@@ -8,11 +8,14 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.platform import migrate
 from app.platform.config import Settings
 from app.platform.db import OldStore
+from app.platform.migrate import MigrationFailed
 from app.platform.secret_files import SecretStorageError
 
 AUTHORITY_BUSY_EXIT = 75  # EX_TEMPFAIL; the desktop maps it to an actionable message.
+MIGRATION_FAILED_EXIT = 78  # EX_CONFIG; the desktop shows the reason and that the old data is unchanged.
 SECRET_LINE_LIMIT = 16384
 SECRET_WAIT_SECONDS = 30
 
@@ -115,6 +118,9 @@ def parser():
     parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--simulation", action="store_true", default=None)
     parser.add_argument(
+        "--migrate-from", type=Path, default=None, help="Copy this older data folder first (R3.7)"
+    )
+    parser.add_argument(
         "--secrets-stdin",
         action="store_true",
         help="Read local_token from one JSON line on stdin (desktop launcher)",
@@ -134,13 +140,31 @@ def main():
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
         with authority_lock(settings.data_dir):
+            prepare_store(settings, args.migrate_from)
             run(args, settings, launch is not None)
     except AuthorityBusy as busy:
         print(busy, file=sys.stderr)
         raise SystemExit(AUTHORITY_BUSY_EXIT) from None
+    except MigrationFailed as failed:
+        print(failed, file=sys.stderr)
+        raise SystemExit(MIGRATION_FAILED_EXIT) from None
     except (OldStore, SecretStorageError) as old:
         print(old, file=sys.stderr)
         raise SystemExit(2) from None
+
+
+def prepare_store(settings, source):
+    """Copy an older data folder into this one on first launch. The older folder is locked, read and left as it was."""
+    if not source or not migrate.needed(source, settings.data_dir):
+        return None
+    from app.platform.logfile import configure
+
+    configure(settings.data_dir)
+    try:
+        with authority_lock(source):
+            return migrate.migrate(source, settings.data_dir)
+    except AuthorityBusy as busy:
+        raise MigrationFailed(f"{busy} Your data was not moved.") from None
 
 
 def run(args, settings, watch_stdin):

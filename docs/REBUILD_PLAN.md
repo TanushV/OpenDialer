@@ -937,16 +937,30 @@ each area, and `Dialer`, `Application` and `Service` are gone by the end of Phas
 - [ ] R3.4 Remove `p`, tenant and seller scoping, roles, password login and sessions; keep the local token.
 - [ ] R3.5 Add Pydantic models for Call, Lead, Number, Task, Reservation, Command and Script with `extra="forbid"`.
 - [ ] R3.6 Remove edit-version conflict checks now that there is one writer; keep the idempotent dial and hang-up keys.
-- [ ] R3.7 Write the migration: copy `local-2` to `local-3`, drop cut tables, transform documents, mark test calls.
-- [ ] R3.8 Migration tests on a copy of the real database: counts match for 296 leads, 823 facts, 384 script versions,
+- [x] R3.7 Write the migration: copy `local-2` to `local-3`, drop cut tables, transform documents, mark test calls.
+      Done November 7: `platform/migrate.py`, run by the backend on first launch (`--migrate-from`, passed by the shell).
+      The copy is transformed and counted before it becomes the store; SQLite `user_version` 3 marks it, so later
+      phases can add in-place steps. New calls now carry `is_test` at dial and at wrap-up.
+- [x] R3.8 Migration tests on a copy of the real database: counts match for 296 leads, 823 facts, 384 script versions,
       6 numbers, 7 calls and 13 tasks; master v3 and credentials still work; `local-2` is byte-identical.
-- [ ] R3.9 If migration fails, the app says so and stays on untouched data.
+      Done November 7 on a scratchpad copy (`OPENDIALER_REAL_STORE`): every count matched, 4 test calls marked, the
+      source hashed the same before and after, the master script stayed version 3 (31,827 characters, 3 history
+      entries), the saved Telnyx key decrypted and the workspace API served the copy.
+- [x] R3.9 If migration fails, the app says so and stays on untouched data. Done November 7: the partial copy is
+      removed, a note is left in `local-3`, the backend exits with code 78 and the shell shows the reason and that
+      `local-2` is unchanged; the next start retries. An old version still running is a failure, not a copy.
 - [x] R3.10 Turn the lint bans and size caps from warnings into CI failures for moved code. Done November 7: every ban
       and the per-file and per-function caps fail in the new packages; in `platform` the silent-except ban fails, and
       `tenant_id` and the simulation setting stay warnings until R3.4 and R4.7.
-- [ ] R3.11 Add Lead fields `source`, `external_id`, `signals` and `number_status`; migrate existing leads as `source: csv`.
+- [x] R3.11 Add Lead fields `source`, `external_id`, `signals` and `number_status`; migrate existing leads as `source: csv`.
+      Done November 7: CSV imports write `source: csv` and `number_status: not_checked` (`leads/record.py`).
 
 Done when: size is measured against the budget, and estimates are corrected in the Status section.
+
+Phase 3 result, November 7: R3.1, R3.3, R3.7 to R3.11 done; R3.2, R3.4, R3.5 and R3.6 move with the phases that
+rewrite each area (D24). Size: backend 34,932 lines, frontend 17,307, tests 23,620, 53 tables, 117 routes. The backend
+estimate stays at about 17,100 at the end, but nearly all of the remaining cut now lands in Phases 4, 8, 9 and 10 as
+each rewrite deletes the mixin code it replaces, not as a separate pass.
 
 ### Phase 4: call engine and guarantees
 
@@ -1239,3 +1253,6 @@ Done when: every live check passes and the owner signs off. **Owner sitting 5.**
   would exit at launch. The 1.0.2 draft built from `b8e2cd0` has this defect and must not be published; it needs a
   rebuild from a green commit after the fix. A new test reads the shell's arguments from `lib.rs` and parses them with
   the backend's own parser. Next: R3.7 to R3.9 (migration) and R3.11.
+- November 7, 2026: Phase 3's own steps are done: `Ctx` and the package layout, the import-direction test, strict
+  rules in the new packages, the `local-2` to `local-3` migration (tested on a copy of the real store) and lead fields.
+  Installed data is untouched; it moves only when the owner installs a release containing this. Next: Phase 4, R4.1.

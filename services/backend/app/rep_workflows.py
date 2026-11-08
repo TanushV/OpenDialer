@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import select
 
 from app.optimization.goals import review_token
+from app.platform.config import TEST_LINES
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
 from app.postcall.commitments import ACTIVE as ACTIVE_TASKS
 from app.service import dt, fail
@@ -1070,6 +1071,7 @@ class RepWorkflows:
                     state="FINALIZED",
                     callback_at=due,
                     disposition_input=canonical,
+                    is_test=lead.data["phone"] in TEST_LINES or bool(canonical.get("delivery_test")),
                     edit_version=edit_version + 1,
                     outcome_available_at=self.clock().isoformat(),
                     outcome_source=source,

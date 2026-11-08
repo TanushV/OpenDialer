@@ -15,8 +15,9 @@ from sqlalchemy import delete, or_, select
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize, retry_seconds
 from app.lead_lists import LeadLists, memberships
+from app.leads.record import csv_fields
 from app.optimization.geography import plausible_zones
-from app.platform.config import LIMITS
+from app.platform.config import LIMITS, TEST_LINES
 from app.platform.ctx import Ctx
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.platform.jobs import JobQueue
@@ -487,6 +488,7 @@ class Service(LeadLists, ReservationPlanner):
                         "requested_contact": bool(raw.get("requested_contact", False)),
                         "imported_at": now.isoformat(),
                         "synthetic": self.settings.simulation,
+                        **csv_fields(),
                     },
                     key=body["campaign_id"] + ":" + endpoint.id,
                     now=now,
@@ -799,6 +801,7 @@ class Service(LeadLists, ReservationPlanner):
                     "outcome": None,
                     "transcript_version": 0,
                     "synthetic": self.settings.simulation,
+                    "is_test": lead.data["phone"] in TEST_LINES,
                     "transcription_source": "direct" if self.managed.enabled(p["tenant_id"]) else "webhook",
                 },
                 key=data["idempotency_key"],

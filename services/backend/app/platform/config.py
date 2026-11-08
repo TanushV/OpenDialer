@@ -71,6 +71,10 @@ class CapabilityStatus(BaseModel):
     source_version: str
 
 
+# The owner's own phone (section 10). Calls to it are test calls: kept out of metrics and learning.
+TEST_LINES = frozenset({"+12038211101"})
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OPENDIALER_", env_nested_delimiter="__", extra="ignore")
     database_url: str = "sqlite:///opendialer.db"

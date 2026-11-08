@@ -12,6 +12,12 @@ use uuid::Uuid;
 
 /// Exit status of the Python authority when another authority owns its data directory.
 const AUTHORITY_BUSY_EXIT: i32 = 75;
+/// Exit status when the authority could not move older data into this version's folder (R3.9).
+const MIGRATION_FAILED_EXIT: i32 = 78;
+/// This version's data folder, and the older one it is copied from on first launch (R3.7).
+const DATA_FOLDER: &str = "local-3";
+const PREVIOUS_DATA_FOLDER: &str = "local-2";
+const MIGRATION_NOTE: &str = "migration-failed.txt";
 
 struct Backend {
     config: BackendConfig,
@@ -32,6 +38,8 @@ struct LocalRuntime {
     generation: u64,
     /// Mode whose last authority refused to start because another authority owns its data.
     refused: Option<bool>,
+    /// The last authority stopped because moving older data failed; the next start says why, then retries.
+    migration_failed: bool,
 }
 #[derive(Default, Clone)]
 struct LocalBackend(Arc<Mutex<LocalRuntime>>);
@@ -69,6 +77,9 @@ impl LocalBackend {
         let backend = state.backend.take()?;
         if code == Some(AUTHORITY_BUSY_EXIT) {
             state.refused = Some(backend.config.simulation);
+        }
+        if code == Some(MIGRATION_FAILED_EXIT) {
+            state.migration_failed = true;
         }
         Some(backend)
     }
@@ -127,17 +138,17 @@ fn start_backend(
     if let Some(existing) = state.current()?.filter(|c| c.simulation == simulation) {
         return Ok(existing);
     }
-    // Store format 2: 0.2/0.3 kept encrypted stores in `local` and `simulation`, which this
-    // authority cannot read. New folders start fresh and leave that data untouched.
-    let directory = app
+    // Store format 3: the authority copies `local-2` into `local-3` on first launch and never
+    // changes `local-2`, which stays the rollback for the previous version.
+    let base = app
         .path()
         .app_data_dir()
-        .map_err(|_| "App data directory unavailable")?
-        .join(if simulation {
-            "simulation-2"
-        } else {
-            "local-2"
-        });
+        .map_err(|_| "App data directory unavailable")?;
+    let directory = base.join(if simulation {
+        "simulation-2"
+    } else {
+        DATA_FOLDER
+    });
     std::fs::create_dir_all(&directory).map_err(|_| "Cannot create private application data")?;
     let mut locked = state
         .0
@@ -147,6 +158,9 @@ fn start_backend(
         if existing.config.simulation == simulation && !existing.exited.load(Ordering::SeqCst) {
             return Ok(existing.config.clone());
         }
+    }
+    if !simulation && std::mem::take(&mut locked.migration_failed) {
+        return Err(migration_failure(&directory));
     }
     if locked.refused.take() == Some(simulation) {
         return Err("Another OpenDialer authority is already using this workspace's data. Quit the other OpenDialer window or process, then retry.".into());
@@ -174,6 +188,13 @@ fn start_backend(
     ];
     if simulation {
         args.push("--simulation".into());
+    } else {
+        args.push("--migrate-from".into());
+        args.push(
+            base.join(PREVIOUS_DATA_FOLDER)
+                .to_string_lossy()
+                .to_string(),
+        );
     }
     // The local token travels over the child's private stdin pipe, never through its environment.
     // The authority treats end-of-file on that pipe as loss of this launcher.
@@ -222,6 +243,21 @@ fn launch_secrets(local_token: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "Cannot prepare the local service token")?;
     line.push(b'\n');
     Ok(line)
+}
+
+/// What the rep sees when moving older data failed: the reason from the authority's note, and that nothing was lost.
+fn migration_failure(directory: &std::path::Path) -> String {
+    let reason = std::fs::read_to_string(directory.join(MIGRATION_NOTE))
+        .map(|note| note.trim().to_string())
+        .unwrap_or_default();
+    let mut message = format!(
+        "OpenDialer could not move your data to this version. Your data in {PREVIOUS_DATA_FOLDER} is unchanged; reinstall the previous version to keep calling, or retry."
+    );
+    if !reason.is_empty() {
+        message.push_str(" Reason: ");
+        message.push_str(&reason);
+    }
+    message
 }
 
 /// Drain without forwarding provider or user content into ordinary desktop logs. When the
@@ -355,4 +391,20 @@ pub fn run() {
             stop_owned_runtimes(&handle.state::<LocalBackend>());
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_migration_names_its_reason_and_that_data_is_unchanged() {
+        let folder = std::env::temp_dir().join(format!("opendialer-migration-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let bare = migration_failure(&folder);
+        assert!(bare.contains("local-2 is unchanged") && !bare.contains("Reason"));
+        std::fs::write(folder.join(MIGRATION_NOTE), "disk full\n").unwrap();
+        assert!(migration_failure(&folder).ends_with("Reason: disk full"));
+        std::fs::remove_dir_all(folder).unwrap();
+    }
 }
