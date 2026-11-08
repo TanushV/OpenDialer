@@ -164,6 +164,7 @@ def test_failed_work_retains_the_last_reported_cumulative_usage(workspace, app):
     assert report["records"][0]["status"] == "failed"
 
 
+@pytest.mark.slow
 def test_formatting_only_edit_does_not_regenerate_and_active_call_stays_frozen(workspace):
     ws = workspace
     save_script(ws)
@@ -257,6 +258,7 @@ def test_cumulative_metered_cost_settles_once_at_the_final_receipt(workspace, ap
     assert get(workspace, f"/v1/leads/{identity}/packet")["script"]["preparation_status"] == "ready"
 
 
+@pytest.mark.slow
 def test_rewrite_after_a_call_accepts_an_ai_note_with_no_human_edit(workspace):
     ws = workspace
     save_script(ws)

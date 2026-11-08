@@ -2,6 +2,7 @@
 
 from uuid import uuid4
 
+import pytest
 from journey import answered_by_human, call, get, post, run_jobs, start, wrap_up
 
 PASSWORD = "a-test-only-password-123"
@@ -222,6 +223,7 @@ def test_rubric_editor_saves_versioned_anchors_and_a_purpose_change_rescores_the
     assert stale.status_code == 409
 
 
+@pytest.mark.slow
 def test_next_call_brief_carries_prior_conversation_before_the_next_call(workspace):
     ws = workspace
     cid = finished_call(ws)

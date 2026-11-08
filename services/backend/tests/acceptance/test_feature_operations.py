@@ -276,6 +276,7 @@ def test_number_search_quotes_and_purchases_stay_blocked(workspace, carrier):
     assert carrier.purchases == []
 
 
+@pytest.mark.slow
 def test_capacity_proposal_is_advisory_and_follows_the_declared_staffing(workspace, clock):
     campaign = workspace["campaign_id"]
     first = post(workspace, "/v1/admin/numbers/proposal", {"campaign_id": campaign})
@@ -538,6 +539,7 @@ def test_telnyx_webhook_accepts_only_signed_events_and_redelivery_is_idempotent(
 HUMAN_LABELS = {"right_party": True, "not_interested": True, "no_answer": False, "busy": False}
 
 
+@pytest.mark.slow
 def test_observed_number_health_reports_delivery_pickup_and_case_mix_from_real_calls(workspace, clock):
     health_policy = get(workspace, "/v1/admin/settings")["optimization"]["health_policy"]
     minimum = health_policy["min_comparable"]
@@ -636,6 +638,7 @@ PLANNER_CONTRACT = {
 }
 
 
+@pytest.mark.slow
 def test_large_proposal_takes_the_greedy_path_and_respects_its_lower_bound(workspace, clock):
     import_leads(
         workspace,

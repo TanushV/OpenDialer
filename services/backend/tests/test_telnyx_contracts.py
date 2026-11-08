@@ -362,6 +362,7 @@ def test_the_final_attempt_stays_on_the_line_to_leave_a_voicemail(workspace, app
         "call.machine.premium.detection.ended:not_sure",
     ],
 )
+@pytest.mark.slow
 def test_screening_and_unclear_results_stay_on_the_line(workspace, carrier, clock, name):
     from datetime import timedelta
 
@@ -384,6 +385,7 @@ def test_screening_is_not_counted_as_voicemail(workspace, app, carrier):
     assert saved["screening_detected"] is True and saved["machine_detected"] is False
 
 
+@pytest.mark.slow
 def test_a_human_answer_is_never_hung_up_by_a_late_machine_result(workspace, app, carrier):
     call = start(workspace)
     event(workspace, call, "call.answered")

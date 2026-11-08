@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import timedelta
 from uuid import uuid4
 
+import pytest
 from journey import event, get, post, ready, run_jobs, wrap_up
 
 METRIC_KEYS = (
@@ -66,6 +67,7 @@ def ten_calls(ws, clock):
     return [dial(ws, clock, f"m{i}", *plan[i % 4]) for i in range(10)]
 
 
+@pytest.mark.slow
 def test_reports_count_exactly_the_calls_that_happened(workspace, clock):
     calls = ten_calls(workspace, clock)
     humans = sum(c["human"] for c in calls)
@@ -158,6 +160,7 @@ def test_work_time_follows_presence_and_corrections(workspace, clock):
     assert totals["conversions_per_rep_hour"] == 0
 
 
+@pytest.mark.slow
 def test_goal_change_preview_save_and_reconciliation(workspace, clock):
     calls = ten_calls(workspace, clock)
     lead = next(
@@ -203,6 +206,7 @@ def test_goal_change_preview_save_and_reconciliation(workspace, clock):
     assert bad.status_code == 422
 
 
+@pytest.mark.slow
 def test_number_comparison_assigns_arms_and_reports_them(workspace, clock):
     post(workspace, "/v1/leads/import", {"campaign_id": workspace["campaign_id"], "rows": lead_rows(12)})
     study = post(
@@ -269,6 +273,7 @@ def test_conversation_vocabulary_edits_are_versioned(workspace):
     assert workspace["client"].put(path, headers=workspace["headers"], json=body).status_code == 409
 
 
+@pytest.mark.slow
 def test_challenger_training_backtests_calibration_and_review_gates(workspace, clock):
     for phone in ("+14155550101", "+12125550102", "+15125550103"):
         post(workspace, "/v1/suppressions", {"phone": phone, "reason": "temporary_hold"})

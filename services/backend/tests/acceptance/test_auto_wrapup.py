@@ -2,6 +2,7 @@ import pytest
 from journey import event, get, run_jobs, start, wrap_up
 
 
+@pytest.mark.slow
 def test_carrier_outcome_is_saved_without_rep_form_and_can_be_corrected(workspace):
     placed = start(workspace)
     event(workspace, placed["id"], "call.hangup", hangup_cause="no_answer")
@@ -85,6 +86,7 @@ def test_reviewed_model_saves_supported_outcome_but_not_a_booking(workspace, app
     assert corrected["outcome_source"] == "rep_reported"
 
 
+@pytest.mark.slow
 def test_answered_but_unclassified_call_is_not_saved_as_no_answer(workspace):
     placed = start(workspace)
     event(workspace, placed["id"], "call.answered")

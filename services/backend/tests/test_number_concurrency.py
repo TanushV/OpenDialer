@@ -2,6 +2,7 @@
 
 from uuid import uuid4
 
+import pytest
 from app.db import MODELS, put
 from helpers import principal
 from sqlalchemy import select
@@ -101,6 +102,7 @@ def number_phone(ws, call):
     return get(ws, f"/v1/calls/{call['id']}")["number_id"]
 
 
+@pytest.mark.slow
 def test_two_reps_calling_at_once_use_different_numbers(workspace, app):
     california_only(workspace)
     add_california_number(app, workspace)

@@ -78,6 +78,7 @@ def test_wrong_version_or_identity_in_the_archive_is_refused(tmp_path):
         )
 
 
+@pytest.mark.slow
 def test_archive_bytes_that_break_the_signature_or_differ_from_the_sealed_sidecar_are_refused(tmp_path):
     module = packager()
     app, backend = signed_bundle(tmp_path / "bundle")

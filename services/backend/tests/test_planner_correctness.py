@@ -85,6 +85,7 @@ def test_wrapup_cadence_makes_a_lead_due_without_any_forecast(workspace, app, cl
 # Group 2: one bounded summary replaces persisted per-lead plans.
 
 
+@pytest.mark.slow
 def test_forecast_publishes_one_bounded_summary_and_no_per_lead_plans(workspace, app, monkeypatch):
     from sqlalchemy import event
 
@@ -157,6 +158,7 @@ def test_forecast_changed_during_calculation_publishes_as_of_without_plan_jobs(w
 # Group 3: planner correctness.
 
 
+@pytest.mark.slow
 def test_ten_thousand_work_items_complete_within_default_caps():
     days = [NOW + timedelta(days=d) for d in range(4)]
     leads = [lead(f"{i:05d}") for i in range(10000)]

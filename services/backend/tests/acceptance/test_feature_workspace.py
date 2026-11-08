@@ -289,6 +289,7 @@ def test_rep_event_feed_hides_other_reps_task_events_in_hosted_mode(hosted):
     assert saved["canonical_task_id"] not in seen_by_b
 
 
+@pytest.mark.slow
 def test_rep_takes_and_wraps_up_a_call_in_hosted_mode_and_sees_only_their_own(hosted, clock):
     c = hosted
     setup = c.post(

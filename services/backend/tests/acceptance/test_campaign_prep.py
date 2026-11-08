@@ -3,6 +3,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
+import pytest
 from conftest import ready
 from journey import call, get, hang_up, import_leads, post, run_jobs, wrap_up
 
@@ -108,6 +109,7 @@ def test_pasted_script_is_parsed_with_every_problem_listed(workspace):
     )
 
 
+@pytest.mark.slow
 def test_imported_lists_are_researched_and_scripted_before_they_can_be_called(workspace):
     ws = workspace
     save_script(ws)
@@ -182,6 +184,7 @@ def test_unprepared_leads_can_be_released_to_call_with_the_base_script(workspace
     assert script["fallback"] is True and "ai-1" not in script["written"]
 
 
+@pytest.mark.slow
 def test_contacts_at_one_company_are_spaced_and_a_booking_holds_the_rest(workspace, clock):
     ws = workspace
     rows = [

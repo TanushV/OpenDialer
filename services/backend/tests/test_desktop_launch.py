@@ -10,6 +10,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import pytest
+
 BACKEND = Path(__file__).resolve().parents[1]
 # The desktop shell sends two UUIDs; anything 32-4096 printable ASCII characters is accepted.
 TOKEN = "0f8e2b1c-6d3a-4e5f-9a7b-1c2d3e4f5a6b" + "7c8d9e0f-1a2b-4c3d-8e5f-6a7b8c9d0e1f"
@@ -77,6 +79,7 @@ def secrets(token=TOKEN):
     return (json.dumps({"local_token": token}) + "\n").encode()
 
 
+@pytest.mark.slow
 def test_stdin_token_is_the_only_credential_and_launcher_loss_stops_the_authority(tmp_path):
     port = free_port()
     # A stray environment token must not open the authority the desktop launched.
@@ -98,6 +101,7 @@ def test_stdin_token_is_the_only_credential_and_launcher_loss_stops_the_authorit
         stop(process)
 
 
+@pytest.mark.slow
 def test_malformed_launch_secrets_are_refused_with_a_reason(tmp_path):
     for line, reason in (
         (secrets("short"), b"local token on standard input is missing or invalid"),
@@ -112,6 +116,7 @@ def test_malformed_launch_secrets_are_refused_with_a_reason(tmp_path):
         assert process.returncode != 0 and reason in error, error.decode()[-400:]
 
 
+@pytest.mark.slow
 def test_a_second_authority_on_the_same_folder_refuses_and_the_first_keeps_serving(tmp_path):
     env = environment(OPENDIALER_LOCAL_TOKEN=TOKEN)
     port = free_port()

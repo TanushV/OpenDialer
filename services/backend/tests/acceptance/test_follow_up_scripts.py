@@ -3,6 +3,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
+import pytest
 from journey import answered_by_human, event, get, hang_up, post, ready, run_jobs, wrap_up
 from test_campaign_prep import SCRIPT, save_script
 
@@ -57,6 +58,7 @@ def test_first_call_has_no_follow_up_and_a_missed_call_never_claims_a_conversati
     assert "conversation" not in follow["text"].casefold()
 
 
+@pytest.mark.slow
 def test_a_callback_and_a_spoken_follow_up_get_their_own_wording(workspace, clock):
     ws = workspace
     save_script(ws, FOLLOW)

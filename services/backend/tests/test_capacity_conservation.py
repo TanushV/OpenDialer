@@ -24,6 +24,7 @@ def report(clock, demand, inventory, rep=100):
     )
 
 
+@pytest.mark.slow
 def test_shared_pool_matches_small_exhaustive_oracle(clock):
     for a, b, general, regional in itertools.product(range(4), repeat=4):
         inventory = [

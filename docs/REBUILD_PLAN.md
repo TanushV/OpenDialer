@@ -726,8 +726,8 @@ runs every tier, so a local pass and a CI pass mean the same thing.
 
 - `check.py <path or keyword>` narrows the fast tier to matching tests while working. A narrowed run never replaces the full
   tier before a push.
-- A test that takes more than 3 seconds is marked `slow`, and a check fails if an unmarked test goes over. The fast tier stays
-  fast without anyone having to remember.
+- A test that takes over 1 second on this Mac is marked `slow`, and an unmarked test over 5 seconds fails the run
+  (`OPENDIALER_SLOW_LIMIT`, with room for a loaded machine). The fast tier stays fast without anyone having to remember.
 - The hooks live in `.githooks/` and are turned on with `check.py install-hooks`. Skipping them with `--no-verify` is not
   allowed on this project.
 - The Verify workflow calls the same tiers, so the two cannot drift. A failure on GitHub that passed locally is a defect in
@@ -745,6 +745,8 @@ Measured on this Mac, November 7, 2026, from `730a80d`. The Mac is shared, so th
 | TypeScript, Prettier, Vitest | about 7 seconds together | |
 | Backend, 883 tests on 10 cores | 111 seconds | Wall time is set by a few long tests: script learning 33, challenger training 33 and serving parity 29 seconds |
 | Browser suite | Cannot run locally | The config always starts the hosted server, which requires a PostgreSQL address. The only browser run is CI's, at about 21 minutes with one worker |
+| `check.py` fast, after R0.0 | 39 seconds at load average 22 | 820 backend tests run; 59 marked `slow` are left out. Backend startup across workers is most of it |
+| `check.py full`, after R0.0 | 92 seconds at load average 31 | Backend and Rust run side by side; browser suite still CI only |
 | Browser suite without hosted specs | 26 minutes, one worker | 81 passed, 40 failed: 7 still reach the hosted server through `tests/simulation.ts`, and most of the rest timed out on a loaded Mac. The same commit passes in CI, so the suite is not reliable outside CI today |
 
 **CI/CD today, measured November 6, 2026**
@@ -792,9 +794,9 @@ Goal: calling works without false blocks while the rebuild runs.
 
 Local loop first (section 12A):
 
-- [ ] R0.0 Add `scripts/check.py` with the fast, full and package tiers, plus the `.githooks` pre-commit and pre-push hooks
+- [x] R0.0 Add `scripts/check.py` with the fast, full and package tiers, plus the `.githooks` pre-commit and pre-push hooks
       and `check.py install-hooks`. Until R1.2a, the full tier leaves out the browser suite and says so, and that suite stays in
-      CI only. Mark tests over 3 seconds `slow`. Point the Verify jobs at the same commands. Record each
+      CI only. Mark tests over 1 second `slow`. Point the Verify jobs at the same commands. Record each
       tier's time on this Mac as the first baseline.
 
 Tests first:

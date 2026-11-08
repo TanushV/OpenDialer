@@ -45,6 +45,7 @@ markers = [
   "sqlite_only: SQLite-specific oracle; skipped when OPENDIALER_TEST_POSTGRES_URL is set",
   "database: database, migration, row-lock or disposable-store behavior on the configured store; part of the push PostgreSQL subset",
   "live: explicit permissioned provider test",
+  "slow: takes over a second locally; left out of the fast tier of scripts/check.py",
 ]
 [tool.ruff]
 line-length = 110

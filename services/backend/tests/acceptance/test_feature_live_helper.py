@@ -4,6 +4,7 @@ import json
 from datetime import timedelta
 from uuid import uuid4
 
+import pytest
 from journey import answered_by_human, call, get, post, run_jobs, start, wrap_up
 
 MARKER = "Our budget sentence must not outlive five minutes"
@@ -36,6 +37,7 @@ def send(ws, method, path, **kwargs):
     return ws["client"].request(method, path, headers=ws["headers"], **kwargs)
 
 
+@pytest.mark.slow
 def test_tip_follows_stable_prospect_chunks_only(workspace, clock):
     ws = workspace
     call_id = start(ws)["id"]
@@ -174,6 +176,7 @@ def settled_report(ws):
     raise AssertionError(report["projection"])
 
 
+@pytest.mark.slow
 def test_reviewed_tips_reach_the_coaching_report_with_their_timing(workspace, clock):
     ws = workspace
     first = start(ws, key="metrics-call-1")["id"]
@@ -201,6 +204,7 @@ def test_reviewed_tips_reach_the_coaching_report_with_their_timing(workspace, cl
     assert coaching["latency_support"]["stt_ms"] == 0 and coaching["p95_stt_ms"] is None
 
 
+@pytest.mark.slow
 def test_raw_speech_expires_at_five_minutes_while_notes_comments_and_outcome_remain(workspace, clock):
     ws = workspace
     call_id = start(ws)["id"]

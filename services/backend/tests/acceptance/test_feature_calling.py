@@ -39,6 +39,7 @@ def next_lead(ws, headers=None, status=200):
     return call(ws, "POST", "/v1/queue/next", json=body, status=status, headers=headers or {})
 
 
+@pytest.mark.slow
 def test_workspace_restores_only_the_reps_current_reservation(workspace, clock):
     ready_as(workspace)
     selected = next_lead(workspace)
@@ -190,6 +191,7 @@ def test_an_unstarted_reservation_lapses_and_frees_the_rep_and_lead(workspace, c
     assert call(ws, "POST", "/v1/calls/start", json=body)["lead_id"] == again["lead"]["id"]
 
 
+@pytest.mark.slow
 def test_due_callback_is_offered_first_and_opt_out_removes_a_lead(workspace, clock):
     ws = workspace
     started = start(ws)
@@ -216,6 +218,7 @@ def test_due_callback_is_offered_first_and_opt_out_removes_a_lead(workspace, clo
     assert "NO_ELIGIBLE_LEADS" in str(next_lead(ws, status=409))
 
 
+@pytest.mark.slow
 def test_a_five_minute_callback_is_due_at_five_minutes_and_ordinary_retries_wait_a_day(workspace, clock):
     ws = workspace
     started = start(ws)
@@ -693,6 +696,7 @@ def test_fresh_inbound_greeting_does_not_wait_for_carrier_status(workspace, app,
     assert inbound_task(ws, "in-1")["inbound_state"] == "ended"
 
 
+@pytest.mark.slow
 def test_unanswered_rep_leg_falls_through_to_the_business_line_then_a_spoken_message(
     workspace, clock, carrier
 ):

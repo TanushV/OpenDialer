@@ -46,6 +46,7 @@ def test_same_availability_same_demand():
         assert retries and 0 <= retries["low"] <= retries["mean"] <= retries["high"] <= 24
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("reverse", [False, True])
 def test_conservation_known_and_contingent(reverse):
     leads = [lead(str(i), region="415" if i % 2 else "212") for i in range(160)]

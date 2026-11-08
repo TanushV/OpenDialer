@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import timedelta
 from uuid import uuid4
 
+import pytest
 from journey import answered_by_human, call, event, get, post, run_jobs, start, wrap_up
 
 UTTERANCE = "We need it to keep working with no connection in the field."
@@ -449,6 +450,7 @@ def test_coaching_point_becomes_a_library_snippet_and_recent_coaching_history(
     assert get(ws, "/v1/coaching")["examples"] == []
 
 
+@pytest.mark.slow
 def test_a_reviewed_example_becomes_a_coaching_strategy_with_logged_assignments(
     workspace, app, monkeypatch, clock
 ):
@@ -615,6 +617,7 @@ def test_private_help_streams_a_partial_answer_then_settles_on_the_same_identity
     assert get(ws, f"/v1/calls/{cid}")["coach"]["id"] == reply["id"]
 
 
+@pytest.mark.slow
 def test_a_reviewed_question_stays_when_only_its_explanation_is_rejected(workspace, app, monkeypatch, clock):
     ws = workspace
     cid = start(ws)["id"]
@@ -721,6 +724,7 @@ def test_a_quote_with_typographic_punctuation_still_matches_its_speech(workspace
     ]
 
 
+@pytest.mark.slow
 def test_the_rundown_sees_speech_already_interpreted_during_the_call(workspace, app, monkeypatch, clock):
     """Real Cerebras (October 31) interpreted the prospect's reply live without retaining an
     observation. Finalization then got only the rep's opener and wrote that the prospect never
@@ -753,6 +757,7 @@ def test_the_rundown_sees_speech_already_interpreted_during_the_call(workspace, 
     assert get(ws, f"/v1/calls/{cid}/analysis")["notes"]["summary"].split("\n") == [RUNDOWN[1]]
 
 
+@pytest.mark.slow
 def test_a_misnumbered_finalization_with_the_exact_context_is_kept(workspace, app, monkeypatch):
     """Real Cerebras (October 30) wrote a rundown but misnumbered its version."""
 

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Fast tier on every commit (scripts/check.py).
+exec uv run python scripts/check.py fast

@@ -176,6 +176,7 @@ def test_an_initially_pending_order_reports_current_number_activation(workspace,
     assert len(carrier.purchases) == 1
 
 
+@pytest.mark.slow
 def test_one_answered_test_call_opens_every_number_immediately_and_never_expires(fresh, app, carrier, clock):
     ws = fresh
     connect(ws)
@@ -315,6 +316,7 @@ def test_rep_without_sip_does_not_inherit_the_workspace_sip(fresh, carrier, cloc
     assert not [action for action in carrier.actions if action["action"] == "transfer"]
 
 
+@pytest.mark.slow
 def test_a_new_number_warms_up_from_15_a_day_toward_60_and_shows_it(workspace, carrier):
     ws = workspace
     connect(ws)

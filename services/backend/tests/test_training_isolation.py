@@ -69,6 +69,7 @@ def test_operational_training_admission_keeps_unclassified_outcomes_unknown(work
     assert result["classified_rows"] == 0
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_training_freezes_and_uses_the_actual_configured_baseline(workspace, app):
     from app.scheduling.models import EstimatePolicy
@@ -118,6 +119,7 @@ async def test_training_cannot_substitute_an_easier_baseline(workspace, app, mon
     assert failure.value.status_code == 409
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_training_uses_a_real_child_and_publishes_off_loop_without_inheriting_secrets(
     workspace, app, monkeypatch
@@ -210,6 +212,7 @@ def test_frozen_trainer_dispatch_does_not_boot_an_authority(monkeypatch):
     assert seen == [True]
 
 
+@pytest.mark.slow
 def test_trainer_self_check_loads_the_fitting_stack_and_rejects_other_arguments():
     import json
     import subprocess

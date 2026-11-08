@@ -82,6 +82,7 @@ def evaluator(document):
         {"seed": 3, "missing": 0.15, "conversation": True},
     ],
 )
+@pytest.mark.slow
 def test_production_stage_export_equals_sklearn_predict_proba(case):
     """The trainer's own fit path: chronological thirds, one-hot segments and concepts, NaNs."""
     rows = synthetic_rows(case["seed"], missing=case["missing"], conversation=case["conversation"])
@@ -111,6 +112,7 @@ def stress_data(seed, rows=600, columns=6):
     return x, y
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("ensemble", [False, True])
 def test_deep_ensembles_with_nan_splits_equal_sklearn(ensemble):
     from sklearn.calibration import CalibratedClassifierCV
@@ -137,6 +139,7 @@ def test_deep_ensembles_with_nan_splits_equal_sklearn(ensemble):
     assert max(abs(a - e) for a, e in zip(actual, expected, strict=True)) <= TOLERANCE
 
 
+@pytest.mark.slow
 def test_trained_challenger_is_json_and_serves_without_the_numeric_stack(tmp_path):
     rows = synthetic_rows(11, count=420, missing=0.2)
     result = training.train_challenger(rows, tmp_path / "models" / "candidate")

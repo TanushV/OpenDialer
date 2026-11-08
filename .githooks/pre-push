@@ -1,0 +1,3 @@
+#!/bin/sh
+# Full tier before every push (scripts/check.py). Never skip it with --no-verify.
+exec uv run python scripts/check.py full

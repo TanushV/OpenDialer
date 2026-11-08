@@ -151,6 +151,7 @@ def test_rep_lines_are_matched_to_script_sections_and_the_trace_outlives_raw_spe
     assert "spreadsheets" not in json.dumps(trace) and "thanks" not in json.dumps(trace)
 
 
+@pytest.mark.slow
 def test_section_and_call_shape_effects_on_close_reach_the_markdown_memory(workspace, clock):
     ws = workspace
     use_template(ws)
@@ -192,6 +193,7 @@ def test_section_and_call_shape_effects_on_close_reach_the_markdown_memory(works
     assert memory["written_by"] == "learning_refresh" and memory["version"] >= 1
 
 
+@pytest.mark.slow
 def test_team_notes_survive_every_rewrite_with_versions_and_a_markdown_download(workspace, clock):
     ws = workspace
     use_template(ws)
@@ -272,6 +274,7 @@ def run_test(ws, clock, *, candidate_converts, count=30):
     return arms
 
 
+@pytest.mark.slow
 def test_a_winning_proposal_replaces_the_base_automatically_and_can_be_rolled_back(workspace, clock):
     ws = workspace
     base = use_template(ws)
@@ -302,6 +305,7 @@ def test_a_winning_proposal_replaces_the_base_automatically_and_can_be_rolled_ba
     assert " with Example Seller" not in get(ws, f"/v1/leads/{fresh}/packet")["script"]["opener"]
 
 
+@pytest.mark.slow
 def test_approval_mode_waits_for_an_administrator_before_the_base_changes(workspace, clock):
     ws = workspace
     base = use_template(ws)
@@ -322,6 +326,7 @@ def test_approval_mode_waits_for_an_administrator_before_the_base_changes(worksp
     assert approved["base"]["version"] == base + 1 and opening(approved["base"]["template"]) == OPENER
 
 
+@pytest.mark.slow
 def test_a_losing_proposal_stops_and_the_base_stays(workspace, clock):
     ws = workspace
     base = use_template(ws)
@@ -377,6 +382,7 @@ class ScriptModel:
         return InferenceResult(data, {"cost": 0.001}, str(uuid4()))
 
 
+@pytest.mark.slow
 def test_the_memory_reaches_script_writing_and_live_help_but_call_shape_stays_post_call(
     workspace, app, monkeypatch, clock
 ):
@@ -443,6 +449,7 @@ def test_the_memory_reaches_script_writing_and_live_help_but_call_shape_stays_po
     assert "correlation" in context["instruction"]
 
 
+@pytest.mark.slow
 def test_the_memory_proposes_a_change_for_the_weakest_section_and_starts_its_test(
     workspace, app, monkeypatch, clock
 ):
@@ -514,6 +521,7 @@ def test_control_script_is_frozen_for_running_trial(workspace):
     assert all(text == SECTIONS["close"] for _, text in seen), seen
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("promotion", ["automatic", "approval"])
 def test_changed_base_cannot_be_overwritten_by_an_old_winner(workspace, clock, promotion):
     ws = workspace

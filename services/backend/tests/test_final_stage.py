@@ -3,6 +3,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
+import pytest
 from app.db import MODELS, update
 from sqlalchemy import select
 
@@ -125,6 +126,7 @@ def sign_in(ws):
     ws["headers"] = {"Authorization": f"Bearer {token.json()['access_token']}"}
 
 
+@pytest.mark.slow
 def test_never_called_leads_come_before_retries_once_both_are_due(workspace, clock):
     """Coverage is re-anchored after each attempt, so tried leads cannot crowd out first calls."""
     for lead in call(workspace, "GET", "/v1/workspace/leads")["items"]:

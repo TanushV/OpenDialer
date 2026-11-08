@@ -170,6 +170,7 @@ def test_every_visible_analysis_field_is_reviewed_including_omitted_assertions(w
     assert any(f["value"].get("text") == "They never discussed security" for f in fields)
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 @pytest.mark.parametrize("verdict", ["SUPPORTED", "CONTRADICTED", "UNCERTAIN"])
 async def test_postcall_review_controls_publication_tasks_and_its_own_usage(
@@ -266,6 +267,7 @@ async def test_source_correction_invalidates_the_review_status(workspace, app, m
     assert service.analysis(p(workspace), call["id"])["grounding_status"] == "unreviewed"
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_extraction_deadline_cannot_outlive_original_evidence_expiry(
     workspace, app, monkeypatch, clock

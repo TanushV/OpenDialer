@@ -105,6 +105,7 @@ def test_a_permanent_denial_is_never_released_as_a_hold(workspace, reason):
     assert offered(workspace) != phone
 
 
+@pytest.mark.slow
 def test_national_registry_snapshot_blocks_a_listed_number_until_replaced(workspace, clock):
     publish(workspace, dnc_screening=True)
     listed = offered(workspace)
@@ -327,6 +328,7 @@ def test_policy_publish_validates_the_window_and_refuses_a_stale_editor(workspac
     assert "POLICY_VERSION_CONFLICT" in str(stale)
 
 
+@pytest.mark.slow
 def test_calling_needs_no_approval_paperwork_and_screening_is_optional(workspace, clock):
     check = get(workspace, "/v1/admin/preflight")
     assert check["integrity_ok"] is True and check["integrity_check"] == "quick"

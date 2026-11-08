@@ -18,8 +18,7 @@ jobs:
         with:
           version: '0.10.12'
       - run: uv sync --frozen --python 3.12
-      - run: uv run ruff check conftest.py services/backend tests scripts deploy/backup
-      - run: uv run ruff format --check conftest.py services/backend tests scripts deploy/backup
+      - run: uv run python scripts/check.py run lint
   backend:
     runs-on: ubuntu-24.04
     strategy:
@@ -44,7 +43,7 @@ jobs:
         with:
           version: '0.10.12'
       - run: uv sync --frozen --python 3.12
-      - run: uv run pytest services/backend/tests tests -q -n auto
+      - run: uv run python scripts/check.py run backend
   frontend:
     runs-on: ubuntu-24.04
     steps:
@@ -54,9 +53,9 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
-      - run: node --test supabase/functions/*/*.test.mjs
-      - run: npm ci && npm run typecheck && npm run format:check && npm run build && npm test
+      - run: npm ci
         working-directory: apps/desktop
+      - run: python3 scripts/check.py run types format frontend edge
   e2e:
     runs-on: ubuntu-24.04
     services:
@@ -82,8 +81,7 @@ jobs:
           cache-dependency-path: apps/desktop/package-lock.json
       - run: npm ci && npx playwright install --with-deps chromium
         working-directory: apps/desktop
-      - run: npm run test:e2e
-        working-directory: apps/desktop
+      - run: python3 scripts/check.py run browser
         env:
           OPENDIALER_E2E_DATABASE_URL: postgresql+psycopg://postgres:disposable_ci_test@localhost:5432/opendialer_completion_e2e
       - uses: actions/upload-artifact@v4
@@ -109,5 +107,4 @@ jobs:
       - run: uv run pytest services/backend/tests/test_codex_native.py services/backend/tests/test_secret_storage.py tests/test_package_macos.py -q
         env:
           OPENDIALER_TEST_CODEX_NATIVE: '1'
-      - run: cargo fmt --check && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings
-        working-directory: apps/desktop/src-tauri
+      - run: python3 scripts/check.py run rust
