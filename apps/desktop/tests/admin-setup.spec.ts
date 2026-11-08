@@ -335,12 +335,6 @@ test("advanced detail is one collapsed view and debug controls are gone", async 
   await openSettings(page);
   expect(strategyReads).toEqual([]);
   await openMore(page, "Learning experiments and trackers");
-  const experiments = page.getByRole("region", { name: "Experiments" });
-  await expect(experiments).toBeVisible();
-  await expect(page.getByRole("region", { name: "Experiments" })).toHaveCount(
-    1,
-  );
-  await expect.poll(() => strategyReads.length).toBeGreaterThan(0);
   await expect(page.getByLabel("Human pickup prior successes")).toHaveCount(0);
   await page.getByText("Sparse estimate assumptions", { exact: true }).click();
   await expect(page.getByTestId("estimate-assumptions")).toContainText(
@@ -355,66 +349,6 @@ test("advanced detail is one collapsed view and debug controls are gone", async 
   await expect(
     page.getByRole("table", { name: "Rolling evaluation support" }),
   ).toHaveCount(0);
-});
-
-test("trial review and activation send only identities, never evidence", async ({
-  page,
-}) => {
-  await page.route("**/v1/workspace", async (route) => {
-    const response = await route.fetch();
-    const value = await response.json();
-    if (value.models)
-      value.models = [
-        {
-          id: "trial-fixture",
-          checksum: "b".repeat(64),
-          active: false,
-          feature_schema_version: 2,
-          reviewable: true,
-          goal: "meeting_held",
-          metrics: { brier: 0.2, pooled_baseline_brier: 0.21 },
-        },
-      ];
-    await route.fulfill({ response, json: value });
-  });
-  const bodies: Record<string, Record<string, unknown>> = {};
-  await page.route("**/v1/admin/models/trial-fixture/*", async (route) => {
-    const action = route.request().url().split("/").pop()!;
-    bodies[action] = route.request().postDataJSON();
-    await route.fulfill({ json: { id: "trial-fixture", version: 2 } });
-  });
-  await enter(page);
-  await openSettings(page);
-  await openMore(page, "Learning experiments and trackers");
-  const experiments = page.getByRole("region", { name: "Experiments" });
-  await experiments
-    .getByRole("combobox", { name: "Pilot candidate" })
-    .selectOption("trial-fixture");
-  await experiments
-    .getByLabel("Experiment review reference")
-    .fill("Reviewed cohort");
-  await experiments
-    .getByText("Train, stop, roll back or promote a candidate")
-    .click();
-  await experiments.getByLabel("Saved cohort report ID").fill("report-1");
-  await experiments.getByLabel("Saved cohort report ID").fill("");
-  await expect(experiments.getByLabel("Saved cohort report ID")).toHaveValue(
-    "",
-  );
-  await experiments.getByLabel("Saved cohort report ID").fill("report-1");
-  await experiments
-    .getByRole("button", { name: "Review saved cohort evidence" })
-    .click();
-  await expect.poll(() => bodies.trial).toBeTruthy();
-  expect(bodies.trial).toEqual({
-    report_reference: "Reviewed cohort",
-    cohort_report_id: "report-1",
-  });
-  await experiments
-    .getByRole("button", { name: "Activate after gates" })
-    .click();
-  await expect.poll(() => bodies.activate).toBeTruthy();
-  expect(bodies.activate).toEqual({});
 });
 
 test("an imported list is researched and scripted before it can be called", async ({

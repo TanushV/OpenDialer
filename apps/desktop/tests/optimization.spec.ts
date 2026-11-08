@@ -22,53 +22,6 @@ async function simulation(page: import("@playwright/test").Page) {
     await page.getByRole("button", { name: "Pause dialing" }).click();
 }
 
-test("pending report refresh preserves comparison input", async ({ page }) => {
-  await simulation(page);
-  await openMoreSettings(page, "Learning experiments and trackers");
-  await page
-    .getByLabel("Experiment review reference")
-    .fill("Retain this draft during refresh");
-  await page.route("**/v1/optimization", async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    await route.fulfill({
-      response,
-      json: {
-        settings: body.settings,
-        projection: {
-          status: "pending",
-          as_of: null,
-          refresh_status: "queued",
-        },
-      },
-    });
-  });
-  // Saving planning assumptions reloads the shared report while a draft is open.
-  await page.getByRole("button", { name: "Save planning assumptions" }).click();
-  await expect(
-    page.getByText("Preparing the first report in the background.", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Experiment review reference")).toHaveValue(
-    "Retain this draft during refresh",
-  );
-  // Wait for an in-flight fixture handler before real reads resume.
-  await page.unrouteAll({ behavior: "wait" });
-  // A background refresh can read the real report first and retire this button; that is the
-  // same refresh the click asks for, so the draft must survive it either way.
-  const check = page.getByRole("button", {
-    name: "Check report status",
-    exact: true,
-  });
-  await check.click({ timeout: 5_000 }).catch(async (error) => {
-    if (await check.isVisible()) throw error;
-  });
-  await expect(page.getByLabel("Experiment review reference")).toHaveValue(
-    "Retain this draft during refresh",
-  );
-});
-
 test("optimization goals, forecast, learning state and provider settings persist", async ({
   page,
 }) => {
@@ -95,26 +48,6 @@ test("optimization goals, forecast, learning state and provider settings persist
   await expect(
     page.getByText("Operational training dataset", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("Experiment type")).toHaveValue("model_pilot");
-  await page.getByLabel("Experiment type").selectOption("coaching");
-  await page
-    .getByLabel("Experiment review reference")
-    .fill("Synthetic protocol review");
-  await page
-    .getByRole("button", { name: "Start coaching comparison", exact: true })
-    .click();
-  await expect(
-    page.getByText("Rep-balanced coaching", { exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Stop coaching comparison", exact: true })
-    .click();
-  await page.getByLabel("Experiment type").selectOption("model_pilot");
-  await page.getByText("Train, stop, roll back or promote a candidate").click();
-  await page
-    .getByRole("button", { name: "Generate trial report", exact: true })
-    .click();
-  await expect(page.getByText(/Saved cohort report:/)).toBeVisible();
   await page.reload();
   await openMoreSettings(page, "Campaign goal");
   await expect(page.getByLabel("Conversion goal")).toHaveValue("sale_won");

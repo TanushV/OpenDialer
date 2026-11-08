@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { date, isAdmin, label, percent, useWorkspace } from "../context";
 import { limits, useDefinitions } from "../state/definitions";
-import { Experiments, type ControlledComparison } from "./TrialControls";
 import type { EstimatePolicy } from "../types";
 
 export interface HealthPolicy {
@@ -87,7 +86,6 @@ export interface OptimizationReport {
       }
     >;
   };
-  comparisons: ControlledComparison[];
   cohort_history: string[];
   coaching: {
     reviewed_cards: number;
@@ -353,7 +351,6 @@ export function LearningAdvanced() {
         />
       )}
       {report && <LearningDiagnostics report={report} />}
-      <Experiments state={state} />
     </>
   );
 }

@@ -13,7 +13,6 @@ import { HistoryMore } from "./HistoryMore";
 import { date, label, useWorkspace } from "../context";
 import type { Analysis } from "../types";
 import { Empty } from "./Operations";
-import { ConversationObservations } from "./ConversationObservations";
 import { CallPurpose } from "./Rubrics";
 import { ScoreReview } from "./ScoreReview";
 import { Coaching, ReviewTip } from "./Coaching";
@@ -426,10 +425,6 @@ export function ReviewPage() {
               <p className="muted small">No confirmed commitment extracted.</p>
             )}
           </section>
-          <ConversationObservations
-            analysis={analysis}
-            reload={() => reload(analysis.call.id)}
-          />
           <section className="card padded" aria-label="Conversation signals">
             <h2>Conversation signals</h2>
             <p className="small muted">

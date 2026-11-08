@@ -23,7 +23,6 @@ import type { Lead, NumberRecord, Packet } from "../types";
 import { ProspectBrief } from "./ProspectBrief";
 import { BulkLeadActions, leadLists, listLabel, useLists } from "./LeadLists";
 import { PreparationPanel } from "./PreparationPanel";
-import { ConversationLearning } from "./ConversationLearning";
 import { ScriptEditor } from "./ScriptEditor";
 import { TokenUsage } from "./TokenUsage";
 import { ScriptMemory } from "./ScriptMemory";
@@ -1588,7 +1587,6 @@ export function ScriptPage({
       </details>
       <details className="card padded">
         <summary>Call statistics</summary>
-        <ConversationLearning />
         <OptimizationPanel />
       </details>
       <details className="card padded">

@@ -880,8 +880,9 @@ Order, each as its own commit with its tests removed:
 - [x] R2.2 Capacity planner, forecasts, staffing, work time, report projections, home metrics, billing reconciliation.
       Done November 7. The optimization report keeps its projections for StatML until R8.4; the per-number ceiling is
       the configured daily cap; staffing fields stay in the optimization config, unused, until R3.5 types it.
-- [ ] R2.3 Experiments UI, comparisons, trials, drift, treatment variants, conversation associations; keep holdout
-      assignment and training.
+- [x] R2.3 Experiments UI, comparisons, trials, drift, treatment variants, conversation associations; keep holdout
+      assignment and training. Done November 7: routes, screens and tests removed. Saved trial and comparison state is
+      still read inside projections and is removed with them in R8.4 to R8.6.
 - [ ] R2.4 Coaching: practice, goals, library, snippets, trackers, comments, replay, strategies; rubric scorecards,
       appeals, review queue.
 - [ ] R2.5 Compliance: registries, snapshots, consent evidence, RND import, scheduled screening; keep suppressions, hours

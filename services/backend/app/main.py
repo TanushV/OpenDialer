@@ -1713,46 +1713,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def reconcile_restore(data: dict, p=Depends(administrator)):
         return await service.reconcile_restore(p, data.get("review_reference"), data.get("provider_ids"))
 
-    @app.post("/v1/admin/models/{model_id}/trial")
-    def save_trial(model_id: str, data: dict, p=Depends(administrator)):
-        # The client names the saved report and its review note. Every gate value is read
-        # from that report, so client-supplied pass flags, deltas or counts are ignored.
-        if not data.get("report_reference"):
-            fail(422, "A review reference for the saved controlled-trial report is required")
-        report_id = data.get("cohort_report_id")
-        with db.transaction() as session:
-            model = service.required(session, "model_versions", model_id, p)
-            if not report_id:
-                fail(409, "A saved controlled cohort report is required to review a candidate")
-            report = service.required(session, "evaluation_reports", report_id, p)
-            if (
-                report.data.get("kind") != "conversion_trial"
-                or report.data.get("simulation")
-                or not report.data.get("sufficient_evidence")
-                or report.data.get("goal") != model.data.get("goal")
-                or report.data.get("trial_model_id") != model.id
-            ):
-                fail(409, "The saved report lacks sufficient independent live conversion evidence")
-            update(
-                model,
-                online_trial_passed=True,
-                report_reference=str(data["report_reference"])[:1000],
-                coverage_delta=float(report.data.get("coverage_delta", -1)),
-                policy_violations=report.data.get("policy_violations", 1),
-                trial_reviewed_by=p["user_id"],
-                cohort_report_id=report.id,
-            )
-            audit(
-                session,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "model.trial_reviewed",
-                model.id,
-                clock(),
-            )
-            return doc(model)
-
     from app.optimization.api import register_optimization
     from app.optimization.script_lab import register_script_lab
 
