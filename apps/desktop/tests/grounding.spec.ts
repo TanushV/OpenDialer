@@ -55,6 +55,9 @@ test("a failed evidence review is visible without overwriting the rep note", asy
   await expect(page.getByLabel("Your notes", { exact: true })).toHaveValue(
     "My own call notes remain the record.",
   );
+  await expect(
+    page.getByRole("region", { name: "Call timeline", exact: true }),
+  ).toContainText("Call prepared");
   const memory = page.getByRole("region", {
     name: "Retained call context",
     exact: true,

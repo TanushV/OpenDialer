@@ -2512,3 +2512,17 @@ details.transcript-card {
   bottom: calc(var(--dock-clearance) - 8px);
   z-index: 41;
 }
+
+/* Call timeline in Review (R4.12). */
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.timeline time {
+  color: #667085;
+  font-variant-numeric: tabular-nums;
+}

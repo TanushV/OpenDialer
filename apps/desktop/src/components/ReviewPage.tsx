@@ -14,6 +14,7 @@ import type { Analysis } from "../types";
 import { Empty } from "./Operations";
 import { FollowupTasks } from "./FollowupTasks";
 import { WrapUp } from "./WrapUp";
+import { CallTimeline } from "./CallTimeline";
 
 export function ReviewPage() {
   const { snapshot: w, api, run, notice, refresh } = useWorkspace();
@@ -227,6 +228,7 @@ export function ReviewPage() {
           />
         </details>
       )}
+      <CallTimeline callId={analysis.call.id} />
       <section className="card padded" aria-label="Retained call context">
         <h2>Retained call context</h2>
         <p className="small muted">

@@ -1005,7 +1005,9 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
       on the packaged app is live check L13.
 - [x] R4.11 Keep the Mac awake while Ready. Done November 8: the shell holds `caffeinate -d -i -w <app>` while the
       rep's presence is Ready and releases it on Pause; it ends with the app. Checked live in L12.
-- [ ] R4.12 Call timeline visible in Review; one log file with rotation.
+- [x] R4.12 Call timeline visible in Review; one log file with rotation.
+      Done November 8: `calling/timeline.py` merges the call's own steps, carrier events (with who hung up) and sent
+      commands; Review shows it for each call, checked in WebKit. The rotating log file came with R0.13.
 - [ ] R4.13 Crash tests: kill at each dial and hang-up step; no double dial, no lost call.
 - [ ] R4.14 Fault injection for every row in the outage table in section 5.
 - [ ] R4.15 Live L1, L2, L3, L9, L10, L13.

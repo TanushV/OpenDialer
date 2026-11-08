@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.administration import Dialer
-from app.calling import audio_leg
+from app.calling import audio_leg, timeline
 from app.coaching import knowledge
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.lead_lists import memberships
@@ -594,6 +594,13 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/calls/start")
     async def start_call(data: CallStart, p=Depends(principal)):
         return await service.start_call(p, data.model_dump())
+
+    @app.get("/v1/calls/{call_id}/timeline")
+    def call_timeline(call_id: str, p=Depends(principal)):
+        """What happened on one call, in order: its own steps, carrier events and sent commands (R4.12)."""
+        with db.transaction(False) as s:
+            call = service.required(s, "call_attempts", call_id, p)
+            return {"call_id": call_id, "entries": timeline.for_call(s, p, call)}
 
     @app.get("/v1/calls/{call_id}")
     def get_call(call_id: str, p=Depends(principal)):
