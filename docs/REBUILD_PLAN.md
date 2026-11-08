@@ -176,7 +176,7 @@ downward only.
 | 7 | One user, one process, SQLite: no tenants, roles or edit versions. Durable dial and hang-up tracking stays. | Schema test; a ban on `tenant_id` |
 | 8 | Background work cannot touch the call screen. | Only a named set of events reaches the UI during a call; tested |
 | 9 | Eight UI components, three fixed regions, reserved space, no global element CSS. | Layout audit in WebKit for every phase at 1024x720 and 1440x940 |
-| 10 | Size limits per file and overall. | `scripts/size.py` fails CI above the limits in section 12 |
+| 10 | Size limits per file and overall. | `scripts/rules.py` fails CI above the limits in section 12 |
 
 ## 5. Failure guarantees
 
@@ -846,9 +846,12 @@ Goal: today's failures become failing tests before any structure changes.
       relay delay and track end before event.
 - [ ] R1.5 Add scripted variants: hang-up during dial, answer after hang-up, duplicate events, reversed order.
 - [ ] R1.6 Add the shuffled-order property test: every order reaches a terminal state, with one active call at most.
-- [ ] R1.7 Add lint bans as warnings: bare `except Exception`, `.data.get(` in new core, `simulation` outside the
+- [x] R1.7 Add lint bans as warnings (`scripts/rules.py`): bare `except Exception`, `.data.get(` in new core, `simulation` outside the
       provider, `tenant_id` in new core.
-- [ ] R1.8 Extend `scripts/size.py` with the caps in section 12, as warnings for now. Run it and the R1.7 bans in CI.
+- [x] R1.8 Add the caps in section 12 to `scripts/rules.py`, as warnings for now. Run it and the R1.7 bans in CI.
+      Baseline, November 7: backend 39,428 lines, frontend 22,223 with CSS, tests 29,407, 57 tables, 162 routes,
+      largest function `save_disposition` 301, largest file `styles.css` 2,506; 20 silent `except Exception`, 119
+      `simulation` references outside the replay carrier.
 - [ ] R1.9 Remove the retry from `finishCall` in `tests/simulation.ts`; find and fix any save conflict it hid.
 - [ ] R1.10 Save baselines for `scripts/bench.py`, `scripts/size.py` and the three `check.py` tiers.
 

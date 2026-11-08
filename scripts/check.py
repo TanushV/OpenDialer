@@ -47,6 +47,8 @@ STEPS = {
         (["npm", "test", "--silent"], DESKTOP),
     ],
     "edge": [(node_tests(), ROOT)],
+    # Size caps and code-rule bans; warnings until Phase 3 (R3.10) adds --strict.
+    "rules": [([sys.executable, "scripts/rules.py"], ROOT)],
     "backend-fast": [([*PYTEST, "-m", "not slow"], ROOT)],
     "backend": [(PYTEST, ROOT)],
     "rust": [
@@ -58,9 +60,9 @@ STEPS = {
 }
 
 TIERS = {
-    "fast": ["lint", "types", "format", "frontend-fast", "edge", "backend-fast"],
+    "fast": ["lint", "rules", "types", "format", "frontend-fast", "edge", "backend-fast"],
     # The browser suite joins the full tier at R1.2a, once it passes outside CI.
-    "full": ["lint", "types", "format", "frontend", "edge", "backend", "rust"],
+    "full": ["lint", "rules", "types", "format", "frontend", "edge", "backend", "rust"],
 }
 NOT_YET_LOCAL = {"full": "browser suite: CI only until R1.2a (docs/REBUILD_PLAN.md)"}
 
