@@ -356,15 +356,6 @@ def test_backup_and_restore_keep_business_data_and_hold_outbound_until_reconcile
     post(workspace, "/v1/admin/restore", {"backup_id": "../../etc"}, status=422)
 
 
-def test_ingress_check_refuses_unconfigured_and_off_route_targets_before_any_fetch(workspace):
-    body = {"request_id": str(uuid4()), "expected_version": 0}
-    assert "INGRESS_NOT_CONFIGURED" in str(post(workspace, "/v1/admin/ingress-check", body, status=409))
-    put_settings(workspace, webhook_url="https://ingress.example.test/not-the-webhook")
-    post(workspace, "/v1/admin/ingress-check", {**body, "expected_version": 1}, status=422)
-    assert workspace["client"].post("/v1/admin/ingress-check", json=body).status_code in (401, 403)
-    assert workspace["client"].get("/webhooks/ingress-check/" + "0" * 32).status_code == 404
-
-
 def test_telnyx_webhook_accepts_only_signed_events_and_redelivery_is_idempotent(workspace, clock):
     client = workspace["client"]
     key = Ed25519PrivateKey.generate()

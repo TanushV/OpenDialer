@@ -1,5 +1,5 @@
 import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
-import { openMoreSettings, openSettingsCard } from "./navigation";
+import { openMoreSettings } from "./navigation";
 import {
   chooseOutcome,
   importLead,
@@ -127,46 +127,3 @@ test("a requested lead's own script shows its gatekeeper and screening sections"
     .getByRole("button", { name: "Pause dialing", exact: true })
     .click();
 });
-
-test("a route choice made during a settings refresh is the one saved", async ({
-  page,
-}) => {
-  await enter(page);
-  const card = await openSettingsCard(page, "AI");
-  await card.getByText("Use an OpenAI API key instead of ChatGPT").click();
-  const route = card.getByLabel("Research and scripts use");
-  await expect(route).toBeVisible();
-  // Hold a settings refresh until after the choice.
-  let release = () => {};
-  const held = new Promise<void>((resolve) => (release = resolve));
-  await page.route("**/v1/admin/settings", async (request) => {
-    if (request.request().method() === "GET") await held;
-    await request.continue();
-  });
-  const loaded = page.waitForResponse(
-    (r) =>
-      r.url().endsWith("/v1/admin/settings") && r.request().method() === "GET",
-  );
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await route.selectOption("api");
-  release();
-  await loaded;
-  await expect(route).toHaveValue("api");
-  expect((await saveProviders(page)).inference_mode).toBe("api");
-  await expect(page.getByText("AI route saved.").first()).toBeVisible();
-  await route.selectOption("codex");
-  await saveProviders(page);
-});
-
-async function saveProviders(page: Page) {
-  const saved = page.waitForResponse(
-    (r) =>
-      r.url().endsWith("/v1/admin/settings") && r.request().method() === "PUT",
-  );
-  await page
-    .getByRole("button", { name: "Save AI route", exact: true })
-    .click();
-  const response = await saved;
-  expect(response.ok()).toBeTruthy();
-  return response.request().postDataJSON();
-}

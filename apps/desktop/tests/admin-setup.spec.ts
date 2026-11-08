@@ -101,11 +101,10 @@ test("the AI card connects ChatGPT and the live help key in one place", async ({
   await expect(card.getByLabel("OpenAI API key", { exact: true })).toHaveCount(
     0,
   );
-  await card.getByText("Use an OpenAI API key instead of ChatGPT").click();
-  await card.getByLabel("Research and scripts use").selectOption("api");
+  // ChatGPT is the one route since R2.6; no API-key option is offered.
   await expect(
-    card.getByLabel("OpenAI API key", { exact: true }),
-  ).toBeVisible();
+    card.getByText("Use an OpenAI API key instead of ChatGPT"),
+  ).toHaveCount(0);
   for (const gone of ["Continue with ChatGPT", "Optional research search"])
     await expect(page.getByText(gone)).toHaveCount(0);
 });

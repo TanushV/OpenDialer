@@ -105,22 +105,6 @@ export function assertNoPendingOptouts(tenantId: string) {
       "Synchronize pending opt-outs before updating or changing workspace.",
     );
 }
-export interface TunnelConfig {
-  enabled: boolean;
-  host: string;
-  user: string;
-  remote_port: number;
-}
-export interface TunnelStatus {
-  config: TunnelConfig;
-  state: string;
-}
-export async function tunnelStatus(): Promise<TunnelStatus> {
-  return await invoke("webhook_tunnel_status");
-}
-export async function saveTunnel(config: TunnelConfig) {
-  await invoke("webhook_tunnel_set", { config });
-}
 export async function localRuntime(simulation: boolean): Promise<Runtime> {
   if (native()) return await invoke("backend_config", { simulation });
   if (!import.meta.env.DEV)

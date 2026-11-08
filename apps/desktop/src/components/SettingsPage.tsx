@@ -26,10 +26,7 @@ import {
   LONG_REQUEST_MS,
   native,
   openSource,
-  tunnelStatus,
-  saveTunnel,
   assertNoPendingOptouts,
-  type TunnelStatus,
   type ProviderCredential,
 } from "../api/client";
 import { isAdmin, label, useWorkspace } from "../context";
@@ -269,12 +266,9 @@ function AdminSettings({
   );
 }
 
-/** Research has a route (ChatGPT or an API key) and live help has its key. */
+/** Research has its ChatGPT login and live help has its key. */
 function aiDone(data: SettingsData, chatGpt: boolean | null) {
-  const route =
-    data.effective.inference_mode === "codex"
-      ? chatGpt
-      : !!data.configured.openai_api_key;
+  const route = chatGpt;
   return route === null
     ? undefined
     : route && !!data.configured.openrouter_api_key;
@@ -353,7 +347,6 @@ function AiCard({
   const { api, run, notice } = useWorkspace();
   const [login, setLogin] = useState<LoginStatus | null>(null);
   const [busy, setBusy] = useState(false);
-  const mode = settings.data?.effective.inference_mode;
   // A status read that started before an import cannot overwrite its result.
   const generation = useRef(0);
   const load = useCallback(async () => {
@@ -378,16 +371,6 @@ function AiCard({
     window.addEventListener("focus", returned);
     return () => window.removeEventListener("focus", returned);
   }, [load, settings.load]);
-  const useChatGpt = async () => {
-    if (mode !== "codex" && settings.data)
-      settings.setData(
-        await api<SettingsData>("/v1/admin/settings", "PUT", {
-          inference_mode: "codex",
-          request_id: crypto.randomUUID(),
-          expected_version: settings.data.version,
-        }),
-      );
-  };
   return (
     <div className="stack">
       <div className="ai-row">
@@ -417,7 +400,6 @@ function AiCard({
                       { timeoutMs: LONG_REQUEST_MS },
                     ),
                   );
-                  await useChatGpt();
                   notice("ChatGPT connected.");
                 } finally {
                   setBusy(false);
@@ -434,14 +416,8 @@ function AiCard({
           compact
           onImported={async (value) => {
             accept(value);
-            await useChatGpt();
           }}
         />
-      )}
-      {login?.connected && mode !== "codex" && (
-        <button className="secondary" onClick={() => void run(useChatGpt)}>
-          Use ChatGPT for research and scripts
-        </button>
       )}
       {login?.connected && (
         <button
@@ -461,10 +437,6 @@ function AiCard({
         title="Live help key (OpenRouter, Cerebras)"
         settings={settings}
       />
-      <details>
-        <summary>Use an OpenAI API key instead of ChatGPT</summary>
-        <AdvancedProviders settings={settings} />
-      </details>
     </div>
   );
 }
@@ -647,7 +619,6 @@ function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
             "Webhook address",
             "https://your-endpoint/webhooks/telnyx",
           )}
-          <LocalWebhookForward />
         </>
       )}
       {!configured && (
@@ -1225,164 +1196,6 @@ function WorkspaceConnection({ onDisconnect }: { onDisconnect: () => void }) {
         </p>
       )}
     </section>
-  );
-}
-
-function AdvancedProviders({ settings }: { settings: AdminSettingsState }) {
-  const { run } = useWorkspace();
-  const form = useProviderDraft(settings, [
-    "inference_mode",
-    "inference_base_url",
-    "model",
-  ]);
-  const { draft, setDraft } = form;
-  return (
-    <div className="stack" aria-label="AI route">
-      <label>
-        Research and scripts use
-        <select
-          value={draft.inference_mode || "codex"}
-          onChange={(e) =>
-            setDraft({ ...draft, inference_mode: e.target.value })
-          }
-        >
-          <option value="codex">ChatGPT (included in your plan)</option>
-          <option value="api">
-            OpenAI API key (billed per use, with web search)
-          </option>
-          <option value="litellm">OpenAI-compatible endpoint</option>
-        </select>
-      </label>
-      {draft.inference_mode && draft.inference_mode !== "codex" && (
-        <>
-          <CredentialButton
-            field="openai_api_key"
-            title={
-              draft.inference_mode === "litellm"
-                ? "Endpoint API key"
-                : "OpenAI API key"
-            }
-            settings={settings}
-          />
-          {draft.inference_mode === "litellm" &&
-            form.field(
-              "inference_base_url",
-              "Endpoint address",
-              "http://127.0.0.1:4000/v1",
-            )}
-          {form.field("model", "Model")}
-        </>
-      )}
-      <button
-        className="secondary"
-        disabled={!settings.data || form.busy}
-        onClick={() => void run(() => form.save("AI route saved."))}
-      >
-        Save AI route
-      </button>
-    </div>
-  );
-}
-
-function LocalWebhookForward() {
-  const { snapshot: w, run } = useWorkspace();
-  const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (native())
-      void tunnelStatus()
-        .then(setTunnel)
-        .catch(() => {});
-  }, []);
-  return (
-    <>
-      {" "}
-      {tunnel && (
-        <details>
-          <summary>Existing SSH forwarding host</summary>
-          <p>
-            Use an owned host with the webhook-only Caddy recipe, a pinned SSH
-            host key, and an existing SSH key or agent. Your local computer must
-            stay awake. No service is installed.
-          </p>
-          <p role="status">Forward: {label(tunnel.state)}</p>
-          <label className="check-label">
-            <input
-              type="checkbox"
-              checked={tunnel.config.enabled}
-              disabled={w.simulation || busy}
-              onChange={(e) =>
-                setTunnel({
-                  ...tunnel,
-                  config: { ...tunnel.config, enabled: e.target.checked },
-                })
-              }
-            />
-            Enable owned SSH forward
-          </label>
-          {(["host", "user"] as const).map((key) => (
-            <label key={key}>
-              SSH {key}
-              <input
-                value={tunnel.config[key]}
-                disabled={busy}
-                onChange={(e) =>
-                  setTunnel({
-                    ...tunnel,
-                    config: { ...tunnel.config, [key]: e.target.value },
-                  })
-                }
-              />
-            </label>
-          ))}
-          <label>
-            Remote loopback port
-            <input
-              type="number"
-              min="1024"
-              max="65535"
-              value={tunnel.config.remote_port}
-              disabled={busy}
-              onChange={(e) =>
-                setTunnel({
-                  ...tunnel,
-                  config: {
-                    ...tunnel.config,
-                    remote_port: Number(e.target.value),
-                  },
-                })
-              }
-            />
-          </label>
-          <button
-            className="secondary"
-            disabled={busy || w.simulation}
-            onClick={() =>
-              void run(async () => {
-                setBusy(true);
-                try {
-                  await saveTunnel(tunnel.config);
-                  setTunnel(await tunnelStatus());
-                } finally {
-                  setBusy(false);
-                }
-              })
-            }
-          >
-            Save SSH forward
-          </button>
-          <button
-            className="secondary"
-            onClick={() =>
-              void run(async () => setTunnel(await tunnelStatus()))
-            }
-          >
-            Refresh forward status
-          </button>
-          {w.simulation && <p>Forwarding is unavailable in simulation.</p>}
-        </details>
-      )}
-    </>
   );
 }
 

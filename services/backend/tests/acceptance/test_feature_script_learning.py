@@ -223,34 +223,6 @@ def propose(ws, status=200, **body):
     return call(ws, "POST", "/v1/admin/script/proposals", json=payload, status=status)
 
 
-def test_proposals_keep_identity_and_compliance_lines_locked(workspace):
-    ws = workspace
-    base = use_template(ws)
-    propose(ws, 422, section="screening", text="{rep} from {seller}, about invoices.")
-    propose(
-        ws, 422, section="opening", text="Hi {name}, quick question about invoices."
-    )  # No {rep}/{seller}.
-    propose(ws, 422, section="opening", text="Hi {name}, {rep} from {seller}. We guarantee results.")
-    propose(ws, 422, section="opening", text="Hi {name}, {rep} from {seller} about {pricing}.")
-    plain = propose(ws, section="discovery", text="What happens when an invoice is late?")
-    assert plain["template"]
-    added = propose(
-        ws,
-        section="discovery",
-        text="- How does your team handle invoice follow-up today?\n- What happens when an invoice is late?",
-    )
-    assert added["status"] == "suggested" and added["source"] == "team"
-    candidate = {s["key"]: s for s in added["template"]["sections"]}
-    assert [o["text"] for o in candidate["discovery"]["options"]] == [
-        "How does your team handle invoice follow-up today?",
-        "What happens when an invoice is late?",
-    ]
-    assert candidate["screening"]["options"][0]["text"] == SECTIONS["screening"]
-    lab = get(ws, "/v1/optimization/script")
-    assert lab["base"]["version"] == base and lab["base"]["source"] == "markdown_upload"
-    assert [p["id"] for p in lab["proposals"]] == [added["id"], plain["id"]]
-
-
 def opening(template):
     return template["sections"][0]["options"][0]["text"]
 
@@ -272,75 +244,6 @@ def run_test(ws, clock, *, candidate_converts, count=30):
         finish(ws, placed["id"], "meeting_held" if converts else "not_interested")
         clock.now += timedelta(seconds=60)
     return arms
-
-
-@pytest.mark.slow
-def test_a_winning_proposal_replaces_the_base_automatically_and_can_be_rolled_back(workspace, clock):
-    ws = workspace
-    base = use_template(ws)
-    import_leads(ws, leads("Trial", 30, area="212"))  # A test's population is fixed at its start.
-    proposal = propose(
-        ws, section="opening", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
-    )
-    assert proposal["status"] == "testing" and proposal["comparison_id"]
-    arms = run_test(ws, clock, candidate_converts=True)
-    assert abs(arms.count("candidate") - arms.count("control")) <= 1, "Balanced two-lead blocks"
-    clock.now += timedelta(days=16)
-    ws = relogin(ws)
-    lab = refresh_learning(ws)
-    assert lab["base"]["version"] == base + 1 and lab["base"]["source"] == "proposal:" + proposal["id"]
-    assert opening(lab["base"]["template"]) == OPENER
-    assert next(p for p in lab["proposals"] if p["id"] == proposal["id"])["status"] == "promoted"
-    assert [h["version"] for h in lab["history"]][:2] == [base + 1, base]
-    test = next(t for t in lab["tests"] if t["id"] == proposal["comparison_id"])
-    assert test["sufficient_evidence"] is True and test["stopped_at"]
-    assert "Promoted" in lab["memory"]["markdown"] or "promoted" in lab["memory"]["markdown"]
-    fresh = import_leads(ws, leads("After", 1, area="512"))["leads"][0]["id"]
-    assert " with Example Seller" in get(ws, f"/v1/leads/{fresh}/packet")["script"]["opener"]
-    rolled = post(ws, "/v1/admin/script/rollback", {"version": base, "reason": "Back to the seller wording"})
-    assert (
-        rolled["base"]["version"] == base + 2 and opening(rolled["base"]["template"]) == SECTIONS["opening"]
-    )
-    assert rolled["base"]["source"] == f"rollback:{base}"
-    assert " with Example Seller" not in get(ws, f"/v1/leads/{fresh}/packet")["script"]["opener"]
-
-
-@pytest.mark.slow
-def test_approval_mode_waits_for_an_administrator_before_the_base_changes(workspace, clock):
-    ws = workspace
-    base = use_template(ws)
-    post_put(ws, "/v1/admin/script/settings", {"auto_propose": False, "promotion": "approval"})
-    import_leads(ws, leads("Trial", 30, area="212"))  # A test's population is fixed at its start.
-    proposal = propose(
-        ws, section="opening", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
-    )
-    run_test(ws, clock, candidate_converts=True)
-    clock.now += timedelta(days=16)
-    ws = relogin(ws)
-    lab = refresh_learning(ws)
-    assert lab["base"]["version"] == base
-    assert next(p for p in lab["proposals"] if p["id"] == proposal["id"])["status"] == "won"
-    approved = post(
-        ws, f"/v1/admin/script/proposals/{proposal['id']}/approve", {"reason": "Reviewed the test"}
-    )
-    assert approved["base"]["version"] == base + 1 and opening(approved["base"]["template"]) == OPENER
-
-
-@pytest.mark.slow
-def test_a_losing_proposal_stops_and_the_base_stays(workspace, clock):
-    ws = workspace
-    base = use_template(ws)
-    import_leads(ws, leads("Trial", 30, area="212"))  # A test's population is fixed at its start.
-    proposal = propose(
-        ws, section="opening", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
-    )
-    run_test(ws, clock, candidate_converts=False)
-    clock.now += timedelta(days=16)
-    ws = relogin(ws)
-    lab = refresh_learning(ws)
-    assert lab["base"]["version"] == base
-    assert next(p for p in lab["proposals"] if p["id"] == proposal["id"])["status"] == "lost"
-    assert next(t for t in lab["tests"] if t["id"] == proposal["comparison_id"])["stopped_at"]
 
 
 class RecordingAgent:
@@ -494,50 +397,3 @@ def test_changed_memory_reaches_reprepared_existing_lead(workspace, app, monkeyp
     post(ws, "/v1/research/batches", {"lead_ids": [lead]})
     run_jobs(ws)
     assert len(agent.contexts) == 2, "Unchanged memory must keep the prepared script"
-
-
-def test_control_script_is_frozen_for_running_trial(workspace):
-    ws = workspace
-    use_template(ws)
-    propose(ws, section="opening", text=OPENER, start_test=True)
-    changed = "Would you prefer a detailed demonstration tomorrow?"
-    use_template(ws, close=changed)
-    seen = []
-    for i in range(2):
-        placed = start(ws, key=f"base-edit-{i}")
-        script = get(ws, f"/v1/calls/{placed['id']}")["script_snapshot"]
-        seen.append((script["script_arm"], script["closing_question"]))
-        finish(ws, placed["id"], "not_interested")
-    assert {"candidate", "control"} == {a for a, _ in seen}
-    assert all(text == SECTIONS["close"] for _, text in seen), seen
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("promotion", ["automatic", "approval"])
-def test_changed_base_cannot_be_overwritten_by_an_old_winner(workspace, clock, promotion):
-    ws = workspace
-    use_template(ws)
-    post_put(ws, "/v1/admin/script/settings", {"auto_propose": False, "promotion": promotion})
-    import_leads(ws, leads("Trial", 30, area="212"))
-    proposal = propose(
-        ws, section="opening", text=OPENER, start_test=True, duration_days=1, minimum_effect=0.5
-    )
-    run_test(ws, clock, candidate_converts=True)
-    clock.now += timedelta(days=16)
-    ws = relogin(ws)
-    if promotion == "approval":
-        refresh_learning(ws)
-    changed = "Would you prefer a detailed demonstration tomorrow?"
-    edited = use_template(ws, close=changed)
-    if promotion == "approval":
-        call(
-            ws,
-            "POST",
-            f"/v1/admin/script/proposals/{proposal['id']}/approve",
-            json={"reason": "Reviewed the old test"},
-            status=409,
-        )
-    lab = refresh_learning(ws)
-    assert lab["base"]["version"] == edited
-    assert lab["base"]["template"]["sections"][-1]["options"][0]["text"] == changed
-    assert next(p for p in lab["proposals"] if p["id"] == proposal["id"])["status"] != "promoted"

@@ -891,8 +891,10 @@ Order, each as its own commit with its tests removed:
       and manual check. Done November 7. Opt-out effects on a live call moved into `compliance/suppressions.py`; the
       prepaid lookup stays as the manual check until RealValidito replaces it (R9B.17). The registry and consent tables
       stay until R2.9.
-- [ ] R2.6 SSH tunnel (Rust and UI), direct webhook route, ingress check, API-key and LiteLLM settings, script proposals
-      and tests.
+- [x] R2.6 SSH tunnel (Rust and UI), direct webhook route, ingress check, API-key and LiteLLM settings, script proposals
+      and tests. Done November 7, except the direct `/webhooks/telnyx` route: 20 acceptance tests deliver signed carrier
+      events through it, so it goes in R4.7 when the relay rework moves them onto the replay carrier. The LiteLLM chat
+      loop in `providers/inference.py` stays for the R9.10 fallback.
 - [ ] R2.7 Dead voicemail drop: `VM_*`, `voicemail_asset`, `detached`, playback, gather, recording and late-human paths.
 - [ ] R2.8 Routes the UI never calls, after confirming each is dead.
 - [ ] R2.9 Unused tables, with a test that lists the allowed tables.

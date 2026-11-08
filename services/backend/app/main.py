@@ -13,7 +13,7 @@ from uuid import UUID
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
@@ -280,14 +280,6 @@ class ProviderSettings(Strict):
     sip_username: str | None = None
     webhook_url: str | None = None
     traffic_approval_reference: str | None = None
-    openai_api_key: str | None = None
-    inference_mode: Literal["api", "litellm", "codex"] | None = None
-    inference_base_url: str | None = None
-    model: str | None = None
-    research_extract_model: str | None = None
-    script_write_model: str | None = None
-    postcall_extract_model: str | None = None
-    scorecard_review_model: str | None = None
     coach_provider: Literal["openrouter", "static"] | None = None
     openrouter_api_key: str | None = None
     coach_model: str | None = Field(default=None, min_length=3, max_length=200)
@@ -296,7 +288,6 @@ class ProviderSettings(Strict):
 SECRET_FIELDS = {
     "dnc_api_key",
     "telnyx_api_key",
-    "openai_api_key",
     "openrouter_api_key",
 }
 _BOUND_KEYS = {
@@ -910,14 +901,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def preflight(deep: bool = False, p=Depends(administrator)):
         return service.preflight(p, deep=deep)
 
-    @app.post("/v1/admin/ingress-check")
-    async def ingress_check(data: IngressCheck, p=Depends(administrator)):
-        return await service.check_ingress(p, data.model_dump(mode="json"))
-
-    @app.get("/webhooks/ingress-check/{nonce}", response_class=PlainTextResponse)
-    def ingress_challenge(nonce: str):
-        return service.ingress_challenge(nonce)
-
     @app.get("/v1/admin/callback-routing")
     def callback_routing(p=Depends(administrator)):
         return service.read_callback_routing(p)
@@ -964,8 +947,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "effective": {
                 **{
                     key: config.get(key, getattr(PROVIDER_DEFAULTS, key))
-                    for key in ("inference_mode", "coach_provider", "coach_model")
+                    for key in ("coach_provider", "coach_model")
                 },
+                "inference_mode": "codex",
                 "model": inference_model(config),
                 **{
                     role + "_model": inference_model(config, role)

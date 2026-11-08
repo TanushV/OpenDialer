@@ -7,7 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class ProviderDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    inference_mode: Literal["api", "litellm", "codex"] = "codex"
+    # Research and scripts run on the ChatGPT login (Codex); the API-key and LiteLLM routes went in R2.6.
+    inference_mode: Literal["codex"] = "codex"
     model: str = "gpt-6-luna"
     # The ChatGPT sign-in route runs every role on Terra at maximum reasoning effort.
     plan_model: str = "gpt-6.1-terra"
@@ -21,14 +22,8 @@ PROVIDER_DEFAULTS = ProviderDefaults()
 
 
 def inference_model(config, role=None):
-    default = (
-        PROVIDER_DEFAULTS.plan_model
-        if config.get("inference_mode", PROVIDER_DEFAULTS.inference_mode) == "codex"
-        else PROVIDER_DEFAULTS.model
-    )
-    if config.get("inference_mode", PROVIDER_DEFAULTS.inference_mode) == "codex":
-        return default
-    return config.get(f"{role}_model") or config.get("model") or default
+    """Every role runs on the ChatGPT plan model."""
+    return PROVIDER_DEFAULTS.plan_model
 
 
 class LIMITS:

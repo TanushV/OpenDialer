@@ -248,19 +248,6 @@ def test_managed_profile_cannot_change_while_call_active(workspace, app):
     assert "call" in r.text.lower()
 
 
-def test_managed_ingress_checks_current_connection(workspace, app):
-    connection = app.state.service.managed
-    connection.config = {"tenant_id": workspace["tenant_id"], "workspace_id": "test"}
-    r = workspace["client"].post(
-        "/v1/admin/ingress-check",
-        headers=workspace["headers"],
-        json={"request_id": "d1273570-3838-4900-96b3-c8ff8f9d9471", "expected_version": 0},
-    )
-    assert r.status_code == 200
-    assert r.json()["connected"] is False
-    assert r.json()["routing"] == "unavailable"
-
-
 def test_direct_speech_cost_estimates_both_tracks(monkeypatch):
     from decimal import Decimal
     from types import SimpleNamespace

@@ -13,7 +13,6 @@ from app.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.postcall.analysis import build_analysis
 from app.preparation.workflows import Preparation
 from app.privacy import SpeechPrivacy
-from app.providers.inference import InferenceClient
 from app.providers.openrouter import OpenRouterCoach
 from app.service import Service, dt, fail
 
@@ -33,31 +32,15 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             and not conf.get("postcall_zdr_verified")
         ):
             return None
-        mode = conf.get("inference_mode", PROVIDER_DEFAULTS.inference_mode)
-        if mode == "chatgpt_plan":
-            mode = "codex"  # The separate plan sign-in was folded into the ChatGPT (Codex) login.
-        if mode == "codex":
-            from app.providers.codex import CodexClient, profile_home
+        # The ChatGPT login is the one route (R2.6); the DeepSeek fallback arrives in R9.10.
+        from app.providers.codex import CodexClient, profile_home
 
-            if not user_id:
-                return None
-            home = profile_home(self.settings.data_dir, user_id)
-            if not (home / "auth.json").is_file():
-                return None
-            return CodexClient(home, inference_model(conf, role), "submit_" + role)
-        token = conf.get("openai_api_key")
-        if not token and mode != "litellm":
+        if not user_id:
             return None
-        if mode == "litellm" and not conf.get("inference_base_url"):
+        home = profile_home(self.settings.data_dir, user_id)
+        if not (home / "auth.json").is_file():
             return None
-        return InferenceClient(
-            mode,
-            token or "",
-            inference_model(conf, role),
-            base_url=conf.get("inference_base_url") or None,
-            http=getattr(self, "http", None),
-            tool_name="submit_" + role,
-        )
+        return CodexClient(home, inference_model(conf, role), "submit_" + role)
 
     def approved_playbook(self, s, p):
         model = MODELS["playbooks"]
