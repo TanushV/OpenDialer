@@ -22,9 +22,14 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      # The uv installer download has returned 504s; PyPI is the fallback for the same pinned version.
       - uses: astral-sh/setup-uv@v6
+        id: uv
+        continue-on-error: true
         with:
           version: '0.10.12'
+      - if: steps.uv.outcome == 'failure'
+        run: pipx install uv==0.10.12
       - run: uv sync --frozen --python 3.12
       - uses: actions/setup-node@v4
         with:
