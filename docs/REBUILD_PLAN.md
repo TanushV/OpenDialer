@@ -984,7 +984,9 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
       is measured live (R4.15).
 - [ ] R4.5 `calling/dial.py`: keep durable dial and hang-up records and read-only reconcile; `save_disposition` under
       120 lines.
-      In progress: `save_disposition` is 66 lines (November 8). The dial code still sits in `service.py`.
+      Partly done November 8: `save_disposition` is 66 lines, and dial and hang-up keep their durable records (crash
+      tests in R4.13). Moving the dial code into `calling/dial.py` is carried to Phase 9: it calls compliance
+      authorization, script selection and number choice, which get module homes there.
 - [x] R4.6 `calling/recovery.py`: one automatic pass at startup and every minute; open calls, uncertain dials, stuck
       hang-ups. Needs attention lists only what software cannot settle.
       Done November 8: every call records when it entered its state; `calling/recovery.py` decides when each
@@ -1294,3 +1296,10 @@ Done when: every live check passes and the owner signs off. **Owner sitting 5.**
 - November 7, 2026: Phase 3's own steps are done: `Ctx` and the package layout, the import-direction test, strict
   rules in the new packages, the `local-2` to `local-3` migration (tested on a copy of the real store) and lead fields.
   Installed data is untouched; it moves only when the owner installs a release containing this. Next: Phase 4, R4.1.
+- November 8, 2026: Phase 4's automated work is done and pushed: one transition table with a limit and exit per
+  state, pure event steps, one `blockers()` gate, the audio leg in `calling/` with a once-per-session credential
+  check, carrier outcomes saved at hang-up, an automatic recovery pass that polls quiet live legs and ends overrun
+  states, backend auto-restart, keep-awake, a call timeline in Review, crash tests at seven steps and outage tests.
+  Found and fixed: a call stuck ringing waited two hours for recovery, and every backend restart was refused by the
+  relay for up to 45 seconds. Carried forward: the dial code move (Phase 9). Waiting on the owner: live checks R4.15
+  (L1, L2, L3, L9, L10, L13) and the 1.0.2 rebuild. Next: Phase 5, R5.1.
