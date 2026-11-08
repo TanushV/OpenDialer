@@ -195,7 +195,7 @@ class Dialer(
                 "warnings": [
                     "Run preflight for database and provider readiness; each call is authorized at submission."
                 ],
-                "mode": self.settings.mode,
+                "mode": "local",
                 "simulation": self.settings.simulation,
                 "version": self.settings.version,
                 **cached,
@@ -292,7 +292,7 @@ class Dialer(
             "ready_to_call": not blockers,
             "blockers": sorted(set(blockers)),
             "warnings": warnings,
-            "mode": self.settings.mode,
+            "mode": "local",
             "simulation": self.settings.simulation,
             "version": self.settings.version,
             "screening": screening,
@@ -303,7 +303,7 @@ class Dialer(
 
     def database_integrity(self, *, deep=False):
         """Routine readiness runs SQLite's quick_check; the full page check is an explicit deep run."""
-        if deep or not self.db.sqlite:
+        if deep:
             return self.db.integrity()
         with self.db.transaction(False) as s:
             return s.execute(text("PRAGMA quick_check")).scalar() == "ok"

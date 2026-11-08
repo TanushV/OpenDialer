@@ -721,7 +721,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                         model.tenant_id == p["tenant_id"],
                         model.seller_id == p["seller_id"],
                         model.op_campaign_id == campaign.id,
-                        *([in_list(model, list_name, self.db.sqlite)] if list_name is not None else []),
+                        *([in_list(model, list_name)] if list_name is not None else []),
                         *([model.id.in_(lead_ids)] if lead_ids is not None else []),
                         *([model.id > cursor] if cursor else []),
                     )

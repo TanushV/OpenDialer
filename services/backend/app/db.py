@@ -298,24 +298,24 @@ class OldStore(RuntimeError):
 
 class Database:
     def __init__(self, url):
+        if not url.startswith("sqlite"):
+            raise ValueError("OpenDialer stores its data in one SQLite file on this Mac")
         self.url = url
-        self.sqlite = url.startswith("sqlite")
         # One SQLite writer at a time, admitted before SQLite's own busy handler.
-        self._sqlite_writer = threading.Lock() if self.sqlite else None
+        self._sqlite_writer = threading.Lock()
         # In-process runners subscribe to committed job changes (queue names).
         self.job_listeners = []
         self.engine = create_engine(
             url,
             pool_pre_ping=True,
-            connect_args={"check_same_thread": False, "timeout": 30} if self.sqlite else {},
+            connect_args={"check_same_thread": False, "timeout": 30},
         )
-        if self.sqlite:
 
-            @event.listens_for(self.engine, "connect")
-            def pragmas(connection, _):
-                connection.execute("PRAGMA journal_mode=WAL")
-                connection.execute("PRAGMA foreign_keys=ON")
-                connection.execute("PRAGMA synchronous=NORMAL")
+        @event.listens_for(self.engine, "connect")
+        def pragmas(connection, _):
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("PRAGMA synchronous=NORMAL")
 
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
         tables = set(inspect(self.engine).get_table_names())
@@ -329,10 +329,9 @@ class Database:
         self.plan()
 
     def plan(self):
-        if self.sqlite:
-            with self.engine.begin() as connection:
-                plan_statistics(connection)
-            self.engine.dispose()  # Pooled connections reload the statistics on next use.
+        with self.engine.begin() as connection:
+            plan_statistics(connection)
+        self.engine.dispose()  # Pooled connections reload the statistics on next use.
 
     @contextmanager
     def transaction(self, write=True, *, session=None):
@@ -345,13 +344,12 @@ class Database:
             return
         # Admit one writer per SQLite authority before its busy-handler backoff.
         # WAL readers and other stores never wait on this writer-only admission.
-        # PostgreSQL row/unique constraints and explicit seller authorization fences protect conflicts.
         with self.sessions() as session:
             session.info["write"] = write
             session.info["database"] = self
             admitted = committed = False
             try:
-                if write and self.sqlite:
+                if write:
                     if not self._sqlite_writer.acquire(timeout=30):
                         raise TimeoutError("SQLite writer admission timed out")
                     admitted = True
@@ -386,31 +384,17 @@ class Database:
     def snapshot(self):
         """One consistent read across many statements, never a writer.
 
-        SQLite holds a WAL read snapshot from its first read until commit, and
-        PostgreSQL uses REPEATABLE READ, READ ONLY. Writers are never blocked.
+        SQLite holds a WAL read snapshot from its first read until commit. Writers are never blocked.
         """
         with self.transaction(False) as session:
-            if self.sqlite:
-                session.execute(text("BEGIN DEFERRED"))
-            else:
-                session.connection(
-                    execution_options={"isolation_level": "REPEATABLE READ", "postgresql_readonly": True}
-                )
+            session.execute(text("BEGIN DEFERRED"))
             yield session
 
     def authorize_stream(self, session, principal, *, shared=False):
-        """Order this transaction against the seller's authorization changes.
+        """No-op: SQLite admits one writer at a time, so authorization changes are already ordered.
 
-        Authorization changes (opt-outs, consent, policy) take the lock exclusively. A
-        transaction that only consumes authorization and protects its own conflicts with
-        row locks and unique constraints may take it shared, so such transactions run in
-        parallel; it must never also request the exclusive lock in the same transaction.
+        Kept for its callers until Phase 3 (R3.2) moves them into plain module functions.
         """
-        if not self.sqlite:
-            scope = principal["tenant_id"] + ":" + principal["seller_id"]
-            key = int.from_bytes(hashlib.sha256(scope.encode()).digest()[:8], signed=True)
-            function = "pg_advisory_xact_lock_shared" if shared else "pg_advisory_xact_lock"
-            session.execute(text(f"SELECT {function}(:scope)"), {"scope": key})
 
     def reset(self):
         Base.metadata.drop_all(self.engine)
@@ -418,10 +402,7 @@ class Database:
 
     def integrity(self):
         with self.transaction(False) as s:
-            return (
-                s.execute(text("PRAGMA integrity_check") if self.sqlite else text("SELECT 'ok'")).scalar()
-                == "ok"
-            )
+            return s.execute(text("PRAGMA integrity_check")).scalar() == "ok"
 
 
 def rows(s, kind, tenant_id=None, seller_id=None):
@@ -553,10 +534,8 @@ def insert_absent(session, model, rows, keys):
     skip the row instead of aborting the caller's whole transaction."""
     if not rows:
         return set()
-    if session.bind.dialect.name == "sqlite":
-        from sqlalchemy.dialects.sqlite import insert
-    else:
-        from sqlalchemy.dialects.postgresql import insert
+    from sqlalchemy.dialects.sqlite import insert
+
     columns = [getattr(model, k) for k in keys]
     statement = insert(model).values(rows).on_conflict_do_nothing(index_elements=columns).returning(*columns)
     return {tuple(row) for row in session.execute(statement)}

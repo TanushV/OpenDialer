@@ -127,7 +127,7 @@ class ManagedConnection:
         return "Call events reconnecting; new calls paused. Hangup remains available."
 
     def enabled(self, tenant_id):
-        return self.service.settings.mode == "local" and self.config.get("tenant_id") == tenant_id
+        return self.config.get("tenant_id") == tenant_id
 
     def assigned(self, tenant_id, numbers):
         """Numbers on this workspace's Telnyx app, or already seen by its relay."""
@@ -189,8 +189,6 @@ class ManagedConnection:
             self.client = None
 
     async def connect(self, tenant_id, profile):
-        if self.service.settings.mode != "local":
-            fail(409, "Managed delivery is for local workspaces")
         await self.close()
         values = profile.model_dump(mode="json", exclude={"password", "telnyx_api_key", "openrouter_api_key"})
         staged = SessionStorage(self.storage.path.with_suffix("." + str(uuid4()) + ".staged"))
@@ -246,7 +244,7 @@ class ManagedConnection:
         return self.status()
 
     async def start(self):
-        if self.config and self.service.settings.mode == "local" and not self.task:
+        if self.config and not self.task:
             self.task = asyncio.create_task(self.run(), name="opendialer:managed-events")
 
     def broadcast(self, message):

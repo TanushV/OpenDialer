@@ -145,8 +145,6 @@ class JobQueue:
                 return []
         with self.db.transaction() as s:
             query = due.order_by(Job.priority.desc(), Job.available_at, Job.id).limit(limit)
-            if not self.db.sqlite:
-                query = query.with_for_update(skip_locked=True)
             claimed = list(s.scalars(query))
             expires = self.clock() + timedelta(seconds=lease_seconds)
             for job in claimed:

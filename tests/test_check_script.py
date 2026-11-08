@@ -83,7 +83,6 @@ def test_an_unmarked_slow_test_fails_the_run_and_a_marked_one_passes(tmp_path, w
         "@pytest.mark.slow\ndef test_marked():\n    time.sleep(0.3)\n"
     )
     env = {**os.environ, "OPENDIALER_SLOW_LIMIT": "0.1"}
-    env.pop("OPENDIALER_TEST_POSTGRES_URL", None)  # the guard covers SQLite runs only
     command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-W", "ignore", *workers]
     result = subprocess.run(  # noqa: S603 - fixed pytest command
         command,

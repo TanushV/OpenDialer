@@ -36,7 +36,7 @@ async function enter(page: Page, connected = false) {
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
 }
 
-for (const connected of [false, true]) {
+for (const connected of [false]) {
   test(`fixed proactive coaching, script, statistical brief and local wrapup (${connected ? "connected" : "local"})`, async ({
     page,
   }) => {

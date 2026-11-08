@@ -871,9 +871,12 @@ Goal: subtract before restructuring. The app still calls after every step.
 
 Order, each as its own commit with its tests removed:
 
-- [ ] R2.1 Hosted mode, PostgreSQL, `deploy/`, connected sign-in, Windows build. In CI and `check.py`, remove the PostgreSQL matrix and
+- [x] R2.1 Hosted mode, PostgreSQL, `deploy/`, connected sign-in, Windows build. In CI and `check.py`, remove the PostgreSQL matrix and
       services, the hosted browser specs and the `deploy/backup` lint paths. In `release.yml` and `release_manifest.py`, go Mac only, keeping the updater manifest
       valid for installed copies. Update `AGENTS.md`.
+      Done November 7. Password sign-in, users and roles stay until R3.4, which removes them with sessions; the
+      Windows `#[cfg(windows)]` blocks in `lib.rs` stay until it is reworked (R2.6, R4.10). The local/hosted browser
+      spec loops keep their local variant until the specs are rewritten (Phase 10).
 - [ ] R2.2 Capacity planner, forecasts, staffing, work time, report projections, home metrics, billing reconciliation.
 - [ ] R2.3 Experiments UI, comparisons, trials, drift, treatment variants, conversation associations; keep holdout
       assignment and training.

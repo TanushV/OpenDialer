@@ -3,7 +3,6 @@ import { defineConfig, devices } from "@playwright/test";
 // WebKit is the engine the Mac app runs (R1.2); Chromium stays available with PW_BROWSER=chromium.
 const browser = process.env.PW_BROWSER === "chromium" ? "chromium" : "webkit";
 // Each worker serves its own frontend and each test its own authority (tests/fixtures.ts).
-const hosted = !!process.env.OPENDIALER_E2E_DATABASE_URL;
 
 export default defineConfig({
   testDir: "./tests",
@@ -24,22 +23,4 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   projects: [{ name: browser }],
-  // Hosted mode needs PostgreSQL; CI-only until Phase 2 removes it.
-  webServer: hosted
-    ? [
-        {
-          command:
-            "../../.venv/bin/python ../../scripts/e2e_server.py connected",
-          url: "http://127.0.0.1:8766/health",
-          reuseExistingServer: false,
-          // One hosted server for every worker: allow each worker's frontend origin.
-          env: {
-            OPENDIALER_E2E_ORIGIN: Array.from(
-              { length: 16 },
-              (_, slot) => `http://127.0.0.1:${11420 + slot}`,
-            ).join(","),
-          },
-        },
-      ]
-    : [],
 });

@@ -1,6 +1,6 @@
 import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
 
-for (const connected of [false, true]) {
+for (const connected of [false]) {
   test(`Codex file import and disconnect (${connected ? "hosted" : "local"})`, async ({
     page,
   }) => {
@@ -120,7 +120,7 @@ async function enter(page: Page, connected: boolean) {
   await expect(
     page
       .getByTitle("Sign out")
-      .or(page.getByRole("button", { name: "Connect to a server" })),
+      .or(page.getByRole("button", { name: "Try a simulated workspace" })),
   ).toBeVisible();
   if (connected) {
     if (await page.getByTitle("Sign out").isVisible())

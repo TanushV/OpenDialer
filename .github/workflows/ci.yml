@@ -21,22 +21,6 @@ jobs:
       - run: uv run python scripts/check.py run lint rules
   backend:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        database: [sqlite, postgres]
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: disposable_ci_test
-          POSTGRES_DB: opendialer_test
-        ports: [5432:5432]
-        options: >-
-          --health-cmd "pg_isready -U postgres -d opendialer_test"
-          --health-interval 5s --health-timeout 5s --health-retries 15
-    env:
-      OPENDIALER_TEST_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgresql+psycopg://postgres:disposable_ci_test@localhost:5432/opendialer_test' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -56,41 +40,6 @@ jobs:
       - run: npm ci
         working-directory: apps/desktop
       - run: python3 scripts/check.py run types format frontend edge
-  e2e:
-    runs-on: ubuntu-24.04
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: disposable_ci_test
-          POSTGRES_DB: opendialer_completion_e2e
-        ports: [5432:5432]
-        options: >-
-          --health-cmd "pg_isready -U postgres -d opendialer_completion_e2e"
-          --health-interval 5s --health-timeout 5s --health-retries 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: '0.10.12'
-      - run: uv sync --frozen --python 3.12
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
-      - run: npm ci && npx playwright install --with-deps webkit
-        working-directory: apps/desktop
-      # Full suite including hosted mode, which needs PostgreSQL; this job goes in Phase 2 (R2.1).
-      - run: python3 scripts/check.py run browser
-        env:
-          PW_WORKERS: '2'
-          OPENDIALER_E2E_DATABASE_URL: postgresql+psycopg://postgres:disposable_ci_test@localhost:5432/opendialer_completion_e2e
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: browser-failure-traces
-          path: apps/desktop/test-results
   browser-mac:
     # The app runs WebKit on macOS (R1.2): the same engine, OS and window sizes as the rep's Mac.
     runs-on: macos-15

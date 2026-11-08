@@ -6,7 +6,7 @@ import {
   waitForPreparation,
 } from "./simulation";
 
-for (const connected of [false, true]) {
+for (const connected of [false]) {
   test(`correct a confirmed meeting without losing the rep note, then review outreach ${connected ? "postgres" : "local"}`, async ({
     page,
   }) => {
@@ -268,7 +268,7 @@ test("a suggested outcome requires a rep choice and keeps the rep's note and con
   });
 });
 
-for (const connected of [false, true]) {
+for (const connected of [false]) {
   test(`follow-up lost-response retry retains identity and snooze preserves the promise ${connected ? "postgres" : "local"}`, async ({
     page,
   }) => {

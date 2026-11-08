@@ -128,8 +128,6 @@ class WebhookIngress:
             query = select(MODELS["webhook_inbox"]).where(
                 MODELS["webhook_inbox"].id == receipt_id, MODELS["webhook_inbox"].tenant_id == tenant_id
             )
-            if not self.db.sqlite:
-                query = query.with_for_update()
             receipt = s.scalar(query)
             if not receipt:
                 fail(404, "Receipt not found")
@@ -153,7 +151,7 @@ class WebhookIngress:
                     status = "expired_raw"
             result = {"received": True, "duplicate": False}
             with self.db.transaction() as s:
-                receipt = s.scalar(query.with_for_update() if not self.db.sqlite else query)
+                receipt = s.scalar(query)
                 if receipt.data.get("lease_owner") != owner:
                     return {"received": True, "status": "processing"}
                 if status != "expired_raw":

@@ -2,7 +2,7 @@ import { expect, test, hosted, HOSTED_ONLY } from "./fixtures";
 import { importLead } from "./simulation";
 import { openMoreSettings } from "./navigation";
 
-for (const connected of [false, true]) {
+for (const connected of [false]) {
   test(`sparse support and reviewed model evidence ${connected ? "postgres" : "local"}`, async ({
     page,
   }) => {

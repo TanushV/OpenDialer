@@ -18,7 +18,6 @@ import {
   ShieldCheck,
   Signal,
   Users,
-  Wifi,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -33,7 +32,6 @@ import {
   readCache,
   request,
   saveSession,
-  validateServer,
   waitForRuntime,
   writeCache,
   assertNoPendingOptouts,
@@ -104,22 +102,16 @@ export function App() {
   const [offline, setOffline] = useState(false);
   // An authentication failure is not an outage: it needs a new session.
   const [expired, setExpired] = useState(false);
-  const [connection, setConnection] = useState<"local" | "connected">("local");
   const [startup, setStartup] = useState(true);
   const [working, setWorking] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
     error?: boolean;
   } | null>(null);
-  const [welcomeMode, setWelcomeMode] = useState<
-    "choose" | "local" | "connected"
-  >("choose");
+  const [welcomeMode, setWelcomeMode] = useState<"choose" | "local">("choose");
   const [form, setForm] = useState({
     seller: "",
     name: "",
-    server: "",
-    email: "",
-    password: "",
   });
   const authority = useRef({ runtime, session });
   authority.current = { runtime, session };
@@ -127,36 +119,29 @@ export function App() {
   snapshotRef.current = snapshot;
   // Sessions issued by an automatic renewal; one of these expiring stops retrying.
   const renewed = useRef(new WeakSet<Session>());
-  const sessionExpired = useCallback(
-    async (rejected: Session) => {
-      const current = authority.current;
-      if (current.session !== rejected || !current.runtime) return;
-      if (
-        connection === "local" &&
-        current.runtime.local_token &&
-        !renewed.current.has(rejected)
-      ) {
-        try {
-          const token = await request<Session>(
-            current.runtime.url,
-            null,
-            "/v1/local/session",
-            "POST",
-            {},
-            { "X-Local-Token": current.runtime.local_token },
-          );
-          if (authority.current.session !== rejected) return;
-          renewed.current.add(token);
-          setSession(token);
-          return;
-        } catch {
-          /* Fall through to an explicit sign-in. */
-        }
+  const sessionExpired = useCallback(async (rejected: Session) => {
+    const current = authority.current;
+    if (current.session !== rejected || !current.runtime) return;
+    if (current.runtime.local_token && !renewed.current.has(rejected)) {
+      try {
+        const token = await request<Session>(
+          current.runtime.url,
+          null,
+          "/v1/local/session",
+          "POST",
+          {},
+          { "X-Local-Token": current.runtime.local_token },
+        );
+        if (authority.current.session !== rejected) return;
+        renewed.current.add(token);
+        setSession(token);
+        return;
+      } catch {
+        /* Fall through to an explicit sign-in. */
       }
-      if (authority.current.session === rejected) setExpired(true);
-    },
-    [connection],
-  );
+    }
+    if (authority.current.session === rejected) setExpired(true);
+  }, []);
   const api = useCallback(
     async <T,>(
       path: string,
@@ -283,37 +268,7 @@ export function App() {
           setStartup(false);
           return;
         }
-        if (saved?.connection === "connected" && saved.url && saved.session) {
-          validateServer(saved.url);
-          let snap: Workspace;
-          try {
-            snap = await request<Workspace>(
-              saved.url,
-              saved.session.access_token,
-              "/v1/workspace",
-            );
-          } catch (error) {
-            if (!canUseOfflineCache(error)) throw error;
-            const cached = readCache(`workspace-${saved.session.user_id}`);
-            if (!cached) throw error;
-            snap = JSON.parse(cached) as Workspace;
-            snap.user.presence = { status: "paused", audio_ready: false };
-            snap.readiness = {
-              ...snap.readiness,
-              ready_to_call: false,
-              blockers: ["AUTHORITY_OFFLINE"],
-            };
-            setOffline(true);
-          }
-          setConnection("connected");
-          setRuntime({
-            url: saved.url,
-            local_token: "",
-            simulation: snap.simulation,
-          });
-          setSession(saved.session);
-          setSnapshot(snap);
-        } else {
+        {
           const local = await localRuntime(saved?.simulation ?? false);
           setRuntime(local);
           const health = await waitForRuntime(local);
@@ -442,46 +397,10 @@ export function App() {
           "POST",
         );
       saveSession({ connection: "local", simulation });
-      setConnection("local");
       setSession(token);
       setSnapshot(
         await request(local.url, token.access_token, "/v1/workspace"),
       );
-      setView("Dialer");
-    });
-    setWorking(false);
-  }
-  async function signIn() {
-    setWorking(true);
-    await run(async () => {
-      validateServer(form.server);
-      const token = await request<Session>(
-        form.server,
-        null,
-        "/v1/auth/session",
-        "POST",
-        { email: form.email, password: form.password },
-      );
-      const snap = await request<Workspace>(
-        form.server,
-        token.access_token,
-        "/v1/workspace",
-      );
-      setRuntime({
-        url: form.server,
-        local_token: "",
-        simulation: snap.simulation,
-      });
-      setSession(token);
-      setSnapshot(snap);
-      setConnection("connected");
-      saveSession({
-        connection: "connected",
-        simulation: snap.simulation,
-        url: form.server,
-        session: token,
-      });
-      setForm({ ...form, password: "" });
       setView("Dialer");
     });
     setWorking(false);
@@ -499,19 +418,8 @@ export function App() {
   }
   /** The authority rejected this session; sign in again to the same server. */
   async function signInAgain() {
-    if (connection === "local") {
-      setExpired(false);
-      await beginLocal(runtime?.simulation ?? false);
-      return;
-    }
-    const server = runtime?.url ?? "";
-    clearSession();
     setExpired(false);
-    setSession(null);
-    setRuntime(null);
-    setSnapshot(null);
-    setForm((value) => ({ ...value, server, password: "" }));
-    setWelcomeMode("connected");
+    await beginLocal(runtime?.simulation ?? false);
   }
   const configureCredential = useCallback<
     WorkspaceContext["configureCredential"]
@@ -631,8 +539,8 @@ export function App() {
                   works your way.
                 </h2>
                 <p className="muted">
-                  Keep everything on this computer, or join your team's
-                  connected workspace.
+                  Everything stays on this computer, with your own provider
+                  accounts.
                 </p>
                 <button
                   className="choice"
@@ -644,19 +552,6 @@ export function App() {
                   <span>
                     <strong>Start a local workspace</strong>
                     <small>Private storage. Your own provider accounts.</small>
-                  </span>
-                  <ChevronRight />
-                </button>
-                <button
-                  className="choice"
-                  onClick={() => setWelcomeMode("connected")}
-                >
-                  <span className="choice-icon">
-                    <Wifi />
-                  </span>
-                  <span>
-                    <strong>Connect to a server</strong>
-                    <small>Shared leads, numbers, and team learning.</small>
                   </span>
                   <ChevronRight />
                 </button>
@@ -684,58 +579,6 @@ export function App() {
                   </>
                 )}
               </>
-            ) : welcomeMode === "connected" ? (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void signIn();
-                }}
-              >
-                <button
-                  type="button"
-                  className="text-button back"
-                  onClick={() => setWelcomeMode("choose")}
-                >
-                  ← Back
-                </button>
-                <span className="eyebrow">YOUR TEAM WORKSPACE</span>
-                <h2>
-                  Pick up where
-                  <br />
-                  your team left off.
-                </h2>
-                <label>
-                  Server URL
-                  <input
-                    {...field("server")}
-                    type="url"
-                    placeholder="https://dialer.example.com"
-                    required
-                  />
-                </label>
-                <label>
-                  Email
-                  <input
-                    {...field("email")}
-                    type="email"
-                    autoComplete="username"
-                    required
-                  />
-                </label>
-                <label>
-                  Password
-                  <input
-                    {...field("password")}
-                    type="password"
-                    autoComplete="current-password"
-                    required
-                  />
-                </label>
-                <button className="primary wide" disabled={working}>
-                  Sign in
-                  <ArrowRight size={17} />
-                </button>
-              </form>
             ) : (
               <form
                 onSubmit={(e) => {
@@ -795,11 +638,7 @@ export function App() {
             <span className="avatar">{snapshot.seller.name.slice(0, 1)}</span>
             <span>
               <strong>{snapshot.seller.name}</strong>
-              <small>
-                {connection === "connected"
-                  ? "Team workspace"
-                  : "On this computer"}
-              </small>
+              <small>On this computer</small>
             </span>
             <ChevronRight size={14} />
           </div>
@@ -873,9 +712,7 @@ export function App() {
                   ? "Session expired"
                   : offline
                     ? "Offline cache"
-                    : connection === "connected"
-                      ? "Connected"
-                      : "Local workspace"}
+                    : "Local workspace"}
               </span>
               {snapshot.simulation && (
                 <span className="simulation-badge">SIMULATION</span>

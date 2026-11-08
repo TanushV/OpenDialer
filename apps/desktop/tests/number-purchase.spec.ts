@@ -76,7 +76,7 @@ test("a late plan request cannot replace the newly selected list", async ({
   }
 });
 
-for (const connected of [false, true]) {
+for (const connected of [false]) {
   test(`${connected ? "hosted" : "local"} list plan opens state quotes without a purchase`, async ({
     page,
   }) => {

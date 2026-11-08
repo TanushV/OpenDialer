@@ -49,16 +49,6 @@
     "resources": {
       "../../../LICENSE": "licenses/LICENSE",
       "../../../THIRD_PARTY_NOTICES.md": "licenses/THIRD_PARTY_NOTICES.md"
-    },
-    "windows": {
-      "webviewInstallMode": {
-        "type": "offlineInstaller",
-        "silent": true
-      },
-      "nsis": {
-        "installMode": "currentUser",
-        "installerHooks": "./windows/hooks.nsh"
-      }
     }
   },
   "plugins": {

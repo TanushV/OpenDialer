@@ -63,10 +63,8 @@ def bind_api(app, service, principal):
 
     @app.websocket("/v1/calls/{call_id}/audio/{side}")
     async def audio(ws: WebSocket, call_id: str, side: str):
-        if (
-            side not in {"rep", "remote"}
-            or service.settings.mode != "local"
-            or (ws.headers.get("origin") and ws.headers["origin"] not in service.settings.allowed_origins)
+        if side not in {"rep", "remote"} or (
+            ws.headers.get("origin") and ws.headers["origin"] not in service.settings.allowed_origins
         ):
             await ws.close(code=4403)
             return

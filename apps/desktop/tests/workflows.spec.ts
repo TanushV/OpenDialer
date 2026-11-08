@@ -1,4 +1,4 @@
-import { expect, test, hosted, HOSTED_ONLY } from "./fixtures";
+import { expect, test } from "./fixtures";
 import { openMoreSettings, openSettingsCard } from "./navigation";
 import { chooseOutcome, waitForPreparation } from "./simulation";
 
@@ -123,28 +123,6 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Check readiness" }).click();
   await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
-});
-
-test("connected authentication and shared state survive reconnect", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (await page.getByTitle("Sign out").isVisible())
-    await page.getByTitle("Sign out").click();
-  await page.getByRole("button", { name: "Connect to a server" }).click();
-  test.skip(!hosted, HOSTED_ONLY);
-  await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
-  await page.getByLabel("Email").fill("team@example.test");
-  await page
-    .getByLabel("Password", { exact: true })
-    .fill("Connected-test-password-123");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
-  await expect(page.getByText("Jordan Ellis", { exact: true })).toBeVisible();
-  await page.reload();
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 });
 
 test("advanced administration exposes evidence-controlled workflows", async ({

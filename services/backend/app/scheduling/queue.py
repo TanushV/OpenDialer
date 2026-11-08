@@ -453,16 +453,6 @@ class ReservationPlanner:
                 )
             )
         lead = self.required(s, "leads", plan["selection"]["lead_id"], p)
-        if not self.db.sqlite and plan["allocation"]["number_id"]:
-            # PostgreSQL claims run concurrently: the planned number's capacity is serialized by
-            # its row lock, taken before capacity is read again.
-            model = MODELS["number_inventory"]
-            s.execute(select(model.id).where(model.id == plan["allocation"]["number_id"]).with_for_update())
-            allocation = select_number(
-                doc(lead), self.inventory_evidence(s, p, fast=True), bound_id=plan["allocation"]["number_id"]
-            )
-            if allocation["number_id"] != plan["allocation"]["number_id"]:
-                raise SelectionChanged()
         number = (
             self.required(s, "number_inventory", plan["allocation"]["number_id"], p)
             if plan["allocation"]["number_id"]

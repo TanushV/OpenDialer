@@ -1,4 +1,4 @@
-import { expect, test, type Page, AUTHORITY, setUpAuthority } from "./fixtures";
+import { expect, test, type Page, setUpAuthority } from "./fixtures";
 import { openScreening } from "./navigation";
 
 test("saving Telnyx saves the pasted key and connection together", async ({
@@ -198,67 +198,6 @@ async function visibleControls(page: Page) {
         ).length,
     );
 }
-
-test("a rep sees only rep settings and never fires an administrator read", async ({
-  page,
-}) => {
-  await enter(page);
-  const owner = await (
-    await page.request.post(`${AUTHORITY}/v1/local/session`, {
-      headers: { "X-Local-Token": "e2e-local-token" },
-    })
-  ).json();
-  const email = `setup-rep-${Date.now()}@example.test`;
-  const created = await page.request.post(`${AUTHORITY}/v1/admin/users`, {
-    headers: { authorization: `Bearer ${owner.access_token}` },
-    data: {
-      email,
-      name: "Setup Rep",
-      role: "rep",
-      password: "rep-setup-password-123",
-    },
-  });
-  expect(created.ok()).toBeTruthy();
-  await page.getByTitle("Sign out").click();
-  const adminReads: string[] = [];
-  const forbidden: string[] = [];
-  page.on("request", (r) => {
-    if (r.url().includes("/v1/admin/")) adminReads.push(r.url());
-  });
-  page.on("response", (r) => {
-    if (r.status() === 403) forbidden.push(r.url());
-  });
-  await page.getByRole("button", { name: "Connect to a server" }).click();
-  await page.getByLabel("Server URL").fill(AUTHORITY);
-  await page.getByLabel("Email").fill(email);
-  await page
-    .getByLabel("Password", { exact: true })
-    .fill("rep-setup-password-123");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Numbers", exact: true }),
-  ).toHaveCount(0);
-  for (const view of ["Leads", "Review", "Script", "Settings"]) {
-    await page.getByRole("button", { name: view, exact: true }).click();
-    await page.waitForLoadState("networkidle");
-  }
-  await expect(page.getByText("Working time & corrections")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Switch workspace or server" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Check readiness" }),
-  ).toHaveCount(0);
-  await expect(page.getByText("More settings")).toHaveCount(0);
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Import leads" })).toHaveCount(
-    0,
-  );
-  await expect(page.getByText("Agent settings")).toHaveCount(0);
-  expect(adminReads).toEqual([]);
-  expect(forbidden).toEqual([]);
-});
 
 test("settings is one short page with everything else folded away", async ({
   page,

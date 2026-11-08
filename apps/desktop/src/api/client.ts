@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Runtime, Session } from "../types";
+import type { Runtime } from "../types";
 import { persistentCache } from "../state/privacy";
 export class ApiError extends Error {
   constructor(
@@ -196,10 +196,8 @@ export async function request<T>(
   return result;
 }
 export interface SavedSession {
-  connection: "local" | "connected";
+  connection: "local";
   simulation: boolean;
-  url?: string;
-  session?: Session;
 }
 const SESSION_KEY = "opendialer.session";
 export function saveSession(data: SavedSession) {
@@ -216,23 +214,6 @@ export async function openSource(url: string) {
   if (!url.startsWith("https://")) return;
   if (native()) await invoke("open_source", { value: url });
   else window.open(url, "_blank", "noopener,noreferrer");
-}
-export function validateServer(url: string) {
-  const parsed = new URL(url);
-  if (
-    parsed.username ||
-    parsed.password ||
-    parsed.search ||
-    parsed.hash ||
-    (parsed.protocol !== "https:" &&
-      !(
-        parsed.protocol === "http:" &&
-        ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)
-      ))
-  )
-    throw new Error(
-      "Use HTTPS for your server, or a loopback HTTP development server.",
-    );
 }
 /** Offline viewing: the last copy of a read, without raw speech, kept in local storage. */
 export function readCache(namespace: string): string | null {

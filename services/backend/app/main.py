@@ -505,8 +505,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     bind_review_api(app, service, principal)
 
     def local_nonce(value):
-        if settings.mode != "local":
-            fail(403, "Local session is unavailable in connected mode")
         if not settings.local_token or not secrets.compare_digest(value or "", settings.local_token):
             fail(401, "Local bootstrap nonce required")
 
@@ -517,23 +515,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return {
             "status": "ok",
             "version": settings.version,
-            "mode": settings.mode,
+            "mode": "local",
             "simulation": settings.simulation,
             "initialized": initialized,
         }
 
     @app.post("/v1/setup")
-    def setup(
-        data: Setup,
-        x_local_token: str | None = Header(default=None),
-        x_bootstrap_token: str | None = Header(default=None),
-    ):
-        if settings.mode == "local":
-            local_nonce(x_local_token)
-        elif not settings.bootstrap_token or not secrets.compare_digest(
-            x_bootstrap_token or "", settings.bootstrap_token
-        ):
-            fail(401, "Server bootstrap token required")
+    def setup(data: Setup, x_local_token: str | None = Header(default=None)):
+        local_nonce(x_local_token)
         return service.setup(data.model_dump())
 
     @app.post("/v1/local/session")
@@ -1454,12 +1443,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "role": user.data["role"],
                 "email": user.data["email"],
             }
-
-    @app.post("/v1/admin/workspaces")
-    def create_workspace(data: Setup, p=Depends(administrator)):
-        if not p.get("platform_admin"):
-            fail(403, "Platform administrator required")
-        return service.setup(data.model_dump(), first=False)
 
     @app.post("/v1/admin/models/{model_id}/activate")
     def activate(model_id: str, data: dict, p=Depends(administrator)):

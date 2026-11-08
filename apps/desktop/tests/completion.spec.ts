@@ -115,7 +115,6 @@ test("inbound arrival exposes call controls while an admin page is open", async 
 test("selected prepared lead survives navigation before dialing", async ({
   page,
 }) => {
-  test.skip(!hosted, HOSTED_ONLY);
   await enter(page, false);
   await importLead(page, "Selected lead fixture", "+14155550701");
   if (await page.getByRole("button", { name: "Go ready" }).isVisible())
@@ -142,7 +141,7 @@ async function enter(page: Page, connected: boolean) {
   await expect(
     page
       .getByTitle("Sign out")
-      .or(page.getByRole("button", { name: "Connect to a server" })),
+      .or(page.getByRole("button", { name: "Try a simulated workspace" })),
   ).toBeVisible();
   if (connected) {
     if (await page.getByTitle("Sign out").isVisible())
@@ -167,7 +166,7 @@ async function enter(page: Page, connected: boolean) {
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
 }
 
-for (const connected of [false, true]) {
+for (const connected of [false]) {
   test(`authority_switch_scope ${connected ? "postgres" : "local"}`, async ({
     page,
   }) => {

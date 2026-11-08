@@ -1,13 +1,12 @@
 [project]
 name = "opendialer"
 version = "1.0.2"
-description = "Local-first Tauri sales dialer with an authenticated shared authority"
+description = "Single-user Mac sales dialer with a local SQLite authority"
 requires-python = ">=3.12,<3.15"
 dependencies = [
   "fastapi>=0.135,<1",
   "uvicorn[standard]>=0.41,<1",
   "sqlalchemy>=2.0.48,<3",
-  "psycopg[binary]>=3.3,<4",
   "pydantic-settings>=2.13,<3",
   "httpx>=0.28,<1",
   "phonenumbers>=9,<10",
@@ -41,9 +40,7 @@ pythonpath = ["services/backend", "."]
 asyncio_mode = "auto"
 addopts = "-ra --strict-markers"
 markers = [
-  "postgres: PostgreSQL-specific behavior (row locks, concurrent writers); requires OPENDIALER_TEST_POSTGRES_URL",
-  "sqlite_only: SQLite-specific oracle; skipped when OPENDIALER_TEST_POSTGRES_URL is set",
-  "database: database, migration, row-lock or disposable-store behavior on the configured store; part of the push PostgreSQL subset",
+  "database: database, migration or row-lock behavior on the SQLite store",
   "live: explicit permissioned provider test",
   "slow: takes over a second locally; left out of the fast tier of scripts/check.py",
 ]

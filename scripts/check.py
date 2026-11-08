@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DESKTOP = ROOT / "apps/desktop"
 TAURI = DESKTOP / "src-tauri"
-LINT_PATHS = ["conftest.py", "services/backend", "tests", "scripts", "deploy/backup"]
+LINT_PATHS = ["conftest.py", "services/backend", "tests", "scripts"]
 PYTEST = [sys.executable, "-m", "pytest", "-q", "-n", "auto", "-p", "no:cacheprovider"]
 
 

@@ -18,12 +18,8 @@ def budget_scope(campaign, name):
     return campaign.get("lists", {}).get(name, {}).get("budget_scope", "list:" + name)
 
 
-def in_list(model, name, sqlite):
-    values = (
-        func.json_each(model.data, "$.list_names")
-        if sqlite
-        else func.json_array_elements_text(model.data["list_names"])
-    ).table_valued("value")
+def in_list(model, name):
+    values = func.json_each(model.data, "$.list_names").table_valued("value")
     return or_(
         exists(select(1).select_from(values).where(values.c.value == name)),
         and_(
@@ -33,12 +29,8 @@ def in_list(model, name, sqlite):
     )
 
 
-def active_membership(model, removed_names, sqlite):
-    values = (
-        func.json_each(model.data, "$.list_names")
-        if sqlite
-        else func.json_array_elements_text(model.data["list_names"])
-    ).table_valued("value")
+def active_membership(model, removed_names):
+    values = func.json_each(model.data, "$.list_names").table_valued("value")
     return or_(
         exists(select(1).select_from(values).where(values.c.value.not_in(removed_names))),
         and_(
@@ -188,7 +180,7 @@ class LeadLists:
                         model.tenant_id == p["tenant_id"],
                         model.seller_id == p["seller_id"],
                         model.op_campaign_id == campaign.id,
-                        in_list(model, name, self.db.sqlite),
+                        in_list(model, name),
                     )
                 )
             )
@@ -207,7 +199,7 @@ class LeadLists:
                             model.tenant_id == p["tenant_id"],
                             model.seller_id == p["seller_id"],
                             model.op_campaign_id == campaign.id,
-                            in_list(model, new, self.db.sqlite),
+                            in_list(model, new),
                         )
                         .limit(1)
                     )

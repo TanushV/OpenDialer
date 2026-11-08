@@ -16,7 +16,7 @@ type Routing = {
 };
 
 export function CallbackRouting() {
-  const { api, run, snapshot: w } = useWorkspace();
+  const { api, run } = useWorkspace();
   const bounds = useDefinitions();
   const [value, setValue] = useState<Routing | null>(null);
   const [saved, setSaved] = useState(false);
@@ -112,13 +112,11 @@ export function CallbackRouting() {
           </small>
         </label>
       )}
-      {w.mode === "local" && (
-        <p>
-          Carrier-side fallback is required while this computer is offline. This
-          saved destination works while the authority is running; it does not
-          configure a carrier failover service.
-        </p>
-      )}
+      <p>
+        Carrier-side fallback is required while this computer is offline. This
+        saved destination works while the authority is running; it does not
+        configure a carrier failover service.
+      </p>
       <label>
         Carrier-side fallback setup reference
         <input

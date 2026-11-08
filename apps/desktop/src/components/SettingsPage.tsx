@@ -1574,20 +1574,14 @@ function WorkspaceConnection({ onDisconnect }: { onDisconnect: () => void }) {
   return (
     <section className="card padded">
       <h2>Workspace connection</h2>
-      <p className="muted">
-        Current authority:{" "}
-        {w.mode === "connected"
-          ? "Authenticated shared server"
-          : "Private authority on this computer"}
-        .
-      </p>
+      <p className="muted">Current authority: private, on this computer.</p>
       <button
         className="secondary"
         disabled={w.quiescence?.can_disconnect === false}
         onClick={onDisconnect}
       >
         <Wifi size={15} />
-        Switch workspace or server
+        Switch workspace
       </button>
       {w.quiescence?.can_disconnect === false && (
         <p className="fine" role="status">
@@ -1663,11 +1657,11 @@ function LocalWebhookForward() {
   const [tunnel, setTunnel] = useState<TunnelStatus | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    if (native() && w.mode === "local")
+    if (native())
       void tunnelStatus()
         .then(setTunnel)
         .catch(() => {});
-  }, [w.mode]);
+  }, []);
   return (
     <>
       {" "}

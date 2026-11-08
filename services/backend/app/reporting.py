@@ -110,10 +110,8 @@ def publish_report_changes(session):
     scopes = session.info.pop("report_scopes", None)
     if not scopes:
         return
-    if session.bind.dialect.name == "sqlite":
-        from sqlalchemy.dialects.sqlite import insert
-    else:
-        from sqlalchemy.dialects.postgresql import insert
+    from sqlalchemy.dialects.sqlite import insert
+
     for tenant_id, seller_id in sorted(scopes):
         statement = insert(ReportRevision).values(tenant_id=tenant_id, seller_id=seller_id, generation=1)
         session.execute(

@@ -39,7 +39,7 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
 
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
-    for name in ("OpenDialer.app.tar.gz", "OpenDialer_1.0.2_aarch64.dmg", "OpenDialer_1.0.2_x64-setup.exe"):
+    for name in ("OpenDialer.app.tar.gz", "OpenDialer_1.0.2_aarch64.dmg"):
         (artifacts / name).write_bytes(b"test artifact")
         (artifacts / (name + ".sig")).write_text("test signature")
     output = tmp_path / "output"
@@ -72,7 +72,7 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
 
 
 def test_signed_installer_updates_do_not_ship_unused_zip_extraction():
-    """Windows consumes signed EXE/MSI; reject the unnecessary vulnerable archive path."""
+    """The Mac updater reads a signed tar archive; reject the unnecessary vulnerable zip path."""
     import tomllib
 
     manifest = tomllib.loads((ROOT / "apps/desktop/src-tauri/Cargo.toml").read_text())
@@ -124,12 +124,6 @@ def test_desktop_bundles_the_trainer_beside_the_authority():
         "binaries/opendialer-codex",
         "binaries/codex-code-mode-host",
     ]
-    stop = (ROOT / "apps/desktop/src-tauri/windows/stop-backend.ps1").read_text()
-    assert "opendialer-trainer.exe" in stop
-    assert "opendialer-codex.exe" in stop
-    native = (ROOT / "apps/desktop/src-tauri/src/lib.rs").read_text()
-    assert "opendialer-trainer.exe" in native
-    assert "opendialer-codex.exe" in native
     assert "scripts/build_sidecar.py" in (ROOT / ".github/workflows/release.yml").read_text()
 
 
@@ -195,29 +189,12 @@ def test_updater_uses_signature_verification_and_stable_identity():
     assert config["bundle"]["createUpdaterArtifacts"]
 
 
-def test_deployment_database_is_private_and_workers_have_separate_lanes():
-    compose = (ROOT / "deploy/compose.yml").read_text()
-    assert "5432:5432" not in compose
-    for lane in ["call_control", "live_coach", "research", "postcall"]:
-        assert lane in compose
-    assert (ROOT / "deploy/backup/restore.py").exists()
-    assert (ROOT / "docs/PLAN.md").exists()
-
-
-def test_deployment_orders_migration_before_all_authority_workers():
-    compose = (ROOT / "deploy/compose.yml").read_text()
-    assert "service_completed_successfully" in compose
-    assert "command: [migrate" in compose
-
-
 def test_declared_macos_minimum_covers_the_bundled_numeric_wheels():
     config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
     assert int(config["bundle"]["macOS"]["minimumSystemVersion"].split(".")[0]) >= 14
 
 
-def test_windows_package_bundles_webview_and_timezone_data_for_clean_install():
-    config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
-    assert config["bundle"]["windows"]["webviewInstallMode"]["type"] == "offlineInstaller"
+def test_the_sidecar_bundles_timezone_data_for_clean_installs():
     assert "tzdata" in (ROOT / "pyproject.toml").read_text()
     assert '"tzdata"' in (ROOT / "scripts/build_sidecar.py").read_text()
 

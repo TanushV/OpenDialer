@@ -1,7 +1,6 @@
 """Acceptance harness written before application implementation (TDD baseline)."""
 
 import asyncio
-import os
 import shutil
 import sqlite3
 import threading
@@ -16,27 +15,7 @@ from app.providers.simulated import SimulatedCarrier
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from scripts.disposable_database import (
-    PostgresTestStore,
-    drop_worker_database,
-    ensure_database,
-    validate_database_url,
-    worker_database_url,
-)
-
 NOW = datetime(2026, 10, 14, 18, 0, tzinfo=UTC)
-POSTGRES_URL = os.getenv("OPENDIALER_TEST_POSTGRES_URL")
-
-
-def pytest_collection_modifyitems(config, items):
-    """Database-specific tests are selected by marker and skipped before any store is built."""
-    for item in items:
-        if item.get_closest_marker("postgres") and not POSTGRES_URL:
-            item.add_marker(
-                pytest.mark.skip(reason="Requires the guarded OPENDIALER_TEST_POSTGRES_URL store")
-            )
-        if item.get_closest_marker("sqlite_only") and POSTGRES_URL:
-            item.add_marker(pytest.mark.skip(reason="SQLite-specific oracle; not applicable to PostgreSQL"))
 
 
 class LoopResponsiveness:
@@ -147,12 +126,10 @@ class ThreadWork(JobClaims):
 def fixture_settings(database_url, data_dir):
     return Settings(
         database_url=database_url,
-        mode="local",
         local_token="test-local-secret",
         simulation=True,
         data_dir=data_dir,
         worker_enabled=False,
-        bootstrap_token="test-bootstrap-secret",
     )
 
 
@@ -192,19 +169,6 @@ def sqlite_store_template(tmp_path_factory):
     return template
 
 
-@pytest.fixture(scope="session")
-def postgres_store(tmp_path_factory):
-    """This worker's own guarded PostgreSQL store, reset between tests without a schema rebuild."""
-    url = worker_database_url(validate_database_url(POSTGRES_URL))
-    ensure_database(url)
-    store = PostgresTestStore(url)
-    store.initialize = lambda value: _initialize_store(value, tmp_path_factory.mktemp("postgres-startup"))
-    yield store
-    store.dispose()
-    if url != POSTGRES_URL:
-        drop_worker_database(url)
-
-
 @pytest.fixture
 def clock():
     class Clock:
@@ -236,13 +200,8 @@ def carrier():
 
 @pytest.fixture
 def app(request, tmp_path, clock, carrier):
-    if POSTGRES_URL:
-        store = request.getfixturevalue("postgres_store")
-        store.reset(store.initialize)
-        database_url = store.url
-    else:
-        shutil.copyfile(request.getfixturevalue("sqlite_store_template"), tmp_path / "test.db")
-        database_url = f"sqlite:///{tmp_path}/test.db"
+    shutil.copyfile(request.getfixturevalue("sqlite_store_template"), tmp_path / "test.db")
+    database_url = f"sqlite:///{tmp_path}/test.db"
     application = create_app(fixture_settings(database_url, tmp_path), clock=clock, carrier=carrier)
     yield application
     application.state.db.engine.dispose()

@@ -45,7 +45,7 @@ test("number review distinguishes operational evidence from unknown external rep
   ).toBeHidden();
 });
 
-for (const connected of [false, true]) {
+for (const connected of [false]) {
   test(`${connected ? "connected" : "local"} number review recovers a stale edit and saves evidence policy`, async ({
     page,
   }) => {
@@ -146,10 +146,12 @@ for (const connected of [false, true]) {
   });
 }
 
-for (const connected of [false, true]) {
+for (const connected of [false]) {
   test(`${connected ? "connected" : "local"} planning shows pending work then the saved result and explicit simple staffing`, async ({
     page,
   }) => {
+    // The capacity planner and staffing forms are deleted in R2.2; this journey goes with them.
+    test.fixme(true, "R2.2 removes the capacity planner");
     await page.goto("/");
     await expect(page.getByText("Opening your workspace…")).toBeHidden();
     await expect(

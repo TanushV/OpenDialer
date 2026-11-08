@@ -30,7 +30,7 @@ def free_port():
 
 
 def authority(directory, port, *extra, env=None, stdin=subprocess.DEVNULL):
-    command = [sys.executable, "-m", "app.cli", "serve", "--mode", "local", "--simulation"]
+    command = [sys.executable, "-m", "app.cli", "serve", "--simulation"]
     return subprocess.Popen(  # noqa: S603 - current interpreter, fixed module, owned temporary data
         [*command, "--port", str(port), "--data-dir", str(directory), *extra],
         cwd=BACKEND,

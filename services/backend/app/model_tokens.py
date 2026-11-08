@@ -73,9 +73,7 @@ def capture(service, p, provider, kind, request_key, context, value, status="run
 
 
 def _array_has(service, expression, value):
-    values = (
-        func.json_each(expression) if service.db.sqlite else func.json_array_elements_text(expression)
-    ).table_valued("value")
+    values = (func.json_each(expression)).table_valued("value")
     return exists(select(1).select_from(values).where(values.c.value == value))
 
 
@@ -120,7 +118,7 @@ def report(
         query = query.where(
             or_(
                 _array_has(service, context["list_names"], list_name),
-                in_list(leads, list_name, service.db.sqlite),
+                in_list(leads, list_name),
             )
         )
     if base_version is not None:
@@ -248,7 +246,7 @@ def estimate(service, p, *, list_name=None):
             model.op_status.in_(["eligible", "preparing"]),
         )
         if list_name is not None:
-            query = query.where(in_list(model, list_name, service.db.sqlite))
+            query = query.where(in_list(model, list_name))
         eligible = [r for r in s.scalars(query) if service.preparation_permitted(s, p, r)]
         count = len(eligible)
         remaining = sum(service.preparation_state(s, p, r)["status"] != "ready" for r in eligible)

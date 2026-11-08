@@ -476,9 +476,7 @@ def bind_api(app, service, principal):
         return profile_home(service.settings.data_dir, p["user_id"])
 
     def computer_login():
-        """The ChatGPT login Codex keeps on this computer, offered only to a local workspace."""
-        if service.settings.mode != "local":
-            return None
+        """The ChatGPT login Codex keeps on this computer."""
         path = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "auth.json"
         return path if path.is_file() else None
 

@@ -14,26 +14,19 @@ from app.config import Settings
 from app.main import create_app
 from cryptography.fernet import Fernet
 
-from scripts.disposable_database import validate_database_url
-
 os.environ["OPENDIALER_SECRET_KEY"] = Fernet.generate_key().decode()
 os.environ.pop("OPENDIALER_SECRET_KEY_FILE", None)
 
-mode = sys.argv[1]
 with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
     # Browser journeys never see the ChatGPT login Codex keeps for this computer's user.
     os.environ["CODEX_HOME"] = str(Path(directory) / "codex-home")
     database_url = f"sqlite:///{directory}/test.db"
-    if mode == "connected":
-        database_url = validate_database_url(os.environ["OPENDIALER_E2E_DATABASE_URL"], purpose="browser")
     settings = Settings(
-        mode=mode,
         simulation=True,
         data_dir=Path(directory),
         worker_enabled=True,
         database_url=database_url,
         local_token="e2e-local-token",
-        bootstrap_token="e2e-bootstrap-token",
     )
     if origins := os.environ.get("OPENDIALER_E2E_ORIGIN"):
         # Browser-test workers serve their frontends on their own ports (apps/desktop/tests/fixtures.ts).
@@ -45,24 +38,6 @@ with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
         return datetime(2026, 10, 14, 18, tzinfo=UTC) + timedelta(seconds=time.monotonic() - began)
 
     app = create_app(settings, clock=clock)
-    if mode == "connected":
-        app.state.db.reset()
-        token = app.state.service.setup(
-            {
-                "seller_name": "Example Team",
-                "campaign_name": "Team campaign",
-                "email": "team@example.test",
-                "password": "Connected-test-password-123",
-            }
-        )
-        app.state.service.seed(
-            {
-                "tenant_id": token["tenant_id"],
-                "seller_id": token["seller_id"],
-                "user_id": token["user_id"],
-                "role": "owner",
-            }
-        )
     # Browser tests give each worker its own port (apps/desktop/tests/fixtures.ts).
-    port = int(os.environ.get("OPENDIALER_E2E_PORT") or (8765 if mode == "local" else 8766))
+    port = int(os.environ.get("OPENDIALER_E2E_PORT") or 8765)
     uvicorn.run(app, host="127.0.0.1", port=port, access_log=False, log_level="warning")

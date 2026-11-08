@@ -1,5 +1,4 @@
 import argparse
-import asyncio
 import json
 import os
 import signal
@@ -109,20 +108,12 @@ def watch_launcher(stream, on_lost=_launcher_lost):
     return watcher
 
 
-@contextmanager
-def _no_lock():
-    yield
-
-
 def main():
-    parser = argparse.ArgumentParser(description="OpenDialer local/shared authority")
-    parser.add_argument("command", nargs="?", choices=["serve", "worker", "migrate"], default="serve")
-    parser.add_argument("--host", default=None)
+    parser = argparse.ArgumentParser(description="OpenDialer local authority")
+    parser.add_argument("command", nargs="?", choices=["serve", "migrate"], default="serve")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--data-dir", type=Path, default=None)
-    parser.add_argument("--mode", choices=["local", "connected"], default=None)
     parser.add_argument("--simulation", action="store_true", default=None)
-    parser.add_argument("--queue", action="append")
     parser.add_argument(
         "--secrets-stdin",
         action="store_true",
@@ -130,9 +121,7 @@ def main():
     )
     args = parser.parse_args()
     launch = read_launch_secrets(sys.stdin.buffer) if args.secrets_stdin else None
-    overrides = {
-        k: v for k, v in vars(args).items() if k in {"data_dir", "mode", "simulation"} and v is not None
-    }
+    overrides = {k: v for k, v in vars(args).items() if k in {"data_dir", "simulation"} and v is not None}
     if launch:
         # Launcher-provided secrets win, and are never passed on through the environment.
         os.environ.pop("OPENDIALER_LOCAL_TOKEN", None)
@@ -140,8 +129,7 @@ def main():
     settings = Settings(**overrides)
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
-        lock = authority_lock(settings.data_dir) if settings.mode == "local" else _no_lock()
-        with lock:
+        with authority_lock(settings.data_dir):
             run(args, settings, launch is not None)
     except AuthorityBusy as busy:
         print(busy, file=sys.stderr)
@@ -157,17 +145,10 @@ def run(args, settings, watch_stdin):
     configure(settings.data_dir)
     if not os.getenv("OPENDIALER_DATABASE_URL"):
         settings.database_url = "sqlite:///" + str((settings.data_dir / "opendialer.db").resolve())
-    if settings.mode == "local" and not settings.local_token:
+    if not settings.local_token:
         raise SystemExit(
             "Set OPENDIALER_LOCAL_TOKEN, use --secrets-stdin, or launch through the desktop; "
             "no unauthenticated local API"
-        )
-    if settings.mode == "connected" and settings.database_url.startswith("sqlite"):
-        raise SystemExit("Connected deployments require OPENDIALER_DATABASE_URL=postgresql+psycopg://...")
-    if settings.mode == "connected" and getattr(sys, "frozen", False):
-        # The desktop sidecar ships without PostgreSQL drivers; it only ever runs local mode.
-        raise SystemExit(
-            "This desktop authority runs local mode only; run connected mode from the server image"
         )
     import uvicorn
 
@@ -183,21 +164,8 @@ def run(args, settings, watch_stdin):
     from app import priority
 
     priority.settle_heap()
-    if args.command == "worker":
-        settings.worker_enabled = True  # Separate worker processes also own bounded automatic scheduling.
-
-        async def work():
-            from app.runtime import authority_lifetime
-
-            async with authority_lifetime(app.state.service, queues=args.queue or settings.worker_queues):
-                await asyncio.Event().wait()
-
-        asyncio.run(work())
-    else:
-        host = args.host or ("127.0.0.1" if settings.mode == "local" else "0.0.0.0")  # noqa: S104 - connected deployment behind the private proxy
-        if settings.mode == "local" and host != "127.0.0.1":
-            raise SystemExit("Standalone authority must bind to loopback")
-        uvicorn.run(app, host=host, port=args.port, access_log=False, log_level="warning")
+    # Loopback only: the desktop app is the one client.
+    uvicorn.run(app, host="127.0.0.1", port=args.port, access_log=False, log_level="warning")
 
 
 if __name__ == "__main__":

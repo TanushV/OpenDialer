@@ -289,7 +289,7 @@ class RecoveryActions:
     def retry_job(self, p, identity, expected_attempts):
         with self.db.transaction() as s:
             query = select(Job).where(Job.id == identity)
-            job = s.scalar(query.with_for_update() if not self.db.sqlite else query)
+            job = s.scalar(query)
             if not self._job_visible(s, p, job):
                 fail(404, "Job not found")
             if job.status not in {"dead", "reconcile"} or job.attempts != expected_attempts:

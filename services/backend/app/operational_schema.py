@@ -211,7 +211,6 @@ def indexes(name):
                     "created_at",
                     "id",
                     sqlite_where=text("op_status != 'FINALIZED'"),
-                    postgresql_where=text("op_status != 'FINALIZED'"),
                 ),
                 Index(
                     "ix_call_attempts_live_scope",
@@ -221,7 +220,6 @@ def indexes(name):
                     "op_owner_id",
                     "id",
                     sqlite_where=text("op_due_at IS NOT NULL"),
-                    postgresql_where=text("op_due_at IS NOT NULL"),
                 ),
             )
             if name == "call_attempts"

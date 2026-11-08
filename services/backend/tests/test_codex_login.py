@@ -312,8 +312,6 @@ def test_a_local_workspace_can_use_the_chatgpt_login_already_on_this_computer(
     assert imported.status_code == 200 and imported.json()["account"]["email"] == "owner@example.test"
     home = profile_home(app.state.service.settings.data_dir, workspace["user_id"])
     assert read_private(home / "auth.json")["tokens"]["account_id"] == login()["tokens"]["account_id"]
-    monkeypatch.setattr(app.state.service.settings, "mode", "connected")
-    assert client.get("/v1/inference/codex", headers=headers).json()["computer_login"] is False
 
 
 @pytest.mark.asyncio

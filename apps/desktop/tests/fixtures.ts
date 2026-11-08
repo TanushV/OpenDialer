@@ -9,8 +9,6 @@ export type { Page } from "@playwright/test";
 /**
  * Each worker serves its own frontend, and each test gets a fresh local authority with its own
  * SQLite file (R1.2a). Tests never share state, so they run in parallel and need no cleanup.
- * Hosted (connected) mode needs PostgreSQL and runs only where OPENDIALER_E2E_DATABASE_URL is set,
- * until Phase 2 removes it.
  */
 const DESKTOP = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -22,10 +20,9 @@ const BACKEND_PORT = 18765 + slot;
 const FRONTEND_PORT = 11420 + slot;
 /** This worker's local authority. */
 export const AUTHORITY = `http://127.0.0.1:${BACKEND_PORT}`;
-/** The PostgreSQL-backed hosted authority exists only in CI until Phase 2 deletes hosted mode. */
-export const hosted = !!process.env.OPENDIALER_E2E_DATABASE_URL;
-export const HOSTED_ONLY =
-  "Hosted mode needs PostgreSQL; CI-only until Phase 2";
+/** Hosted mode is gone (R2.1); the remaining local/hosted spec loops keep their local variant. */
+export const hosted = false;
+export const HOSTED_ONLY = "Hosted mode was removed in R2.1";
 
 async function ready(url: string, child: ChildProcess, ms: number) {
   const deadline = Date.now() + ms;

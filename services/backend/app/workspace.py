@@ -37,10 +37,9 @@ def after(model, anchor, descending):
 
 class WorkspaceReads:
     def quiescence_in(self, s, p):
-        """Indexed authority obligations; a local mode change stops the whole process."""
+        """Indexed authority obligations; signing out stops the whole local process."""
         from app.telephony.reducer import TERMINAL
 
-        local = self.settings.mode == "local"
         reasons = []
         for table, condition, reason in (
             # Recovery metadata is non-null for every nonterminal/unknown call.
@@ -67,15 +66,6 @@ class WorkspaceReads:
         ):
             model = MODELS[table]
             query = select(model.id).where(model.tenant_id == p["tenant_id"], condition)
-            if not local:
-                # Reps block only on their own work. Admins additionally wait for unowned effects:
-                # seller-owned admin effects, and (fail-closed) call commands written before they
-                # carried their call's rep. Current call commands belong to their rep.
-                query = query.where(model.seller_id == p["seller_id"])
-                if p["role"] in {"owner", "admin"} and table == "command_outbox":
-                    query = query.where(or_(model.op_owner_id == p["user_id"], model.op_owner_id.is_(None)))
-                else:
-                    query = query.where(model.op_owner_id == p["user_id"])
             if s.scalar(query.limit(1)):
                 reasons.append(reason)
         return {"can_disconnect": not reasons, "reasons": reasons}
@@ -107,7 +97,7 @@ class WorkspaceReads:
             model = MODELS[PAGE_TABLES[section]]
             query = scoped_query(model, p)
             if section == "leads" and list_name is not None:
-                query = query.where(in_list(model, list_name, self.db.sqlite))
+                query = query.where(in_list(model, list_name))
             if section == "leads" and filter != "all":
                 memberships = []
                 for campaign in self.scoped(s, "campaigns", p):
@@ -119,7 +109,7 @@ class WorkspaceReads:
                     memberships.append(
                         and_(
                             model.op_campaign_id == campaign.id,
-                            active_membership(model, removed, self.db.sqlite),
+                            active_membership(model, removed),
                         )
                     )
                 active = and_(
@@ -344,7 +334,7 @@ class WorkspaceReads:
                 present = {item["id"] for item in pages[section]["items"]}
                 pages[section]["items"] += [item for item in extra if item["id"] not in present]
             current = {
-                "mode": self.settings.mode,
+                "mode": "local",
                 "simulation": self.settings.simulation,
                 "seller": doc(self.required(s, "sellers", p["seller_id"], p)),
                 "campaign": doc(campaign),
