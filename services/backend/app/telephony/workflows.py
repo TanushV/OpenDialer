@@ -6,7 +6,8 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
-from app.calling.state import HUMAN_EVENTS, TERMINAL
+from app.calling import events
+from app.calling.state import TERMINAL
 from app.compliance.policy import authorize
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
 from app.platform.leases import owns_effect
@@ -14,15 +15,6 @@ from app.service import dt, fail
 from app.telephony.recovery import safe_stop, within_command_window
 
 KEYPAD_STATES = {"DIALING", "RINGING", "ANSWERED_UNCLASSIFIED", "HUMAN", "SCREENING"}
-MACHINE_EVENTS = {"call.machine.detection.ended:machine", "call.machine.premium.detection.ended:machine"}
-BEEP_EVENTS = {
-    "call.machine.greeting.ended:beep_detected",
-    "call.machine.premium.greeting.ended:beep_detected",
-}
-SCREENING_EVENTS = {
-    "call.machine.premium.call_screening.detected:screening",
-    "call.machine.premium.greeting.ended:prompt_ended",
-}
 TRANSCRIPTION_ENGINE = "Soniox"
 
 
@@ -177,62 +169,34 @@ class TelephonyWorkflows:
                 policy = self.required(s, "policy_versions", campaign.data["policy_id"], p).data
                 number = self.required(s, "number_inventory", call.data["number_id"], p)
                 if event_type == "call.hangup":
-                    cause = str(payload.get("hangup_cause") or "")
-                    if cause:
-                        update(call, provider_hangup_cause=cause[:100])
-                    if payload.get("hangup_source") in {"caller", "callee", "unknown"}:
-                        update(call, provider_hangup_source=payload["hangup_source"])
-                    sip_code = re.fullmatch(
-                        r"(603\+?)(?:[ \t].*)?", str(payload.get("sip_hangup_cause") or "")
-                    )
-                    if sip_code and not call.data.get("sip_block_code") and not call.data.get("answered_at"):
-                        self.record_carrier_block(s, p, call, number, sip_code[1])
-                if (
-                    event_type == "call.hangup"
-                    and not call.data.get("human_answered_at")
-                    and not call.data.get("sip_block_code")
-                ):
-                    outcome = {"no_answer": "no_answer", "timeout": "no_answer", "user_busy": "busy"}.get(
-                        payload.get("hangup_cause")
-                    )
-                    if call.data.get("answered_at"):
-                        outcome = None
-                    if call.data.get("machine_detected"):
-                        outcome = "voicemail"
+                    update(call, **events.hangup_facts(payload))
+                    code = events.sip_block(call.data, payload)
+                    if code:
+                        self.record_carrier_block(s, p, call, number, code)
+                    outcome = events.carrier_outcome(call.data, payload)
                     if outcome:
                         update(call, carrier_outcome=outcome)
                         self._offer_second_attempt(s, call, lead, policy)
-                if event_type in MACHINE_EVENTS | BEEP_EVENTS and not call.data.get("human_answered_at"):
-                    update(call, machine_detected=True)
-                    final = call.data.get("attempt_ordinal", 0) >= call.data.get(
-                        "attempt_allowance", policy.get("max_attempts", 4)
-                    )
-                    if final:
-                        # The last attempt keeps the line open for the rep's own short message.
-                        update(call, voicemail_turn=True)
-                    elif (
-                        event_type in BEEP_EVENTS
-                        and not call.data.get("stay_on_voicemail")
-                        and call.data["state"] not in TERMINAL | {"ENDING"}
-                    ):
+                changes, hang_up = events.machine(
+                    call.data, event_type, final=events.final_attempt(call.data, policy)
+                )
+                if changes:
+                    update(call, **changes)
+                    if hang_up:
                         command = self.control_intent(s, p, call_id, "hangup", {}, suffix="machine-hangup")
                         if session is not None:
                             result["voicemail_control"] = (p, command.id)
                     emit(s, p["tenant_id"], "call.updated", call, self.clock())
-                if event_type in SCREENING_EVENTS and not call.data.get("human_answered_at"):
-                    update(call, screening_detected=True, machine_detected=False)
+                changes = events.screening(call.data, event_type)
+                if changes:
+                    update(call, **changes)
                     emit(s, p["tenant_id"], "call.updated", call, self.clock())
-                if event_type in {*HUMAN_EVENTS, "human.confirmed"}:
+                changes, first_answer = events.human(call.data, event_type, self.clock())
+                if changes:
                     waiting = self._by_key(s, p, "command_outbox", f"{call_id}:machine-hangup")
                     if waiting and waiting.data["status"] == "pending":
                         update(waiting, status="cancelled", reason="HUMAN_ANSWERED")
-                    first_answer = not call.data.get("human_answered_at")
-                    update(
-                        call,
-                        human_answered_at=self.clock().isoformat(),
-                        machine_detected=False,
-                        carrier_outcome=None,
-                    )
+                    update(call, **changes)
                     if first_answer:
                         self._keep_callback_promise(s, p, call, lead)
                 if event_type == "call.answered" and call.data["state"] not in TERMINAL | {"ENDING"}:
