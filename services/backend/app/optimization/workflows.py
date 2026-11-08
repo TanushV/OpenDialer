@@ -40,6 +40,15 @@ class TrainingRows(list):
     truncation = None
 
 
+# R8.7: train at most once a day, and only when new labeled calls exist since the last training.
+TRAINING_INTERVAL = timedelta(hours=20)
+
+
+def training_due(last, labeled, now):
+    at = timestamp(last.get("at")) if last.get("at") else None
+    return labeled > last.get("labeled", -1) and (at is None or now - at >= TRAINING_INTERVAL)
+
+
 def dataset_checksum(value):
     """Content address of a learning snapshot; the trainer re-derives it before fitting."""
     return hashlib.sha256(
@@ -1027,9 +1036,22 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 == campaign.data.get("conversation_vocabulary", {"version": 1})["version"]
             ):
                 return {"status": "superseded", "dataset_id": dataset["id"]}
-            update(campaign, conversation_report=report)
-            emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
-        training = self.train_operational(p, dataset) if config["auto_train"] else {"status": "disabled"}
+            if campaign.data.get("conversation_report") != report:
+                # No screen event for an unchanged report (section 8: no UI churn).
+                update(campaign, conversation_report=report)
+                emit(s, p["tenant_id"], "optimization.updated", campaign, self.clock())
+            last = campaign.data.get("last_training") or {}
+        labeled = sum(1 for row in dataset["rows"] if row.get("human") in (0, 1))
+        if not config["auto_train"]:
+            training = {"status": "disabled"}
+        elif not training_due(last, labeled, self.clock()):
+            training = {"status": "not_due", "labeled": labeled, "last": last}
+        else:
+            training = self.train_operational(p, dataset)
+            if training.get("job_id"):
+                with self.db.transaction() as s:
+                    campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
+                    update(campaign, last_training={"at": self.clock().isoformat(), "labeled": labeled})
         return {
             "status": "ready",
             "dataset_id": dataset["id"],

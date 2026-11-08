@@ -1136,7 +1136,8 @@ Goal: it can learn, and you can see that it is learning.
 - [x] R8.6 Automatic rollback using the 10% comparison group; record each promotion and rollback. Done November 8:
       each saved dataset compares goal rates since promotion; the comparison group beating the model by 5 points with
       100 decided calls in each group rolls it back, with the evidence audited.
-- [ ] R8.7 Training schedule from section 8; no UI churn.
+- [x] R8.7 Training schedule from section 8; no UI churn. Done November 8: training starts at most once in 20 hours and only when
+      labeled calls grew; the learning refresh announces a report only when it changed.
 - [ ] R8.8 "What it has learned" card in Review.
 - [ ] R8.9 Synthetic end-to-end test: a planted pattern in 600 calls gets learned, promoted, used and rolled back when it
       stops working.

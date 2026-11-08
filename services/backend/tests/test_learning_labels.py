@@ -179,3 +179,14 @@ def test_publishing_a_reviewed_model_makes_it_the_only_live_one(workspace, app):
         models = {m.external_key: m.data for m in s.query(MODELS["model_versions"]).all()}
     assert [k for k, m in models.items() if m["active"]] == ["training:second"]
     assert models["training:first"]["replaced_at"] and models["training:third"]["promoted_at"] is None
+
+
+def test_training_runs_at_most_daily_and_only_with_new_labels():
+    """R8.7: no retraining on every call; nightly when labels grew."""
+    from app.optimization.workflows import training_due
+
+    assert training_due({}, 120, NOW)
+    yesterday = {"at": (NOW - timedelta(hours=21)).isoformat(), "labeled": 120}
+    assert training_due(yesterday, 121, NOW)
+    assert not training_due(yesterday, 120, NOW)
+    assert not training_due({"at": (NOW - timedelta(hours=3)).isoformat(), "labeled": 100}, 150, NOW)
