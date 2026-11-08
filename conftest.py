@@ -11,6 +11,8 @@ from cryptography.fernet import Fernet
 
 # Tests are marked slow from 1 second on this Mac; the limit leaves room for a loaded or slower machine.
 SLOW_LIMIT = float(os.environ.get("OPENDIALER_SLOW_LIMIT", "5"))
+# The fast tier only runs on SQLite; PostgreSQL runs are CI-only until Phase 2 removes them.
+GUARDED = not os.environ.get("OPENDIALER_TEST_POSTGRES_URL")
 _too_slow = []
 
 
@@ -24,7 +26,8 @@ def test_secret_key():
 
 def pytest_runtest_logreport(report):
     if (
-        report.when == "call"
+        GUARDED
+        and report.when == "call"
         and report.passed
         and report.duration > SLOW_LIMIT
         and "slow" not in report.keywords

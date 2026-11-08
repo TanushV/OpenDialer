@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not os.getenv("OPENDIALER_TEST_CODEX_NATIVE"), reason="Opt-in native runtime contract")
 @pytest.mark.asyncio
 @pytest.mark.parametrize("code_mode", [False, True])
