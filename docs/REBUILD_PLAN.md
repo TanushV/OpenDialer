@@ -802,14 +802,14 @@ Local loop first (section 12A):
 Tests first:
 
 - [x] R0.1 Capture sanitized carrier timelines from the 7 real calls as test fixtures, with no names, numbers or speech.
-- [ ] R0.2 Failing regression: a prospect hang-up where audio ends before the hangup event produces no gap and no block.
-- [ ] R0.3 Failing regression: an ended call leaves the rep able to dial again after audio reconnects.
-- [ ] R0.4 Failing regression: an unmatched event from the rep's own SIP leg finishes without a failed job.
+- [x] R0.2 Failing regression: a prospect hang-up where audio ends before the hangup event produces no gap and no block.
+- [x] R0.3 Failing regression: an ended call leaves the rep able to dial again after audio reconnects.
+- [x] R0.4 Failing regression: an unmatched event from the rep's own SIP leg finishes without a failed job.
 
 Fixes:
 
-- [ ] R0.5 `managed_webhooks.py`: remove `speech_failed` from `connected`; expose it as a warning.
-- [ ] R0.6 `managed_webhooks.py`: give each refusal its real cause (sign-in needed, delivery gap, reconnecting).
+- [x] R0.5 `managed_webhooks.py`: remove `speech_failed` from `connected`; expose it as a warning.
+- [x] R0.6 `managed_webhooks.py`: give each refusal its real cause (sign-in needed, delivery gap, reconnecting).
 - [ ] R0.7 `DialerPage.tsx`: wait a short grace period and re-read the call before reporting an audio gap;
       `live_transcription.py`: ignore a gap report for an ended call.
 - [ ] R0.8 `service.py`: remove `park_after_unbridge`.
@@ -817,7 +817,7 @@ Fixes:
       keeps the rep ready; only Pause pauses.
 - [ ] R0.10 Dialer: show "They hung up · m:ss" or "You ended the call · m:ss"; add `provider_hangup_source` to the type
       and confirm the API returns it.
-- [ ] R0.11 `ingress.py`, `intelligence.py`: unmatched events without our client state become `ignored`, logged once.
+- [x] R0.11 `ingress.py`, `intelligence.py`: unmatched events without our client state become `ignored`, logged once.
 - [ ] R0.12 CSS: the dock no longer covers Save outcome; the toast no longer covers Next call.
 - [ ] R0.13 Add a top-level React error boundary and a backend log file.
 

@@ -34,8 +34,15 @@ def admission(service, p, call_id, *, finishing=False):
 
 
 def gap(service, p, call_id):
+    """Mark missing speech on a live call; returns False for a call that already ended.
+
+    Audio always stops a moment before the hangup event when the prospect hangs up, so a gap
+    reported for an ended call is that ordinary ending, not missing speech.
+    """
     with service.db.transaction() as s:
         call = service.required(s, "call_attempts", call_id, p)
+        if call.data["state"] in TERMINAL | {"ENDING"} or call.data.get("ended_at"):
+            return False
         update(
             call,
             analysis_incomplete=True,
@@ -43,6 +50,7 @@ def gap(service, p, call_id):
         )
         emit(s, p["tenant_id"], "call.updated", call, service.clock())
     service.managed.speech_failed = True
+    return True
 
 
 def bind_api(app, service, principal):
@@ -51,8 +59,7 @@ def bind_api(app, service, principal):
     @app.post("/v1/calls/{call_id}/audio-gap")
     def report_gap(call_id: str, p=Depends(principal)):
         admission(service, p, call_id, finishing=True)
-        gap(service, p, call_id)
-        return {"status": "recorded"}
+        return {"status": "recorded" if gap(service, p, call_id) else "ignored"}
 
     @app.websocket("/v1/calls/{call_id}/audio/{side}")
     async def audio(ws: WebSocket, call_id: str, side: str):
@@ -82,6 +89,7 @@ def bind_api(app, service, principal):
                 fail(409, "Telnyx key is missing")
 
             async def ready():
+                service.managed.speech_failed = False  # Speech works again on this call.
                 await ws.send_json({"status": "ready"})
 
             started, total = monotonic(), 0

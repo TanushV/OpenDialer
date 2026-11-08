@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import logging
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -13,6 +14,16 @@ from app.privacy import RAW_TTL_SECONDS, event_metadata
 from app.service import dt, fail
 from app.telephony.reducer import TERMINAL
 from app.transcripts import normalize_transcription
+
+
+def _carries_our_state(tenant_id, payload):
+    """True when a carrier event carries client state this app attached to a leg it placed."""
+    try:
+        context = json.loads(base64.b64decode(payload.get("client_state") or ""))
+    except (ValueError, TypeError):
+        return False
+    return isinstance(context, dict) and context.get("tenant_id") == tenant_id
+
 
 # Final segments of the rep's last utterance may trail the prospect hangup by a few seconds.
 AGENT_SPEECH_GRACE = 10
@@ -49,8 +60,13 @@ class WebhookIngress:
             )
             if receipt and receipt.data.get("hash") != body_hash:
                 fail(409, "Provider event ID collision")
-            if receipt and receipt.data.get("status") in {"processed", "expired_raw"}:
-                return {"received": True, "duplicate": True, "status": receipt.data["status"]}
+            if receipt and receipt.data.get("status") in {"processed", "expired_raw", "ignored"}:
+                return {
+                    "received": True,
+                    "duplicate": True,
+                    "status": receipt.data["status"],
+                    "receipt_id": receipt.id,
+                }
             if not receipt:
                 receipt = put(
                     s,
@@ -117,7 +133,7 @@ class WebhookIngress:
             receipt = s.scalar(query)
             if not receipt:
                 fail(404, "Receipt not found")
-            if receipt.data["status"] in {"processed", "expired_raw"}:
+            if receipt.data["status"] in {"processed", "expired_raw", "ignored"}:
                 return {"received": True, "duplicate": True, "status": receipt.data["status"]}
             if receipt.data.get("lease_until") and dt(receipt.data["lease_until"]) > self.clock():
                 return {"received": True, "duplicate": True, "status": "processing"}
@@ -144,6 +160,8 @@ class WebhookIngress:
                     result = self._apply_webhook_in(s, tenant_id, data, payload, raw_writes)
                     if result.get("unmatched"):
                         status = "unmatched"
+                    elif result.get("ignored") == "not_ours":
+                        status = "ignored"
                 else:
                     call, _ = self._transcription_call(s, tenant_id, data["payload"])
                     if call and self.speech_revoked(
@@ -164,7 +182,7 @@ class WebhookIngress:
             self._finish_webhook(tenant_id, receipt_id, owner, "retry", type(exc).__name__)
             raise
         self._publish_transcripts(raw_writes)
-        if status in {"processed", "expired_raw"}:
+        if status in {"processed", "expired_raw", "ignored"}:
             self.raw.discard("webhook:" + receipt_id)
         return {**result, "received": True, "status": status}
 
@@ -268,6 +286,11 @@ class WebhookIngress:
             return self._receive_inbound(tenant_id, payload, event_id, session=s, receipt=receipt)
         call = self._webhook_call(s, tenant_id, payload)
         if not call:
+            if not _carries_our_state(tenant_id, payload):
+                # Not a leg this app placed, such as the rep's own SIP leg: nothing to retry.
+                logging.getLogger(__name__).info("Ignored %s for a leg OpenDialer did not place", event_type)
+                return {"received": True, "ignored": "not_ours"}
+            # Ours, but the call row may not be written yet: retry.
             return {"received": True, "unmatched": True}
         p = {
             "tenant_id": call.tenant_id,

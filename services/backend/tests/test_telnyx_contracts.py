@@ -579,7 +579,8 @@ def test_agent_leg_client_state_cannot_name_another_tenant_call(workspace, app, 
         json.dumps({"transcript_call_id": call["id"], "tenant_id": "another-tenant"}).encode()
     ).decode()
     result = speech(workspace, app, "agent-test-id", "Forged speech.", "forged-speech", client_state=forged)
-    assert result["status"] in {"unmatched", "processed"}
+    # State naming another tenant is not ours: ignored at once, never attached and never retried.
+    assert result["status"] == "ignored"
     assert sides(app, workspace, call) == {}
 
 

@@ -840,8 +840,17 @@ class TelephonyWorkflows:
             )
             if event_type == "call.hangup":
                 user = get(s, "users", leg.data["rep_id"], tenant_id)
-                if user and user.data.get("presence", {}).get("agent_call_control_id") in {None, provider_id}:
+                presence = (user.data.get("presence") or {}) if user else {}
+                if user and presence.get("agent_call_control_id") in {None, provider_id}:
+                    # The audio leg ends with every call. The rep stays in their chosen state until
+                    # audio reconnects; only Pause pauses.
                     update(
-                        user, presence={"status": "paused", "audio_ready": False, "telephony_ready": False}
+                        user,
+                        presence={
+                            **presence,
+                            "audio_ready": False,
+                            "telephony_ready": False,
+                            "agent_call_control_id": None,
+                        },
                     )
             return True

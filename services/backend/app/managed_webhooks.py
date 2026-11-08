@@ -96,20 +96,35 @@ class ManagedConnection:
         self.configuring = False
 
     def status(self):
+        connected = bool(self.caught_up and self.last_probe and monotonic() - self.last_probe < 35)
         return {
             "configured": bool(self.config),
             "label": self.config.get("label", ""),
-            "connected": bool(
-                not self.speech_failed
-                and self.caught_up
-                and self.last_probe
-                and monotonic() - self.last_probe < 35
-            ),
+            # Speech is a warning only: a missing transcript never stops calling.
+            "connected": connected,
             "state": self.state,
+            "reason": None if connected else self.refusal(),
             "url": self.config.get("url", ""),
             "numbers": len(self.numbers),
             "speech_failed": self.speech_failed,
+            "speech_warning": (
+                "Speech was missing on a recent call. Calling continues; that call is marked as missing speech."
+                if self.speech_failed
+                else None
+            ),
         }
+
+    def refusal(self):
+        """The real reason new calls are paused, in the rep's words."""
+        if self.configuring:
+            return "Calling setup is being changed; new calls are paused"
+        if self.state == "sign_in_required":
+            return "Call events need a fresh sign-in: import the setup file in Settings. Hangup remains available."
+        if self.state == "delivery_gap":
+            return "Call events had a delivery gap and are catching up; new calls resume by themselves."
+        if self.last_probe and not self.caught_up:
+            return "Catching up on call events; new calls resume by themselves."
+        return "Call events reconnecting; new calls paused. Hangup remains available."
 
     def enabled(self, tenant_id):
         return self.service.settings.mode == "local" and self.config.get("tenant_id") == tenant_id
@@ -142,10 +157,8 @@ class ManagedConnection:
             )
 
     def require_ready(self, tenant_id):
-        if self.configuring:
-            fail(409, "Calling setup is being changed; new calls are paused")
-        if self.enabled(tenant_id) and not self.status()["connected"]:
-            fail(409, "Call events reconnecting; new calls paused. Hangup remains available.")
+        if self.configuring or (self.enabled(tenant_id) and not self.status()["connected"]):
+            fail(409, self.refusal())
 
     async def make_client(self, config, storage=None):
         from supabase import AsyncClientOptions, acreate_client

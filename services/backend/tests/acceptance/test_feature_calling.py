@@ -566,7 +566,12 @@ def test_dial_without_carrier_evidence_is_confirmed_not_placed_by_the_operator(w
 
 def test_dead_webhook_job_is_listed_and_retried(workspace, clock):
     ws = workspace
-    Telnyx(ws, clock).deliver("call.hangup", {"call_control_id": "gone-call"}, "evt-gone")
+    # Our own client state on a call that never got a row: retried until dead. A leg without our
+    # state (the rep's SIP leg) is ignored instead and never becomes a dead job.
+    ours = base64.b64encode(json.dumps({"call_id": "gone", "tenant_id": ws["tenant_id"]}).encode()).decode()
+    Telnyx(ws, clock).deliver(
+        "call.hangup", {"call_control_id": "gone-call", "client_state": ours}, "evt-gone"
+    )
     for _ in range(4):
         run_jobs(ws)
         clock.now += timedelta(seconds=31)
