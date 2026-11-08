@@ -1,6 +1,9 @@
-# OpenDialer lean plan (active)
+# OpenDialer lean plan (superseded)
 
-Approved by the user on October 22, 2026. This is the active plan. It supersedes the mechanisms (not the features) of
+**Superseded on November 6, 2026 by [REBUILD_PLAN.md](REBUILD_PLAN.md), which is now the active plan.** This file stays as
+the record through release 1.0.1.
+
+Approved by the user on October 22, 2026. It supersedes the mechanisms (not the features) of
 [REMEDIATION_PLAN.md](REMEDIATION_PLAN.md) and [EXECUTION_SPEC.md](EXECUTION_SPEC.md), which stay as history and as the
 detailed description of what each feature does. Progress and evidence go in the "Status" section at the end of this
 file; [STATUS.md](STATUS.md) keeps the historical log.
