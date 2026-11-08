@@ -5,11 +5,7 @@ import json
 from copy import deepcopy
 from typing import Annotated, Literal
 
-from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
-from app.db import audit, doc, emit, update
-from app.service import fail
 
 CallType = Literal["cold_introduction", "qualification", "discovery", "follow_up"]
 Purpose = Literal["cold_introduction", "qualification", "discovery", "follow_up", "unknown"]
@@ -295,68 +291,3 @@ def effective(call):
     return call.get("rubric_snapshot") or snapshot(
         {"default_call_type": "cold_introduction", "rubrics": defaults(), "expected_version": 1}
     )
-
-
-def bind_api(app, service, principal, administrator):
-    @app.get("/v1/admin/rubrics")
-    def get_config(campaign_id: str, p=Depends(administrator)):
-        with service.db.transaction(False) as s:
-            return configuration(service.required(s, "campaigns", campaign_id, p))
-
-    @app.put("/v1/admin/rubrics")
-    def save_config(data: RubricConfig, p=Depends(administrator)):
-        with service.db.transaction() as s:
-            campaign = service.required(s, "campaigns", data.campaign_id, p)
-            if configuration(campaign)["expected_version"] != data.expected_version:
-                fail(409, "Scoring rubrics changed; reload before saving")
-            update(
-                campaign,
-                rubric_config=data.model_dump(exclude={"campaign_id", "expected_version"}),
-                rubric_config_version=data.expected_version + 1,
-            )
-            audit(
-                s,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "rubrics.updated",
-                campaign.id,
-                service.clock(),
-            )
-            return configuration(campaign)
-
-    @app.put("/v1/calls/{call_id}/rubric")
-    def change_purpose(call_id: str, data: PurposeEdit, p=Depends(principal)):
-        with service.db.transaction() as s:
-            call = service.required(s, "call_attempts", call_id, p)
-            if call.version != data.expected_version:
-                fail(409, "Call changed; refresh before changing its purpose")
-            lead = service.required(s, "leads", call.data["lead_id"], p)
-            campaign = service.required(s, "campaigns", lead.data["campaign_id"], p)
-            update(
-                call,
-                rubric_snapshot=snapshot(configuration(campaign), data.call_type),
-                rubric_revision=call.data.get("rubric_revision", 1) + 1,
-            )
-            # The stale token exists even before any reader: a rating of the old purpose
-            # can never be recorded against the new rubric.
-            _, card = service._materialize_views_in(s, p, call, notes=False)
-            update(card, stale=True)
-            audit(
-                s,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "call.purpose_changed",
-                call_id,
-                service.clock(),
-                {
-                    "call_type": data.call_type,
-                    "reason": data.reason,
-                    "rubric_revision": call.data["rubric_revision"],
-                },
-            )
-            if service.transcript_rows(s, p, call_id):
-                service.enqueue_finalize(s, p, call, "purpose_changed")
-            emit(s, p["tenant_id"], "call.updated", call, service.clock())
-            return doc(call)

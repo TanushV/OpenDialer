@@ -883,8 +883,10 @@ Order, each as its own commit with its tests removed:
 - [x] R2.3 Experiments UI, comparisons, trials, drift, treatment variants, conversation associations; keep holdout
       assignment and training. Done November 7: routes, screens and tests removed. Saved trial and comparison state is
       still read inside projections and is removed with them in R8.4 to R8.6.
-- [ ] R2.4 Coaching: practice, goals, library, snippets, trackers, comments, replay, strategies; rubric scorecards,
-      appeals, review queue.
+- [x] R2.4 Coaching: practice, goals, library, snippets, trackers, comments, replay, strategies; rubric scorecards,
+      appeals, review queue. Done November 7: routes, screens and tests removed. The live helper still reads reviewed
+      examples from `coaching/library.py`, and post-call finalization still computes scorecards; both go with R10.1 and
+      R10.2, which rebuild those paths.
 - [ ] R2.5 Compliance: registries, snapshots, consent evidence, RND import, scheduled screening; keep suppressions, hours
       and manual check.
 - [ ] R2.6 SSH tunnel (Rust and UI), direct webhook route, ingress check, API-key and LiteLLM settings, script proposals

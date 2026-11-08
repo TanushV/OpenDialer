@@ -4,9 +4,7 @@ import { HistoryMore } from "./HistoryMore";
 import { OperatingPolicySettings } from "./OperatingPolicySettings";
 import { CallbackRouting } from "./CallbackRouting";
 import { RecoveryPanel } from "./RecoveryPanel";
-import { RubricSettings } from "./Rubrics";
 import { AccessAndRecovery } from "./AdminWorkflows";
-import { Trackers } from "./AdvancedIntelligence";
 import {
   LearningAdvanced,
   type OptimizationSettings,
@@ -1400,13 +1398,8 @@ function MoreSettings({
             <CallbackRouting />
           </details>
           <details>
-            <summary>Call scoring</summary>
-            <RubricSettings />
-          </details>
-          <details>
-            <summary>Learning experiments and trackers</summary>
+            <summary>Learning</summary>
             <LearningAdvanced />
-            <Trackers />
           </details>
           <details>
             <summary>Users, backups and recovery</summary>

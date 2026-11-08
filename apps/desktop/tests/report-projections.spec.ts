@@ -92,7 +92,7 @@ const savedReport = {
 };
 
 async function openAdvanced(page: import("@playwright/test").Page) {
-  await openMoreSettings(page, "Learning experiments and trackers");
+  await openMoreSettings(page, "Learning");
 }
 
 async function openIntelligence(page: import("@playwright/test").Page) {

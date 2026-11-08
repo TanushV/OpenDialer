@@ -386,70 +386,6 @@ def test_conversation_review_runs_on_its_clock_and_marks_the_model_observation(
     assert review_states(ws, cid) == [("need", "reviewed", "model_reviewed")]
 
 
-def test_model_rundown_scorecard_and_tracker_match_publish_after_finalization(workspace, app, monkeypatch):
-    ws = workspace
-    tracker = call(
-        ws,
-        "POST",
-        "/v1/admin/trackers",
-        json={
-            "kind": "semantic",
-            "name": "Budget objection",
-            "definition": "Prospect rejects spending",
-            "positive_examples": ["We have no budget"],
-            "negative_examples": ["Budget is approved"],
-        },
-    )
-    cid = finish_call(ws, app, monkeypatch, {"finalize": finalize_rundown})
-    assert get(ws, f"/v1/calls/{cid}")["rundown_status"] == "ready"
-    an = get(ws, f"/v1/calls/{cid}/analysis")
-    assert an["finalization"]["status"] == "ready"
-    assert an["notes"]["summary"].split("\n") == RUNDOWN
-    items = {item["dimension"]: item for item in an["scorecard"]["items"]}
-    assert items["identity_relevance"]["status"] == "SCORED" and items["identity_relevance"]["score"] == 2
-    assert items["identity_relevance"]["explanation"] == "Opened with company identity and a brief purpose"
-    assert items["listening_response"]["status"] == "INSUFFICIENT_EVIDENCE"
-    coverage = an["interpretation_coverage"]
-    assert coverage["interpreted_segments"] == coverage["total_segments"] == 2
-    [match] = [m for m in an["trackers"] if m["tracker_id"] == tracker["id"]]
-    assert match["kind"] == "semantic" and match["evidence"] == ["s1"]
-
-
-def test_coaching_point_becomes_a_library_snippet_and_recent_coaching_history(
-    workspace, app, monkeypatch, clock
-):
-    ws = workspace
-    cid = finish_call(ws, app, monkeypatch, {"finalize": finalize_coaching})
-    clock.now += timedelta(seconds=31)
-    run_jobs(ws)
-    point = get(ws, f"/v1/calls/{cid}/analysis")["call_memory"]["coaching_points"][0]
-    assert point["text"] == COACHING
-    history = get(ws, "/v1/coaching")["recent_tips"]
-    assert [entry["call_id"] for entry in history] == [cid]
-    assert history[0]["tips"][0]["text"] == COACHING
-    version = get(ws, f"/v1/calls/{cid}")["transcript_version"]
-    snippet = call(
-        ws,
-        "POST",
-        "/v1/admin/snippets",
-        json={
-            "call_id": cid,
-            "coaching_point_id": point["id"],
-            "expected_transcript_version": version,
-            "review_reference": "SIM-REVIEW-1",
-        },
-    )
-    library = get(ws, "/v1/coaching")["examples"]
-    assert [e["text"] for e in library] == [COACHING]
-    assert library[0]["raw_evidence_status"] == "available_temporarily"
-    clock.now += timedelta(seconds=301)
-    library = get(ws, "/v1/coaching")["examples"]
-    assert library[0]["text"] == COACHING and library[0]["raw_evidence_status"] == "expired"
-    withdrawn = {"expected_version": snippet["version"], "approved": False}
-    call(ws, "PATCH", f"/v1/admin/snippets/{snippet['id']}", json=withdrawn)
-    assert get(ws, "/v1/coaching")["examples"] == []
-
-
 def settled(ws, path):
     for _ in range(30):
         body = get(ws, path)
@@ -457,40 +393,6 @@ def settled(ws, path):
             return body
         run_jobs(ws)
     raise AssertionError(body["projection"])
-
-
-def test_rep_confirms_a_reviewed_approach_and_it_becomes_a_reviewed_opportunity(
-    workspace, app, monkeypatch, clock
-):
-    ws = workspace
-    cid = finish_call(ws, app, monkeypatch, {"finalize": finalize_coaching})
-    clock.now += timedelta(seconds=31)
-    run_jobs(ws)
-    memory = get(ws, f"/v1/calls/{cid}/analysis")["call_memory"]
-    approach = next(o for o in memory["observations"] if o["kind"] == "approach")
-    assert approach["review_status"] == "reviewed" and approach["epistemic_status"] == "model_reviewed"
-    [opportunity] = get(ws, "/v1/coaching")["reviewed_opportunities"]
-    assert opportunity["concept"] == APPROACH and opportunity["approach"] == "Opened with identity first"
-    path = f"/v1/calls/{cid}/observations/{approach['id']}/review"
-    confirmed = call(
-        ws,
-        "POST",
-        path,
-        json={
-            "expected_version": approach["version"],
-            "decision": "confirm",
-            "reason": "Rep confirmed the opener",
-        },
-    )
-    assert confirmed["review_status"] == "human_confirmed"
-    stale = ws["client"].post(
-        path,
-        headers=ws["headers"],
-        json={"expected_version": approach["version"], "decision": "retract", "reason": "Changed my mind"},
-    )
-    assert stale.status_code == 409
-    [row] = get(ws, "/v1/coaching")["reviewed_opportunities"]
-    assert row["review_status"] == "human_confirmed"
 
 
 def test_private_help_streams_a_partial_answer_then_settles_on_the_same_identity(workspace, app, monkeypatch):

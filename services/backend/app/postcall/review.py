@@ -1,17 +1,12 @@
 """Append-only human score reviews; the model assessment is never overwritten."""
 
-import hashlib
-import json
 from copy import deepcopy
 from typing import Literal
 
-from fastapi import Depends
 from pydantic import Field, model_validator
 
-from app.db import audit, doc, emit, get, put, update
 from app.postcall.analysis import score_summary
-from app.postcall.rubrics import Strict, effective
-from app.service import fail
+from app.postcall.rubrics import Strict
 
 RATINGS = {"SCORED", "N/A", "INSUFFICIENT_EVIDENCE"}
 
@@ -80,102 +75,3 @@ def reviewed_view(card, reviews, revisions, live_ids):
             )
     result["overall"] = score_summary(result["items"], list(items))
     return result, history
-
-
-def bind_api(app, service, principal):
-    @app.post("/v1/scorecards/{scorecard_id}/review")
-    def save_review(scorecard_id: str, data: ScoreReview, p=Depends(principal)):
-        fingerprint = hashlib.sha256(json.dumps(data.model_dump(), sort_keys=True).encode()).hexdigest()
-        key = f"score-review:{p['user_id']}:{data.request_id}" if data.request_id else None
-        with service.db.transaction() as s:
-            if get(s, "scorecards", scorecard_id, p["tenant_id"]):
-                card = service.required(s, "scorecards", scorecard_id, p)
-                call = service.required(s, "call_attempts", card.data["call_id"], p)
-            else:
-                # The analysis read never creates the scorecard; until a writer does, the
-                # read addresses it by its call (the scorecard's own key), version 0.
-                call = service.required(s, "call_attempts", scorecard_id, p)
-            s.refresh(call, with_for_update=True)
-            card = service._by_key(s, p, "scorecards", call.id)
-            if card:
-                s.refresh(card, with_for_update=True)
-            previous = service._by_key(s, p, "reviews", key) if key else None
-            if previous:
-                if (
-                    previous.data.get("fingerprint") != fingerprint
-                    or not card
-                    or (previous.data["scorecard_id"] != card.id)
-                ):
-                    fail(409, "This review request was already used with different content")
-                return doc(previous)
-            outdated = card is not None and (
-                card.data.get("stale")
-                or card.data["transcript_version"] != call.data["transcript_version"]
-                or card.data["rubric_version"] != effective(call.data)["rubric_version"]
-            )
-            if (data.expected_version is None and outdated) or (
-                data.expected_version is not None and data.expected_version != (card.version if card else 0)
-            ):
-                fail(409, "The assessment changed; reload before reviewing")
-            # The reviewer read the current generated view at this version: record it.
-            _, card = service._materialize_views_in(s, p, call, notes=False)
-            dimensions = {item["dimension"] for item in card.data["items"]}
-            if data.dimension is not None and data.dimension not in dimensions:
-                fail(422, "Review dimension is not in this call's rubric")
-            revisions = {}
-            for identity in data.evidence:
-                segment = service._by_key(s, p, "transcript_segments", call.id + ":" + identity)
-                if not segment or not segment.data.get("is_final") or segment.data.get("system_audio"):
-                    fail(422, "Review evidence does not exist in this call")
-                revisions[identity] = segment.data.get("revision", 1)
-            if data.resolves_review_id:
-                appeal = get(s, "reviews", data.resolves_review_id, p["tenant_id"])
-                if (
-                    not appeal
-                    or appeal.seller_id != p["seller_id"]
-                    or appeal.data.get("scorecard_id") != card.id
-                    or appeal.data["status"] != "disputed"
-                ):
-                    fail(422, "Select an appeal belonging to this scorecard")
-                if appeal.data.get("resolution_id"):
-                    fail(409, "This appeal already has a resolution")
-                if data.status in RATINGS and appeal.data.get("dimension") not in {None, data.dimension}:
-                    fail(422, "The rating must address the appealed dimension")
-            else:
-                appeal = None
-            sequence = card.data.get("review_sequence", 0) + 1
-            obj = put(
-                s,
-                "reviews",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    **data.model_dump(exclude={"expected_version", "request_id"}),
-                    "scorecard_id": card.id,
-                    "rubric_version": card.data["rubric_version"],
-                    "transcript_version": card.data["transcript_version"],
-                    "evidence_revisions": revisions,
-                    "reviewer_id": p["user_id"],
-                    "reviewer_role": p["role"],
-                    "sequence": sequence,
-                    "fingerprint": fingerprint,
-                    "at": service.clock().isoformat(),
-                },
-                key=key,
-                now=service.clock(),
-            )
-            if appeal:
-                update(appeal, resolution_id=obj.id)
-            update(card, review_sequence=sequence)
-            audit(
-                s,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "scorecard.reviewed",
-                card.id,
-                service.clock(),
-                {"review_id": obj.id, "status": data.status},
-            )
-            emit(s, p["tenant_id"], "scorecard.updated", card, service.clock())
-            return doc(obj)

@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { openMoreSettings, openSettingsCard } from "./navigation";
+import { openSettingsCard } from "./navigation";
 import { chooseOutcome, waitForPreparation } from "./simulation";
 
 async function enterSimulation(page: import("@playwright/test").Page) {
@@ -120,24 +120,10 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
   await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
 });
 
-test("advanced administration exposes evidence-controlled workflows", async ({
+test("calling needs no business or campaign approval paperwork", async ({
   page,
 }) => {
   await enterSimulation(page);
-  // Trackers are advanced analysis configuration: Settings → More settings.
-  await openMoreSettings(page, "Learning experiments and trackers");
-  await page.getByLabel("Tracker name").fill("Existing supplier");
-  await page
-    .getByLabel("Tracker definition")
-    .fill("A prospect explicitly mentions an existing supplier.");
-  await page
-    .getByRole("textbox", { name: "Keyword phrases", exact: true })
-    .fill("another provider\nexisting supplier");
-  await page.getByRole("button", { name: "Publish tracker" }).click();
-  await expect(
-    page.getByText("Existing supplier", { exact: true }),
-  ).toBeVisible();
-  // Calling needs no business or campaign approval paperwork.
   const hours = await openSettingsCard(page, "Calling hours");
   await expect(hours).not.toContainText(
     /Approved for live calls|Confirm our business|not approved/,

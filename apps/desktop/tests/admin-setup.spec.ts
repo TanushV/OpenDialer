@@ -231,7 +231,6 @@ test("settings is one short page with everything else folded away", async ({
     "Campaign goal",
     "Do-not-call checks and consent",
     "Callbacks",
-    "Call scoring",
     "Users, backups and recovery",
   ])
     await expect(
@@ -334,7 +333,7 @@ test("advanced detail is one collapsed view and debug controls are gone", async 
   await expect(page.getByLabel("Conversion goal")).toHaveCount(0);
   await openSettings(page);
   expect(strategyReads).toEqual([]);
-  await openMore(page, "Learning experiments and trackers");
+  await openMore(page, "Learning");
   await expect(page.getByLabel("Human pickup prior successes")).toHaveCount(0);
   await page.getByText("Sparse estimate assumptions", { exact: true }).click();
   await expect(page.getByTestId("estimate-assumptions")).toContainText(

@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.administration import Dialer
-from app.coaching import knowledge, library
+from app.coaching import knowledge
 from app.compliance.consent import ConsentChange
 from app.compliance.consent import record as record_consent
 from app.compliance.operating import DNCAuthorization, bind_operating_api
@@ -491,11 +491,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     from app.live_transcription import bind_api as bind_audio_api
 
     bind_audio_api(app, service, principal)
-    from app.postcall.review import bind_api as bind_review_api
-    from app.postcall.rubrics import bind_api as bind_rubrics_api
-
-    bind_rubrics_api(app, service, principal, administrator)
-    bind_review_api(app, service, principal)
 
     def local_nonce(value):
         if not settings.local_token or not secrets.compare_digest(value or "", settings.local_token):
@@ -776,14 +771,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def cancel_coach(call_id: str, data: CoachCancel, p=Depends(principal)):
         return service.cancel_help(p, call_id, str(data.request_id))
 
-    @app.get("/v1/coaching")
-    def coaching(p=Depends(principal)):
-        return library.overview(service, p)
-
-    @app.put("/v1/coaching/goals")
-    def coaching_goals(data: library.GoalsEdit, p=Depends(principal)):
-        return library.save_goals(service, p, data.model_dump(mode="json"))
-
     @app.get("/v1/calls/{call_id}/analysis")
     def analysis(call_id: str, p=Depends(principal)):
         return service.analysis(p, call_id)
@@ -793,21 +780,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return service.edit_notes(
             p, call_id, data.expected_version, data.text, expected_edit_version=data.expected_edit_version
         )
-
-    @app.post("/v1/calls/{call_id}/comments")
-    def comment(call_id: str, data: dict, p=Depends(principal)):
-        with db.transaction() as s:
-            service.required(s, "call_attempts", call_id, p)
-            return doc(
-                put(
-                    s,
-                    "comments",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {"call_id": call_id, "author_id": p["user_id"], "text": str(data.get("text", ""))[:4000]},
-                    now=clock(),
-                )
-            )
 
     @app.get("/v1/events")
     def events(after: int = 0, p=Depends(principal)):
@@ -1580,39 +1552,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def control_run(p=Depends(administrator)):
         return await service.dispatch_controls(p)
 
-    @app.post("/v1/admin/trackers")
-    def publish_tracker(data: dict, p=Depends(administrator)):
-        if (
-            data.get("kind") not in {"keyword", "semantic"}
-            or not data.get("name")
-            or not data.get("definition")
-        ):
-            fail(422, "Tracker type, name and definition are required")
-        if data["kind"] == "keyword" and not data.get("phrases"):
-            fail(422, "Keyword tracker needs phrases")
-        if data["kind"] == "semantic" and (
-            not data.get("positive_examples") or not data.get("negative_examples")
-        ):
-            fail(422, "Semantic trackers need reviewed positive and negative examples")
-        with db.transaction() as session:
-            obj = put(
-                session,
-                "trackers",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "name": str(data["name"])[:200],
-                    "kind": data["kind"],
-                    "definition": str(data["definition"])[:1000],
-                    "phrases": data.get("phrases", []),
-                    "positive_examples": data.get("positive_examples", []),
-                    "negative_examples": data.get("negative_examples", []),
-                    "evaluation_status": "review_required",
-                },
-                now=clock(),
-            )
-            return doc(obj)
-
     @app.post("/v1/admin/models/train")
     def train_model(data: dict, p=Depends(administrator)):
         if data:
@@ -1665,14 +1604,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 {"reason": data["reason"]},
             )
             return doc(model)
-
-    @app.post("/v1/admin/snippets")
-    def publish_snippet(data: library.ExampleReview, p=Depends(administrator)):
-        return library.publish(service, p, data.model_dump())
-
-    @app.patch("/v1/admin/snippets/{example_id}")
-    def withdraw_snippet(example_id: str, data: library.ExampleWithdraw, p=Depends(administrator)):
-        return library.withdraw(service, p, example_id, data.expected_version)
 
     @app.post("/v1/admin/rnd/results")
     def import_rnd(data: dict, p=Depends(administrator)):

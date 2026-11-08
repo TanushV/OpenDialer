@@ -44,7 +44,7 @@ test("optimization goals, forecast, learning state and provider settings persist
   await expect(page.getByTestId("saved-goal")).toContainText("Sale won");
   // Latency breakdowns are diagnostics that no longer sit in the normal view.
   await expect(page.getByText(/p95 inference/)).toHaveCount(0);
-  await openMoreSettings(page, "Learning experiments and trackers");
+  await openMoreSettings(page, "Learning");
   await expect(
     page.getByText("Operational training dataset", { exact: true }),
   ).toBeVisible();

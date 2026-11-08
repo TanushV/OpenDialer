@@ -177,58 +177,6 @@ test("review notes start empty and the AI summary stays read-only", async ({
   );
 });
 
-test("per-call review drafts and evidence reset when switching calls", async ({
-  page,
-}) => {
-  await page.route("**/v1/calls/*/analysis", async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.notes.objections = [
-      { text: "Synthetic objection", evidence: ["synthetic-segment"] },
-    ];
-    await route.fulfill({ response, json: body });
-  });
-  await enter(page);
-  await prepareSimulationCall(page, "Switch review fixture", "+14155550603");
-  const names: string[] = [];
-  for (let index = 0; index < 2; index++) {
-    const reserved = page.waitForResponse((r) =>
-      r.url().endsWith("/v1/queue/next"),
-    );
-    await page
-      .getByRole("button", { name: "Get next lead", exact: true })
-      .click();
-    names.push((await (await reserved).json()).lead.name);
-    await page.getByRole("button", { name: "Start call", exact: true }).click();
-    await page.getByRole("button", { name: "Hang up", exact: true }).click();
-    await chooseOutcome(page, "no_answer");
-    await page
-      .getByRole("button", { name: "Save outcome", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", { name: "Save outcome", exact: true }),
-    ).toBeHidden();
-  }
-  await page.getByRole("button", { name: "Pause dialing" }).click();
-  await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page
-    .getByRole("button", { name: `Review call ${names[0]}`, exact: true })
-    .first()
-    .click();
-  await page.getByRole("button", { name: "synthetic-segment" }).click();
-  await page.getByLabel("Comment", { exact: true }).fill("Draft for call A");
-  await page.getByRole("button", { name: "All conversations" }).click();
-  await page
-    .getByRole("button", { name: `Review call ${names[1]}`, exact: true })
-    .first()
-    .click();
-  await expect(page.getByLabel("Comment", { exact: true })).toHaveValue("");
-  await page.getByLabel("Review action").selectOption("SCORED");
-  await expect(
-    page.getByText(/Select supporting transcript moments/),
-  ).toBeVisible();
-});
-
 test("a saved outcome stays saved when the follow-up refresh fails", async ({
   page,
 }) => {

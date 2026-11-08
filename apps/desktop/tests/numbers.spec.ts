@@ -121,7 +121,7 @@ for (const connected of [false]) {
     await expect(page.getByLabel("Reviewed daily limit")).toHaveValue(
       String(original - 1),
     );
-    await openMoreSettings(page, "Learning experiments and trackers");
+    await openMoreSettings(page, "Learning");
     await page
       .getByText("Advanced number evidence policy", { exact: true })
       .click();
@@ -136,7 +136,7 @@ for (const connected of [false]) {
       .click();
     expect((await policy).ok()).toBeTruthy();
     await page.reload();
-    await openMoreSettings(page, "Learning experiments and trackers");
+    await openMoreSettings(page, "Learning");
     await page
       .getByText("Advanced number evidence policy", { exact: true })
       .click();

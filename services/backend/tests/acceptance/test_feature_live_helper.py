@@ -205,7 +205,7 @@ def test_reviewed_tips_reach_the_coaching_report_with_their_timing(workspace, cl
 
 
 @pytest.mark.slow
-def test_raw_speech_expires_at_five_minutes_while_notes_comments_and_outcome_remain(workspace, clock):
+def test_raw_speech_expires_at_five_minutes_while_notes_and_outcome_remain(workspace, clock):
     ws = workspace
     call_id = start(ws)["id"]
     lead_id = get(ws, f"/v1/calls/{call_id}")["lead_id"]
@@ -219,7 +219,6 @@ def test_raw_speech_expires_at_five_minutes_while_notes_comments_and_outcome_rem
         f"/v1/calls/{call_id}/notes",
         json={"expected_edit_version": 0, "text": "Wants a pricing sheet."},
     )
-    post(ws, f"/v1/calls/{call_id}/comments", {"text": "Handled the objection well"})
     call(ws, "POST", f"/v1/calls/{call_id}/hangup")
     wrap_up(ws, call_id, outcome="not_interested", contact_role="right_party")
     run_jobs(ws)
@@ -233,9 +232,8 @@ def test_raw_speech_expires_at_five_minutes_while_notes_comments_and_outcome_rem
     analysis = get(ws, f"/v1/calls/{call_id}/analysis")
     assert MARKER not in json.dumps(analysis) and analysis["transcript"] == []
     assert analysis["human_notes"] == "Wants a pricing sheet." and analysis["status"] == "human_confirmed"
-    assert [c["text"] for c in analysis["comments"]] == ["Handled the objection well"]
     assert analysis["call"]["outcome"] == "not_interested"
-    for path in ("/v1/events", "/v1/workspace", "/v1/coaching", f"/v1/leads/{lead_id}/packet"):
+    for path in ("/v1/events", "/v1/workspace", f"/v1/leads/{lead_id}/packet"):
         assert MARKER not in json.dumps(get(ws, path)), path
 
 

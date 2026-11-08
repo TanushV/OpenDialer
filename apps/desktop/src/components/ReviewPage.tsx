@@ -5,7 +5,6 @@ import {
   ChevronRight,
   MessageSquare,
   Quote,
-  ShieldCheck,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useHistory } from "../state/useHistory";
@@ -13,9 +12,6 @@ import { HistoryMore } from "./HistoryMore";
 import { date, label, useWorkspace } from "../context";
 import type { Analysis } from "../types";
 import { Empty } from "./Operations";
-import { CallPurpose } from "./Rubrics";
-import { ScoreReview } from "./ScoreReview";
-import { Coaching, ReviewTip } from "./Coaching";
 import { FollowupTasks } from "./FollowupTasks";
 import { WrapUp } from "./WrapUp";
 
@@ -25,7 +21,6 @@ export function ReviewPage() {
   useSpeechExpiry(analysis, setAnalysis);
   // Per-call drafts: the human note, a comment and selected evidence.
   const [notes, setNotes] = useState("");
-  const [comment, setComment] = useState("");
   const [highlight, setHighlight] = useState<string[]>([]);
   const savedNotes = useRef<string | null>(null);
   const selectedCall = useRef<string | null>(null);
@@ -58,7 +53,6 @@ export function ReviewPage() {
     requestVersion.current++;
     savedNotes.current = null;
     setNotes("");
-    setComment("");
     setHighlight([]);
   }
   async function open(id: string) {
@@ -91,7 +85,6 @@ export function ReviewPage() {
             </select>
           </label>
         </div>
-        <Coaching onReview={open} />
         <section className="card padded" aria-label="Follow-ups">
           <h2>Follow-ups</h2>
           <FollowupTasks />
@@ -270,13 +263,6 @@ export function ReviewPage() {
                   <li key={item.id || index}>
                     {item.text}
                     {item.status === "resolved" ? " · Resolved" : ""}
-                    {key === "coaching_points" && item.id && (
-                      <ReviewTip
-                        callId={analysis.call.id}
-                        version={analysis.call.transcript_version}
-                        pointId={item.id}
-                      />
-                    )}
                   </li>
                 ))}
               </ul>
@@ -456,72 +442,6 @@ export function ReviewPage() {
                 relying on their absence.
               </p>
             )}
-          </section>
-          <section className="card padded">
-            <div className="card-eyebrow">
-              <span>
-                <ShieldCheck size={15} /> REVIEWABLE SCORECARD
-              </span>
-              <span>
-                {analysis.scorecard.overall.score === null
-                  ? "Insufficient evidence"
-                  : `${Math.round(analysis.scorecard.overall.score)}/100`}
-              </span>
-            </div>
-            <CallPurpose
-              analysis={analysis}
-              reload={() => reload(analysis.call.id)}
-            />
-            <p className="muted small">
-              Evidence coverage:{" "}
-              {Math.round(analysis.scorecard.overall.coverage * 100)}%. N/A and
-              insufficient-evidence dimensions do not lower an overall score.
-            </p>
-            {analysis.scorecard.items.map((item) => (
-              <div className="score-row" key={item.dimension}>
-                <div>
-                  <strong>{item.title || label(item.dimension)}</strong>
-                  <small>{item.explanation}</small>
-                </div>
-                <span className="pill subtle">
-                  {item.score === null ? label(item.status) : `${item.score}/2`}
-                </span>
-              </div>
-            ))}
-            <ScoreReview
-              key={analysis.call.id}
-              analysis={analysis}
-              evidence={highlight}
-              reload={() => reload(analysis.call.id)}
-            />
-          </section>
-          <section className="card padded">
-            <h3>Review comments</h3>
-            {analysis.comments.map((c, i) => (
-              <p key={i}>{c.text}</p>
-            ))}
-            <label>
-              Comment
-              <input
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-              />
-            </label>
-            <button
-              className="secondary"
-              disabled={!comment}
-              onClick={() =>
-                void run(async () => {
-                  await api(`/v1/calls/${analysis.call.id}/comments`, "POST", {
-                    text: comment,
-                  });
-                  await reload(analysis.call.id);
-                  setComment("");
-                })
-              }
-            >
-              Add comment
-            </button>
           </section>
         </div>
       </div>
