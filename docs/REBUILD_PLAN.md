@@ -858,7 +858,7 @@ Goal: today's failures become failing tests before any structure changes.
       largest function `save_disposition` 301, largest file `styles.css` 2,506; 20 silent `except Exception`, 119
       `simulation` references outside the replay carrier.
 - [x] R1.9 Remove the retry from `finishCall` in `tests/simulation.ts`; find and fix any save conflict it hid.
-- [ ] R1.10 Save baselines for `scripts/bench.py`, `scripts/size.py` and the three `check.py` tiers.
+- [x] R1.10 Save baselines for `scripts/bench.py`, `scripts/size.py` and the three `check.py` tiers.
 
 Tests that are expected to fail until a later phase are marked as expected failures, so `main` stays green and CI flags one
 that starts passing.

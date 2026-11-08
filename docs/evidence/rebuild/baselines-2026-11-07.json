@@ -1,0 +1,67 @@
+{
+  "date": "2026-11-07",
+  "source": "007864e",
+  "note": "Phase 1 baselines (R1.10). This Mac is shared with other workloads; tier times are at the load noted.",
+  "size_caps": {
+    "backend lines": {
+      "value": 39525,
+      "where": "",
+      "cap": 18000
+    },
+    "frontend lines (with CSS)": {
+      "value": 22240,
+      "where": "",
+      "cap": 7500
+    },
+    "test lines": {
+      "value": 29855,
+      "where": "",
+      "cap": 12000
+    },
+    "tables": {
+      "value": 57,
+      "where": "",
+      "cap": 30
+    },
+    "routes": {
+      "value": 162,
+      "where": "",
+      "cap": 75
+    },
+    "largest function": {
+      "value": 301,
+      "where": "rep_workflows.py:save_disposition",
+      "cap": 120
+    },
+    "largest file": {
+      "value": 2514,
+      "where": "apps/desktop/src/styles.css",
+      "cap": 700
+    }
+  },
+  "rule_bans": {
+    "silent except Exception": 20,
+    ".data.get( in core": 0,
+    "simulation outside the replay carrier": 119,
+    "tenant_id in core": 0
+  },
+  "check_tiers_seconds": {
+    "fast": {
+      "seconds": 39,
+      "load_average": 22
+    },
+    "full_without_browser": {
+      "seconds": 94,
+      "load_average": "about 12"
+    },
+    "browser_webkit_4_workers": {
+      "seconds": 235,
+      "load_average": "about 12"
+    },
+    "package": {
+      "seconds": 126,
+      "load_average": "not recorded"
+    }
+  },
+  "bench": "bench-baseline-2026-11-07.json (2,000 leads, 20,000 attempts, 20 samples)"
+}
