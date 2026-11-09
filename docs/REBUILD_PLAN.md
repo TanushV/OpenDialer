@@ -1480,8 +1480,9 @@ existing test, because each test checked one piece and none asked whether every 
 - [x] R9E.6 Watchdog: a self-clearing blocker that outlives its promise triggers its repair automatically and is logged;
       if the repair fails, the screen shows the real fix control instead of "clears by itself".
       Done November 9: `calling/watchdog.py`, run by the maintenance tick; a stuck connection shows Reconnect in the Dialer and in Review.
-- [ ] R9E.7 Rebuild the relay connection (`managed_webhooks.py`) as a plain module on the model, as Phase 4 did for
+- [x] R9E.7 Rebuild the relay connection (`managed_webhooks.py`) as a plain module on the model, as Phase 4 did for
       the dial loop.
+      Done November 9 as decisions: `calling/relay.py` `after_exchange` and `after_failure` decide every step of the loop and are checked over every combination; `managed_webhooks.py` only carries them out.
 - [ ] R9E.8 The Dialer shows the rep's own Start and Pause at once and never derives a control from a re-read that
       may predate it (done November 9 for Start and Pause; extend to every control).
 - [ ] R9E.9 Optional, owner decision: a scheduled real test call to the owner's test line to prove the carrier path
