@@ -2657,6 +2657,10 @@ details.transcript-card {
   display: flex;
   gap: 8px;
 }
+/* A row's own control (ChatGPT login, call connection, calling hours) spans the row under its text. */
+.setup-row-extra {
+  grid-column: 1 / -1;
+}
 @media (max-width: 1100px) {
   .setup-row {
     grid-template-columns: minmax(0, 1fr);

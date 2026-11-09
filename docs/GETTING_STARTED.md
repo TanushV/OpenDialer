@@ -14,12 +14,13 @@ Settings shows one row per thing to set, and a status at the top: **Ready to cal
 1. **Telnyx API key.** In the Telnyx portal open API Keys, copy one, paste it and click **Save and check**.
 2. **Call connection.** Import the calling setup file you were given. It reconnects by itself after that; if it ever
    cannot, the Dialer shows **Reconnect**.
-3. **ChatGPT login.** In Terminal run `codex login`, sign in, then click **Use this Mac's login**. Research and scripts
-   use your ChatGPT plan.
+3. **ChatGPT login.** In Terminal run `codex login`, sign in, then click **Use the ChatGPT login on this computer** in
+   the ChatGPT row. Research and scripts use your ChatGPT plan.
 4. **OpenRouter key.** Paste it and click **Save and check**. It powers live tips and the after-call summary.
-5. **Test phone.** Type your own number and click **Save and check**, then **Test call**: the Dialer dials your phone
+5. **Calling hours** are edited in their row (8 AM to 5 PM in each lead's time zone by default).
+6. **Test phone.** Type your own number and click **Save and check**, then **Test call**: the Dialer dials your phone
    right away, at any hour. Save that call's outcome and normal calling returns.
-6. **Optional, for HubSpot:** the **HubSpot Service Key** (Settings → Integrations → Service Keys in HubSpot, with
+7. **Optional, for HubSpot:** the **HubSpot Service Key** (Settings → Integrations → Service Keys in HubSpot, with
    contact, list, owner and call scopes), then **Calls for** (the HubSpot user whose contacts this computer calls), the
    **Treg token** for number checks and the **RealValidito key and secret** for do-not-call checks.
 

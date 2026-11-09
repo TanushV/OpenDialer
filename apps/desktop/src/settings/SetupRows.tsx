@@ -2,7 +2,7 @@
  * The top of Settings (section 7, R7.2, R7.3): one true status from the calling blockers, then one row per thing to
  * set, saying where to get it and what it powers. A row is green only after its real check.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { openSource } from "../api/client";
 import { useWorkspace } from "../context";
 import { Button, Panel, Status } from "../ui/kit";
@@ -64,8 +64,11 @@ export function SetupRows({
   testSession,
   onTestCall,
   reload,
+  extras = {},
 }: {
   version?: number;
+  /** A row's own control from the page that owns it: the ChatGPT login, the call connection, calling hours. */
+  extras?: Record<string, ReactNode>;
   /** A test session is on: calling reaches only the test phone. */
   testSession?: boolean;
   onTestCall: () => void;
@@ -113,6 +116,7 @@ export function SetupRows({
         <SetupRow
           key={row.id}
           row={row}
+          extra={extras[row.id]}
           save={async (values) => {
             await api("/v1/admin/settings", "PUT", values);
             setData(
@@ -147,11 +151,13 @@ export function SetupRows({
 
 function SetupRow({
   row,
+  extra,
   save,
   check,
   testCall,
 }: {
   row: Row;
+  extra?: ReactNode;
   save: (values: Record<string, string>) => Promise<void>;
   check: () => Promise<void>;
   testCall?: () => Promise<void>;
@@ -227,6 +233,7 @@ function SetupRow({
           </Button>
         </form>
       )}
+      {extra && <div className="setup-row-extra">{extra}</div>}
       {row.id === "calls_for" && <CallsFor onSaved={check} />}
       {row.id === "chatgpt" && <ResearchRoute />}
       {testCall && (

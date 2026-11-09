@@ -226,13 +226,10 @@ test("a late hang-up answer cannot touch the next conversation's audio", async (
       state.stopped.push(id);
     };
   });
-  let firstArrived!: () => void, secondArrived!: () => void, sent!: () => void;
-  let captured!: () => void, release!: () => void;
+  let arrived!: () => void, sent!: () => void, captured!: () => void;
+  let release!: () => void;
   const first = new Promise<void>((resolve) => {
-    firstArrived = resolve;
-  });
-  const second = new Promise<void>((resolve) => {
-    secondArrived = resolve;
+    arrived = resolve;
   });
   const send = new Promise<void>((resolve) => {
     sent = resolve;
@@ -246,31 +243,23 @@ test("a late hang-up answer cannot touch the next conversation's audio", async (
   let count = 0;
   await page.route(`**/v1/calls/${original.id}/hangup`, async (route) => {
     count++;
-    if (count === 1) {
-      firstArrived();
-      await send;
-      const response = await route.fetch();
-      captured();
-      await held;
-      await route.fulfill({ response });
-    } else {
-      secondArrived();
-      await gotResponse;
-      await route.continue();
-    }
+    arrived();
+    await send;
+    const response = await route.fetch();
+    captured();
+    await held;
+    await route.fulfill({ response });
   });
   try {
     await hangUp(page).click();
     await first;
+    // R9E.8: Hang up is not offered again, so a second Escape sends nothing.
     await page.locator(".dialer-body").click({ position: { x: 2, y: 2 } });
     await page.keyboard.press("Escape");
-    await second;
     sent();
-    await expect
-      .poll(() =>
-        page.evaluate(() => (window as any).audioBoundary.stopped.length),
-      )
-      .toBe(1);
+    await gotResponse;
+    expect(count).toBe(1);
+    // The server ended the call; its answer to the page is still held while the next call starts.
     await page.evaluate(() => {
       (window as any).audioBoundary.id = "new-sdk-leg";
     });
@@ -284,9 +273,10 @@ test("a late hang-up answer cannot touch the next conversation's audio", async (
     await page.unrouteAll({ behavior: "wait" });
     await settle(page);
     await expect(callStatus(page)).toContainText(/Dialing|Ringing/);
+    // The late answer belongs to the finished call and never stops the new call's audio.
     expect(
       await page.evaluate(() => (window as any).audioBoundary.stopped),
-    ).toEqual(["original-sdk-leg"]);
+    ).not.toContain("new-sdk-leg");
     expect(current.id).not.toBe(original.id);
   } finally {
     sent();

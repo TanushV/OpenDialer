@@ -1199,9 +1199,12 @@ Goal: plainly what to add and where to get it.
 
 - [x] R7.1 Failing tests: a row is green only after its real check; a failed check shows the reason. Done November 8
       (`tests/test_settings_rows.py`, and a WebKit test of saving and checking a key).
-- [ ] R7.2 Build the page in section 7 from `blockers()`.
+- [x] R7.2 Build the page in section 7 from `blockers()`.
       In part, November 8: the page opens with one status from `blockers()` and the eleven rows; the older cards stay
       below as the edit surfaces until they fold into the rows.
+      Done November 9: rows only. The ChatGPT login, the call connection and calling hours are edited in their rows;
+      the typed Telnyx connection fields and Check connection are gone (the setup file carries them); the optional
+      national do-not-call lookup moved under Advanced.
 - [x] R7.3 Check on save for each key; rows show what each powers and link to where to get it. Done November 8 for
       Telnyx and OpenRouter (one authenticated request each, stored with a fingerprint of the key); RealValidito,
       HubSpot and Treg get theirs in Phase 9B.
@@ -1483,8 +1486,12 @@ existing test, because each test checked one piece and none asked whether every 
 - [x] R9E.7 Rebuild the relay connection (`managed_webhooks.py`) as a plain module on the model, as Phase 4 did for
       the dial loop.
       Done November 9 as decisions: `calling/relay.py` `after_exchange` and `after_failure` decide every step of the loop and are checked over every combination; `managed_webhooks.py` only carries them out.
-- [ ] R9E.8 The Dialer shows the rep's own Start and Pause at once and never derives a control from a re-read that
+- [x] R9E.8 The Dialer shows the rep's own Start and Pause at once and never derives a control from a re-read that
       may predate it (done November 9 for Start and Pause; extend to every control).
+      Done November 9 for every control: Hang up, Skip, Stay and the outcome keys are one intent overlay
+      (`withIntent` in `calling/screen.ts`), checked over every input; one save at a time. Found and fixed: an outcome
+      key pressed while the call was still ending was silently dropped; it is now kept and sent once the end is
+      confirmed. Browser tests hold the server's answer and serve stale re-reads.
 - [ ] R9E.9 Optional, owner decision: a scheduled real test call to the owner's test line to prove the carrier path
       end to end. It is billable, so it runs only with the owner's yes and a limit.
 

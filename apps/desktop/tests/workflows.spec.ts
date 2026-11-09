@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { openSettingsCard } from "./navigation";
+import { openSettingRow } from "./navigation";
 import {
   answer,
   callStatus,
@@ -122,7 +122,7 @@ test("calling needs no business or campaign approval paperwork", async ({
   page,
 }) => {
   await enterSimulation(page);
-  const hours = await openSettingsCard(page, "Calling hours");
+  const hours = await openSettingRow(page, "hours");
   await expect(hours).not.toContainText(
     /Approved for live calls|Confirm our business|not approved/,
   );
@@ -224,7 +224,7 @@ test("skipped leads show the agent's reason in the list progress and the lead", 
   ).toBeVisible();
 });
 
-test("the AI card is done once ChatGPT and the live help key are both set", async ({
+test("the ChatGPT row shows the connected account and its plan", async ({
   page,
 }) => {
   await page.route("**/v1/inference/codex", (route) =>
@@ -243,6 +243,7 @@ test("the AI card is done once ChatGPT and the live help key are both set", asyn
     await route.fulfill({ response, json: data });
   });
   await enterSimulation(page);
-  const card = await openSettingsCard(page, "AI");
-  await expect(card.locator(":scope > summary .pill")).toHaveText("Done");
+  const row = await openSettingRow(page, "chatgpt");
+  await expect(row).toContainText("Connected as fixture@example.test");
+  await expect(row).toContainText("pro plan");
 });

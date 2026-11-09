@@ -1,33 +1,26 @@
 import { expect, test, type Page, setUpAuthority } from "./fixtures";
 import { openScreening } from "./navigation";
 
-test("saving Telnyx saves the pasted key and connection together", async ({
-  page,
-}) => {
+test("the Telnyx key is saved and checked in its own row", async ({ page }) => {
   await enter(page);
   await openSettings(page);
-  await openCard(page, "Calling");
-  await page
-    .getByLabel("Telnyx API key", { exact: true })
-    .fill("synthetic-onboarding-key");
-  const connection = `synthetic-connection-${Date.now()}`;
-  await page.getByLabel("Voice API connection ID").fill(connection);
+  const row = page.getByTestId("setup-telnyx");
+  await row.getByLabel("New Telnyx API key").fill("synthetic-onboarding-key");
   const saved = page.waitForResponse(
     (r) =>
       r.url().endsWith("/v1/admin/settings") && r.request().method() === "PUT",
   );
-  await page
-    .getByRole("button", { name: "Save Telnyx settings", exact: true })
-    .click();
+  await row.getByRole("button", { name: "Save and check" }).click();
   const response = await saved;
   expect(response.ok()).toBeTruthy();
   expect(response.request().postDataJSON()).toMatchObject({
     telnyx_api_key: "synthetic-onboarding-key",
-    telnyx_connection_id: connection,
   });
-  await expect(page.getByLabel("Telnyx API key", { exact: true })).toHaveValue(
-    "",
-  );
+  await expect(row.getByRole("status")).toContainText("Checked");
+  await expect(row.getByLabel("New Telnyx API key")).toHaveValue("");
+  // The connection fields come with the setup file and are never typed here (section 7).
+  for (const gone of ["Voice API connection ID", "Webhook address"])
+    await expect(page.getByLabel(gone)).toHaveCount(0);
 });
 
 test("a failed script load offers retry instead of a permanently disabled editor", async ({
@@ -62,50 +55,28 @@ test("a failed script load offers retry instead of a permanently disabled editor
   await expect(page.getByLabel("Script Markdown")).toBeVisible();
 });
 
-test("provider edits can clear saved optional values", async ({ page }) => {
-  await enter(page);
-  await openSettings(page);
-  await openCard(page, "Calling");
-  const reference = page.getByLabel("Webhook address");
-  await reference.fill("https://example.test/webhooks/telnyx");
-  const save = async () => {
-    const response = page.waitForResponse(
-      (r) =>
-        r.url().endsWith("/v1/admin/settings") &&
-        r.request().method() === "PUT",
-    );
-    await page.getByRole("button", { name: "Save Telnyx settings" }).click();
-    expect((await response).ok()).toBeTruthy();
-  };
-  await save();
-  await reference.fill("");
-  await save();
-  await page.reload();
-  await openSettings(page);
-  await openCard(page, "Calling");
-  await expect(reference).toHaveValue("");
-});
-
-test("the AI card connects ChatGPT and the live help key in one place", async ({
+test("the ChatGPT row holds its login and the OpenRouter key has its own row", async ({
   page,
 }) => {
   await enter(page);
   await openSettings(page);
-  const card = await openCard(page, "AI");
-  await expect(card).toContainText("ChatGPT");
-  await expect(card.getByText("Import Codex login")).toBeVisible();
-  await expect(card.getByLabel("Import Codex login")).toBeAttached();
+  const chatgpt = page.getByTestId("setup-chatgpt");
+  await expect(chatgpt).toContainText("ChatGPT");
+  await expect(chatgpt.getByText("Import Codex login")).toBeVisible();
+  await expect(chatgpt.getByLabel("Import Codex login")).toBeAttached();
+  await expect(chatgpt.getByLabel("Research uses")).toBeVisible();
   await expect(
-    card.getByLabel("Live help key (OpenRouter, Cerebras)", { exact: true }),
+    page.getByTestId("setup-openrouter").getByLabel("New OpenRouter key"),
   ).toBeVisible();
-  await expect(card.getByLabel("OpenAI API key", { exact: true })).toHaveCount(
+  // ChatGPT is the one research route since R2.6; no API-key option is offered.
+  await expect(page.getByLabel("OpenAI API key", { exact: true })).toHaveCount(
     0,
   );
-  // ChatGPT is the one route since R2.6; no API-key option is offered.
-  await expect(
-    card.getByText("Use an OpenAI API key instead of ChatGPT"),
-  ).toHaveCount(0);
-  for (const gone of ["Continue with ChatGPT", "Optional research search"])
+  for (const gone of [
+    "Use an OpenAI API key instead of ChatGPT",
+    "Continue with ChatGPT",
+    "Optional research search",
+  ])
     await expect(page.getByText(gone)).toHaveCount(0);
 });
 
@@ -161,14 +132,7 @@ async function enter(page: Page) {
 
 async function openSettings(page: Page) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.getByTestId("setting-Calling")).toBeVisible();
-}
-
-async function openCard(page: Page, title: string) {
-  const card = page.getByTestId(`setting-${title}`);
-  if (!(await card.evaluate((d) => (d as HTMLDetailsElement).open)))
-    await card.locator(":scope > summary").click();
-  return card;
+  await expect(page.getByTestId("setup-telnyx")).toBeVisible();
 }
 
 async function openMore(page: Page, section: string) {
@@ -203,11 +167,22 @@ test("settings is one short page with everything else folded away", async ({
 }) => {
   await enter(page);
   await openSettings(page);
-  for (const title of ["Calling", "AI", "Calling hours", "Do-not-call check"])
-    await expect(page.getByTestId(`setting-${title}`)).toBeVisible();
-  // Script and Leads are rows above; their duplicate cards are gone.
-  for (const gone of ["Script", "Leads"])
-    await expect(page.getByTestId(`setting-${gone}`)).toHaveCount(0);
+  // R7.2: rows only; each row holds its own control, and nothing but Advanced is folded.
+  await expect(page.locator("[data-testid^='setting-']")).toHaveCount(0);
+  for (const id of [
+    "telnyx",
+    "connection",
+    "chatgpt",
+    "openrouter",
+    "test_phone",
+    "hours",
+  ])
+    await expect(page.getByTestId(`setup-${id}`)).toBeVisible();
+  await expect(
+    page
+      .getByTestId("setup-hours")
+      .getByRole("button", { name: "Save calling hours" }),
+  ).toBeVisible();
   await expect(page.locator(".tabs")).toHaveCount(0);
   await expect(page.getByLabel("Voice API connection ID")).toBeHidden();
   expect(await visibleControls(page)).toBeLessThanOrEqual(30);
@@ -255,7 +230,7 @@ test("calling policy publication is version-fenced and reloads after a conflict"
     }
     await route.continue();
   });
-  await openCard(page, "Calling hours");
+  await page.getByTestId("setup-hours").waitFor();
   await page.getByLabel("Attempts per lead").fill("3");
   await page
     .getByRole("button", { name: "Save calling hours", exact: true })
@@ -301,7 +276,7 @@ test("form bounds come from the authority's definitions", async ({ page }) => {
   });
   await enter(page);
   await openSettings(page);
-  await openCard(page, "Calling hours");
+  await page.getByTestId("setup-hours").waitFor();
   await expect(page.getByLabel("Attempts per lead")).toHaveAttribute(
     "max",
     "7",
@@ -409,7 +384,7 @@ test("disabled actions say why and settings failures stay recoverable", async ({
   await expect(page.getByText(/Settings could not be loaded/)).toBeVisible();
   failSettings = false;
   await page.getByRole("button", { name: "Try again" }).click();
-  await expect(page.getByTestId("setting-Calling")).toBeVisible();
+  await expect(page.getByText(/Settings could not be loaded/)).toHaveCount(0);
   await openMore(page, "Workspace and app updates");
   await expect(page.getByText("Finish first: Active call.")).toBeVisible();
   await openScreening(page);
@@ -453,7 +428,6 @@ test("managed setup import shows connection and hides tunnel fields", async ({
   await setUpAuthority(page);
   await enter(page);
   await openSettings(page);
-  await openCard(page, "Calling");
   await page.getByLabel("Import calling setup (.json)").setInputFiles({
     name: "caller.json",
     mimeType: "application/json",
@@ -465,7 +439,7 @@ test("managed setup import shows connection and hides tunnel fields", async ({
   await expect(page.getByLabel("Webhook address")).toHaveCount(0);
   await expect(page.getByLabel("Voice API connection ID")).toHaveCount(0);
   await expect(
-    page.getByLabel("Telnyx API key", { exact: true }),
+    page.getByTestId("setup-telnyx").getByLabel("New Telnyx API key"),
   ).toBeVisible();
 });
 

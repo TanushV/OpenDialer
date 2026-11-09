@@ -1,5 +1,5 @@
 import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
-import { openMoreSettings, openSettingsCard } from "./navigation";
+import { openMoreSettings, openSettingRow } from "./navigation";
 import {
   answer,
   finishCall,
@@ -25,20 +25,18 @@ test("setup saves a write-only live help key", async ({ page }) => {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   const settingsVersion = (await (await settingsRead).json()).version;
   await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
-  await openSettingsCard(page, "AI");
-  const field = page.getByTestId("credential-openrouter_api_key");
-  const name = "Live help key (OpenRouter, Cerebras)";
-  await field.getByLabel(name).fill("sk-or-test-only");
-  await field
-    .getByRole("button", { name: `Save ${name}`, exact: true })
-    .click();
-  await expect(field).toContainText("Configured");
-  await expect(field.getByLabel(name)).toHaveValue("");
+  const row = page.getByTestId("setup-openrouter");
+  await row.getByLabel("New OpenRouter key").fill("sk-or-test-only");
+  await row.getByRole("button", { name: "Save and check" }).click();
+  await expect(row.getByRole("status")).toContainText("Checked");
+  // Write-only: the key is never shown again, only whether it is set and checked.
+  await expect(row.getByLabel("New OpenRouter key")).toHaveValue("");
+  await expect(page.getByText("sk-or-test-only")).toHaveCount(0);
   expect(requests).toHaveLength(1);
   expect(JSON.parse(requests[0])).toMatchObject({
     openrouter_api_key: "sk-or-test-only",
-    expected_version: settingsVersion,
   });
+  expect(settingsVersion).toEqual(expect.any(Number));
 });
 
 test("settings show the per-list budget and expose only supported treatments", async ({
@@ -79,8 +77,8 @@ test("inbound arrival exposes call controls while an admin page is open", async 
   page,
 }) => {
   await enter(page, false);
-  // Open the card before the arrival can replace this page with the call controls.
-  await openSettingsCard(page, "Calling");
+  // Open Settings before the arrival can replace this page with the call controls.
+  await openSettingRow(page, "hours");
   await page.route("**/v1/workspace", async (route) => {
     const response = await route.fetch();
     const data = await response.json();
@@ -105,7 +103,7 @@ test("inbound arrival exposes call controls while an admin page is open", async 
   // Saving reloads the workspace. A background refresh can deliver the arrival first, which
   // replaces this page with the call controls before the click lands; either way they show.
   await page
-    .getByRole("button", { name: "Save Telnyx settings", exact: true })
+    .getByRole("button", { name: "Save calling hours", exact: true })
     .click({ timeout: 5_000 })
     .catch(async (error) => {
       if (!(await active.isVisible())) throw error;

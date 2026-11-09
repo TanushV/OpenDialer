@@ -11,7 +11,13 @@ import { afterAudioStatus, Telephony } from "../telephony/client";
 import { captureSpeech } from "../telephony/speech";
 import type { Call, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
-import { screen, type Blocker, type Phase } from "./screen";
+import {
+  screen,
+  withIntent,
+  type Blocker,
+  type Intent,
+  type Phase,
+} from "./screen";
 
 /** One key saves an outcome (R5.7). `wrong_party` stops dialing that number. */
 export const OUTCOME_KEYS: [string, string][] = [
@@ -26,6 +32,9 @@ export const OUTCOME_KEYS: [string, string][] = [
 const GAP_GRACE_MS = 2500;
 /** How often a paused or finished screen re-reads what blocks calling. */
 const RECHECK_MS = 10_000;
+/** An outcome key pressed while the call is ending waits this long, in steps, for the end to be confirmed. */
+const ENDING_WAIT_MS = 250;
+const ENDING_WAIT_STEPS = 40;
 /** Blockers the loop clears itself: the rep's audio leg is renewed before each call. */
 const SELF_CLEARING = new Set(["REP_AUDIO_NOT_READY"]);
 
@@ -71,8 +80,13 @@ export function useCallLoop(visible: boolean) {
   const [audioStatus, setAudioStatus] = useState("");
   const busy = useRef(false);
   const skipping = useRef<string | null>(null);
-  // The rep's own hang-up is known before the carrier says who ended the call.
-  const endedByRep = useRef<string | null>(null);
+  // R9E.8: the rep's own Hang up, Skip, Stay and outcome key show at once, for the call they were pressed on,
+  // and a re-read from before the server saw them cannot bring the used control back.
+  const [intent, setIntent] = useState<
+    (Intent & { call_id: string; saving?: string | null }) | null
+  >(null);
+  const intentRef = useRef(intent);
+  intentRef.current = intent;
   const pausing = useRef(false);
 
   // Local opt-outs are journaled first, so a lost network never forgets one (calling blocks until synced).
@@ -125,16 +139,15 @@ export function useCallLoop(visible: boolean) {
     () => [...local, ...blockers.filter((b) => !SELF_CLEARING.has(b.code))],
     [local, blockers],
   );
-  const shownCall =
-    call && !call.provider_hangup_source && endedByRep.current === call.id
-      ? { ...call, provider_hangup_source: "caller" }
-      : call;
+  const mine = call && intent?.call_id === call.id ? intent : null;
+  const shownCall = call && withIntent(call, mine);
   const phase: Phase = screen({
     calling,
     connecting,
     blockers: shown,
     call: shownCall,
     finished,
+    saving: mine?.saving ?? null,
   });
 
   const readBlockers = useCallback(async () => {
@@ -451,12 +464,20 @@ export function useCallLoop(visible: boolean) {
     const current = callRef.current;
     if (!current || !isActiveCall(current)) return;
     const identity = telephony.current.activeIdentity;
-    endedByRep.current = current.id;
+    setIntent((value) => ({
+      ...(value?.call_id === current.id ? value : {}),
+      call_id: current.id,
+      hangup: true,
+    }));
     const still = () => callRef.current?.id === current.id;
     let result: Call;
     try {
       result = await api<Call>(`/v1/calls/${current.id}/hangup`, "POST");
     } catch (error) {
+      // The server did not take the hang-up: show the call as it is, with Hang up, again.
+      setIntent((value) =>
+        value?.call_id === current.id ? { ...value, hangup: false } : value,
+      );
       if (identity && still())
         await telephony.current.emergencyHangup(identity);
       throw error;
@@ -482,7 +503,19 @@ export function useCallLoop(visible: boolean) {
   async function stay() {
     const current = callRef.current;
     if (!current) return;
-    await api(`/v1/calls/${current.id}/stay`, "POST");
+    setIntent((value) => ({
+      ...(value?.call_id === current.id ? value : {}),
+      call_id: current.id,
+      stay: true,
+    }));
+    try {
+      await api(`/v1/calls/${current.id}/stay`, "POST");
+    } catch (error) {
+      setIntent((value) =>
+        value?.call_id === current.id ? { ...value, stay: false } : value,
+      );
+      throw error;
+    }
     await reloadCall(current.id);
   }
   function mute() {
@@ -490,23 +523,52 @@ export function useCallLoop(visible: boolean) {
     setMuted((value) => !value);
   }
   async function save(code: string) {
-    const current = callRef.current;
-    if (!current || !isTerminal(current)) return;
-    const result = await localEdit<Call>(
-      api,
-      `/v1/calls/${current.id}/disposition`,
-      "POST",
-      {
-        outcome: code,
-        contact_role: "unknown",
-        callback_note: "",
-        callback_at: null,
-        expected_version: current.version,
-        expected_edit_version: current.edit_version ?? 0,
-        request_id: crypto.randomUUID(),
-      },
-    );
-    applyCall(result);
+    const pressed = callRef.current;
+    if (!pressed) return;
+    // One save at a time for this call; its key shows at once and the others wait for the answer.
+    if (intentRef.current?.call_id === pressed.id && intentRef.current.saving)
+      return;
+    // Set at once, not on the next render: a second key in the same moment sees this save.
+    intentRef.current = {
+      ...(intentRef.current?.call_id === pressed.id ? intentRef.current : {}),
+      call_id: pressed.id,
+      saving: code,
+    };
+    setIntent(intentRef.current);
+    let result: Call;
+    let current = pressed;
+    try {
+      // A key pressed while the call is still ending is kept, and sent once the end is confirmed.
+      for (let i = 0; !isTerminal(current) && i < ENDING_WAIT_STEPS; i++) {
+        await new Promise((r) => setTimeout(r, ENDING_WAIT_MS));
+        current = await api<Call>(`/v1/calls/${pressed.id}`);
+        applyCall(current);
+      }
+      if (!isTerminal(current))
+        throw new Error(
+          "The call is still ending. Press the outcome again in a moment.",
+        );
+      result = await localEdit<Call>(
+        api,
+        `/v1/calls/${current.id}/disposition`,
+        "POST",
+        {
+          outcome: code,
+          contact_role: "unknown",
+          callback_note: "",
+          callback_at: null,
+          expected_version: current.version,
+          expected_edit_version: current.edit_version ?? 0,
+          request_id: crypto.randomUUID(),
+        },
+      );
+      // The saved call is shown before the keys come back, so no render offers a second save.
+      applyCall(result);
+    } finally {
+      setIntent((value) =>
+        value?.call_id === pressed.id ? { ...value, saving: null } : value,
+      );
+    }
     setEditing(false);
     setCallbackReview(result.callback_review ?? null);
     if (code === "meeting_booked")

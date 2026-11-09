@@ -14,17 +14,28 @@ export async function openDetails(section: Locator) {
   }).toPass({ timeout: 20_000 });
 }
 
-/** Settings is one page: a card per thing to set, the rest under "Advanced". */
-export async function openSettingsCard(page: Page, title: string) {
+/** Settings is one page of rows (R7.2): a row per thing to set, the rest under "Advanced". */
+export async function openSettingRow(page: Page, id: string) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  const card = page.getByTestId(`setting-${title}`);
-  await openDetails(card);
-  return card;
+  const row = page.getByTestId(`setup-${id}`);
+  await row.waitFor();
+  return row;
 }
 
-/** Opens the do-not-call card with optional screening turned on, so its lists are shown. */
+/** Type a value into a Settings row and save it; the row's real check runs at once. */
+export async function saveSettingRow(page: Page, id: string, value: string) {
+  const row = await openSettingRow(page, id);
+  const add = row.getByRole("button", { name: "Add", exact: true });
+  if (await add.isVisible()) await add.click();
+  await row.locator("form input").first().fill(value);
+  await row.getByRole("button", { name: "Save and check" }).click();
+  await expect(row.getByRole("status")).toContainText("Checked");
+  return row;
+}
+
+/** Opens the do-not-call section under Advanced with optional screening turned on, so its lists are shown. */
 export async function openScreening(page: Page) {
-  const card = await openSettingsCard(page, "Do-not-call check");
+  const card = await openMoreSettings(page, "Do-not-call checks and consent");
   const box = card.getByLabel(
     "Check leads against the national do-not-call list before calling",
   );

@@ -144,5 +144,5 @@ async function enter(page: Page, connected: boolean) {
   }
   await expect(page.getByText("SIMULATION", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.getByTestId("setting-AI")).toBeVisible();
+  await expect(page.getByTestId("setup-chatgpt")).toBeVisible();
 }

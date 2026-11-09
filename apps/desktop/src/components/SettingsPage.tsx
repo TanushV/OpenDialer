@@ -7,7 +7,6 @@ import {
   LearningAdvanced,
   type OptimizationSettings,
 } from "./OptimizationPanel";
-import { CredentialField } from "./CredentialField";
 import { CodexLogin, type LoginStatus as CodexLoginStatus } from "./CodexLogin";
 import type { Update } from "@tauri-apps/plugin-updater";
 import {
@@ -23,9 +22,7 @@ import {
   ApiError,
   LONG_REQUEST_MS,
   native,
-  openSource,
   assertNoPendingOptouts,
-  type ProviderCredential,
 } from "../api/client";
 import { isAdmin, label, useWorkspace } from "../context";
 import { limits, options, useDefinitions } from "../state/definitions";
@@ -106,10 +103,7 @@ function AdminSettings({
   onDisconnect: () => void;
   onNavigate: (view: View) => void;
 }) {
-  const { snapshot: w } = useWorkspace();
   const settings = useAdminSettings();
-  // Null until the AI card has read the ChatGPT login.
-  const [chatGpt, setChatGpt] = useState<boolean | null>(null);
   return (
     <>
       <div className="page-heading">
@@ -123,9 +117,14 @@ function AdminSettings({
         testSession={Boolean(settings.data?.test_session)}
         onTestCall={() => onNavigate("Dialer")}
         reload={settings.load}
+        extras={{
+          connection: <ConnectionRow settings={settings} />,
+          chatgpt: <ChatGptLogin settings={settings} />,
+          hours: <CallingWindow />,
+        }}
       />
       <Team />
-      {!settings.data ? (
+      {!settings.data && (
         <section className="card padded">
           <p role="status">
             {settings.error
@@ -141,93 +140,9 @@ function AdminSettings({
             </button>
           )}
         </section>
-      ) : (
-        <>
-          <h2 className="settings-section-title">Change a setting</h2>
-          <div className="settings-grid">
-            <SettingCard
-              title="Calling"
-              done={!!settings.data.configured.telnyx_api_key}
-              summary={
-                settings.data.configured.telnyx_api_key
-                  ? "Telnyx is connected."
-                  : "Add your Telnyx API key."
-              }
-            >
-              <TelnyxStep settings={settings} />
-            </SettingCard>
-            <SettingCard
-              title="AI"
-              done={aiDone(settings.data, chatGpt)}
-              summary="ChatGPT researches leads and writes scripts. A Cerebras key powers live help during calls."
-              open
-            >
-              <AiCard settings={settings} onConnected={setChatGpt} />
-            </SettingCard>
-            <SettingCard
-              title="Calling hours"
-              summary={`${w.policy.local_start_hour}:00 to ${w.policy.local_end_hour}:00 in each lead's time zone · up to ${w.policy.max_attempts} attempts · retries at least a day apart`}
-            >
-              <CallingWindow />
-            </SettingCard>
-            <SettingCard
-              title="Do-not-call check"
-              summary={
-                w.policy.dnc_screening
-                  ? "On: leads are checked against the national do-not-call list before calls. Your own opt-outs always apply."
-                  : "Optional and off: leads are not looked up. Your own opt-outs always apply."
-              }
-            >
-              <ScreeningChoice />
-            </SettingCard>
-          </div>
-        </>
       )}
       <MoreSettings settings={settings} onDisconnect={onDisconnect} />
     </>
-  );
-}
-
-/** Research has its ChatGPT login and live help has its key. */
-function aiDone(data: SettingsData, chatGpt: boolean | null) {
-  const route = chatGpt;
-  return route === null
-    ? undefined
-    : route && !!data.configured.openrouter_api_key;
-}
-
-function SettingCard({
-  title,
-  done,
-  summary,
-  open = false,
-  children,
-}: {
-  title: string;
-  done?: boolean;
-  summary: string;
-  open?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <details
-      className="card setting-card"
-      open={open}
-      data-testid={`setting-${title}`}
-    >
-      <summary>
-        <span>
-          <strong>{title}</strong>
-          <small>{summary}</small>
-        </span>
-        {done !== undefined && (
-          <span className={`pill ${done ? "green" : "amber"}`}>
-            {done ? "Done" : "To do"}
-          </span>
-        )}
-      </summary>
-      <div className="setting-body">{children}</div>
-    </details>
   );
 }
 
@@ -259,13 +174,8 @@ function ScreeningChoice() {
 type LoginStatus = CodexLoginStatus & { computer_login?: boolean };
 
 /** ChatGPT for research and scripts; a Cerebras key for live help. */
-function AiCard({
-  settings,
-  onConnected,
-}: {
-  settings: AdminSettingsState;
-  onConnected: (connected: boolean) => void;
-}) {
+/** The ChatGPT login, in its Settings row: research and scripts use the plan of the login on this computer. */
+function ChatGptLogin({ settings }: { settings: AdminSettingsState }) {
   const { api, run, notice } = useWorkspace();
   const [login, setLogin] = useState<LoginStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -280,9 +190,6 @@ function AiCard({
     generation.current++;
     setLogin(value);
   };
-  useEffect(() => {
-    if (login) onConnected(login.connected);
-  }, [login, onConnected]);
   useEffect(() => {
     void load().catch(() => {});
     // Coming back from the browser or Codex refreshes both the login and the saved route.
@@ -354,246 +261,21 @@ function AiCard({
           Disconnect ChatGPT
         </button>
       )}
-      <CredentialButton
-        field="openrouter_api_key"
-        title="Live help key (OpenRouter, Cerebras)"
-        settings={settings}
-      />
     </div>
   );
 }
 
-function CredentialButton({
-  field,
-  title,
-  settings,
-}: {
-  field: ProviderCredential;
-  title: string;
-  settings: AdminSettingsState;
-}) {
-  const { notice, refresh } = useWorkspace();
-  const data = settings.data;
-  return (
-    <CredentialField
-      field={field}
-      title={title}
-      version={data?.version}
-      configured={data?.configured[field]}
-      onConflict={settings.load}
-      onSaved={(result) => {
-        if (data)
-          settings.setData({
-            ...data,
-            version: result.version,
-            configured: { ...data.configured, ...result.configured },
-          });
-        notice("Credential saved in the selected authority.");
-        void refresh();
-      }}
-    />
-  );
-}
-
-/** A draft of non-secret provider fields with a stable request identity per edit. */
-function useProviderDraft(settings: AdminSettingsState, keys: string[]) {
-  const { api, notice, refresh } = useWorkspace();
-  const data = settings.data;
-  const read = () =>
-    Object.fromEntries(
-      keys.map((key) => {
-        const value = data?.[key] ?? data?.effective?.[key];
-        return [key, typeof value === "string" ? value : ""];
-      }),
-    );
-  const [draft, setDraft] = useState<Record<string, string>>(read);
-  const [busy, setBusy] = useState(false);
-  const edit = useRef<{ body: string; request_id: string } | null>(null);
-  const server = useRef<Record<string, string>>(draft);
-  useEffect(() => {
-    // Newly read settings refresh only the fields the person has not changed;
-    // a choice made while the first read was in flight is kept, not reset.
-    const previous = server.current;
-    const next = read();
-    server.current = next;
-    setDraft((current) =>
-      Object.fromEntries(
-        keys.map((key) => [
-          key,
-          current[key] !== previous[key] ? current[key] : next[key],
-        ]),
-      ),
-    );
-    edit.current = null;
-  }, [data?.version]);
-  const save = async (done: string, extra: Record<string, string> = {}) => {
-    if (!data) return;
-    const values = {
-      ...Object.fromEntries(
-        Object.entries(draft).filter(
-          ([key, value]) => value !== server.current[key],
-        ),
-      ),
-      ...extra,
-    };
-    const body = JSON.stringify({ values, version: data.version });
-    if (edit.current?.body !== body)
-      edit.current = { body, request_id: crypto.randomUUID() };
-    setBusy(true);
-    try {
-      settings.setData(
-        await api<SettingsData>("/v1/admin/settings", "PUT", {
-          ...values,
-          request_id: edit.current.request_id,
-          expected_version: data.version,
-        }),
-      );
-      server.current = { ...draft };
-      edit.current = null;
-      notice(done);
-      await refresh();
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409)
-        await settings.load();
-      throw error;
-    } finally {
-      setBusy(false);
-    }
-  };
-  const field = (key: string, title: string, placeholder = "") => (
-    <label key={key}>
-      {title}
-      <input
-        disabled={!data || busy}
-        autoComplete="off"
-        spellCheck={false}
-        value={draft[key] || ""}
-        placeholder={placeholder}
-        onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-      />
-    </label>
-  );
-  return { draft, setDraft, busy, save, field };
-}
-
-function TelnyxStep({ settings }: { settings: AdminSettingsState }) {
-  const { api, run, runtime } = useWorkspace();
-  const [managed, setManaged] = useState<ConnectionStatus | null>(null);
-  const configured = managed?.configured;
-  const managedChanged = useCallback(
+/** The call connection row: it reconnects by itself; the setup-file import shows only while disconnected (R7.4). */
+function ConnectionRow({ settings }: { settings: AdminSettingsState }) {
+  const { runtime } = useWorkspace();
+  const changed = useCallback(
     (value: ConnectionStatus) => {
-      setManaged((previous) => {
-        if (JSON.stringify(previous) === JSON.stringify(value)) return previous;
-        return value;
-      });
       if (value.configured) void settings.load();
     },
     [settings.load],
   );
-  const [key, setKey] = useState("");
-  const form = useProviderDraft(settings, [
-    "telnyx_connection_id",
-    "telnyx_public_key",
-    "webhook_url",
-    "telephony_credential_id",
-    "sip_username",
-  ]);
-  const [ingress, setIngress] = useState<Record<string, unknown> | null>(null);
-  return (
-    <>
-      {runtime?.local_token && !runtime.simulation && (
-        <ManagedConnection changed={managedChanged} />
-      )}
-      <p className="fine">
-        In the{" "}
-        <button
-          className="text-button"
-          onClick={() =>
-            void run(() => openSource("https://portal.telnyx.com/"))
-          }
-        >
-          Telnyx portal
-        </button>
-        : Account settings → API Keys → Create API Key.
-      </p>
-      <label>
-        Telnyx API key
-        <input
-          type="password"
-          autoComplete="off"
-          value={key}
-          disabled={form.busy}
-          placeholder={
-            settings.data?.configured.telnyx_api_key
-              ? "Saved; enter only to replace"
-              : "Paste your API v2 key"
-          }
-          onChange={(e) => setKey(e.target.value)}
-        />
-      </label>
-
-      {!configured && (
-        <>
-          {form.field("telnyx_connection_id", "Voice API connection ID")}
-          {form.field("telnyx_public_key", "Webhook public key")}
-          {form.field(
-            "webhook_url",
-            "Webhook address",
-            "https://your-endpoint/webhooks/telnyx",
-          )}
-        </>
-      )}
-      {!configured && (
-        <details>
-          <summary>Browser calling credential</summary>
-          {form.field(
-            "telephony_credential_id",
-            "Scoped telephony credential ID",
-          )}
-          {form.field("sip_username", "Agent SIP username")}
-        </details>
-      )}
-      <div className="button-row">
-        <button
-          className="primary"
-          disabled={!settings.data || form.busy}
-          onClick={() =>
-            void run(async () => {
-              await form.save(
-                "Telnyx settings saved.",
-                key.trim() ? { telnyx_api_key: key.trim() } : {},
-              );
-              setKey("");
-            })
-          }
-        >
-          Save Telnyx settings
-        </button>
-        <button
-          className="secondary"
-          disabled={!settings.data || form.busy}
-          onClick={() =>
-            void run(async () => {
-              if (!settings.data) return;
-              setIngress(
-                await api("/v1/admin/ingress-check", "POST", {
-                  request_id: crypto.randomUUID(),
-                  expected_version: settings.data.version,
-                }),
-              );
-            })
-          }
-        >
-          Check connection
-        </button>
-      </div>
-      {ingress && (
-        <pre className="small" aria-label="Ingress check result">
-          {JSON.stringify(ingress, null, 2)}
-        </pre>
-      )}
-    </>
-  );
+  if (!runtime?.local_token || runtime.simulation) return null;
+  return <ManagedConnection changed={changed} />;
 }
 
 interface GoalPreview {
@@ -997,6 +679,7 @@ function MoreSettings({
           </details>
           <details>
             <summary>Do-not-call checks and consent</summary>
+            <ScreeningChoice />
             <CallingPolicySettings />
           </details>
           <details>

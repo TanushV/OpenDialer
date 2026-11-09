@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { openMoreSettings, openSettingsCard } from "./navigation";
+import { openMoreSettings, openSettingRow, saveSettingRow } from "./navigation";
 import {
   answer,
   saveOutcome,
@@ -45,11 +45,9 @@ test("optimization goals, learning state and provider settings persist", async (
   await page.reload();
   await openMoreSettings(page, "Campaign goal");
   await expect(page.getByLabel("Conversion goal")).toHaveValue("sale_won");
-  // ChatGPT and the live help key share the AI card.
-  const ai = await openSettingsCard(page, "AI");
-  await expect(
-    ai.getByLabel("Live help key (OpenRouter, Cerebras)", { exact: true }),
-  ).toBeVisible();
+  // The live helper's OpenRouter key has its own Settings row.
+  const row = await openSettingRow(page, "openrouter");
+  await expect(row.getByLabel("New OpenRouter key")).toBeVisible();
 });
 
 test("live events deliver helper tips and conversion recording without call polling", async ({
@@ -57,15 +55,7 @@ test("live events deliver helper tips and conversion recording without call poll
 }) => {
   await simulation(page);
   // The live helper needs an OpenRouter key; simulation answers with its fixed local model.
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await openSettingsCard(page, "AI");
-  const field = page.getByTestId("credential-openrouter_api_key");
-  const name = "Live help key (OpenRouter, Cerebras)";
-  await field.getByLabel(name).fill("sk-or-test-only");
-  await field
-    .getByRole("button", { name: `Save ${name}`, exact: true })
-    .click();
-  await expect(field).toContainText("Configured");
+  await saveSettingRow(page, "openrouter", "sk-or-test-only");
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   const sockets: string[] = [];
   page.on("websocket", (ws) => sockets.push(ws.url()));

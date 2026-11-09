@@ -1,7 +1,10 @@
 import { expect, test } from "./fixtures";
 import {
+  answer,
   callStatus,
   finishCall,
+  hangUp,
+  outcomeKeys,
   pauseCalling,
   prepareSimulationCall,
   startCalling,
@@ -227,4 +230,84 @@ test("Pause stays on screen after Start even while the workspace re-read is slow
   }
   await pauseCalling(page).click();
   await expect.poll(() => paused).toBe(1);
+});
+
+test("Hang up shows at once and a re-read from before the server saw it cannot bring the call back", async ({
+  page,
+}) => {
+  // R9E.8: the rep's own key decides the screen until the server says the same.
+  await enter(page);
+  await prepareSimulationCall(page, "Held hang-up", "+14155550781");
+  await startDialing(page);
+  await answer(page);
+  await expect(callStatus(page)).toContainText("Talking");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let hangups = 0;
+  await page.route("**/v1/calls/*/hangup", async (route) => {
+    hangups++;
+    await held;
+    await route.continue();
+  });
+  // Any re-read of the call meanwhile still says it is live.
+  let stale = true;
+  await page.route(/\/v1\/calls\/[^/]+$/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (stale) body.state = "HUMAN";
+    await route.fulfill({ response, json: body });
+  });
+  try {
+    await page.keyboard.press("Escape");
+    await expect(callStatus(page)).toContainText("You ended the call");
+    await expect(hangUp(page)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    await expect(callStatus(page)).toContainText("You ended the call");
+    expect(hangups).toBe(1);
+    stale = false;
+    release();
+    await expect(outcomeKeys(page)).toBeVisible();
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
+});
+
+test("an outcome pressed while the call is still ending is kept and saved once the end is confirmed", async ({
+  page,
+}) => {
+  // R9E.8: the key the rep pressed is never dropped; it waits for the carrier's end, once.
+  await enter(page);
+  await prepareSimulationCall(page, "Ending outcome", "+14155550782");
+  await startDialing(page);
+  await answer(page);
+  await pauseCalling(page).click();
+  let ending = true;
+  await page.route(/\/v1\/calls\/[^/]+(\/hangup)?$/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (ending && body.state) body.state = "ENDING";
+    await route.fulfill({ response, json: body });
+  });
+  const saves: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().endsWith("/disposition")) saves.push(r.postData() || "");
+  });
+  try {
+    await hangUp(page).click();
+    await expect(callStatus(page)).toContainText("You ended the call");
+    await outcomeKeys(page)
+      .getByRole("button", { name: /Not interested$/ })
+      .click();
+    await expect(callStatus(page)).toContainText("Saving the outcome");
+    await page.waitForTimeout(600);
+    expect(saves).toHaveLength(0);
+    ending = false;
+    await expect.poll(() => saves.length).toBe(1);
+    expect(JSON.parse(saves[0]).outcome).toBe("not_interested");
+    await expect(startCalling(page)).toBeVisible();
+  } finally {
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
 });
