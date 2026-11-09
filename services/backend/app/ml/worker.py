@@ -51,8 +51,9 @@ def child_command():
 
 
 def child_environment():
-    allowed = {"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "LANG", "LC_ALL"}
-    result = {k: v for k, v in os.environ.items() if k in allowed}
+    # Windows lists environment names in upper case (SYSTEMROOT); without it a child cannot start networking (R9D.1).
+    allowed = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "LANG", "LC_ALL"}
+    result = {k: v for k, v in os.environ.items() if k.upper() in allowed}
     if getattr(sys, "frozen", False):
         # The trainer is its own onefile runtime: it must not adopt the authority's extracted
         # libraries (_PYI_* / library paths), and PyInstaller treats it as a fresh process.

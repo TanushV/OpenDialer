@@ -238,17 +238,35 @@ test("an audio leg that ends after a call reconnects while ready; only Pause pau
   // R0.9: the rep's audio leg ends with every call. A ready rep gets a fresh leg.
   const ready = { inCall: false, ready: true, pausing: false };
   expect(afterAudioStatus("agent-disconnected", ready)).toBe("reconnect");
+  // A rep who is already pausing, or not calling, is not paused again: pausing releases the audio,
+  // whose "disconnected" report must not start another pause (the loop found in R9D.3).
   expect(
     afterAudioStatus("agent-disconnected", { ...ready, pausing: true }),
-  ).toBe("pause");
+  ).toBe("none");
+  expect(afterAudioStatus("disconnected", { ...ready, ready: false })).toBe(
+    "none",
+  );
   expect(
-    afterAudioStatus("agent-disconnected", { ...ready, ready: false }),
+    afterAudioStatus("agent-disconnected", {
+      inCall: true,
+      ready: false,
+      pausing: false,
+    }),
   ).toBe("pause");
   expect(afterAudioStatus("registered", ready)).toBe("none");
   expect(afterAudioStatus("reconnecting", { ...ready, inCall: true })).toBe(
     "none",
   );
   expect(afterAudioStatus("disconnected", ready)).toBe("pause");
+});
+
+test("disconnecting twice reports one disconnect", async () => {
+  const { phone } = await connected();
+  const seen: string[] = [];
+  phone.onStatus = (status) => seen.push(status);
+  phone.disconnect();
+  phone.disconnect();
+  expect(seen.filter((s) => s === "disconnected")).toHaveLength(1);
 });
 
 test("a registered client renews only the audio leg", async () => {

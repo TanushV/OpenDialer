@@ -425,7 +425,7 @@ async def test_training_capacity_lock_is_shared_across_authority_processes(tmp_p
         env=worker.child_environment(),
     )
     try:
-        assert await asyncio.wait_for(holder.stdout.readline(), 3) == b"locked\n"
+        assert (await asyncio.wait_for(holder.stdout.readline(), 10)).rstrip(b"\r\n") == b"locked"
         with pytest.raises(RuntimeError, match="already active"):
             await worker.train_isolated(training_rows(), root / "second")
         assert not (root / "second").exists()
@@ -561,3 +561,14 @@ async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
     with service.db.transaction(False) as s:
         assert not service.scoped(s, "model_versions", p)
     assert not list((service.settings.data_dir / "models").glob("*/challenger.json"))
+
+
+def test_the_training_child_keeps_the_windows_system_root(monkeypatch):
+    """R9D.1: Windows reports SYSTEMROOT in upper case; dropping it made every training child fail (WinError 10106)."""
+    from app.ml import worker
+
+    monkeypatch.setenv("SYSTEMROOT", r"C:\Windows")
+    monkeypatch.setenv("OPENDIALER_SECRET_KEY_FILE", "/secret")
+    env = worker.child_environment()
+    assert env.get("SYSTEMROOT") == r"C:\Windows"
+    assert "OPENDIALER_SECRET_KEY_FILE" not in env

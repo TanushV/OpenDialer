@@ -1,5 +1,6 @@
 """Managed receipts reuse durable ingress; acknowledgement follows the local commit."""
 
+import os
 from datetime import timedelta
 
 import pytest
@@ -50,7 +51,8 @@ async def test_session_storage_is_private_and_persistent(tmp_path):
     path = tmp_path / "session.json"
     storage = SessionStorage(path)
     await storage.set_item("session", "private-refresh-value")
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":  # Windows keeps the file private by the user profile's ACL, not by mode bits.
+        assert path.stat().st_mode & 0o777 == 0o600
     assert await SessionStorage(path).get_item("session") == "private-refresh-value"
     await storage.remove_item("session")
     assert await SessionStorage(path).get_item("session") is None

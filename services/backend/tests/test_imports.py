@@ -53,7 +53,7 @@ def violations():
                 if parts[0] != "app" or len(parts) < 2:
                     continue
                 other = parts[1]
-                where = f"{path.relative_to(APP)} imports {target}"
+                where = f"{path.relative_to(APP).as_posix()} imports {target}"
                 if other not in RANK:
                     found.append(f"{where}: legacy module")
                 elif other != package and RANK[other] >= rank:

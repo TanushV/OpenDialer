@@ -24,6 +24,8 @@ export function afterAudioStatus(
 ): "reconnect" | "pause" | "none" {
   if (status === "agent-disconnected" && rep.ready && !rep.pausing)
     return "reconnect";
+  // Pausing releases the audio, which reports "disconnected": that must not start another pause.
+  if (rep.pausing || (!rep.ready && !rep.inCall)) return "none";
   return pausesPresence(status, rep.inCall) ? "pause" : "none";
 }
 
@@ -341,6 +343,7 @@ export class Telephony {
       this.disconnect();
   }
   disconnect() {
+    const already = !this.client && this.status === "disconnected";
     ++this.session;
     this.cancelRegistration?.();
     this.client?.disconnect();
@@ -352,6 +355,6 @@ export class Telephony {
     this.pending.clear();
     this.answers.clear();
     this.closed.clear();
-    this.report("disconnected");
+    if (!already) this.report("disconnected");
   }
 }

@@ -5,6 +5,7 @@ seats leasing at the same moment never get one number, the daily cap counts ever
 and a callback reaches the seat that last called, else the owner's seat.
 """
 
+import os
 import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -12,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+if os.name == "nt":
+    pytest.skip("the relay runs on Supabase; its SQL is tested on Mac and Linux", allow_module_level=True)
 pgserver = pytest.importorskip("pgserver")
 pytestmark = pytest.mark.slow
 

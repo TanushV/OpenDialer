@@ -1,6 +1,7 @@
 """R0.13: every backend warning reaches one private, rotating log file in the data folder."""
 
 import logging
+import os
 
 from app.platform.logfile import configure
 
@@ -13,7 +14,8 @@ def test_warnings_reach_a_private_rotating_log_file(tmp_path):
             handler.flush()
         assert path == tmp_path / "logs" / "opendialer.log"
         assert "relay exchange failed: TimeoutError" in path.read_text()
-        assert (tmp_path / "logs").stat().st_mode & 0o777 == 0o700
+        if os.name != "nt":  # Windows keeps the file private by the user profile's ACL, not by mode bits.
+            assert (tmp_path / "logs").stat().st_mode & 0o777 == 0o700
         # Configuring again adds no second handler, so no line is written twice.
         configure(tmp_path)
         logging.getLogger("app").warning("once")

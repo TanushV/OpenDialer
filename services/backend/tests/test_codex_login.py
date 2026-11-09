@@ -35,7 +35,7 @@ asyncio.run(main())
         process = await asyncio.create_subprocess_exec(
             sys.executable, "-c", script, str(tmp_path), env=env, stdout=asyncio.subprocess.PIPE
         )
-        assert await asyncio.wait_for(process.stdout.readline(), 15) == b"blocked\n"
+        assert (await asyncio.wait_for(process.stdout.readline(), 15)).rstrip(b"\r\n") == b"blocked"
         assert not (tmp_path / "acquired").exists()
     try:
         assert await asyncio.wait_for(process.wait(), 15) == 0
