@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 
-/** An active fixture call whose saved state carries the helper's last receipt. */
+/** An active fixture call whose helper is paused for a reason (R10.1). */
 async function callWithHelper(page: Page, helper: Record<string, unknown>) {
   let call: Record<string, unknown> = {};
   await page.route("**/v1/workspace", async (route) => {
@@ -15,12 +15,7 @@ async function callWithHelper(page: Page, helper: Record<string, unknown>) {
       state: "HUMAN",
       transcript: [],
       created_at: new Date().toISOString(),
-      conversation_state: {
-        stage: "discovery",
-        trigger: "prospect",
-        version: 3,
-        helper_status: { ...helper, at: new Date().toISOString() },
-      },
+      helper_status: helper,
     };
     data.calls = [call];
     // The app may abandon this read (it refetches on entering the workspace);
@@ -43,23 +38,21 @@ async function callWithHelper(page: Page, helper: Record<string, unknown>) {
 
 for (const [helper, text] of [
   [
-    { status: "unavailable", reason: "transport_fault" },
+    { status: "paused", reason: "transport_fault" },
     "Live help paused · connection interrupted. Keep using your script.",
   ],
   [
-    { status: "unavailable", reason: "invalid_response" },
-    "Live help paused · last answer could not be used. Keep using your script.",
+    { status: "paused", reason: "not_configured" },
+    "Live help paused · add an OpenRouter key in Settings. Keep using your script.",
   ],
   [
-    { status: "unavailable", reason: "provider_unverified" },
-    "Live help paused · provider not verified. Keep using your script.",
+    { status: "paused", reason: "budget" },
+    "Live help paused · this list's AI budget is used up. Keep using your script.",
   ],
   [
-    { status: "unavailable", reason: "provider_mismatch" },
+    { status: "paused", reason: "provider_mismatch" },
     "Live help paused · provider route changed. Keep using your script.",
   ],
-  [{ status: "cached_knowledge" }, "Using your approved examples"],
-  [{ status: "available" }, "Live help available"],
 ] as const) {
   test(`helper status ${helper.status} ${"reason" in helper ? helper.reason : ""} is a calm status`, async ({
     page,
@@ -75,3 +68,9 @@ for (const [helper, text] of [
     await expect(page.getByRole("button", { name: /^Hang up/ })).toBeVisible();
   });
 }
+
+test("an available helper shows no status line at all", async ({ page }) => {
+  await callWithHelper(page, { status: "available" });
+  await expect(page.getByTestId("live-coaching-strip")).toBeVisible();
+  await expect(page.getByTestId("helper-status")).toHaveCount(0);
+});

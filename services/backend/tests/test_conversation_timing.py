@@ -4,7 +4,7 @@ import math
 import random
 
 import pytest
-from app.postcall.analysis import behavioral_metrics
+from app.aftercall.trace import behavioral_metrics
 
 
 def segment(side, start, end, **extra):

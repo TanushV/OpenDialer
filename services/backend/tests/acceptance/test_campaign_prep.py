@@ -296,20 +296,19 @@ def test_opted_out_numbers_are_never_researched(workspace):
     assert post(ws, "/v1/preparation/lists", {"list_name": "Opt-outs"})["marked"] == 0
 
 
-def test_the_scripts_facts_and_never_say_become_the_helpers_approved_knowledge(workspace):
+def test_the_scripts_facts_and_never_say_reach_the_live_helper(workspace, app):
+    """R10.1: the script is the one place for approved facts and what never to say; the helper reads them from it."""
+    from app import live_help
+    from app.helper.live import messages
+    from conftest import start
+
     ws = workspace
-    before = get(ws, "/v1/workspace")["active_playbook"]
     save_script(ws, SCRIPT + "\n# Facts\n- Licensed and insured since 2009.\n")
-    after = get(ws, "/v1/workspace")["active_playbook"]
-    assert after["version"] == before["version"] + 1
-    assert after["claims"] == ["Licensed and insured since 2009."]
-    assert after["prohibited_claims"] == ["Guaranteed savings"]
-    assert after.get("product_description", "") == before.get("product_description", "")
-    assert [(c["id"], c["text"]) for c in after["cards"]] == [(c["id"], c["text"]) for c in before["cards"]]
-    # Saving the same facts again does not publish another knowledge version.
-    save_script(
-        ws,
-        SCRIPT.replace("Would Tuesday work?", "Does Tuesday work?")
-        + "\n# Facts\n- Licensed and insured since 2009.\n",
-    )
-    assert get(ws, "/v1/workspace")["active_playbook"]["version"] == after["version"]
+    placed = start(ws)
+    service = app.state.service
+    p = {k: ws[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
+    with service.db.transaction(False) as s:
+        call = service.required(s, "call_attempts", placed["id"], p)
+        prompt = messages(live_help.request_in(service, s, p, call, None))[1]["content"]
+    assert "Licensed and insured since 2009." in prompt
+    assert "Guaranteed savings" in prompt

@@ -133,7 +133,7 @@ class WorkspaceReads:
                     query.with_only_columns(model.id).limit(TOTAL_CAP + 1).subquery()
                 )
             )
-            descending = section not in {"leads", "playbooks", "trackers", "task_owners"}
+            descending = section not in {"leads", "task_owners"}
             if cursor:
                 anchor = s.scalar(query.where(model.id == cursor))
                 if not anchor:
@@ -353,7 +353,6 @@ class WorkspaceReads:
                 "reservation": reservation,
                 "event_cursor": event_cursor,
                 **{section: value["items"] for section, value in pages.items()},
-                "active_playbook": doc(book) if (book := self.approved_playbook(s, p)) else None,
                 "pages": {
                     section: {k: v for k, v in value.items() if k != "items"}
                     for section, value in pages.items()

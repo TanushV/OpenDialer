@@ -166,10 +166,7 @@ class Preparation:
         if template:
             script.update(render(template, lead=doc(lead), seller=seller, rep=rep))
         else:
-            playbook = self.approved_playbook(s, p)
-            opener = (
-                playbook.data["opener"] if playbook else "Hi, this is {rep} from " + seller + "."
-            ).replace("{rep}", rep)
+            opener = f"Hi, this is {rep} from {seller}."
             script.update(
                 sections=[
                     {
@@ -186,7 +183,7 @@ class Preparation:
                 discovery_questions=["What would make this conversation useful for you?"],
                 closing_question="Would a further conversation be useful?",
                 offers=[],
-                objection_cards=playbook.data.get("cards", []) if playbook else [],
+                objection_cards=[],
                 picks={},
                 written={},
             )
@@ -313,8 +310,8 @@ class Preparation:
         run, so it is current after every call or correction and needs no model to be up.
         It never mentions a conversation that did not happen.
         """
+        from app.aftercall.tasks import ACTIVE as ACTIVE_TASKS
         from app.calling.state import TERMINAL
-        from app.postcall.commitments import ACTIVE as ACTIVE_TASKS
 
         attempts = lead.data.get("attempt_count", 0)
         calls = self.lead_records(
@@ -365,26 +362,18 @@ class Preparation:
             )
         if spoken:
             latest = spoken[0]
+            summary = self.call_summary(s, p, latest.id) or {}
             note = self._by_key(s, p, "notes", latest.id)
-            view = self.note_view_in(s, p, note, latest) if note else {}
-            notes, memory = view.get("notes") or {}, view.get("call_memory") or {}
             when = (dt(latest.data.get("started_at")) or self.clock()).date().isoformat()
-            if notes.get("summary"):
-                lines.append(f"Last conversation ({when}): {notes['summary']}")
+            # D4: the next script reads the after-call summary and the rep's own note.
+            if summary.get("summary"):
+                lines.append(f"Last conversation ({when}): {summary['summary']}")
             else:
                 lines.append(f"You spoke on {when}; no summary was saved.")
-            if notes.get("objections"):
-                lines.append("They raised: " + "; ".join(str(o) for o in notes["objections"][:3]))
-            answered = [str(a.get("text", a)) for a in memory.get("answered_questions", [])[:3]]
-            if answered:
-                lines.append("Already answered, do not ask again: " + "; ".join(answered))
-            open_questions = [
-                str(q.get("text", q))
-                for q in memory.get("open_questions", [])
-                if q.get("status") not in {"resolved", "retracted", "stale"}
-            ]
-            if open_questions:
-                lines.append("Pick up from: " + open_questions[0])
+            if summary.get("next_step"):
+                lines.append("Agreed next step: " + summary["next_step"])
+            if note and note.data.get("human_text"):
+                lines.append("Your note: " + note.data["human_text"][:500])
         if template and template.get("follow_up"):
             lines.append(fill_fields(template["follow_up"], values))
         if not callback and attempts + 1 >= policy.get("max_attempts", 4):

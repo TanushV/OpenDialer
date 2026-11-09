@@ -124,3 +124,25 @@ class SimulatedSummaryModel:
             "next_step": "",
         }
         return type("Result", (), {"data": data})()
+
+
+class SimulatedCoach:
+    """Simulation's live helper model: a fixed reply to the last prospect line or private question; no network."""
+
+    def __init__(self):
+        self.last_usage, self.last_request_id, self.last_provider = {"cost": 0}, "simulated", "Cerebras"
+        self.last_model, self.first_text_ms = "simulated", 0.0
+
+    async def converse(self, messages, *, on_progress=None, quiet="", deadline_ms=8000):
+        lines = messages[-1]["content"].splitlines()
+        question = next((line.split(": ", 1)[1] for line in lines if line.startswith("Private question")), "")
+        said = next((line.split(": ", 1)[1] for line in reversed(lines) if line.startswith("Prospect: ")), "")
+        if question:
+            text = f"Privately: {question.rstrip('?')}? Answer briefly, then ask how they handle it today."
+        elif said:
+            text = f"They said “{said[:80]}”. Acknowledge it, then ask one question about it."
+        else:
+            text = quiet
+        if on_progress is not None and text != quiet:
+            await on_progress(text)
+        return text

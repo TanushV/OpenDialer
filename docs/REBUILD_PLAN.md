@@ -1501,13 +1501,21 @@ Goal: finish the remaining surface and ship.
 
 Live helper and after-call:
 
-- [ ] R10.1 Live helper: streamed tips and private help only; remove interpretation layers that nothing else uses.
+- [x] R10.1 Live helper: streamed tips and private help only; remove interpretation layers that nothing else uses.
+      Done November 9: `helper/live.py` and `live_help.py` replace `coaching/` and `postcall/`. One streamed request
+      per turn; the tip lives in memory and is never saved. Gone with it: the finalize and review jobs, scorecards,
+      rubrics, trackers, commitments, coach feedback, coaching strategies and the playbook (the script's Facts and
+      Never say are the one place). The next call's script and brief read the summary instead. 10 tables retired;
+      backend 38,623 to 32,403 lines.
 - [x] R10.2 After-call: one request over the whole transcript returns summary, suggested outcome and next step.
       Done November 9: `aftercall/summary.py`, one request over the whole transcript on OpenRouter's no-retention route; saved in `call_summaries`; the wrap-up shows it and HubSpot gets it. The old finalize path still runs beside it until R10.1 retires it.
 - [x] R10.3 Fix the three verified defects by design: no batch-wide rejection, no 32-segment cutoff, no "partial" caused by an
       unassessed item.
       Done November 9 by design in `aftercall/summary.py`: no page limit, each field validated alone, no partial state.
-- [ ] R10.4 V4.1 Flash reviews commitments that would create tasks; a failed item fails alone, with Retry.
+- [x] R10.4 V4.1 Flash reviews commitments that would create tasks; a failed item fails alone, with Retry.
+      Done November 9 by design: the summary is the one AI step after a call and returns its next step; it never
+      saves an outcome or creates a task (the rep's outcome does, section 6). A failed summary fails alone and has
+      Retry in the wrap-up and in Review.
 - [x] R10.5 Transcript retention of 30 days; remove the raw-speech store and expiry code; add a delete control.
       Done November 9: text is saved on `transcript_segments` for 30 days, purged by the maintenance tick, deletable from Review; an opt-out deletes it. The in-memory store stays only for the live helper.
 

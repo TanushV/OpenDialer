@@ -86,7 +86,7 @@ def _number(value):
 
 def script_trace(script, segments, observations=()):
     """Delivered sections in order, the prospect's reaction to each, the opening and call shape."""
-    from app.postcall.analysis import behavioral_metrics
+    from app.aftercall.trace import behavioral_metrics
 
     rows = [
         s

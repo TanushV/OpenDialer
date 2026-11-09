@@ -59,9 +59,14 @@ why in plain words. A test call to the rep's own phone skips hours and attempt l
 - **Research and scripts** (`prep/`, `preparation/`): the ChatGPT login is the main route; DeepSeek V4.1 Flash on
   OpenRouter's no-retention route takes over when it is unavailable. Each lead gets a trigger ("why now"), checked
   against the page it came from.
-- **Live helper** (`coaching/`): tips and private help during a call on OpenRouter (Cerebras).
+- **Live helper** (`helper/live.py`, wired in `live_help.py`): while the prospect talks, one short line the rep could
+  say or ask next; when the rep asks (F1 or a typed question), a private answer. One streamed request per turn on
+  OpenRouter, served only by Cerebras with no retention. A tip lives in memory for 30 seconds (an answer for 5 minutes)
+  and is never saved. Without an OpenRouter key the helper says so and the script carries the call.
 - **After the call** (`aftercall/summary.py`): one request over the whole transcript returns a summary, a suggested
-  outcome and a next step; each field is checked on its own. It is shown in the wrap-up and added to HubSpot.
+  outcome and a next step; each field is checked on its own, and a failed summary has Retry. It is shown in the
+  wrap-up and in Review, read by the next call's script and brief, and added to HubSpot. The rep confirms the
+  suggested outcome; only carrier facts (no answer, busy, a mailbox) save themselves.
 - **Transcripts** are kept on this computer for 30 days, then deleted; the rep can delete one sooner. There are no
   recordings.
 

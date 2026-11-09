@@ -25,9 +25,6 @@ KNOWN = {
     ("platform/db.py", "app.operational_schema"): "R3.7 folds the schema into platform",
     ("platform/db.py", "app.privacy"): "R10.5 replaces the privacy module",
     ("platform/jobs.py", "app.privacy"): "R10.5 replaces the privacy module",
-    ("providers/openrouter.py", "app.coaching.contracts"): "R10.1 rebuilds the live helper",
-    ("providers/openrouter.py", "app.coaching.conversation"): "R10.1 rebuilds the live helper",
-    ("providers/openrouter.py", "app.grounding"): "R10.1 rebuilds the live helper",
     ("providers/telnyx.py", "app.optimization.geography"): "R4.4 moves number geography",
     ("providers/inference.py", "app.model_tokens"): "R9.10 builds the chat agent",
 }

@@ -170,11 +170,14 @@ test("stage estimates say prior only or show their support, never a bare pickup 
 test("review notes start empty and the AI summary stays read-only", async ({
   page,
 }) => {
-  await page.route("**/v1/calls/*/analysis", async (route) => {
+  await page.route("**/v1/calls/*/review", async (route) => {
     const response = await route.fetch();
     const body = await response.json();
     body.human_notes = null;
-    body.notes.summary = "AI drafted summary of the call.";
+    body.summary = {
+      status: "ready",
+      summary: "AI drafted summary of the call.",
+    };
     await route.fulfill({ response, json: body });
   });
   const { packet } = await startCall(
@@ -445,28 +448,4 @@ test("a session that cannot renew asks the rep to sign in again", async ({
   await signIn.click();
   await expect(page.getByText("Session expired")).toHaveCount(0);
   await expect(startCalling(page).or(pauseCalling(page))).toBeVisible();
-});
-
-test("helper feedback offers useful, not useful and wrong without expanding", async ({
-  page,
-}) => {
-  await startCall(page, "Feedback fixture", "+14155550609");
-  await answer(page);
-  await page
-    .getByLabel("Simulation transcript")
-    .fill("We need approval from the committee first.");
-  await page.getByRole("button", { name: "Add prospect turn" }).click();
-  await page.keyboard.press("F1");
-  const strip = page.getByTestId("live-coaching-strip");
-  for (const name of [
-    "Guidance was useful",
-    "Guidance was not useful",
-    "Guidance was wrong",
-  ])
-    await expect(
-      strip.getByRole("button", { name, exact: true }),
-    ).toBeVisible();
-  await expect(
-    strip.getByRole("button", { name: "Guidance arrived too late" }),
-  ).toBeHidden();
 });

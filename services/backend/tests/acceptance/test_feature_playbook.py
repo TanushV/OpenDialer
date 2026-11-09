@@ -286,7 +286,7 @@ def test_rewrite_after_a_call_accepts_an_ai_note_with_no_human_edit(workspace):
     hang_up(ws, placed["id"])
     wrap_up(ws, placed["id"], outcome="not_interested", contact_role="right_party")
     run_jobs(ws, 3)
-    assert get(ws, f"/v1/calls/{placed['id']}/analysis")["human_notes"] is None
+    assert get(ws, f"/v1/calls/{placed['id']}/review")["human_notes"] is None
     before = get(ws, f"/v1/leads/{identity}/packet")["script"]
     save_script(ws, SCRIPT.replace("Would Tuesday work?", "Could we review the new scope?"))
     run_jobs(ws, 3)

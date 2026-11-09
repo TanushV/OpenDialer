@@ -20,7 +20,6 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.administration import Dialer
 from app.calling import audio_leg, detection, timeline
-from app.coaching import knowledge
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.lead_lists import memberships
 from app.platform.config import Settings
@@ -69,7 +68,7 @@ class Setup(Strict):
 
 class CoachPreferences(Strict):
     muted: bool | None = None
-    pinned: bool | None = None
+    dismissed: str | None = Field(default=None, max_length=80)
 
 
 class CoachQuestion(Strict):
@@ -190,16 +189,7 @@ class Transcript(Strict):
 
 
 class NoteEdit(Strict):
-    # Current clients send the human edit version; finalization bookkeeping never moves it.
-    expected_edit_version: int | None = Field(default=None, ge=0, strict=True)
-    expected_version: int | None = None
     text: str = Field(max_length=20000)
-
-    @model_validator(mode="after")
-    def one_version(self):
-        if self.expected_edit_version is None and self.expected_version is None:
-            raise ValueError("expected_edit_version is required")
-        return self
 
 
 class Disposition(Strict):
@@ -389,7 +379,6 @@ def field_bounds(model):
 def setting_bounds():
     from app.compliance.operating import OperatingPolicy, ScreeningRequest
     from app.optimization.api import (
-        Comparison,
         Conversion,
         HealthPolicy,
         ModelTrial,
@@ -413,7 +402,6 @@ def setting_bounds():
             "callback_routing": CallbackRoutingEdit,
             "conversion": Conversion,
             "model_trial": ModelTrial,
-            "comparison": Comparison,
             "number_review": NumberReview,
             "setup": Setup,
             "screening": ScreeningRequest,
@@ -712,18 +700,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.get("/v1/calls/{call_id}")
     def get_call(call_id: str, p=Depends(principal)):
-        from app.coaching.context import upgrade_state
-        from app.postcall.analysis import suggested_outcome, summary_suggestion
-        from app.postcall.rubrics import effective
+        from app import live_help
+        from app.aftercall.summary import suggestion
 
         with db.transaction(False) as s:
             call = service.required(s, "call_attempts", call_id, p)
             if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
                 fail(404, "Object not found")
-            state = service._by_key(s, p, "conversation_states", call_id)
-            state = state.data if state else {}
-            derived = upgrade_state(state, call_id=call_id, rubric=effective(call.data))
-            coach = service.visible_help(s, p, call, state)
+            tip, helper = live_help.view(service, call)
             segments = service.transcript_rows(s, p, call_id)
             summary = service.call_summary(s, p, call_id)
             return {
@@ -731,10 +715,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "aftercall": summary,
                 "transcript": segments,
                 "raw_evidence_status": service.raw_status(call, segments),
-                "coach": coach,
-                "conversation_state": state,
-                "rundown_status": derived["finalization"]["status"],
-                "suggested_outcome": summary_suggestion(summary) or suggested_outcome(derived),
+                "coach": tip,
+                "helper_status": helper,
+                "suggested_outcome": suggestion(summary),
             }
 
     @app.post("/v1/calls/{call_id}/stay")
@@ -968,39 +951,52 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.patch("/v1/calls/{call_id}/coach")
     def coach_preferences(call_id: str, data: CoachPreferences, p=Depends(principal)):
+        """Mute automatic tips on this call, or dismiss the tip shown."""
         with db.transaction() as s:
             call = service.required(s, "call_attempts", call_id, p)
-            preferences = {**call.data.get("coach_preferences", {}), **data.model_dump(exclude_none=True)}
-            if data.pinned is not None:
-                state = service._by_key(s, p, "conversation_states", call_id)
-                visible = service.visible_help(s, p, call, state.data if state else {})
-                preferences["pinned_event_id"] = visible["id"] if data.pinned and visible else None
-            update(call, coach_preferences=preferences)
+            preferences = dict(call.data.get("coach_preferences", {}))
+            if data.muted is not None:
+                preferences["muted"] = data.muted
+                update(call, coach_preferences=preferences)
+            if data.dismissed:
+                service.tips.dismiss(call_id, data.dismissed)
             return preferences
 
     @app.post("/v1/calls/{call_id}/coach")
     async def coach(call_id: str, data: CoachQuestion | None = None, p=Depends(principal)):
-        return await service.coach_turn(
+        from app import live_help
+
+        with db.transaction(False) as s:
+            service.required(s, "call_attempts", call_id, p)
+        return await live_help.turn(
+            service,
             p,
             call_id,
-            urgent=True,
             question=data.question if data else None,
             request_id=str(data.request_id) if data and data.request_id else None,
         )
 
     @app.post("/v1/calls/{call_id}/coach/cancel")
     def cancel_coach(call_id: str, data: CoachCancel, p=Depends(principal)):
-        return service.cancel_help(p, call_id, str(data.request_id))
+        from app import live_help
 
-    @app.get("/v1/calls/{call_id}/analysis")
-    def analysis(call_id: str, p=Depends(principal)):
-        return service.analysis(p, call_id)
+        return live_help.cancel(service, p, call_id, str(data.request_id))
+
+    @app.post("/v1/calls/{call_id}/summary")
+    def retry_summary(call_id: str, p=Depends(principal)):
+        """R10.4: a summary that failed is written again on request; nothing else is redone."""
+        with db.transaction() as s:
+            call = service.required(s, "call_attempts", call_id, p)
+            service.enqueue_aftercall(s, p, call, retry=True)
+        return {"queued": True}
+
+    @app.get("/v1/calls/{call_id}/review")
+    def call_review(call_id: str, p=Depends(principal)):
+        return service.call_review(p, call_id)
 
     @app.patch("/v1/calls/{call_id}/notes")
     def edit_notes(call_id: str, data: NoteEdit, p=Depends(principal)):
-        return service.edit_notes(
-            p, call_id, data.expected_version, data.text, expected_edit_version=data.expected_edit_version
-        )
+        return service.edit_notes(p, call_id, data.text)
 
     # The live stream's read, also served over HTTP for catch-up and tests.
     @app.get("/v1/events")
@@ -1189,7 +1185,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "model": inference_model(config),
                 **{
                     role + "_model": inference_model(config, role)
-                    for role in ("research_extract", "script_write", "scorecard_review")
+                    for role in ("research_extract", "script_write")
                 },
             },
             "defaults": {
@@ -1643,10 +1639,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 },
             )
             return doc(lead)
-
-    @app.post("/v1/admin/playbooks")
-    def publish_playbook(data: knowledge.Edit, p=Depends(administrator)):
-        return knowledge.publish(service, p, data.model_dump())
 
     @app.patch("/v1/tasks/{task_id}")
     def task_status(task_id: str, data: TaskEdit, p=Depends(principal)):

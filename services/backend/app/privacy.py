@@ -13,8 +13,6 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import NamedTuple
 
-from app.platform.config import LIMITS
-
 RAW_TTL_SECONDS = 300
 # D7, R10.5: transcript text stays on this computer for 30 days, then is deleted; the rep can delete it sooner.
 TRANSCRIPT_DAYS = 30
@@ -404,43 +402,10 @@ def persistent_document(kind, data):
                 "transport_revision",
                 "effects_complete",
                 "transcript_version",
-                "interpretation_revision",
-                "interpreted_at",
                 "question_count",
                 "word_count",
                 "script_section",
                 "section_score",
-            }
-        }
-    if kind == "coach_events":
-        return {
-            k: v
-            for k, v in data.items()
-            if k
-            in {
-                "call_id",
-                "action",
-                "kind",
-                "state_version",
-                "evidence_segment_ids",
-                "playbook_card_ids",
-                "created_at",
-                "expires_at",
-                "raw_expires_at",
-                "expires_in_ms",
-                "provider",
-                "actual_provider",
-                "model",
-                "provider_request_id",
-                "latency",
-                "private",
-                "user_id",
-                "strategy",
-                "strategy_exposure",
-                "status",
-                "context_sources",
-                "context_fingerprint",
-                "meaning_review",
             }
         }
     if kind in {"provider_events", "webhook_inbox"}:
@@ -470,12 +435,6 @@ def persistent_document(kind, data):
         for key in ("recording_url", "recording_urls", "recording_download_url", "transcript", "text"):
             data.pop(key, None)
         return data
-    if kind == "conversation_states":
-        return {
-            k: v
-            for k, v in data.items()
-            if k not in {"recent_dialogue", "last_remote", "asked_questions", "previous_guidance", "facts"}
-        }
     return data
 
 
@@ -564,13 +523,7 @@ class SpeechPrivacy:
             # The saved text (30 days) is the record; the in-memory copy only serves the live helper.
             item = self.raw.get(key) or (row.data if "text" in row.data else None)
             if item is not None:
-                result.append(
-                    {
-                        **item,
-                        "interpretation_revision": row.data.get("interpretation_revision"),
-                        "raw_remaining_ms": self.raw.remaining_ms(key) or 0,
-                    }
-                )
+                result.append({**item, "raw_remaining_ms": self.raw.remaining_ms(key) or 0})
         return sorted(result, key=lambda item: (item.get("server_received_at", ""), item["segment_id"]))
 
     def raw_status(self, call, segments):
@@ -668,7 +621,6 @@ class SpeechPrivacy:
                     "question_count": segment.get("text", "").count("?"),
                     "word_count": len(segment.get("text", "").split()),
                     **script_section_of(segment, call.data.get("script_snapshot") or {}),
-                    "interpretation_revision": None,
                 },
             )
             if row:
@@ -697,48 +649,6 @@ class SpeechPrivacy:
                 raw_expires_at=max(call.data.get("raw_expires_at", ""), kept_until.isoformat()),
             )
             version = call.data["transcript_version"]
-            if row:
-                from app.postcall.commitments import invalidate
-
-                invalidate(self, s, p, call, segment["segment_id"])
-            preferences = call.data.get("coach_preferences", {})
-            pinned_id = preferences.get("pinned_event_id")
-            if row and pinned_id:
-                pinned = self.required(s, "coach_events", pinned_id, p)
-                if segment["segment_id"] in pinned.data.get("evidence_segment_ids", []):
-                    update(call, coach_preferences={**preferences, "pinned": False, "pinned_event_id": None})
-            # Corrections invalidate machine interpretations; human edits remain authoritative.
-            for kind in ("conversation_states", "notes", "scorecards"):
-                record = self._by_key(s, p, kind, call_id)
-                if record:
-                    if kind == "conversation_states":
-                        from app.coaching.context import invalidate_state
-
-                        state = invalidate_state(
-                            record.data,
-                            segment["segment_id"],
-                            segment["revision"],
-                            at=self.clock(),
-                            lineage=self._conversation_lineage(s, p, call_id),
-                        )
-                        state["transcript_version"] = version
-                        state["finalization"]["status"] = "pending"
-                        self._store_conversation(s, p, call, state, record)
-                    else:
-                        update(record, stale=True, source_version=version)
-                        if kind == "notes" and row:
-                            observations = [dict(i) for i in record.data.get("observations", [])]
-                            for observation in observations:
-                                if segment["segment_id"] in observation.get("evidence", []):
-                                    observation.update(
-                                        status="invalidated", version=observation["version"] + 1
-                                    )
-                            update(record, observations=observations)
-            if row:
-                from app.optimization.conversations import invalidate_report
-
-                lead = self.required(s, "leads", call.data["lead_id"], p)
-                invalidate_report(self, s, p, lead.data["campaign_id"])
             emit(
                 s,
                 p["tenant_id"],
@@ -789,15 +699,11 @@ class SpeechPrivacy:
             from app.calling.state import TERMINAL
 
             if call.data["state"] in TERMINAL | {"ENDING"}:
-                self.enqueue_finalize(s, p, call, "late_segment")
-            else:
-                self._defer_help(
-                    s,
-                    p,
-                    call,
-                    self.clock() + timedelta(milliseconds=LIMITS.prospect_debounce_ms),
-                    "final",
-                )
+                self.enqueue_aftercall(s, p, call)
+            elif segment.get("side") == "remote":
+                from app import live_help
+
+                live_help.queue(self, s, p, call)
         model = MODELS["transcript_segments"]
         row = s.scalar(
             select(model).where(

@@ -90,17 +90,9 @@ test("a delayed helper read cannot bring back a previous call after the next one
   }
 });
 
-test("fixed helper remains visible, private controls work and no raw content is archived", async ({
+test("the helper stays in view beside the script and its mute and private controls work", async ({
   page,
 }) => {
-  const exposureRequests: Record<string, unknown>[] = [];
-  page.on("request", (request) => {
-    if (
-      request.method() === "POST" &&
-      request.url().endsWith("/coach/feedback")
-    )
-      exposureRequests.push(request.postDataJSON());
-  });
   await page.setViewportSize({ width: 1280, height: 720 });
   await enter(page);
   await prepareSimulationCall(page, "Helper Fixture", "+14155550175");
@@ -117,8 +109,6 @@ test("fixed helper remains visible, private controls work and no raw content is 
   expect(openerBox!.y + openerBox!.height).toBeLessThan(hangupBox!.y);
   await page
     .getByLabel("Simulation transcript")
-    // Simulated cached knowledge needs a turn that matches an approved
-    // example; a discovery card is no longer eligible for every turn.
     .fill("We have no budget for another provider right now.");
   await page.getByRole("button", { name: "Add prospect turn" }).click();
   const strip = page.getByTestId("live-coaching-strip");
@@ -136,51 +126,6 @@ test("fixed helper remains visible, private controls work and no raw content is 
     .getByRole("button", { name: "Ask privately", exact: true })
     .click();
   await expect(page.getByLabel("Private helper question")).toHaveValue("");
-  const callView = /\/v1\/calls\/[^/]+$/;
-  let reviewStatus = "model_suggestion";
-  await page.route(callView, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    if (body.coach)
-      body.coach = {
-        ...body.coach,
-        provider: "openrouter",
-        meaning_review: { status: reviewStatus },
-        alternatives: [
-          "Which constraint matters most?",
-          "What would make the next step worthwhile?",
-        ],
-      };
-    await route.fulfill({ response, json: body });
-  });
-  for (const [status, label] of [
-    ["model_suggestion", "Model suggestion"],
-    ["model_reviewed", "Model-reviewed guidance"],
-  ]) {
-    reviewStatus = status;
-    await page.keyboard.press("F1");
-    await expect(strip.getByText(label, { exact: false })).toBeVisible();
-    await expect(
-      strip.getByText("Alternative: Which constraint matters most?", {
-        exact: true,
-      }),
-    ).toBeVisible();
-    await expect(hangUp(page)).toBeInViewport();
-  }
-  await expect
-    .poll(() => exposureRequests.some((r) => r.displayed === true))
-    .toBe(true);
-  // Rarer feedback reasons sit under the strip's small "More" menu.
-  await strip.getByText("More", { exact: true }).click();
-  await page
-    .getByRole("button", { name: "I did not use this guidance", exact: true })
-    .click();
-  await expect(
-    page.getByText("Guidance feedback saved", { exact: true }),
-  ).toBeVisible();
-  expect(exposureRequests.some((r) => r.used_by_rep === false)).toBe(true);
-  expect(exposureRequests.every((r) => r.conversion === undefined)).toBe(true);
-  await page.unrouteAll({ behavior: "wait" });
   await finishCall(page);
 });
 

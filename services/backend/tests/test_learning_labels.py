@@ -190,3 +190,18 @@ def test_training_runs_at_most_daily_and_only_with_new_labels():
     assert training_due(yesterday, 121, NOW)
     assert not training_due(yesterday, 120, NOW)
     assert not training_due({"at": (NOW - timedelta(hours=3)).isoformat(), "labeled": 100}, 150, NOW)
+
+
+def test_ai_saved_outcomes_do_not_become_observed_training_labels():
+    from datetime import UTC, datetime
+
+    from app.optimization.learning import outcome_at
+
+    now = datetime(2026, 10, 24, tzinfo=UTC)
+    row = {
+        "outcome": "not_interested",
+        "outcome_source": "ai_reviewed",
+        "outcome_available_at": now.isoformat(),
+    }
+    assert outcome_at(row, now) is None
+    assert outcome_at({**row, "outcome_source": "rep_reported"}, now)["outcome"] == "not_interested"

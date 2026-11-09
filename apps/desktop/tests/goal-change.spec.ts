@@ -124,7 +124,7 @@ test("rep explicitly reviews a reopened prospect before resuming outreach", asyn
   // Scope to the packet dialog: the paused dialer keeps its last brief mounted.
   await page
     .getByRole("dialog", { name: "Lead packet" })
-    .getByText("Prior conversation & next step", { exact: true })
+    .getByText("Earlier calls", { exact: true })
     .click();
   await expect(
     page
@@ -152,7 +152,7 @@ test("rep explicitly reviews a reopened prospect before resuming outreach", asyn
   // Scope to the packet dialog: the paused dialer keeps its last brief mounted.
   await page
     .getByRole("dialog", { name: "Lead packet" })
-    .getByText("Prior conversation & next step", { exact: true })
+    .getByText("Earlier calls", { exact: true })
     .click();
   await expect(
     page

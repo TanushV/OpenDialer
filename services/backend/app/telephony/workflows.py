@@ -211,7 +211,7 @@ class TelephonyWorkflows:
                     and call.data["state"] in TERMINAL
                     and call.data.get("carrier_outcome")
                 ):
-                    self.enqueue_finalize(s, p, call, "carrier_hangup")
+                    self.enqueue_aftercall(s, p, call)
                     # R4.9: a carrier fact (no answer, busy, voicemail, failure) is saved as soon as this
                     # event commits, never after a job or an AI request.
                     result["save_outcome"] = (p, call_id)
@@ -411,7 +411,7 @@ class TelephonyWorkflows:
             ):
                 call = self.required(s, "call_attempts", call_id, p, lock=True)
                 self.finish_call(s, p, call, "simulated_control_hangup")
-                self.enqueue_finalize(s, p, call, "simulated_control_hangup")
+                self.enqueue_aftercall(s, p, call)
 
     async def dispatch_controls(self, p, *, command_id=None):
         commands = [{"id": command_id}] if command_id else await asyncio.to_thread(self._control_work, p)
@@ -434,7 +434,7 @@ class TelephonyWorkflows:
 
     def _keep_callback_promise(self, s, p, call, lead):
         """Reaching the person on a call at or after a promised callback time keeps that promise."""
-        from app.postcall.commitments import ACTIVE
+        from app.aftercall.tasks import ACTIVE
 
         due_now = [
             t

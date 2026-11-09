@@ -535,7 +535,7 @@ class ScriptLab:
             return campaign.id, field, index, payload
 
     async def propose_from_memory(self, p):
-        from app.coaching.engine import finish_shielded
+        from app.platform.jobs import finish_shielded
         from app.providers.inference import InferenceResult
 
         prepared = await asyncio.to_thread(self._proposal_request, p)
@@ -664,9 +664,6 @@ def register_script_lab(app, service, principal, administrator):
                 service.script_base(s, p, campaign)["template"]
             ) != template_version(template)
             adopted = service.adopt_script_in(s, p, campaign, template, "markdown_upload")
-        from app.coaching.knowledge import sync_from_script
-
-        sync_from_script(service, p, template)
         # Prepared leads are rewritten in the background for the new script.
         service.prepare_tick(p)
         return {**adopted, "refresh_required": refresh_required, "preparation": service.preparation_status(p)}

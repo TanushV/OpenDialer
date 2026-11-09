@@ -54,17 +54,16 @@ async function activeHelper(page: Page, coach?: Record<string, unknown>) {
   };
 }
 
-test("a complete private suggestion stays readable while its explanation is finishing", async ({
+test("a private answer shows as it is written and Cancel stays available until it is done", async ({
   page,
 }) => {
   const coach = {
     id: "streamed-private-answer",
+    kind: "ANSWER",
     status: "streaming",
     private: true,
     say_or_ask: "Which part of the approval process should we clarify?",
-    reason: "",
     remaining_ms: 300000,
-    raw_expires_at: new Date(Date.now() + 300000).toISOString(),
     expires_at: new Date(Date.now() + 300000).toISOString(),
   };
   await activeHelper(page, coach);
@@ -75,8 +74,7 @@ test("a complete private suggestion stays readable while its explanation is fini
   await page.route("**/v1/calls/*/coach", async (route) => {
     await delayed;
     coach.status = "ready";
-    coach.reason = "Clarifying the approval process avoids making assumptions.";
-    await route.fulfill({ json: { status: "ready" } });
+    await route.fulfill({ json: { status: "shown" } });
   });
   try {
     await page
@@ -85,22 +83,15 @@ test("a complete private suggestion stays readable while its explanation is fini
     await expect(
       page.getByText(coach.say_or_ask, { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByText("Answer ready · finishing explanation…", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText("Writing…", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Cancel help", exact: true }),
     ).toBeEnabled();
     release();
+    await expect(page.getByText("Writing…", { exact: true })).toBeHidden();
     await expect(
-      page.getByText(
-        "Clarifying the approval process avoids making assumptions.",
-        { exact: true },
-      ),
+      page.getByText(coach.say_or_ask, { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByText("Answer ready · finishing explanation…", { exact: true }),
-    ).toBeHidden();
   } finally {
     release();
     await page.unrouteAll({ behavior: "ignoreErrors" });

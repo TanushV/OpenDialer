@@ -119,3 +119,17 @@ async def summarize(client, segments, lead, goal):
         }
     data = getattr(result, "data", result)
     return parse(data)
+
+
+def suggestion(summary):
+    """The summary's suggested outcome in the shape the Dialer reads; None when it has none."""
+    found = (summary or {}).get("suggested_outcome")
+    if not found:
+        return None
+    role = {
+        "wrong_party": "wrong_party",
+        "gatekeeper": "gatekeeper",
+        "voicemail": "unknown",
+        "no_answer": "unknown",
+    }
+    return {**found, "contact_role": role.get(found["code"], "right_party"), "source": "summary"}

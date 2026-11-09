@@ -1,13 +1,15 @@
-"""Live helper over HTTP: stable-chunk tips, private help, preferences, feedback and speech lifetime."""
+"""R10.1 over HTTP: the live helper gives tips while the prospect talks and private answers when the rep asks.
+
+Nothing else: it saves no outcome, task or interpretation. Transcripts are kept 30 days (D7, R10.5).
+"""
 
 import json
 from datetime import timedelta
 from uuid import uuid4
 
-import pytest
 from journey import answered_by_human, call, get, post, run_jobs, start, wrap_up
 
-MARKER = "Our budget sentence must not outlive five minutes"
+MARKER = "Our budget sentence must stay on this computer"
 
 
 def chunk(ws, call_id, segment_id, text, *, side="remote", final=True, revision=1):
@@ -18,159 +20,106 @@ def chunk(ws, call_id, segment_id, text, *, side="remote", final=True, revision=
     )
 
 
-def helper_tip(ws, clock, call_id):
-    """Let the debounced live-helper job run, as the background lane does, and read the visible tip."""
+def with_helper(ws):
+    call(ws, "PUT", "/v1/admin/settings", json={"openrouter_api_key": "test-openrouter"})
+
+
+def tip_after_speech(ws, clock, call_id):
+    """Let the debounced helper job run, as the background lane does, and read the call as the Dialer does."""
     clock.now += timedelta(milliseconds=400)
     run_jobs(ws)
-    return get(ws, f"/v1/calls/{call_id}")["coach"]
+    return get(ws, f"/v1/calls/{call_id}")
 
 
-def private_help(ws, call_id, question, request_id):
-    return post(
-        ws,
-        f"/v1/calls/{call_id}/coach",
-        {"question": question, "urgent": True, "request_id": request_id},
-    )
-
-
-def send(ws, method, path, **kwargs):
-    return ws["client"].request(method, path, headers=ws["headers"], **kwargs)
-
-
-@pytest.mark.slow
-def test_tip_follows_stable_prospect_chunks_only(workspace, clock):
+def test_a_tip_follows_what_the_prospect_says_and_leaves_after_its_moment(workspace, clock):
     ws = workspace
+    with_helper(ws)
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
     chunk(ws, call_id, "r1", "What does your budget look like?", side="rep")
-    chunk(ws, call_id, "s0", "We have no budget for this", final=False)
-    assert helper_tip(ws, clock, call_id) is None, "Interim words never drive guidance"
-    chunk(ws, call_id, "r2", "Thanks, that helps.", side="rep")
-    assert helper_tip(ws, clock, call_id) is None, "Rep speech alone has nothing to answer"
+    assert tip_after_speech(ws, clock, call_id)["coach"] is None, "Rep speech alone has nothing to answer"
+    chunk(ws, call_id, "s0", "We have no budget", final=False)
+    assert tip_after_speech(ws, clock, call_id)["coach"] is None, "Interim words never drive a tip"
     chunk(ws, call_id, "s1", "We have no budget for this right now.")
-    tip = helper_tip(ws, clock, call_id)
-    assert tip["kind"] == "cached_tip" and tip["status"] == "ready" and tip["say_or_ask"]
-    assert tip["evidence_segment_ids"] == ["s1"] and tip["playbook_card_ids"] == ["budget"]
-    assert tip["pinned"] is False and tip["remaining_ms"] > 0
-    state = get(ws, f"/v1/calls/{call_id}")["conversation_state"]
-    assert state["helper_status"]["status"] == "cached_knowledge"
-    clock.now += timedelta(seconds=35)
-    live = get(ws, f"/v1/calls/{call_id}")
-    assert live["coach"] is None, "An unpinned tip leaves the screen after its display window"
-    assert live["raw_evidence_status"] == "available_temporarily"
+    live = tip_after_speech(ws, clock, call_id)
+    tip = live["coach"]
+    assert tip["kind"] == "TIP" and tip["status"] == "ready" and not tip["private"]
+    assert "We have no budget for this right now." in tip["say_or_ask"]
+    assert live["helper_status"] == {"status": "available"}
+    clock.now += timedelta(seconds=31)
+    assert get(ws, f"/v1/calls/{call_id}")["coach"] is None, "A tip is for the next moment only"
 
 
-def test_a_corrected_chunk_withdraws_the_tip_and_the_new_words_get_their_own(workspace, clock):
+def test_without_an_openrouter_key_the_helper_is_off_and_says_why(workspace, clock):
     ws = workspace
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
     chunk(ws, call_id, "s1", "We have no budget for this right now.")
-    assert helper_tip(ws, clock, call_id)["playbook_card_ids"] == ["budget"]
-    chunk(ws, call_id, "s1", "We have no timing for this right now.", revision=2)
-    live = get(ws, f"/v1/calls/{call_id}")
-    assert live["coach"] is None, "Advice that relied on revised words is withdrawn"
-    assert [segment["text"] for segment in live["transcript"]] == ["We have no timing for this right now."]
-    assert helper_tip(ws, clock, call_id)["playbook_card_ids"] == ["timing"]
-
-
-def test_mute_silences_automatic_tips_and_unmute_restores_them(workspace, clock):
-    ws = workspace
-    call_id = start(ws)["id"]
-    answered_by_human(ws, call_id)
-    chunk(ws, call_id, "s1", "We have no budget for this right now.")
-    assert helper_tip(ws, clock, call_id) is not None
-    prefs = call(ws, "PATCH", f"/v1/calls/{call_id}/coach", json={"muted": True})
-    assert prefs["muted"] is True
-    clock.now += timedelta(seconds=10)
-    chunk(ws, call_id, "s2", "We have no budget for next quarter.")
-    assert helper_tip(ws, clock, call_id) is None, "Muted tips are not shown automatically"
-    call(ws, "PATCH", f"/v1/calls/{call_id}/coach", json={"muted": False})
-    clock.now += timedelta(seconds=10)
-    chunk(ws, call_id, "s3", "We have no budget at all.")
-    assert helper_tip(ws, clock, call_id) is not None
-
-
-def test_pinned_tip_outlives_its_display_window_and_then_expires_while_the_transcript_stays(workspace, clock):
-    ws = workspace
-    call_id = start(ws)["id"]
-    answered_by_human(ws, call_id)
-    chunk(ws, call_id, "s1", "We have no budget for this right now.")
-    tip = helper_tip(ws, clock, call_id)
-    pinned = call(ws, "PATCH", f"/v1/calls/{call_id}/coach", json={"pinned": True})
-    assert pinned["pinned_event_id"] == tip["id"]
-    clock.now += timedelta(seconds=200)
-    kept = get(ws, f"/v1/calls/{call_id}")["coach"]
-    assert kept["id"] == tip["id"] and kept["pinned"] is True
-    clock.now += timedelta(seconds=105)
-    live = get(ws, f"/v1/calls/{call_id}")
+    live = tip_after_speech(ws, clock, call_id)
     assert live["coach"] is None
-    assert [s["text"] for s in live["transcript"]] == ["We have no budget for this right now."], (
-        "kept 30 days (D7)"
-    )
+    assert live["helper_status"] == {"status": "paused", "reason": "not_configured"}
+    answer = post(ws, f"/v1/calls/{call_id}/coach", {"question": "What now?", "request_id": str(uuid4())})
+    assert answer["status"] == "unavailable"
 
 
-def test_private_help_answers_the_asker_and_cancel_withdraws_it(workspace, clock):
+def test_mute_stops_automatic_tips_but_a_private_question_is_still_answered(workspace, clock):
     ws = workspace
+    with_helper(ws)
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
+    assert call(ws, "PATCH", f"/v1/calls/{call_id}/coach", json={"muted": True}) == {"muted": True}
     chunk(ws, call_id, "s1", "We have no budget for this right now.")
+    assert tip_after_speech(ws, clock, call_id)["coach"] is None
     request_id = str(uuid4())
-    reply = private_help(ws, call_id, "How should I handle the budget objection?", request_id)
-    assert reply["status"] == "ready" and reply["private"] is True and reply["action"] == "SHOW_CARD"
-    assert reply["request_id"] == request_id and reply["say_or_ask"]
-    again = private_help(ws, call_id, "How should I handle the budget objection?", request_id)
-    assert again["id"] == reply["id"], "A repeated request identity returns the same answer"
-    live = get(ws, f"/v1/calls/{call_id}")["coach"]
-    assert live["id"] == reply["id"] and live["private"] is True
-    cancelled = post(ws, f"/v1/calls/{call_id}/coach/cancel", {"request_id": request_id})
-    assert cancelled["status"] == "cancelled"
-    assert get(ws, f"/v1/calls/{call_id}")["coach"] is None
-    help_now = post(
-        ws, f"/v1/calls/{call_id}/coach", {"question": None, "urgent": True, "request_id": str(uuid4())}
+    answer = post(
+        ws, f"/v1/calls/{call_id}/coach", {"question": "How do I handle budget?", "request_id": request_id}
     )
-    assert help_now["status"] == "ready" and help_now["private"] is False and help_now["say_or_ask"]
+    assert answer == {"request_id": request_id, "private": True, "status": "shown"}
+    tip = get(ws, f"/v1/calls/{call_id}")["coach"]
+    assert tip["kind"] == "ANSWER" and tip["private"] and "How do I handle budget" in tip["say_or_ask"]
+    clock.now += timedelta(seconds=60)
+    assert get(ws, f"/v1/calls/{call_id}")["coach"]["id"] == tip["id"], "An answer stays long enough to read"
+    call(ws, "PATCH", f"/v1/calls/{call_id}/coach", json={"muted": False})
+    chunk(ws, call_id, "s2", "Maybe next quarter.")
+    assert "Maybe next quarter." in tip_after_speech(ws, clock, call_id)["coach"]["say_or_ask"]
 
 
-def test_feedback_records_display_and_rep_judgement_with_version_checks(workspace, clock):
+def test_dismiss_removes_the_tip_and_cancel_reports_when_nothing_is_running(workspace, clock):
     ws = workspace
+    with_helper(ws)
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
-    chunk(ws, call_id, "s1", "We have no budget for this right now.")
-    tip = helper_tip(ws, clock, call_id)
-    path = f"/v1/calls/{call_id}/coach/feedback"
-    before = get(ws, f"{path}?coach_event_id={tip['id']}")
-    assert before["version"] == 0 and before["used_by_rep"] is None
-    post(ws, path, {"coach_event_id": tip["id"], "request_id": str(uuid4()), "displayed": True})
-    body = {"coach_event_id": tip["id"], "request_id": str(uuid4()), "expected_version": 0}
-    judged = post(ws, path, {**body, "useful": True, "grounded": True})
-    assert judged["version"] == 1 and judged["useful"] is True and judged["grounded"] is True
-    assert judged["displayed_at"], "The display acknowledgement is recorded with the judgement"
-    assert post(ws, path, {**body, "useful": True, "grounded": True})["version"] == 1, (
-        "Retries are idempotent"
-    )
-    send_stale = send(
-        ws,
-        "POST",
-        path,
-        json={
-            "coach_event_id": tip["id"],
-            "request_id": str(uuid4()),
-            "expected_version": 0,
-            "used_by_rep": True,
-        },
-    )
-    assert send_stale.status_code == 409
-    used = post(
-        ws,
-        path,
-        {"coach_event_id": tip["id"], "request_id": str(uuid4()), "expected_version": 1, "used_by_rep": True},
-    )
-    assert used["version"] == 2 and used["used_by_rep"] is True
-    after = get(ws, f"{path}?coach_event_id={tip['id']}")
-    assert after["version"] == 2 and after["used_by_rep"] is True and after["useful"] is True
+    chunk(ws, call_id, "s1", "Send me an email.")
+    tip = tip_after_speech(ws, clock, call_id)["coach"]
+    call(ws, "PATCH", f"/v1/calls/{call_id}/coach", json={"dismissed": tip["id"]})
+    assert get(ws, f"/v1/calls/{call_id}")["coach"] is None
+    cancelled = post(ws, f"/v1/calls/{call_id}/coach/cancel", {"request_id": str(uuid4())})
+    assert cancelled == {"status": "not_running"}
 
 
-@pytest.mark.slow
+def test_an_opt_out_ends_help_on_that_call(workspace, clock):
+    ws = workspace
+    with_helper(ws)
+    call_id = start(ws)["id"]
+    answered_by_human(ws, call_id)
+    chunk(ws, call_id, "s1", "Please do not call me again.")
+    assert tip_after_speech(ws, clock, call_id)["coach"] is None
+    answer = post(ws, f"/v1/calls/{call_id}/coach", {"question": "What now?", "request_id": str(uuid4())})
+    assert answer["status"] == "ended"
+
+
+def test_the_tip_ends_with_the_call(workspace, clock):
+    ws = workspace
+    with_helper(ws)
+    call_id = start(ws)["id"]
+    answered_by_human(ws, call_id)
+    chunk(ws, call_id, "s1", "Tell me more about pricing.")
+    assert tip_after_speech(ws, clock, call_id)["coach"]
+    call(ws, "POST", f"/v1/calls/{call_id}/hangup")
+    live = get(ws, f"/v1/calls/{call_id}")
+    assert live["coach"] is None and live["helper_status"] is None
+
+
 def test_the_transcript_is_kept_30_days_then_deleted_while_notes_and_outcome_remain(workspace, clock):
     """D7, R10.5: transcript text stays on this computer for 30 days, replacing the old 5-minute lifetime."""
     ws = workspace
@@ -179,26 +128,23 @@ def test_the_transcript_is_kept_30_days_then_deleted_while_notes_and_outcome_rem
     answered_by_human(ws, call_id)
     chunk(ws, call_id, "r1", "Hi, this is Example Seller calling about a brief introduction.", side="rep")
     chunk(ws, call_id, "s1", MARKER)
-    call(
-        ws,
-        "PATCH",
-        f"/v1/calls/{call_id}/notes",
-        json={"expected_edit_version": 0, "text": "Wants a pricing sheet."},
-    )
+    assert call(ws, "PATCH", f"/v1/calls/{call_id}/notes", json={"text": "Wants a pricing sheet."}) == {
+        "human_notes": "Wants a pricing sheet."
+    }
     call(ws, "POST", f"/v1/calls/{call_id}/hangup")
     wrap_up(ws, call_id, outcome="not_interested", contact_role="right_party")
     run_jobs(ws)
     clock.now += timedelta(minutes=10)
     ws["client"].app.state.service.raw.clear()  # a restart empties memory; the saved text remains
-    assert MARKER in json.dumps(get(ws, f"/v1/calls/{call_id}/analysis"))
+    assert MARKER in json.dumps(get(ws, f"/v1/calls/{call_id}/review"))
     clock.now += timedelta(days=30)
     token = ws["client"].post("/v1/local/session", headers={"X-Local-Token": "test-local-secret"}, json={})
     ws["headers"] = {"Authorization": f"Bearer {token.json()['access_token']}"}
     ws["client"].app.state.service.purge_transcripts()
-    analysis = get(ws, f"/v1/calls/{call_id}/analysis")
-    assert MARKER not in json.dumps(analysis) and analysis["transcript"] == []
-    assert analysis["human_notes"] == "Wants a pricing sheet." and analysis["status"] == "human_confirmed"
-    assert analysis["call"]["outcome"] == "not_interested"
+    review = get(ws, f"/v1/calls/{call_id}/review")
+    assert MARKER not in json.dumps(review) and review["transcript"] == []
+    assert review["human_notes"] == "Wants a pricing sheet."
+    assert review["call"]["outcome"] == "not_interested"
     for path in ("/v1/events", "/v1/workspace", f"/v1/leads/{lead_id}/packet"):
         assert MARKER not in json.dumps(get(ws, path)), path
 
@@ -210,17 +156,6 @@ def test_the_rep_can_delete_a_transcript_at_once(workspace):
     chunk(ws, call_id, "s1", MARKER)
     call(ws, "POST", f"/v1/calls/{call_id}/hangup")
     ws["client"].app.state.service.raw.clear()
-    assert MARKER in json.dumps(get(ws, f"/v1/calls/{call_id}/analysis"))
+    assert MARKER in json.dumps(get(ws, f"/v1/calls/{call_id}/review"))
     assert call(ws, "DELETE", f"/v1/calls/{call_id}/transcript") == {"deleted": True}
-    assert MARKER not in json.dumps(get(ws, f"/v1/calls/{call_id}/analysis"))
-
-
-def test_helper_route_is_reported_as_simulation_only_on_the_pinned_cerebras_route(workspace):
-    ws = workspace
-    settings = get(ws, "/v1/admin/settings")
-    assert settings["effective"]["coach_provider"] == "openrouter"
-    assert settings["configured"]["openrouter_api_key"] is False
-    preflight = get(ws, "/v1/admin/preflight")
-    helper = next(c for c in preflight["capabilities"] if c["id"] == "live_helper")
-    assert helper["state"] == "software_verified" and helper["reason_codes"] == ["SIMULATION_ONLY"]
-    assert "Cerebras" in helper["remedy"]
+    assert MARKER not in json.dumps(get(ws, f"/v1/calls/{call_id}/review"))

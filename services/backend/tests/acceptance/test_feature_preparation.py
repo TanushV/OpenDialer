@@ -37,34 +37,3 @@ def test_selected_leads_are_prepared_on_request(workspace):
     assert script["lead_id"] == ids[0] and script["fallback"] is False
     assert "Example Seller" in script["screening_intro"] and script["discovery_questions"]
     assert packet["research"]["facts"][0]["lead_id"] == ids[0]
-
-
-def playbook(ws, previous, **values):
-    body = {
-        "name": "Business introduction",
-        "opener": "Hi, this is {rep} from Example Seller about roof estimates.",
-        "screening_intro": "Example Seller calling about roof estimates.",
-        "product_description": "Roof repair estimates for local businesses.",
-        "claims": ["Free written estimates"],
-        "prohibited_claims": ["Guaranteed savings"],
-        "cards": [{"id": "budget", "text": "What would make an estimate useful?", "tags": ["budget"]}],
-        "approved": True,
-        "reason": "Reviewed business introduction",
-        **values,
-        "expected_previous_id": previous[0],
-        "expected_previous_version": previous[1],
-    }
-    return ws["client"].post("/v1/admin/playbooks", headers=ws["headers"], json=body)
-
-
-def test_business_knowledge_versions_keep_the_locks(workspace):
-    seeded = get(workspace, "/v1/workspace")["active_playbook"]
-    assert seeded["approved"] is True
-    assert playbook(workspace, (None, 0)).status_code == 409
-    first = assert_status(playbook(workspace, (seeded["id"], seeded["version"])), 200)
-    assert first["version"] == seeded["version"] + 1 and first["previous_id"] == seeded["id"]
-    assert playbook(workspace, (seeded["id"], seeded["version"])).status_code == 409
-    stranger = playbook(
-        workspace, (first["id"], first["version"]), screening_intro="A stranger calls about roofs."
-    )
-    assert stranger.status_code == 422

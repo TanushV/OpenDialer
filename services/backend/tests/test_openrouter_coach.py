@@ -1,151 +1,147 @@
+"""R10.1: the live helper's route is OpenRouter served only by Cerebras, one streamed plain-text reply per turn."""
+
 import json
 
 import httpx
 import pytest
+from app.helper.live import QUIET
 from app.providers.inference import InferenceError
-from app.providers.openrouter import OpenRouterCoach
+from app.providers.openrouter import OpenRouterCoach, RouteNotVerified
+
+MESSAGES = [
+    {"role": "system", "content": "Coach the rep."},
+    {"role": "user", "content": "Rep: How do you handle this today?\nProspect: Spreadsheets, mostly."},
+]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("actual_provider", ["Cerebras", "Another provider"])
-async def test_independent_live_review_pins_same_route_and_records_its_own_receipt(actual_provider):
-    from app.grounding import review_request
-
-    request = review_request(
-        "guidance",
-        [{"field": "say_or_ask", "text": "A fact.", "evidence": ["k"]}],
-        [{"id": "k", "text": "A fact."}],
+def stream_frames(texts, provider="Cerebras", finish="stop", **extra):
+    frames = [
+        {
+            "id": "gen-1",
+            "provider": provider,
+            "model": "fixture",
+            "choices": [{"index": 0, "delta": {"content": t}}],
+        }
+        for t in texts
+    ]
+    frames.append(
+        {
+            "id": "gen-1",
+            "provider": provider,
+            "model": "fixture",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": finish}],
+            "usage": {"cost": 0.0003},
+            **extra,
+        }
     )
-    answer = {
-        "fingerprint": request["fingerprint"],
-        "verdicts": [{"field": "say_or_ask", "verdict": "SUPPORTED", "evidence": ["k"]}],
-    }
-    captured = []
-
-    def handler(sent):
-        captured.append(json.loads(sent.content))
-        return httpx.Response(200, json=completion(actual_provider, answer, id="review-123"))
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        adapter = OpenRouterCoach("fixture", http=http)
-        if actual_provider == "Cerebras":
-            assert await adapter.review(request, deadline_ms=1200) == answer
-        else:
-            with pytest.raises(InferenceError):
-                await adapter.review(request, deadline_ms=1200)
-    body = captured[0]
-    assert body["provider"] == {
-        "only": ["cerebras"],
-        "order": ["cerebras"],
-        "allow_fallbacks": False,
-        "require_parameters": True,
-        "data_collection": "deny",
-        "zdr": True,
-    }
-    # Cerebras on OpenRouter has no endpoint for parallel_tool_calls with required parameters
-    # (live check, October 30): sending it turns every review into a 404. One call is enforced
-    # when the answer is validated instead.
-    # Live check, October 30: Cerebras on OpenRouter rejects parallel_tool_calls and does not
-    # enforce forced tool schemas, but does enforce a strict response schema.
-    assert body["stream"] is False and "tools" not in body and "parallel_tool_calls" not in body
-    output = body["response_format"]["json_schema"]
-    assert output["strict"] is True and output["name"] == "submit_postcall_review"
-    assert output["schema"]["required"] == ["fingerprint", "verdicts"]
-    assert adapter.last_request_id == "review-123" and adapter.last_usage["cost"] == 0.0001
+    frames = [{k: v for k, v in f.items() if v is not None} for f in frames]
+    return "".join(f"data: {json.dumps(f)}\n\n" for f in frames) + "data: [DONE]\n\n"
 
 
-def completion(provider="Cerebras", content=None, **overrides):
-    return {
-        "id": "gen-123",
-        "model": "openai/gpt-oss-120b",
-        "provider": provider,
-        "choices": [
-            {"finish_reason": "stop", "message": {"content": json.dumps(content or {"action": "NO_ACTION"})}}
-        ],
-        "usage": {"prompt_tokens": 100, "completion_tokens": 30, "cost": 0.0001},
-        **overrides,
-    }
+def streaming(text):
+    return lambda request: httpx.Response(200, text=text, headers={"content-type": "text/event-stream"})
 
 
 @pytest.mark.asyncio
-async def test_live_transport_requests_one_typed_turn_contract():
-    captured = []
+async def test_a_reply_streams_on_the_pinned_route_and_is_shown_as_it_grows():
+    sent, shown = [], []
+    words = ["Ask ", "how long ", "the spreadsheet ", "takes each ", "week, ", "and who ", "keeps it."]
 
     def handler(request):
-        captured.append(json.loads(request.content))
-        return httpx.Response(200, json=completion())
+        sent.append(json.loads(request.content))
+        return streaming(stream_frames(words))(request)
+
+    async def progress(text):
+        shown.append(text)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        await OpenRouterCoach("fixture", http=http).suggest({"state_version": 1})
-    schema = captured[0]["response_format"]["json_schema"]["schema"]
-    assert set(schema["required"]) == {
-        "guidance",
-        "state_delta",
-        "field_audit",
-        "state_version",
-        "context_fingerprint",
-    }
-    assert schema["additionalProperties"] is False
+        adapter = OpenRouterCoach("key", http=http)
+        text = await adapter.converse(MESSAGES, on_progress=progress, quiet=QUIET, deadline_ms=5000)
+    body = sent[0]
+    assert body["stream"] is True and "response_format" not in body and "tools" not in body
+    assert body["provider"]["only"] == ["cerebras"] and body["provider"]["allow_fallbacks"] is False
+    assert body["provider"]["zdr"] is True and body["provider"]["data_collection"] == "deny"
+    assert body["messages"] == MESSAGES
+    assert text == "".join(words)
+    assert shown and all(text.startswith(partial) for partial in shown)
+    assert adapter.first_text_ms is not None and adapter.last_request_id == "gen-1"
+    assert adapter.last_usage == {"cost": 0.0003}
 
 
 @pytest.mark.asyncio
-async def test_openrouter_pins_cerebras_requires_schema_and_retains_actual_receipt():
-    captured = []
+async def test_a_quiet_reply_is_never_shown_while_it_streams():
+    shown = []
 
-    def handler(request):
-        captured.append(request)
-        return httpx.Response(200, json=completion())
+    async def progress(text):
+        shown.append(text)
 
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        adapter = OpenRouterCoach("test-openrouter-key", http=http)
-        result = await adapter.suggest({"state_version": 3}, deadline_ms=1200)
-    body = json.loads(captured[0].content)
-    assert str(captured[0].url) == "https://openrouter.ai/api/v1/chat/completions"
-    assert captured[0].headers["authorization"] == "Bearer test-openrouter-key"
-    assert body["provider"]["only"] == ["cerebras"]
-    assert body["provider"]["allow_fallbacks"] is False and body["provider"]["require_parameters"] is True
-    assert body["response_format"]["json_schema"]["strict"] is True
-    # Reasoning tokens count against the completion cap even when excluded from the response.
-    assert "max_tokens" not in body and body["max_completion_tokens"] >= 4096
-    assert body["reasoning"] == {"effort": "low", "exclude": True}
-    assert captured[0].headers["x-openrouter-metadata"] == "enabled"
-    assert "usage" not in body, "Usage accounting is always returned; usage.include is retired"
-    assert not body["stream"] and "tools" not in body
-    assert result["action"] == "NO_ACTION"
-    assert adapter.last_request_id == "gen-123" and adapter.last_provider == "Cerebras"
-    assert adapter.last_usage["cost"] == 0.0001 and adapter.last_latency_ms >= 0
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(streaming(stream_frames(["(noth", "ing)"])))
+    ) as http:
+        text = await OpenRouterCoach("key", http=http).converse(
+            MESSAGES, on_progress=progress, quiet=QUIET, deadline_ms=5000
+        )
+    assert text == QUIET and shown == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "payload",
-    [
-        completion("Another provider"),
-        completion(choices=[{"finish_reason": "length", "message": {"content": '{"action":"NO_ACTION"}'}}]),
-        completion(choices=[{"finish_reason": "stop", "message": {"refusal": "cannot comply"}}]),
-        completion(choices=[{"finish_reason": "stop", "message": {"content": "not JSON"}}]),
-    ],
+    ("provider", "reason"), [("OpenAI", "provider_mismatch"), (None, "provider_unverified")]
 )
-async def test_wrong_provider_truncation_refusal_and_invalid_json_are_failures(payload):
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=payload))
-    ) as http:
-        with pytest.raises(InferenceError):
-            await OpenRouterCoach("test", http=http).suggest({})
+async def test_a_reply_from_another_route_is_refused_and_never_shown(provider, reason):
+    shown = []
+
+    async def progress(text):
+        shown.append(text)
+
+    transport = httpx.MockTransport(
+        streaming(stream_frames(["Ask about timing and who decides."], provider=provider))
+    )
+    async with httpx.AsyncClient(transport=transport) as http:
+        with pytest.raises(RouteNotVerified) as failure:
+            await OpenRouterCoach("key", http=http).converse(MESSAGES, on_progress=progress, deadline_ms=5000)
+    assert failure.value.reason == reason and shown == []
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_does_not_retry_or_switch_provider():
-    requests = []
+async def test_the_provider_may_be_named_only_in_routing_metadata():
+    metadata = {
+        "openrouter_metadata": {"endpoints": {"available": [{"provider": "Cerebras"}], "selected": 0}}
+    }
+    transport = httpx.MockTransport(
+        streaming(stream_frames(["Ask about timing."], provider=None, **metadata))
+    )
+    async with httpx.AsyncClient(transport=transport) as http:
+        adapter = OpenRouterCoach("key", http=http)
+        assert await adapter.converse(MESSAGES, deadline_ms=5000) == "Ask about timing."
+    assert adapter.last_provider == "Cerebras"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("finish", ["content_filter", None])
+async def test_an_unfinished_or_filtered_reply_is_a_failure(finish):
+    text = (
+        stream_frames(["Ask about timing."], finish=finish)
+        if finish
+        else stream_frames([])[: -len("data: [DONE]\n\n")]
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(streaming(text))) as http:
+        with pytest.raises(InferenceError):
+            await OpenRouterCoach("key", http=http).converse(MESSAGES, deadline_ms=5000)
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limit_is_not_retried_or_sent_elsewhere():
+    calls = []
 
     def handler(request):
-        requests.append(request)
-        return httpx.Response(429, json={"error": {"message": "rate limit"}})
+        calls.append(request)
+        return httpx.Response(429, json={"error": "rate limited"})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         with pytest.raises(httpx.HTTPStatusError):
-            await OpenRouterCoach("test", http=http).suggest({})
-    assert len(requests) == 1
+            await OpenRouterCoach("key", http=http).converse(MESSAGES, deadline_ms=5000)
+    assert len(calls) == 1
 
 
 def test_model_and_provider_settings_are_secure_and_do_not_erase_other_provider_keys(workspace):
@@ -167,325 +163,13 @@ def test_model_and_provider_settings_are_secure_and_do_not_erase_other_provider_
     assert result.json()["coach_provider"] == "openrouter"
 
 
-async def test_reused_adapter_does_not_attribute_the_previous_receipt_to_a_failed_attempt():
-    attempts = []
+def test_a_simulated_workspace_never_constructs_a_paid_coach(workspace, app):
+    from app import live_help
 
-    def handler(request):
-        attempts.append(request)
-        return httpx.Response(200, json=completion()) if len(attempts) == 1 else httpx.Response(429)
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        adapter = OpenRouterCoach("fixture", http=http)
-        await adapter.suggest({})
-        with pytest.raises(httpx.HTTPStatusError):
-            await adapter.suggest({})
-        assert adapter.last_request_id is None and adapter.last_usage == {}
-
-
-UNSUPPORTED_KEYWORDS = {"minItems", "maxItems", "minLength", "maxLength"}
-
-
-def objects(node):
-    if isinstance(node, dict):
-        if "properties" in node or node.get("type") == "object":
-            yield node
-        for key, value in node.items():
-            if key in {"properties", "$defs"}:
-                for child in value.values():
-                    yield from objects(child)
-            else:
-                yield from objects(value)
-    elif isinstance(node, list):
-        for item in node:
-            yield from objects(item)
-
-
-def keywords(node):
-    if isinstance(node, list):
-        for item in node:
-            yield from keywords(item)
-    elif isinstance(node, dict):
-        for key, value in node.items():
-            if key in {"properties", "$defs"}:
-                for child in value.values():
-                    yield from keywords(child)
-            else:
-                yield key
-                yield from keywords(value)
-
-
-TURN = {
-    "state_version": 1,
-    "context_fingerprint": "fixture",
-    "state_delta": {
-        "stage": "discovery",
-        "observations": [],
-        "rubric_items": [],
-        "tracker_matches": [],
-        "interpreted_segments": [{"kind": "segment", "id": "s1", "version": 1}],
-    },
-    "field_audit": [],
-    "guidance": None,
-}
-
-
-@pytest.mark.asyncio
-async def test_wire_schemas_are_cerebras_strict_while_pydantic_keeps_the_bounds():
-    """Cerebras strict mode rejects length/item bounds and needs closed, fully required objects."""
-    from app.grounding import review_request
-
-    sent = []
-
-    def handler(request):
-        body = json.loads(request.content)
-        sent.append(
-            body["tools"][0]["function"]["parameters"]
-            if "tools" in body
-            else body["response_format"]["json_schema"]["schema"]
-        )
-        review = json.loads(body["messages"][1]["content"])
-        if "fingerprint" not in review:
-            return httpx.Response(200, json=completion(content=TURN))
-        verdict = {"field": "f", "verdict": "SUPPORTED", "evidence": ["k"]}
-        answer = {"fingerprint": review["fingerprint"], "verdicts": [verdict] * 101}
-        return httpx.Response(200, json=completion(content=answer))
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        adapter = OpenRouterCoach("fixture", http=http)
-        await adapter.suggest({"state_version": 1})
-        with pytest.raises(InferenceError):
-            # 101 verdicts exceed the pydantic bound that the wire schema no longer carries.
-            await adapter.review(review_request("guidance", [{"field": "f", "evidence": []}], [{"id": "k"}]))
-    for schema in sent:
-        assert not UNSUPPORTED_KEYWORDS & set(keywords(schema))
-        for node in objects(schema):
-            assert node["additionalProperties"] is False
-            assert node["required"] == list(node["properties"])
-    assert list(sent[0]["properties"])[:3] == ["state_version", "context_fingerprint", "state_delta"], (
-        "State is generated before optional guidance so truncation cannot discard the interpretation"
-    )
-
-
-@pytest.mark.asyncio
-async def test_oversize_generated_guidance_is_still_rejected_after_the_response():
-    oversize = {
-        **TURN,
-        "guidance": {
-            "kind": "DISCOVERY",
-            "say_or_ask": "x" * 1001,
-            "reason": "",
-            "alternatives": [],
-            "evidence_segment_ids": [],
-            "playbook_card_ids": [],
-            "expires_in_ms": 20000,
-        },
-    }
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=completion(content=oversize)))
-    ) as http:
-        with pytest.raises(InferenceError):
-            await OpenRouterCoach("fixture", http=http).suggest({"state_version": 1})
-
-
-def metadata(provider):
-    return {"openrouter_metadata": {"endpoints": {"available": [{"provider": provider}], "selected": 0}}}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "identity,verified",
-    [
-        ({"provider": "Cerebras"}, True),
-        ({"provider": None, **metadata("Cerebras")}, True),
-        ({"provider": None, **metadata("Another provider")}, "provider_mismatch"),
-        ({"provider": None}, "provider_unverified"),
-    ],
-)
-async def test_provider_identity_comes_from_the_top_level_or_routing_metadata(identity, verified):
-    from app.providers.openrouter import RouteNotVerified
-
-    payload = {k: v for k, v in {**completion(content=TURN), **identity}.items() if v is not None}
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
-    ) as http:
-        adapter = OpenRouterCoach("fixture", http=http)
-        if verified is True:
-            result = await adapter.suggest({"state_version": 1})
-            assert result["action"] == "NO_ACTION" and adapter.last_provider == "Cerebras"
-        else:
-            with pytest.raises(RouteNotVerified) as failure:
-                await adapter.suggest({"state_version": 1})
-            assert failure.value.reason == verified
-        assert adapter.last_request_id == "gen-123" and adapter.last_usage["cost"] == 0.0001
-
-
-@pytest.mark.asyncio
-async def test_truncated_turn_keeps_its_complete_state_but_shows_nothing():
-    content = json.dumps(TURN)
-    truncated = content[: content.index('"field_audit"')] + '"field_audit": [{"field": "say_or'
-    payload = completion(choices=[{"finish_reason": "length", "message": {"content": truncated}}])
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
-    ) as http:
-        result = await OpenRouterCoach("fixture", http=http).suggest({"state_version": 1})
-    assert result["action"] == "NO_ACTION"
-    assert result["state_update"] == TURN["state_delta"]
-
-
-@pytest.mark.asyncio
-async def test_settlement_uses_the_always_returned_usage_cost():
-    from app.privacy import usage_metadata
-
-    payload = completion(content=TURN)
-    payload["usage"] = {"cost": 0.0003, "cost_details": {"upstream_inference_cost": None}, "is_byok": False}
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
-    ) as http:
-        adapter = OpenRouterCoach("fixture", http=http)
-        await adapter.suggest({"state_version": 1})
-    assert usage_metadata(adapter.last_usage)["cost"] == 0.0003
-
-
-def test_simulated_workspace_never_constructs_a_paid_coach(workspace, app):
     client, headers = workspace["client"], workspace["headers"]
-    response = client.put(
-        "/v1/admin/settings", headers=headers, json={"openrouter_api_key": "test-only-never-use"}
-    )
-    assert response.status_code == 200
+    p = {"tenant_id": workspace["tenant_id"]}
     service = app.state.service
+    assert live_help.provider(service, p) is None  # No key: no helper.
+    client.put("/v1/admin/settings", headers=headers, json={"openrouter_api_key": "test-only-never-use"})
     assert service.settings.simulation
-    provider, route = service.configured_coach({"tenant_id": workspace["tenant_id"]})
-    assert provider is None
-    assert route == "approved_static"
-
-
-@pytest.mark.asyncio
-async def test_finalization_asks_only_for_the_rundown_at_medium_effort():
-    from app.providers.openrouter import OpenRouterCoach
-
-    captured = []
-
-    def handler(request):
-        captured.append(json.loads(request.content))
-        return httpx.Response(200, json=completion(content={"action": "NO_ACTION", "state_version": 3}))
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        result = await OpenRouterCoach("key", http=http).finalize({"mode": "finalize", "state_version": 3})
-    body = captured[0]
-    assert result["action"] == "NO_ACTION"
-    assert body["reasoning"]["effort"] == "medium" and body["stream"] is False
-    assert body["response_format"]["json_schema"]["name"] == "submit_postcall_analysis"
-    assert "guidance null" in body["messages"][0]["content"]
-    assert "rundown" in body["messages"][0]["content"]
-    # Real Cerebras (October 31) wrote no coaching points, copied speech and marked new lines stale.
-    instructions = body["messages"][0]["content"]
-    assert "Work on:" in instructions and "How:" in instructions
-    assert "own words" in instructions and "never stale" in instructions
-    assert "at most twelve words" in instructions
-
-
-def stream_frames(texts, provider="Cerebras", finish="stop"):
-    frames = [
-        {
-            "id": "gen-1",
-            "provider": provider,
-            "model": "fixture",
-            "choices": [{"index": 0, "delta": {"content": t}}],
-        }
-        for t in texts
-    ]
-    frames.append(
-        {
-            "id": "gen-1",
-            "provider": provider,
-            "model": "fixture",
-            "choices": [{"index": 0, "delta": {}, "finish_reason": finish}],
-            "usage": {"cost": 0.0003},
-        }
-    )
-    return "".join(f"data: {json.dumps(f)}\n\n" for f in frames) + "data: [DONE]\n\n"
-
-
-def conversation_request():
-    return {
-        "state_version": 3,
-        "prepared_script": {
-            "sections": [
-                {"key": "opening", "title": "Opening", "options": [{"text": "Hi there", "picked": True}]}
-            ],
-            "template": {"facts": ["Plans start at $40"], "never_say": ["Guaranteed savings"]},
-        },
-        "seller": {"name": "Agite"},
-        "lead_context": {"name": "Robin", "company": "Example Co"},
-        "recent_dialogue": [
-            {"segment_id": "r1", "side": "rep", "text": "How do you handle this today?"},
-            {"segment_id": "s1", "side": "remote", "text": "Spreadsheets, mostly."},
-        ],
-    }
-
-
-@pytest.mark.asyncio
-async def test_conversation_streams_plain_text_on_the_pinned_route_and_shows_it_as_it_grows():
-    sent, shown = [], []
-
-    def handler(request):
-        sent.append(json.loads(request.content))
-        words = ["Ask ", "how long ", "the spreadsheet ", "takes each ", "week, ", "and who ", "keeps it."]
-        return httpx.Response(200, text=stream_frames(words), headers={"content-type": "text/event-stream"})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        adapter = OpenRouterCoach("key", http=http)
-
-        async def progress(card):
-            shown.append(card["say_or_ask"])
-
-        adapter.on_progress = progress
-        card = await adapter.converse(conversation_request(), deadline_ms=5000)
-    body = sent[0]
-    assert body["stream"] is True and "response_format" not in body and "tools" not in body
-    assert body["provider"]["only"] == ["cerebras"] and body["provider"]["allow_fallbacks"] is False
-    prompt = body["messages"][1]["content"]
-    assert "Prospect: Spreadsheets, mostly." in prompt and "Rep: How do you handle this today?" in prompt
-    assert "Plans start at $40" in prompt and "Guaranteed savings" in prompt
-    assert card["action"] == "SHOW_CARD" and card["kind"] == "CONVERSATION"
-    assert card["say_or_ask"] == "Ask how long the spreadsheet takes each week, and who keeps it."
-    assert card["evidence_segment_ids"] == ["s1"] and card["state_version"] == 3
-    assert shown and all(card["say_or_ask"].startswith(partial) for partial in shown)
-    assert adapter.first_text_ms is not None and adapter.last_request_id == "gen-1"
-
-
-@pytest.mark.asyncio
-async def test_a_quiet_conversation_reply_shows_nothing():
-    shown = []
-
-    def handler(request):
-        return httpx.Response(
-            200, text=stream_frames(["(noth", "ing)"]), headers={"content-type": "text/event-stream"}
-        )
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        adapter = OpenRouterCoach("key", http=http)
-
-        async def progress(card):
-            shown.append(card)
-
-        adapter.on_progress = progress
-        card = await adapter.converse(conversation_request(), deadline_ms=5000)
-    assert card["action"] == "NO_ACTION" and shown == []
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("provider", ["OpenAI", None])
-async def test_a_conversation_reply_from_another_route_is_refused(provider):
-    from app.providers.openrouter import RouteNotVerified
-
-    def handler(request):
-        return httpx.Response(
-            200,
-            text=stream_frames(["Ask about timing."], provider=provider),
-            headers={"content-type": "text/event-stream"},
-        )
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        with pytest.raises(RouteNotVerified):
-            await OpenRouterCoach("key", http=http).converse(conversation_request(), deadline_ms=5000)
+    assert type(live_help.provider(service, p)).__name__ == "SimulatedCoach"

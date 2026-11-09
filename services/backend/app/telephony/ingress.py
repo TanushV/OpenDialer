@@ -320,7 +320,7 @@ class WebhookIngress:
                 self._transcript_in(s, p, call_id, segment, dt(receipt["received_at"]), raw_writes)
         if event_type == "call.hangup":
             # The call row is locked by the event write above, as the finalize enqueue requires.
-            self.enqueue_finalize(s, p, call, "webhook")
+            self.enqueue_aftercall(s, p, call)
         return result
 
     def queue_unfinished_webhooks(self):

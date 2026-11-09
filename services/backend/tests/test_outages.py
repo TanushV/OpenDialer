@@ -94,14 +94,35 @@ def test_missing_speech_is_a_warning_and_never_a_blocker(workspace, app):
         managed.config, managed.speech_failed = {}, False
 
 
-def test_a_live_helper_outage_never_stops_a_call(workspace, app, monkeypatch):
-    def helper_down(p):
-        raise httpx.ConnectError("OpenRouter unreachable")
+def test_a_live_helper_outage_never_stops_a_call(workspace, app, clock, monkeypatch):
+    """Section 5: with OpenRouter down, the helper pauses and says so; the call and calling go on."""
+    from app import live_help
 
-    monkeypatch.setattr(app.state.service, "configured_coach", helper_down)
+    class Down:
+        last_usage, last_request_id = {}, None
+
+        async def converse(self, *args, **kwargs):
+            raise httpx.ConnectError("OpenRouter unreachable")
+
+    monkeypatch.setattr(live_help, "provider", lambda service, p: Down())
     response = start(workspace, "outage-helper")
     assert response.status_code == 200, response.text
-    assert blockers(workspace) == []
+    call_id = response.json()["id"]
+    c, h = workspace["client"], workspace["headers"]
+    for kind in ("call.answered", "human.confirmed"):
+        event = {"event_id": kind + call_id, "event_type": kind, "call_id": call_id, "payload": {}}
+        assert c.post("/v1/simulation/event", headers=h, json=event).status_code == 200
+    c.post(
+        f"/v1/calls/{call_id}/transcript",
+        headers=h,
+        json={"segment_id": "s1", "revision": 1, "side": "remote", "is_final": True, "text": "Who is this?"},
+    )
+    clock.now += timedelta(seconds=1)
+    asyncio.run(app.state.service.run_jobs(queues=["live_coach"]))
+    live = c.get(f"/v1/calls/{call_id}", headers=h).json()
+    assert live["coach"] is None
+    assert live["helper_status"] == {"status": "paused", "reason": "transport_fault"}
+    assert live["state"] not in {"ENDED", "FINALIZED"} and blockers(workspace) == []
 
 
 @pytest.mark.parametrize("audio", [{"audio_ready": False}, {"telephony_ready": False}])

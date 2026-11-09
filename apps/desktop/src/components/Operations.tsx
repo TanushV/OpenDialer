@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { NumberPurchasing } from "./NumberPurchasing";
-import { ProductKnowledge } from "./ProductKnowledge";
 import {
   ArrowRight,
   ChevronRight,
@@ -93,7 +92,11 @@ export function LeadsPage({
           </p>
         </div>
       </div>
-      <section className="card table-card" aria-label="Leads">
+      <section
+        className="card table-card"
+        aria-label="Leads"
+        aria-busy={!history.ready}
+      >
         <div className="leads-toolbar">
           <h3>{history.totalLabel ?? w.leads.length} leads</h3>
           <select
@@ -1585,10 +1588,6 @@ export function ScriptPage({
       <details className="card padded">
         <summary>What's working</summary>
         <ScriptMemory />
-      </details>
-      <details className="card padded">
-        <summary>What you sell</summary>
-        <ProductKnowledge />
       </details>
       <details className="card padded">
         <summary>AI usage and script rewrites</summary>

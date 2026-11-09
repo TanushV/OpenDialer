@@ -22,8 +22,6 @@ PAGE_TABLES = {
     "numbers": "number_inventory",
     "registries": "registry_snapshots",
     "models": "model_versions",
-    "playbooks": "playbooks",
-    "trackers": "trackers",
     "task_owners": "users",
 }
 
@@ -55,7 +53,6 @@ HOT_TABLES = {
     "command_outbox",
     "webhook_inbox",
     "followup_tasks",
-    "commitments",
     "conversion_events",
     "feature_snapshots",
     "experiment_assignments",
@@ -65,9 +62,6 @@ HOT_TABLES = {
 # Only the relationship/expiry fields used to assemble a single call's context.
 CONTEXT_FIELDS = {
     "outcomes": ("call_id", "kind", None),
-    "reviews": ("scorecard_id", None, None),
-    "comments": ("call_id", None, None),
-    "playbooks": ("approval_state", None, None),
     "model_versions": ("serving_state", "goal", "trial_ends_at"),
     "registry_snapshots": ("kind", "status", None),
     "research_facts": ("lead_id", "status", "expires_at"),
@@ -100,10 +94,6 @@ def context_indexes(kind):
             Index(
                 "ix_outcomes_context", "tenant_id", "seller_id", "ctx_key", "ctx_status", "created_at", "id"
             ),
-        )
-    if kind == "playbooks":
-        return (
-            Index("ix_playbooks_current", "tenant_id", "seller_id", "ctx_key", "version", "created_at", "id"),
         )
     _, status, expiry = CONTEXT_FIELDS[kind]
     return (
@@ -295,8 +285,6 @@ def sync_columns(row):
     if row.__tablename__ in CONTEXT_FIELDS:
         key, status, expiry = CONTEXT_FIELDS[row.__tablename__]
         row.ctx_key = context_key(row.__tablename__, row.data.get(key))
-        if row.__tablename__ == "playbooks":
-            row.ctx_key = "approved" if row.data.get("approved") else "unapproved"
         if row.__tablename__ == "model_versions":
             row.ctx_key = (
                 "active"

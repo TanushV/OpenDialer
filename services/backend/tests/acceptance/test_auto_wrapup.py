@@ -49,11 +49,11 @@ def test_confirming_same_automatic_outcome_records_human_provenance(workspace):
     assert saved["outcome_source"] == "rep_reported"
 
 
-@pytest.mark.parametrize("outcome", ["not_interested", "meeting_booked"])
-def test_reviewed_model_saves_supported_outcome_but_not_a_booking(workspace, app, monkeypatch, outcome):
-    from journey import answered_by_human, post
-    from test_feature_models import delta, install_fake_models, observation, turn_output
+def test_the_summary_suggests_a_persons_answer_but_never_saves_it(workspace):
+    """Section 6: only carrier facts save themselves. What a person said is a suggestion the rep confirms with Enter."""
+    from journey import answered_by_human, call, post
 
+    call(workspace, "PUT", "/v1/admin/settings", json={"openrouter_api_key": "test-openrouter"})
     placed = start(workspace)
     answered_by_human(workspace, placed["id"])
     post(
@@ -64,28 +64,16 @@ def test_reviewed_model_saves_supported_outcome_but_not_a_booking(workspace, app
             "revision": 1,
             "side": "remote",
             "is_final": True,
-            "text": "No thank you, I am not interested.",
+            "text": "I am not interested.",
         },
     )
     post(workspace, f"/v1/calls/{placed['id']}/hangup")
-
-    def finalizer(request):
-        item = observation(request, "signal", "The prospect declined", segment="answer", review_required=True)
-        item["outcome"] = {"code": outcome, "contact_role": "unknown"}
-        return turn_output(request, state_delta=delta(request, observations=[item]))
-
-    install_fake_models(app, monkeypatch, {"finalize": finalizer})
     run_jobs(workspace, rounds=4)
     result = get(workspace, f"/v1/calls/{placed['id']}")
-    if outcome == "meeting_booked":
-        assert result["state"] == "ENDED"
-        assert not result.get("outcome")
-        return
-    assert result["state"] == "FINALIZED"
-    assert result["outcome"] == "not_interested"
-    assert result["outcome_source"] == "ai_reviewed"
-    corrected = wrap_up(workspace, placed["id"], outcome="not_interested", contact_role="unknown")
-    assert corrected["outcome_source"] == "rep_reported"
+    assert result["state"] == "ENDED" and not result.get("outcome")
+    assert result["suggested_outcome"]["code"] == "not_interested"
+    saved = wrap_up(workspace, placed["id"], outcome="not_interested", contact_role="right_party")
+    assert saved["outcome_source"] == "rep_reported"
 
 
 @pytest.mark.slow

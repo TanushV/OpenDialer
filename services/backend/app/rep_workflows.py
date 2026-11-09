@@ -10,24 +10,17 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import select
 
+from app.aftercall.tasks import ACTIVE as ACTIVE_TASKS
 from app.calling.state import TERMINAL, moved
 from app.optimization.goals import review_token
 from app.platform.config import TEST_LINES
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
-from app.postcall.commitments import ACTIVE as ACTIVE_TASKS
 from app.service import dt, fail
 
 # An AI-suggested callback time defers automatic outreach this long at most; only a
 # rep-stated callback holds outreach until the rep confirms a time.
 SUGGESTION_HOLD = timedelta(days=7)
 GOAL_OUTCOMES = {"qualified_conversation", "meeting_booked", "meeting_held", "sale_won"}
-PROMISE_STATUS = {
-    "open": "confirmed",
-    "snoozed": "confirmed",
-    "needs_confirmation": "needs_confirmation",
-    "completed": "completed",
-    "cancelled": "cancelled",
-}
 
 
 def zoned_time(value):
@@ -147,9 +140,9 @@ class RepWorkflows:
         self.db.authorize_stream(s, p)
         s.refresh(row, with_for_update=True)
         owner_id = row.data.get(owner_field)
-        if not self._coach_authority(s, p):
-            fail(403, "Current account or session cannot edit this record")
         user = self.required(s, "users", p["user_id"], p)
+        if user.data.get("disabled"):
+            fail(403, "Current account or session cannot edit this record")
         if "rep" in {p["role"], user.data["role"]} and owner_id not in (None, p["user_id"]):
             fail(403, "This record belongs to another rep")
         if data.get("request_id") is None or data.get("expected_version") is None:
@@ -268,8 +261,7 @@ class RepWorkflows:
             emit(s, p["tenant_id"], "lead.goal_updated", lead, self.clock())
             return {**doc(lead), "edit_receipt": self.local_edit_receipt(s, p, identity, lead)}
 
-    def prospect_context_in(self, s, p, lead, calls, commitments, tasks, *, decision=None):
-        from app.optimization.conversations import active_observations
+    def prospect_context_in(self, s, p, lead, calls, tasks, *, decision=None):
         from app.optimization.learning import freeze_features
         from app.scheduling.models import saved_prediction
 
@@ -292,38 +284,22 @@ class RepWorkflows:
                 "handling_seconds": decision.get("work_assumption_seconds"),
             }
         recent = sorted(calls, key=lambda c: c.get("started_at", ""))[-10:]
-        model = MODELS["notes"]
-        notes = (
-            list(
-                s.scalars(
-                    select(model)
-                    .where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.external_key.in_([c["id"] for c in recent]),
-                    )
-                    .order_by(model.created_at.desc())
-                )
+        # Earlier calls as the rep and the next script see them: the after-call summary and the rep's own note.
+        earlier = []
+        for call in reversed(recent):
+            summary = self.call_summary(s, p, call["id"]) or {}
+            note = self._by_key(s, p, "notes", call["id"])
+            earlier.append(
+                {
+                    "call_id": call["id"],
+                    "at": call.get("started_at"),
+                    "outcome": call.get("outcome"),
+                    "summary": summary.get("summary"),
+                    "next_step": summary.get("next_step") or None,
+                    "note": note.data.get("human_text") if note else None,
+                }
             )
-            if recent
-            else []
-        )
-        note_views = [self.note_view_in(s, p, n) for n in notes]
-        current = next((n["notes"] for n in note_views if not n.get("stale")), {})
-        memories = [(n["call_id"], n["call_memory"]) for n in note_views if n.get("call_memory")]
-        answers = [i for _, m in memories for i in m.get("answered_questions", [])][:12]
-        questions = [
-            i
-            for _, m in memories
-            for i in m.get("open_questions", [])
-            if i.get("status") not in {"resolved", "retracted", "stale"}
-        ][:12]
-        gaps = [
-            {"call_id": identity, **m.get("finalization", {}), "coverage": m.get("coverage", {})}
-            for identity, m in memories
-            if m.get("finalization", {}).get("status") != "ready"
-            or m.get("coverage", {}).get("unavailable_segments")
-        ]
+        last = next((c for c in earlier if c["summary"]), {})
         preparation = self.preparation_state(s, p, lead)
         if lead.data.get("outreach_hold"):
             why = "Outreach paused: " + lead.data["outreach_hold"].replace("_", " ")
@@ -342,43 +318,20 @@ class RepWorkflows:
             "prospect_brief": {
                 "version": lead.version,
                 "evidence_status": "sparse" if not recent else "observed",
-                "summary": current.get("summary") or "No prior interpreted conversation is available.",
-                "needs": current.get("problems", []),
-                "unresolved": current.get("objections", []),
-                "unknowns": current.get("unknowns", []),
-                "prior_answers": answers,
-                "unanswered_questions": questions,
-                "interpretation_gaps": gaps,
-                "source_versions": [
-                    {
-                        "call_id": identity,
-                        "version": m["version"],
-                        "transcript_version": m.get("transcript_version"),
-                    }
-                    for identity, m in memories
-                ],
+                "summary": last.get("summary") or "No earlier call summary yet.",
+                "next_step": last.get("next_step"),
+                "earlier_calls": earlier[:5],
                 "freshness": {
                     "state": preparation["status"],
                     "preparation_revision": lead.data.get("preparation_revision", 0),
                 },
-                "observations": active_observations(
-                    [item for note in note_views for item in note.get("observations", [])], self.clock()
-                )[:12],
-                "commitments": commitments,
-                "human_notes": [
-                    {"call_id": n.data["call_id"], "text": n.data["human_text"]}
-                    for n in notes
-                    if n.data.get("human_text")
-                ],
+                "human_notes": [{"call_id": c["call_id"], "text": c["note"]} for c in earlier if c["note"]],
                 "last_outcome": lead.data.get("last_outcome"),
                 "last_outcome_at": lead.data.get("last_outcome_at"),
                 "meeting": lead.data.get("meeting"),
                 "next_question": "Confirm the agreed next step."
                 if any(t.get("status") in ACTIVE_TASKS for t in tasks)
-                else questions[0]["text"]
-                if questions
-                else "What would make this conversation useful for you?",
-                "raw_evidence": "Only current five-minute chunks are available; this brief retains derived notes.",
+                else last.get("next_step") or "What would make this conversation useful for you?",
             },
             "statistical_guidance": {
                 "human_probability": prediction["p_human"],
@@ -465,60 +418,7 @@ class RepWorkflows:
             with self.db.transaction() as s:
                 lead = self.required(s, "leads", lead_id, p)
                 s.refresh(lead, with_for_update=True)
-                self.refresh_conversation_features_in(s, p, lead)
                 self.reconcile_goal_status(s, p, lead)
-
-    def refresh_conversation_features_in(self, s, p, lead):
-        from app.optimization.conversations import prior_features
-
-        history = self.lead_records(
-            s,
-            p,
-            "call_attempts",
-            lead.id,
-            MODELS["call_attempts"].op_status.in_(TERMINAL),
-            limit=21,
-            newest=True,
-        )
-        calls = [doc(r) for r in history[:20]]
-        model = MODELS["conversation_states"]
-        memories = (
-            {
-                r.external_key: r.data
-                for r in s.scalars(
-                    select(model).where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.external_key.in_([r["id"] for r in calls]),
-                    )
-                )
-            }
-            if calls
-            else {}
-        )
-        campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
-        features = prior_features(
-            {
-                **doc(lead),
-                "conversation_feature_sources": [],
-                "conversation_vocabulary": campaign.data.get("conversation_vocabulary", {"version": 1}),
-            },
-            [
-                {**call, "observations": memories.get(call["id"], {}).get("observations", [])}
-                for call in calls
-            ],
-            now=self.clock(),
-        )
-        source = {
-            "conversation_feature_sources": features["conversation_sources"],
-            "conversation_feature_scope": {
-                "calls_inspected": len(calls),
-                "older_calls_omitted": len(history) > 20,
-                "observations_omitted": features["conversation_features_omitted"],
-            },
-        }
-        if any(lead.data.get(k) != value for k, value in source.items()):
-            update(lead, **source)
 
     def _sync_callback(self, s, p, lead, tasks=None):
         tasks = self.lead_records(s, p, "followup_tasks", lead.id) if tasks is None else tasks
@@ -733,14 +633,6 @@ class RepWorkflows:
                 edited_at=self.clock().isoformat(),
                 edited_by=p["user_id"],
             )
-            if task.data.get("commitment_id"):
-                # A person's decision on the task is the promise's state in every brief.
-                commitment = self.required(s, "commitments", task.data["commitment_id"], p, lock=True)
-                update(
-                    commitment,
-                    task_status=task.data["status"],
-                    status=PROMISE_STATUS.get(task.data["status"], commitment.data.get("status")),
-                )
             if task.data.get("lead_id"):
                 lead = self.required(s, "leads", task.data["lead_id"], p)
                 self._sync_callback(s, p, lead)
@@ -960,10 +852,8 @@ class RepWorkflows:
             }
 
     def auto_disposition(self, p, call_id):
-        """Execute the bounded save-outcome tool without overwriting any human edit."""
+        """Save a carrier fact (no answer, busy, voicemail) as the outcome, never over a rep's own save."""
         from fastapi import HTTPException
-
-        from app.postcall.analysis import suggested_outcome
 
         with self.db.transaction(False) as s:
             call = self.required(s, "call_attempts", call_id, p)
@@ -976,19 +866,9 @@ class RepWorkflows:
             outcome = call.data.get("carrier_outcome")
             if call.data.get("machine_detected") and not call.data.get("human_answered_at"):
                 outcome = "voicemail"
-            source, role = "carrier", "unknown"
             if not outcome:
-                memory = self._by_key(s, p, "conversation_states", call.id)
-                suggestion = suggested_outcome(memory.data if memory else {})
-                if not suggestion or suggestion["code"] not in {
-                    "gatekeeper",
-                    "not_interested",
-                    "right_party",
-                    "screening",
-                    "ivr",
-                }:
-                    return
-                outcome, role, source = suggestion["code"], suggestion["contact_role"], "ai_reviewed"
+                return  # Only carrier facts save themselves; a person's answer waits for the rep (section 6).
+            source, role = "carrier", "unknown"
             body = {
                 "outcome": outcome,
                 "contact_role": role,
@@ -1066,7 +946,7 @@ class RepWorkflows:
 
                 invalidate_report(self, s, p, lead.data["campaign_id"])
                 self.refresh_packet_in(s, p, lead)
-                self.enqueue_finalize(s, p, call, "wrapup")
+                self.enqueue_aftercall(s, p, call)
                 from app import crm
 
                 crm.on_outcome(self, s, p, call, lead, outcome)
@@ -1200,12 +1080,6 @@ class RepWorkflows:
         ]
         for old_task in closed:
             update(old_task, status="cancelled", reason="corrected_disposition")
-            if old_task.data.get("commitment_id"):
-                update(
-                    self.required(s, "commitments", old_task.data["commitment_id"], p),
-                    status="cancelled",
-                    task_status="cancelled",
-                )
             emit(s, p["tenant_id"], "task.updated", old_task, self.clock())
         if closed:
             self._sync_callback(s, p, lead, tasks)
@@ -1281,7 +1155,7 @@ class RepWorkflows:
         update(record, **values)
 
     def _disposition_result(self, s, p, call, lead, receipt, task, callback_review, tasks):
-        from app.postcall.analysis import suggested_outcome, summary_suggestion
+        from app.aftercall.summary import suggestion
 
         if task is None and callback_review is None:
             task = next(
@@ -1292,7 +1166,6 @@ class RepWorkflows:
                 ),
                 None,
             )
-        memory = self._by_key(s, p, "conversation_states", call.id)
         return {
             **doc(call),
             "edit_receipt": receipt,
@@ -1300,9 +1173,5 @@ class RepWorkflows:
             # An existing callback a person edited, closed or duplicated is not
             # overwritten; the save succeeds and names what needs review.
             "callback_review": callback_review,
-            "rundown_status": (
-                memory.data.get("finalization", {}).get("status", "pending") if memory else "pending"
-            ),
-            "suggested_outcome": summary_suggestion(call.data)
-            or suggested_outcome(memory.data if memory else {}),
+            "suggested_outcome": suggestion(self.call_summary(s, p, call.id)),
         }

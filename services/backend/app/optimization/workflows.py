@@ -594,10 +594,6 @@ class OptimizationWorkflows(ComparisonWorkflows):
         decrypting related content. A bound that omits evidence is recorded, not raised."""
         from decimal import Decimal
 
-        from app.coaching.context import lineage_key
-        from app.optimization.conversations import active_observations
-        from app.postcall.analysis import learning_observations
-
         if not 1 <= limit <= 20000:
             raise ValueError("Training snapshot bound must be between1 and20000 attempts")
         now = now or self.clock()
@@ -655,16 +651,10 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 doc(r)
                 for r in related("conversion_events", "op_lead_id", list({c["lead_id"] for c in calls}))
             ]
-            notes = {r.external_key: r.data for r in related("notes", "external_key", ids)}
-            memories = {r.external_key: r.data for r in related("conversation_states", "external_key", ids)}
-            lineage, work = {}, {}
+            work = {}
             for row in related("outcomes", "ctx_key", ids):
                 if row.data.get("kind") == "attempt_work":
                     work[row.data["call_id"]] = row.data
-                elif row.data.get("kind") == "conversation_lineage":
-                    lineage.setdefault(row.data["call_id"], {})[
-                        lineage_key(row.data["id"], row.data["version"])
-                    ] = row.data
             costs, incomplete, verified = {}, set(), set()
             for record in related("usage_ledger", "op_call_id", ids):
                 value = record.data
@@ -690,13 +680,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
                             for key in ("rep_work_intervals", "rep_work_incomplete")
                         }
                     )
-                memory = memories.get(call["id"], {})
-                observed = (
-                    learning_observations(memory["observations"], lineage.get(call["id"]))
-                    if memory.get("schema_version") == 2
-                    else notes.get(call["id"], {}).get("observations", [])
-                )
-                call["observations"] = active_observations(observed, now)
+                call["observations"] = []  # Interpretations went with R10.1; the summary is not a label.
                 complete = call["id"] in verified and call["id"] not in incomplete
                 call["cost_status"] = "settled" if complete else "uncertain"
                 call["observed_cost_usd"] = float(costs.get(call["id"], 0)) if complete else None

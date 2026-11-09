@@ -42,3 +42,19 @@ def test_without_a_model_key_the_summary_says_what_to_add(workspace):
     run_jobs(ws)
     summary = get(ws, f"/v1/calls/{call_id}")["aftercall"]
     assert summary["status"] == "unavailable" and "OpenRouter" in summary["error"]
+
+
+def test_a_summary_that_could_not_be_written_is_written_again_on_retry(workspace):
+    """R10.4: a failed summary fails alone and has Retry; the call and its outcome are untouched."""
+    ws = workspace
+    call_id = start(ws)["id"]
+    answered_by_human(ws, call_id)
+    chunk(ws, call_id, "s1", "Send me the details by email.")
+    call(ws, "POST", f"/v1/calls/{call_id}/hangup")
+    run_jobs(ws)
+    assert get(ws, f"/v1/calls/{call_id}")["aftercall"]["status"] == "unavailable"
+    use_summary_model(ws)
+    assert call(ws, "POST", f"/v1/calls/{call_id}/summary") == {"queued": True}
+    run_jobs(ws)
+    summary = get(ws, f"/v1/calls/{call_id}")["aftercall"]
+    assert summary["status"] == "ready" and "Send me the details by email." in summary["summary"]

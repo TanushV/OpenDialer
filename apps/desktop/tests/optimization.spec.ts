@@ -52,10 +52,21 @@ test("optimization goals, learning state and provider settings persist", async (
   ).toBeVisible();
 });
 
-test("live events deliver cached guidance and conversion recording without call polling", async ({
+test("live events deliver helper tips and conversion recording without call polling", async ({
   page,
 }) => {
   await simulation(page);
+  // The live helper needs an OpenRouter key; simulation answers with its fixed local model.
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openSettingsCard(page, "AI");
+  const field = page.getByTestId("credential-openrouter_api_key");
+  const name = "Live help key (OpenRouter, Cerebras)";
+  await field.getByLabel(name).fill("sk-or-test-only");
+  await field
+    .getByRole("button", { name: `Save ${name}`, exact: true })
+    .click();
+  await expect(field).toContainText("Configured");
+  await page.getByRole("button", { name: "Dialer", exact: true }).click();
   const sockets: string[] = [];
   page.on("websocket", (ws) => sockets.push(ws.url()));
   await page.reload();
@@ -67,22 +78,22 @@ test("live events deliver cached guidance and conversion recording without call 
     .getByLabel("Simulation transcript")
     .fill("The budget is not approved.");
   await page.getByRole("button", { name: "Add prospect turn" }).click();
+  const strip = page.getByTestId("live-coaching-strip");
   await expect(
-    page
-      .getByTestId("live-coaching-strip")
-      .getByText("What outcome would make the investment worthwhile?", {
-        exact: false,
-      }),
+    strip.getByText("The budget is not approved.", { exact: false }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Private help", exact: true }).click();
-  await expect(
-    page.getByText("Seller-approved example · AI unavailable"),
-  ).toBeVisible();
   await page
-    .getByRole("button", { name: "Guidance was useful", exact: true })
+    .getByLabel("Private helper question")
+    .fill("How do I answer budget?");
+  await page
+    .getByRole("button", { name: "Ask privately", exact: true })
     .click();
   await expect(
-    page.getByText("Guidance feedback saved", { exact: true }),
+    strip.getByText("Private answer", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    strip.getByText("How do I answer budget", { exact: false }),
   ).toBeVisible();
   expect(sockets.some((url) => url.endsWith("/v1/live"))).toBeTruthy();
   await pauseCalling(page).click();

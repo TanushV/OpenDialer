@@ -1,22 +1,16 @@
-import { useSpeechExpiry } from "../state/useSpeechExpiry";
-import {
-  ArrowLeft,
-  Check,
-  ChevronRight,
-  MessageSquare,
-  Quote,
-} from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, MessageSquare } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { date, label, useWorkspace } from "../context";
-import type { Analysis } from "../types";
+import type { CallReview } from "../types";
 import { Empty } from "./Operations";
 import { FollowupTasks } from "./FollowupTasks";
 import { WrapUp } from "./WrapUp";
 import { CallTimeline } from "./CallTimeline";
 import { LearningCard } from "./LearningCard";
 import { ReviewIssues } from "./ReviewIssues";
+import { SummaryView } from "./SummaryView";
 
 export function ReviewPage({
   onNavigate,
@@ -24,12 +18,8 @@ export function ReviewPage({
   onNavigate?: (page: string) => void;
 }) {
   const { snapshot: w, api, run, notice, refresh } = useWorkspace();
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  useSpeechExpiry(analysis, setAnalysis);
-  // Per-call drafts: the human note, a comment and selected evidence.
+  const [review, setReview] = useState<CallReview | null>(null);
   const [notes, setNotes] = useState("");
-  const [highlight, setHighlight] = useState<string[]>([]);
-  const savedNotes = useRef<string | null>(null);
   const selectedCall = useRef<string | null>(null);
   const requestVersion = useRef(0);
   useEffect(
@@ -39,36 +29,24 @@ export function ReviewPage({
     },
     [],
   );
-  async function reload(id: string) {
+  async function reload(id: string, keepDraft = false) {
     if (selectedCall.current !== id) return;
     const version = ++requestVersion.current;
-    const result = await api<Analysis>(`/v1/calls/${id}/analysis`);
+    const result = await api<CallReview>(`/v1/calls/${id}/review`);
     if (selectedCall.current !== id || requestVersion.current !== version)
       return;
-    setAnalysis(result);
-    // Only a human writes "Your notes"; the AI summary is shown separately.
-    // An unchanged draft follows the saved note; an edited draft is kept.
-    const previous = savedNotes.current;
-    savedNotes.current = result.human_notes;
-    setNotes((draft) =>
-      draft === (previous ?? "") ? (result.human_notes ?? "") : draft,
-    );
-  }
-  function select(id: string | null) {
-    if (selectedCall.current === id) return;
-    selectedCall.current = id;
-    requestVersion.current++;
-    savedNotes.current = null;
-    setNotes("");
-    setHighlight([]);
+    setReview(result);
+    if (!keepDraft) setNotes(result.human_notes ?? "");
   }
   async function open(id: string) {
-    select(id);
+    selectedCall.current = id;
+    requestVersion.current++;
+    setNotes("");
     await reload(id);
   }
   const history = useHistory("calls", w.calls);
   const calls = history.items;
-  if (!analysis)
+  if (!review)
     return (
       <>
         <div className="page-heading">
@@ -155,19 +133,14 @@ export function ReviewPage({
         <LearningCard />
       </>
     );
-  const evidence = (ids: string[]) => (
-    <button className="evidence-button" onClick={() => setHighlight(ids)}>
-      <Quote size={12} />
-      {ids.join(", ")}
-    </button>
-  );
+  const summary = review.summary;
   return (
     <>
       <button
         className="text-button back"
         onClick={() => {
-          select(null);
-          setAnalysis(null);
+          selectedCall.current = null;
+          setReview(null);
         }}
       >
         <ArrowLeft size={14} />
@@ -176,45 +149,29 @@ export function ReviewPage({
       <div className="page-heading">
         <div>
           <span className="eyebrow">
-            CALL REVIEW · {date(analysis.call.started_at)}
+            CALL REVIEW · {date(review.call.started_at)}
           </span>
           <h1>
-            {w.leads.find((l) => l.id === analysis.call.lead_id)?.name ||
+            {w.leads.find((l) => l.id === review.call.lead_id)?.name ||
               "Conversation review"}
           </h1>
-          <p>
-            {label(analysis.call.outcome || "Outcome unconfirmed")} · Transcript
-            version {analysis.notes.transcript_version} ·{" "}
-            {label(analysis.status)}
-          </p>
+          <p>{label(review.call.outcome || "Outcome unconfirmed")}</p>
         </div>
-        <span className="pill subtle">
-          {analysis.provider === "extractive_baseline"
-            ? "Extractive baseline · review required"
-            : "AI draft · review required"}
-        </span>
       </div>
-      {analysis.call.analysis_incomplete && (
-        <p
-          className="notice"
-          role="status"
-          aria-label="Incomplete call analysis"
-        >
-          {analysis.call.unprocessed_speech_events ?? "Some"} speech events
-          could not be processed before their raw content expired or became
-          unavailable. The AI rundown may be incomplete. Review your notes and
-          follow-up.
-        </p>
-      )}
-      {analysis.grounding_status === "review_required" && (
-        <p className="notice" role="status" aria-label="Evidence review">
-          AI interpretation needs review. Its evidence check was unavailable or
-          incomplete. Review your notes and follow-up before relying on the AI
-          rundown.
-        </p>
-      )}
-      <ConversionForm call={analysis.call} />
-      {analysis.call.state === "FINALIZED" && (
+      <section className="card padded" aria-label="AI summary">
+        <h2>Summary</h2>
+        <SummaryView
+          summary={summary}
+          onRetry={() =>
+            void run(async () => {
+              await api(`/v1/calls/${review.call.id}/summary`, "POST");
+              notice("Summary requested again.");
+            })
+          }
+        />
+      </section>
+      <ConversionForm call={review.call} />
+      {review.call.state === "FINALIZED" && (
         <details className="card padded">
           <summary>Correct confirmed outcome</summary>
           <p>
@@ -223,14 +180,14 @@ export function ReviewPage({
           </p>
           <button
             className="secondary"
-            onClick={() => void run(() => reload(analysis.call.id))}
+            onClick={() => void run(() => reload(review.call.id, true))}
           >
             Reload confirmed outcome
           </button>
           <WrapUp
-            key={`${analysis.call.id}:${analysis.call.version}`}
-            call={analysis.call}
-            timezone={analysis.lead_timezone}
+            key={`${review.call.id}:${review.call.version}`}
+            call={review.call}
+            timezone={review.lead_timezone}
             onSaved={(result) =>
               void run(async () => {
                 await reload(result.id);
@@ -240,105 +197,48 @@ export function ReviewPage({
           />
         </details>
       )}
-      <CallTimeline callId={analysis.call.id} />
-      <section className="card padded" aria-label="Retained call context">
-        <h2>Retained call context</h2>
-        <p className="small muted">
-          Brief interpretations from the live helper. These are provisional
-          context, separate from confirmed outcomes and the reviewed scorecard.
-          Original speech expires.
-        </p>
-        {analysis.interpretation_coverage && (
-          <p className="small">
-            {analysis.interpretation_coverage.interpreted_segments} of{" "}
-            {analysis.interpretation_coverage.total_segments} stable chunks
-            interpreted.
-            {analysis.interpretation_coverage.pending_segments > 0
-              ? ` ${analysis.interpretation_coverage.pending_segments} awaiting interpretation.`
-              : ""}
-            {analysis.interpretation_coverage.unavailable_segments > 0
-              ? ` ${analysis.interpretation_coverage.unavailable_segments} could not be interpreted before their raw content became unavailable.`
-              : ""}
-          </p>
-        )}
-        {(
-          [
-            ["rundown_points", "Rundown"],
-            ["open_questions", "Open questions"],
-            ["coaching_points", "Coaching tips"],
-          ] as const
-        ).map(([key, title]) => {
-          const items = analysis.call_memory?.[key] || [];
-          return items.length ? (
-            <div key={key}>
-              <h3>{title}</h3>
-              <ul>
-                {items.map((item, index) => (
-                  <li key={item.id || index}>
-                    {item.text}
-                    {item.status === "resolved" ? " · Resolved" : ""}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null;
-        })}
-        {!!analysis.call_memory?.memory_omitted_items && (
-          <p className="small muted">
-            {analysis.call_memory.memory_omitted_items} older context items were
-            omitted from the compact brief. This is not a complete transcript or
-            account of every detail.
-          </p>
-        )}
-      </section>
+      <CallTimeline callId={review.call.id} />
       <div className="review-grid">
         <section className="card padded">
           <div className="card-eyebrow">
             <span>
-              <MessageSquare size={15} /> TRANSCRIPT &amp; EVIDENCE
+              <MessageSquare size={15} /> TRANSCRIPT
             </span>
           </div>
-          {analysis.transcript.length ? (
-            analysis.transcript.map((s) => (
-              <div
-                className={`review-segment ${highlight.includes(s.segment_id) ? "highlight" : ""}`}
-                key={s.segment_id}
-              >
+          {review.transcript.length ? (
+            review.transcript.map((s) => (
+              <div className="review-segment" key={s.segment_id}>
                 <div>
                   <strong>
                     {s.side === "rep"
-                      ? "Rep side"
+                      ? "You"
                       : s.side === "remote"
-                        ? "Remote side"
-                        : "Uncertain side"}
+                        ? "Prospect"
+                        : "Unclear"}
                   </strong>
                   <small>
                     {s.start_ms === null
-                      ? "Timing unavailable"
-                      : `${(s.start_ms / 1000).toFixed(1)}s`}{" "}
-                    · {s.is_final ? "Final" : "Interim"} · r{s.revision}
+                      ? ""
+                      : `${(s.start_ms / 1000).toFixed(1)}s`}
                   </small>
                 </div>
                 <p>{s.text}</p>
               </div>
             ))
           ) : (
-            <Empty text="No permitted final transcript is available for this call." />
+            <Empty text="No transcript is saved for this call." />
           )}
           <p className="fine">
             Calls are not recorded. This transcript stays on this computer for
             30 days, then is deleted; notes and outcomes remain.
           </p>
-          {analysis.transcript.length > 0 && (
+          {review.transcript.length > 0 && (
             <button
               className="secondary small"
               onClick={() =>
                 void run(async () => {
-                  await api(
-                    `/v1/calls/${analysis.call.id}/transcript`,
-                    "DELETE",
-                  );
-                  await reload(analysis.call.id);
+                  await api(`/v1/calls/${review.call.id}/transcript`, "DELETE");
+                  await reload(review.call.id, true);
                   notice("Transcript deleted.");
                 })
               }
@@ -347,138 +247,40 @@ export function ReviewPage({
             </button>
           )}
           <div className="section-rule" />
-          <h3>Observable conversation metrics</h3>
-          <p className="muted small">
-            {String(analysis.metrics.timed_segments)} timed segments /{" "}
-            {String(analysis.metrics.total_segments)} total.{" "}
-            {analysis.metrics.rep_talk_ratio === null
-              ? "Talk ratio unavailable."
-              : `Rep-side talk ratio ${Math.round(Number(analysis.metrics.rep_talk_ratio) * 100)}%.`}{" "}
-            {String(analysis.metrics.question_count)} rep questions.
-          </p>
-          <ScriptTrace trace={analysis.script_trace} />
+          <ScriptTrace trace={review.script_trace} />
         </section>
-        <div>
-          <section className="card padded">
-            <span className="eyebrow">THE RECORD YOU CONTROL</span>
-            <h2>Notes &amp; next steps</h2>
-            <div className="info-note" role="region" aria-label="AI summary">
-              <strong>AI summary · draft, not your note</strong>
-              <p>
-                {analysis.notes.summary || "No AI summary is available yet."}
-              </p>
-            </div>
-            <label>
-              Your notes
-              <textarea
-                aria-label="Your notes"
-                rows={6}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </label>
-            <button
-              className="primary"
-              onClick={() =>
-                void run(async () => {
-                  const latest = await api<Analysis>(
-                    `/v1/calls/${analysis.call.id}/analysis`,
-                  );
-                  if (latest.human_notes !== analysis.human_notes)
-                    throw new Error(
-                      "Another human changed these notes. Your text is retained; review the saved version before replacing it.",
-                    );
-                  const result = await api<{
-                    notes_version: number;
-                    notes_edit_version: number;
-                  }>(`/v1/calls/${analysis.call.id}/notes`, "PATCH", {
-                    expected_edit_version: latest.notes_edit_version ?? 0,
-                    text: notes,
-                  });
-                  savedNotes.current = notes;
-                  setAnalysis({
-                    ...latest,
-                    notes_version: result.notes_version,
-                    notes_edit_version: result.notes_edit_version,
-                    human_notes: notes,
-                  });
-                  notice("Notes saved");
-                })
-              }
-            >
-              Save notes
-              <Check size={15} />
-            </button>
-            {analysis.suggested_update !== null && (
-              <p className="fine" role="status">
-                The AI summary above changed after your note was saved. Your
-                note is preserved.
-              </p>
-            )}
-            <h3>Objections</h3>
-            {analysis.notes.objections.length ? (
-              analysis.notes.objections.map((o, i) => (
-                <p key={i}>
-                  {o.text} {evidence(o.evidence)}
-                </p>
-              ))
-            ) : (
-              <p className="muted small">No evidenced objection extracted.</p>
-            )}
-            <h3>Commitments</h3>
-            {analysis.notes.commitments.length ? (
-              analysis.notes.commitments.map((c, i) => (
-                <p key={i}>
-                  {c.action}
-                  <small>
-                    {c.needs_time_confirmation
-                      ? "Time needs confirmation"
-                      : date(c.due_at)}
-                  </small>
-                  {evidence(c.evidence)}
-                </p>
-              ))
-            ) : (
-              <p className="muted small">No confirmed commitment extracted.</p>
-            )}
-          </section>
-          <section className="card padded" aria-label="Conversation signals">
-            <h2>Conversation signals</h2>
-            <p className="small muted">
-              Configured concepts with supporting moments. A match describes the
-              conversation; it is not a conversion outcome or personality
-              judgment.
-            </p>
-            {!analysis.trackers?.length && (
-              <p className="small">No supported signals are available.</p>
-            )}
-            {analysis.trackers?.map((item, index) => (
-              <div key={`${item.tracker_id}:${index}`}>
-                <strong>{item.name || "Configured signal"}</strong>
-                <p className="small">
-                  {label(item.kind || "semantic")} · Definition{" "}
-                  {item.version ?? "unknown"}
-                  {item.raw_evidence_status === "expired"
-                    ? " · Original speech expired"
-                    : ""}
-                </p>
-                {item.raw_evidence_status !== "expired" &&
-                  evidence(item.evidence)}
-              </div>
-            ))}
-            {!!analysis.tracker_definitions_omitted && (
-              <p className="notice">
-                {analysis.tracker_definitions_omitted} definitions exceeded the
-                20-signal analysis limit. Narrow the active definitions before
-                relying on their absence.
-              </p>
-            )}
-          </section>
-        </div>
+        <section className="card padded">
+          <h2>Your notes</h2>
+          <label>
+            Your notes
+            <textarea
+              aria-label="Your notes"
+              rows={6}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </label>
+          <button
+            className="primary"
+            onClick={() =>
+              void run(async () => {
+                await api(`/v1/calls/${review.call.id}/notes`, "PATCH", {
+                  text: notes,
+                });
+                setReview({ ...review, human_notes: notes });
+                notice("Notes saved");
+              })
+            }
+          >
+            Save notes
+            <Check size={15} />
+          </button>
+        </section>
       </div>
     </>
   );
 }
+
 import { ConversionForm } from "./ConversionForm";
 
 function seconds(ms: number | null | undefined) {
@@ -486,7 +288,7 @@ function seconds(ms: number | null | undefined) {
 }
 
 /** Which script sections were delivered, how the prospect reacted, and the call's shape (post-call). */
-function ScriptTrace({ trace }: { trace?: Analysis["script_trace"] }) {
+function ScriptTrace({ trace }: { trace?: CallReview["script_trace"] }) {
   if (!trace?.sections.length)
     return (
       <p className="muted small">

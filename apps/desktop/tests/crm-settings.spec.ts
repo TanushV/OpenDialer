@@ -14,6 +14,11 @@ test("the CRM keys save and check in Settings, and the HubSpot panel names a mis
   await isolatedSimulationWorkspace(page, "crm-settings");
   await page.setViewportSize({ width: 1024, height: 720 });
   await page.getByRole("button", { name: "Leads", exact: true }).click();
+  // The page is measured once its leads have loaded, so nothing moves under the check.
+  await expect(page.getByRole("region", { name: "Leads" })).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
   // R9B.12: the HubSpot panel and the new Settings rows pass the layout audit at the small size.
   const choose = page.getByRole("button", {
     name: "Choose a HubSpot list",

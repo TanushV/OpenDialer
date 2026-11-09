@@ -7,8 +7,6 @@ test("compact prospect context discloses omitted history", async ({ page }) => {
     packet.context_coverage = {
       calls_total: 151,
       calls_omitted: 131,
-      commitments_total: 40,
-      commitments_omitted: 20,
       tasks_total: 301,
       tasks_omitted: 281,
     };
@@ -30,10 +28,6 @@ test("compact prospect context discloses omitted history", async ({ page }) => {
     .getByRole("button", { name: /^Open lead / })
     .first()
     .click();
-  await page
-    .getByText("Prior conversation & next step", { exact: true })
-    .click();
-  await expect(page.getByText(/131 earlier calls/)).toBeVisible();
-  await expect(page.getByText(/20 other commitments/)).toBeVisible();
-  await expect(page.getByText(/281 other tasks/)).toBeVisible();
+  await page.getByText("Earlier calls", { exact: true }).click();
+  await expect(page.getByText(/131 older calls are not shown/)).toBeVisible();
 });

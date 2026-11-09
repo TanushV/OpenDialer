@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import { localEdit } from "../api/client";
 import { label, useWorkspace } from "../context";
 import type { Call } from "../types";
+import { SummaryView } from "./SummaryView";
 import {
   chooseZone,
   zoneCaption,
@@ -148,17 +149,14 @@ export function WrapUp({
             : "Choose an outcome when the available evidence cannot confirm it automatically."}
         </p>
       </div>
-      {call.aftercall?.status === "ready" && (
-        <div className="aftercall-summary" aria-label="Call summary">
-          <p>{call.aftercall.summary}</p>
-          {call.aftercall.next_step && (
-            <p className="muted small">Next: {call.aftercall.next_step}</p>
-          )}
-        </div>
-      )}
-      {call.aftercall?.status === "unavailable" && (
-        <p className="muted small">{call.aftercall.error}</p>
-      )}
+      <div className="aftercall-summary" aria-label="Call summary">
+        <SummaryView
+          summary={call.aftercall}
+          onRetry={() =>
+            void api(`/v1/calls/${call.id}/summary`, "POST").catch(() => {})
+          }
+        />
+      </div>
       {call.suggested_outcome && (
         <div>
           <p>

@@ -168,58 +168,34 @@ export function ProspectBrief({
           Last outcome:{" "}
           {brief?.last_outcome ? label(brief.last_outcome) : "none yet"}
         </p>
-        {brief?.needs.map((n, i) => (
-          <p key={`need-${i}`}>Needs: {n.text}</p>
-        ))}
-        {packet.commitments.map((c, i) => (
-          <p key={`promise-${i}`}>
-            Promised: {c.action} · {date(c.due_at, zone.zone)}
-          </p>
-        ))}
+        {brief?.next_step && <p>Agreed next step: {brief.next_step}</p>}
         {brief?.next_question && <p>Next question: {brief.next_question}</p>}
         <details>
-          <summary>Prior conversation &amp; next step</summary>
-          {packet.context_coverage && (
-            <p className="muted">
-              Compact view: {packet.context_coverage.calls_omitted} earlier
-              calls, {packet.context_coverage.commitments_omitted} other
-              commitments and {packet.context_coverage.tasks_omitted} other
-              tasks omitted. Unresolved work is shown first; retained history is
-              unchanged.
-            </p>
+          <summary>Earlier calls</summary>
+          {packet.context_coverage &&
+            packet.context_coverage.calls_omitted > 0 && (
+              <p className="muted">
+                {packet.context_coverage.calls_omitted} older calls are not
+                shown.
+              </p>
+            )}
+          {brief?.earlier_calls?.length ? (
+            brief.earlier_calls.map((c) => (
+              <p key={c.call_id}>
+                {date(c.at, zone.zone)} ·{" "}
+                {c.outcome ? label(c.outcome) : "no outcome"}
+                {c.summary ? `: ${c.summary}` : ""}
+                {c.next_step ? ` Next: ${c.next_step}` : ""}
+              </p>
+            ))
+          ) : (
+            <p>{brief?.summary || "No earlier call summary yet."}</p>
           )}
-          <p>{brief?.summary || "No previous interpreted conversation."}</p>
           {brief?.freshness && (
             <p>Preparation: {label(brief.freshness.state)}</p>
           )}
-          {brief?.interpretation_gaps?.map((gap) => (
-            <p key={gap.call_id} role="status">
-              Earlier rundown: {label(gap.status)}.{" "}
-              {gap.reason
-                ? label(gap.reason)
-                : "Some conversation context is unavailable."}
-            </p>
-          ))}
-          {brief?.prior_answers?.map((answer, index) => (
-            <p key={`answer-${index}`}>Previously answered: {answer.text}</p>
-          ))}
-          {brief?.unanswered_questions?.map((question, index) => (
-            <p key={`question-${index}`}>Open question: {question.text}</p>
-          ))}
           {brief?.human_notes.map((n) => (
-            <p key={n.call_id}>Rep note: {n.text}</p>
-          ))}
-          {brief?.unresolved.map((n, i) => (
-            <p key={`issue-${i}`}>Unresolved: {n.text}</p>
-          ))}
-          {brief?.observations?.map((item) => (
-            <p key={item.id}>
-              Observed topic: {item.concept}
-              {item.approach
-                ? ` · Prior response approach: ${item.approach}`
-                : ""}{" "}
-              ({label(item.review_status)})
-            </p>
+            <p key={n.call_id}>Your note: {n.text}</p>
           ))}
           {packet.lead.outreach_hold && (
             <p role="status">

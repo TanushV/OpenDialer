@@ -71,9 +71,9 @@ class Service(LeadLists, ReservationPlanner):
         from app.privacy import EphemeralBuffer
 
         self.raw = EphemeralBuffer(clock=clock)
-        from app.coaching.engine import CoachEngine
+        from app.helper.live import Tips
 
-        self.coach = CoachEngine()
+        self.tips = Tips()
         self.screening_capacity = asyncio.Semaphore(2)
         self.research_flights = {}
         self.job_admission = {
@@ -94,7 +94,7 @@ class Service(LeadLists, ReservationPlanner):
             fail(404, "Object not found")
         if p.get("role") == "rep" and kind == "call_attempts" and obj.data.get("rep_id") != p["user_id"]:
             fail(404, "Object not found")
-        if p.get("role") == "rep" and kind in {"notes", "scorecards"}:
+        if p.get("role") == "rep" and kind == "notes":
             call = get(s, "call_attempts", obj.data.get("call_id"), p["tenant_id"])
             if not call or call.data["rep_id"] != p["user_id"]:
                 fail(404, "Object not found")
@@ -215,23 +215,6 @@ class Service(LeadLists, ReservationPlanner):
                 key="budget",
                 now=now,
             )
-            put(
-                s,
-                "playbooks",
-                tenant_id,
-                seller_id,
-                {
-                    "name": "Truthful introduction",
-                    "approved": True,
-                    "version_label": "v1",
-                    "claims": [],
-                    "cards": [],
-                    "opener": f"Hi, this is {{rep}} from {data['seller_name']}. Is this a reasonable time for a brief introduction?",
-                    "screening_intro": f"{{rep}} from {data['seller_name']}, calling with a brief business introduction.",
-                },
-                key="approved",
-                now=now,
-            )
             audit(s, tenant_id, seller_id, user.id, "workspace.created", tenant_id, now)
             return {
                 **issue_session(s, self.settings, user, now),
@@ -246,39 +229,6 @@ class Service(LeadLists, ReservationPlanner):
         with self.db.transaction() as s:
             seller = self.required(s, "sellers", p["seller_id"], p)
             update(seller, approved=True, synthetic=True)
-            book = self.scoped(s, "playbooks", p)[0]
-            if not book.data.get("cards"):
-                update(
-                    book,
-                    synthetic=True,
-                    cards=[
-                        {
-                            "id": "existing-provider",
-                            "tags": ["provider", "objection"],
-                            "text": "What would need to improve before you would consider changing providers?",
-                        },
-                        {
-                            "id": "budget",
-                            "tags": ["budget", "price", "objection"],
-                            "text": "What outcome would make the investment worthwhile?",
-                        },
-                        {
-                            "id": "timing",
-                            "tags": ["timing", "callback"],
-                            "text": "When would a brief follow-up be useful?",
-                        },
-                        {
-                            "id": "next-step",
-                            "tags": ["next_step", "meeting"],
-                            "text": "What would you need to see in a short follow-up meeting?",
-                        },
-                        {
-                            "id": "discovery",
-                            "tags": ["discovery"],
-                            "text": "What would make this conversation useful for you?",
-                        },
-                    ],
-                )
             campaign = self.scoped(s, "campaigns", p)[0]
             if not (campaign.data.get("script") or {}).get("template"):
                 from app.preparation.templates import STARTER, parse_markdown
@@ -843,9 +793,6 @@ class Service(LeadLists, ReservationPlanner):
             self.record_decision(s, p, lead, decision)
             if not decision.allowed:
                 fail(403, {"code": "CALL_DENIED", "reasons": decision.reasons})
-            from app.postcall.rubrics import configuration, snapshot
-
-            rubric = snapshot(configuration(self.required(s, "campaigns", lead.data["campaign_id"], p)))
             call = put(
                 s,
                 "call_attempts",
@@ -854,8 +801,6 @@ class Service(LeadLists, ReservationPlanner):
                 {
                     "rep_id": p["user_id"],
                     "lead_id": lead.id,
-                    "rubric_snapshot": rubric,
-                    "rubric_revision": 1,
                     "endpoint_id": lead.data["endpoint_id"],
                     "number_id": number.id,
                     "reservation_id": reservation.id,
@@ -1189,7 +1134,7 @@ class Service(LeadLists, ReservationPlanner):
             )
 
     def finish_call(self, s, p, call, reason=None):
-        self.coach.cancel(call.id)
+        self.tips.end(call.id)
         if call.data["state"] != "FINALIZED":
             ended = dt(call.data.get("ended_at")) or self.clock()
             update(
@@ -1270,7 +1215,7 @@ class Service(LeadLists, ReservationPlanner):
             )
             update(call, **moved(call.data, "hangup.requested", self.clock()))
             self.stop_agent_transcription_in(s, p, call)
-            self.coach.cancel(call.id)
+            self.tips.end(call.id)
             emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "ENDING"})
             return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}
 
@@ -1295,7 +1240,7 @@ class Service(LeadLists, ReservationPlanner):
             call = self.required(s, "call_attempts", call_id, p)
             if call.data["state"] in TERMINAL:
                 s.refresh(call, with_for_update=True)
-                self.enqueue_finalize(s, p, call, "hangup")
+                self.enqueue_aftercall(s, p, call)
             return doc(call)
 
     async def hangup(self, p, call_id, *, recovery_expected=None):

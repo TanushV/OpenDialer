@@ -5,7 +5,6 @@ from datetime import timedelta
 
 import pytest
 from app.platform.db import MODELS
-from app.platform.jobs import aware
 from sqlalchemy import select
 
 
@@ -150,52 +149,6 @@ async def test_failed_import_preserves_existing_refresh_session(app):
     with pytest.raises(HTTPException):
         await connection.connect("tenant", profile)
     assert await connection.storage.get_item("old-session") == "must-survive"
-
-
-@pytest.mark.database
-def test_two_second_window_does_not_slide_with_continuous_speech(app, clock):
-    from types import SimpleNamespace
-
-    from app.platform.db import Job
-
-    service = app.state.service
-    call = SimpleNamespace(
-        id="streamed-call", data={"rep_id": "rep", "transcript_version": 1, "transcription_source": "direct"}
-    )
-    p = {"tenant_id": "tenant", "seller_id": "seller"}
-    began = clock()
-    with service.db.transaction() as s:
-        service._defer_help(s, p, call, clock() + timedelta(milliseconds=300), "final")
-    for i in range(1, 10):
-        clock.now = began + timedelta(milliseconds=200 * i)
-        call.data["transcript_version"] += 1
-        with service.db.transaction() as s:
-            service._defer_help(s, p, call, clock() + timedelta(milliseconds=300), "final")
-    with service.db.transaction(False) as s:
-        job = s.scalar(select(Job).where(Job.key == "coach:streamed-call"))
-        assert aware(job.available_at) == began + timedelta(seconds=2)
-        assert job.payload["state_version"] == 10
-    assert not service.jobs.claim_many("live_coach", "worker", limit=1)
-    clock.now = began + timedelta(seconds=2)
-    assert len(service.jobs.claim_many("live_coach", "worker", limit=1)) == 1
-
-
-@pytest.mark.database
-def test_two_second_admission_spacing_preserves_direct_path_defaults(app, clock):
-    from types import SimpleNamespace
-
-    service = app.state.service
-    p = {"tenant_id": "tenant", "seller_id": "seller"}
-    call = SimpleNamespace(
-        id="streamed-call", data={"rep_id": "rep", "transcript_version": 2, "transcription_source": "direct"}
-    )
-    state = SimpleNamespace(
-        data={"automatic_admissions": [{"at": (clock() - timedelta(seconds=1)).isoformat()}]}
-    )
-    with service.db.transaction() as s:
-        assert service._automatic_admissions_in(s, p, call, state) is None
-        call.data["transcription_source"] = "webhook"
-        assert len(service._automatic_admissions_in(s, p, call, state)) == 1
 
 
 def test_connection_status_is_available_without_secret_fields(workspace):

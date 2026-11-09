@@ -133,8 +133,7 @@ def test_rep_lines_are_matched_to_script_sections_and_the_trace_outlives_raw_spe
     finish(ws, call_id, "not_interested")
     run_jobs(ws)
     clock.now += timedelta(seconds=301)  # Raw speech is gone; the trace is metadata.
-    analysis = get(ws, f"/v1/calls/{call_id}/analysis")
-    trace = analysis["script_trace"]
+    trace = get(ws, f"/v1/calls/{call_id}/review")["script_trace"]
     sections = trace["sections"]
     assert [s["key"] for s in sections] == [OPEN, ASK, CLOSE]
     assert [s["reaction"] for s in sections] == ["engaged", "engaged", "ended"]
@@ -280,13 +279,9 @@ class ScriptModel:
 
 
 @pytest.mark.slow
-def test_the_memory_reaches_script_writing_and_live_help_but_call_shape_stays_post_call(
-    workspace, app, monkeypatch, clock
-):
-    from test_feature_models import asker_answer, install_fake_models
-
+def test_the_memory_reaches_script_writing_but_call_shape_stays_post_call(workspace, app, monkeypatch, clock):
     ws = workspace
-    base = use_template(ws)
+    use_template(ws)
     post_put(ws, "/v1/admin/script/settings", {"auto_propose": False, "promotion": "automatic"})
     one_attempt_per_lead(ws)
     import_leads(ws, leads("Feed", 64))
@@ -317,24 +312,6 @@ def test_the_memory_reaches_script_writing_and_live_help_but_call_shape_stays_po
     assert digest["team_notes"] == "Lead with the time saved."
     assert any(item["feature"] == "discovery_questions" for item in digest["working"])
     assert not any(item["feature"] == "rep_talk_ratio" for item in digest["working"] + digest["not_working"])
-    contexts = []
-    live = {"live": lambda request: contexts.append(request.get("script_learning")) or asker_answer(request)}
-    placed = start(ws, key="feed-live")["id"]
-    answered_by_human(ws, placed)
-    install_fake_models(app, monkeypatch, live)
-    post(
-        ws,
-        f"/v1/calls/{placed}/transcript",
-        {"segment_id": "s1", "revision": 1, "side": "remote", "is_final": True, "text": "We have no budget."},
-    )
-    clock.now += timedelta(milliseconds=400)
-    run_jobs(ws)
-    [context] = contexts
-    assert context["base_version"] == base and context["arm"] is None
-    assert any(f["feature"] == "discovery_questions" for f in context["findings"])
-    features = {f["feature"] for f in context["findings"]}
-    assert not features & {"rep_talk_ratio", "longest_monologue", "time_to_first_question", "opening_length"}
-    assert "correlation" in context["instruction"]
 
 
 @pytest.mark.slow

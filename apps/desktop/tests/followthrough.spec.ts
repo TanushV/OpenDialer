@@ -108,9 +108,7 @@ for (const connected of [false]) {
       })
       .click();
     const modal = page.locator(".modal");
-    await modal
-      .getByText("Prior conversation & next step", { exact: true })
-      .click();
+    await modal.getByText("Earlier calls", { exact: true }).click();
     await expect(
       modal
         .getByRole("status")
@@ -189,14 +187,20 @@ for (const connected of [false]) {
         "resume",
       );
       await expect(
-        modal.getByText(/Keep my original human note through the correction/),
+        modal.getByText(
+          "Your note: Keep my original human note through the correction.",
+          { exact: true },
+        ),
       ).toBeVisible();
     }
     expect(meetingAttempts).toBeGreaterThanOrEqual(3);
     expect(meetingSaved).toBe(true);
     await expect(modal.getByText(/^Outreach paused:/)).toHaveCount(0);
     await expect(
-      modal.getByText(/Keep my original human note through the correction/),
+      modal.getByText(
+        "Your note: Keep my original human note through the correction.",
+        { exact: true },
+      ),
     ).toBeVisible();
   });
 }
@@ -706,7 +710,7 @@ test("outcome conflict reload and late save preserve the selected review", async
     await page.getByRole("button", { name: "Dismiss notification" }).click();
     await expect(page.getByLabel("Wrap-up note")).toHaveValue("Human note 0");
     const refreshed = page.waitForResponse((r) =>
-      r.url().endsWith(`/v1/calls/${calls[0].id}/analysis`),
+      r.url().endsWith(`/v1/calls/${calls[0].id}/review`),
     );
     await page
       .getByRole("button", { name: "Reload confirmed outcome", exact: true })

@@ -19,6 +19,26 @@ COALESCE_IMMEDIATE = 2
 COALESCE_BACKOFF_SECONDS = (5, 10, 20, 40, 60)
 
 
+async def finish_shielded(work):
+    """Finish a short storage or settlement step even under repeated cancellation, then re-raise it."""
+    import asyncio
+
+    task, cancelled = asyncio.ensure_future(work), False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+    result = task.result()
+    if cancelled:
+        raise asyncio.CancelledError()
+    return result
+
+
+class UnknownJobKind(ValueError):
+    """A queued job of a kind no lane handles; it fails rather than retrying forever."""
+
+
 class LostJobLease(ValueError):
     """A former worker cannot publish, complete or fail the current owner's work."""
 
@@ -160,7 +180,6 @@ class JobQueue:
         """One latest context/packet; changed inputs never steal the running owner's lease."""
         payload = job_metadata(payload)
         if queue != "live_coach" and (queue, payload.get("kind")) not in {
-            ("postcall", "conversation_review"),
             ("scripts", "packet_refresh"),
         }:
             raise ValueError("Only current conversation or packet work can be coalesced")

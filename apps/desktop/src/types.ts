@@ -145,27 +145,18 @@ export interface Segment {
   start_ms: number | null;
   end_ms: number | null;
 }
+/** R10.1: one live tip or private answer, kept in memory for its short life. */
 export interface Coach {
-  status?: string;
-  pinned?: boolean;
-  private?: boolean;
   _expires?: number;
   _monoExpires?: number;
   id: string;
-  action: string;
-  kind: string;
+  kind: "TIP" | "ANSWER";
   say_or_ask: string;
-  reason: string;
-  alternatives?: string[];
-  meaning_review?: {
-    status: "model_suggestion" | "model_reviewed" | "seller_approved";
-  };
+  private: boolean;
+  status: "streaming" | "ready";
+  at?: string;
   expires_at?: string;
   remaining_ms?: number;
-  provider?: string;
-  latency?: Record<string, number | null>;
-  state_version: number;
-  evidence_segment_ids: string[];
 }
 export interface Call {
   /** R10.2: the one-request after-call summary, once written. */
@@ -209,19 +200,14 @@ export interface Call {
   suggested_outcome?: {
     code: string;
     contact_role: "right_party" | "gatekeeper" | "wrong_party" | "unknown";
-    reason: string;
-    source_observation_id: string;
-    review_receipt_id: string;
+    reason?: string;
+    source?: string;
   } | null;
   lead_name?: string;
   lead_company?: string;
-  rubric_snapshot?: { call_type: string; rubric_version: string };
-  rubric_revision?: number;
   version: number;
   raw_evidence_status?: string;
-  analysis_incomplete?: boolean;
-  unprocessed_speech_events?: number;
-  coach_preferences?: { muted?: boolean; pinned?: boolean };
+  coach_preferences?: { muted?: boolean };
   /** Frozen at dial time; voicemail is offered only on the final permitted attempt. */
   attempt_ordinal?: number;
   attempt_allowance?: number;
@@ -238,21 +224,16 @@ export interface Call {
   provider_id: string | null;
   transcript?: Segment[];
   coach?: Coach | null;
-  conversation_state?: {
-    stage: string;
-    trigger: string;
-    version: number;
-    /** Metadata-only receipt of the last helper attempt; never content. */
-    helper_status?: {
-      status: "available" | "unavailable" | "cached_knowledge";
-      reason?:
-        | "transport_fault"
-        | "invalid_response"
-        | "provider_unverified"
-        | "provider_mismatch"
-        | null;
-      at?: string;
-    } | null;
+  /** Why the live helper is quiet, when it is: no key, budget or a route failure. */
+  helper_status?: {
+    status: "available" | "paused";
+    reason?:
+      | "not_configured"
+      | "budget"
+      | "transport_fault"
+      | "provider_unverified"
+      | "provider_mismatch"
+      | null;
   } | null;
 }
 export interface ScriptOption {
@@ -326,8 +307,6 @@ export interface Packet {
   context_coverage?: {
     calls_total: number;
     calls_omitted: number;
-    commitments_total: number;
-    commitments_omitted: number;
     tasks_total: number;
     tasks_omitted: number;
   };
@@ -335,25 +314,18 @@ export interface Packet {
   preparation?: { status: string; as_of?: string; reason?: string };
   tasks?: FollowupTask[];
   prospect_brief?: {
-    prior_answers?: EvidenceItem[];
-    unanswered_questions?: EvidenceItem[];
-    interpretation_gaps?: {
-      call_id: string;
-      status: string;
-      reason?: string;
-    }[];
     freshness?: { state: string; preparation_revision: number };
     version: number;
     evidence_status: string;
     summary: string;
-    needs: EvidenceItem[];
-    unresolved: EvidenceItem[];
-    unknowns: string[];
-    observations?: {
-      id: string;
-      concept: string;
-      approach: string | null;
-      review_status: string;
+    next_step?: string | null;
+    earlier_calls?: {
+      call_id: string;
+      at: string | null;
+      outcome: string | null;
+      summary: string | null;
+      next_step: string | null;
+      note: string | null;
     }[];
     human_notes: { call_id: string; text: string }[];
     next_question: string;
@@ -409,7 +381,6 @@ export interface Packet {
     sources: { id: string; title: string; url: string; retrieved_at: string }[];
   };
   previous_calls: Call[];
-  commitments: { action: string; due_at: string | null }[];
   bound_number_id: string | null;
 }
 export interface Reservation {
@@ -610,80 +581,12 @@ export interface EvidenceItem {
   text: string;
   evidence: string[];
 }
-export interface Analysis {
-  lead_timezone?: string | null;
-  trackers?: {
-    tracker_id: string;
-    name?: string;
-    kind?: string;
-    version?: number;
-    evidence: string[];
-    raw_evidence_status?: string;
-  }[];
-  tracker_definitions_omitted?: number;
-  observations?: {
-    id: string;
-    version: number;
-    concept: string;
-    approach: string | null;
-    status: string;
-    review_status: string;
-    observed_at: string;
-    evidence: string[];
-  }[];
-  raw_evidence_status?: string;
-  grounding_status?: "unreviewed" | "model_reviewed" | "review_required";
+/** One call in Review (R10.9): outcome, after-call summary, the rep's note and the 30-day transcript. */
+export interface CallReview {
   call: Call;
-  notes: {
-    summary: string;
-    outcome: string;
-    transcript_version: number;
-    problems: EvidenceItem[];
-    objections: EvidenceItem[];
-    commitments: {
-      action: string;
-      due_at: string | null;
-      evidence: string[];
-      needs_time_confirmation: boolean;
-    }[];
-    unknowns: string[];
-  };
-  notes_version: number;
-  notes_edit_version?: number;
+  lead_timezone?: string | null;
+  summary: Call["aftercall"];
   human_notes: string | null;
-  suggested_update: unknown;
-  status: string;
-  scorecard_id: string;
-  scorecard_version: number;
-  reviewed_scorecard?: Analysis["scorecard"];
-  call_memory?: {
-    rundown_points?: { id?: string; text: string; status: string }[];
-    coaching_points?: { id?: string; text: string; status: string }[];
-    open_questions?: { id?: string; text: string; status: string }[];
-    memory_omitted_items?: number;
-  };
-  interpretation_coverage?: {
-    total_segments: number;
-    interpreted_segments: number;
-    pending_segments: number;
-    unavailable_segments: number;
-  };
-  scorecard: {
-    call_type?: string;
-    rubric_version?: string;
-    title?: string;
-    purpose?: string;
-    overall: { score: number | null; coverage: number };
-    items: {
-      dimension: string;
-      title?: string;
-      source?: string;
-      score: number | null;
-      status: string;
-      explanation: string;
-      evidence: string[];
-    }[];
-  };
   transcript: Segment[];
   metrics: Record<string, unknown>;
   script_trace?: {
@@ -707,20 +610,7 @@ export interface Analysis {
       duration_ms: number | null;
     };
   } | null;
-  reviews: {
-    id?: string;
-    reason: string;
-    status: string;
-    reviewer_id: string;
-    reviewer_role?: string;
-    at?: string;
-    resolution_id?: string | null;
-    applies?: boolean;
-    raw_evidence_status?: string;
-  }[];
-  comments: { text: string; author_id: string }[];
-  recording_available: boolean;
-  provider: string;
+  raw_evidence_status?: string;
 }
 /** No call, or one whose carrier leg has finished. */
 export const isTerminal = (call: { state: string } | null | undefined) =>
