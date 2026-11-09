@@ -33,6 +33,17 @@ NUMBER_LABELS = {
 }
 
 
+UNVERIFIED = "from the list, unverified"
+
+
+def trigger_label(trigger):
+    """How Leads and the Dialer name a trigger's standing (section 9)."""
+    if not trigger or trigger.get("type") in (None, "none"):
+        return "No trigger found"
+    standing = UNVERIFIED if trigger.get("evidence") == "row_only" else "checked on the page"
+    return f"{trigger['strength']} · {standing}"
+
+
 def csv_fields():
     return {
         "source": "csv",
@@ -55,9 +66,10 @@ def number_hold(lead):
 
 
 def number_view(lead):
-    """What Leads and the Dialer show about the number: status label and, when held, why."""
+    """What Leads and the Dialer show about the number and the trigger: labels and, when held, why."""
     hold = number_hold(lead)
     return {
+        "trigger_label": trigger_label(lead.get("trigger")),
         "number_status": lead.get("number_status") or "not_checked",
         "number_label": NUMBER_LABELS.get(lead.get("number_status") or "not_checked", "Not checked"),
         "number_hold": hold,

@@ -36,6 +36,24 @@ export interface Lead {
   attempt_count: number;
   callback_due_at?: string;
   outreach_hold?: string | null;
+  source?: "csv" | "crm";
+  live_status?: string | null;
+  number_status?: string;
+  number_label?: string;
+  number_hold?: string | null;
+  number_hold_reason?: string | null;
+  dial_by_hand?: boolean;
+  trigger?: Trigger | null;
+  trigger_label?: string;
+}
+export interface Trigger {
+  type: string;
+  date: string | null;
+  source_url: string | null;
+  quote: string | null;
+  evidence: "page" | "row_only" | null;
+  strength: "A" | "B" | "C" | "none";
+  from_row: boolean;
 }
 export interface FollowupTask {
   lead_name?: string;

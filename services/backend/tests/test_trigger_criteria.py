@@ -3,14 +3,9 @@
 from datetime import date
 
 import pytest
-from app.prep.criteria import (
-    DEFAULT_RULES,
-    UNVERIFIED,
-    check_trigger,
-    default_section,
-    label,
-    parse_rules,
-)
+from app.leads.record import UNVERIFIED
+from app.leads.record import trigger_label as label
+from app.prep.criteria import DEFAULT_RULES, check_trigger, default_section, parse_rules
 
 TODAY = date(2026, 11, 8)
 RULES = list(DEFAULT_RULES)

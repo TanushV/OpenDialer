@@ -19,6 +19,7 @@ import { HistoryMore } from "./HistoryMore";
 import { LONG_REQUEST_MS, native, openSource } from "../api/client";
 import { date, isAdmin, label, percent, useWorkspace } from "../context";
 import { parseCSV } from "../state/csv";
+import { ColumnMap, type ColumnMapping } from "./ColumnMap";
 import type { Lead, NumberRecord, Packet } from "../types";
 import { ProspectBrief } from "./ProspectBrief";
 import { BulkLeadActions, leadLists, listLabel, useLists } from "./LeadLists";
@@ -36,6 +37,7 @@ export function LeadsPage({
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const admin = isAdmin(w.user.role);
   const [csv, setCSV] = useState("");
+  const [columnMap, setColumnMap] = useState<ColumnMapping | null>(null);
   const [listName, setListName] = useState("");
   const [query, setQuery] = useState("");
   const [report, setReport] = useState<{
@@ -218,6 +220,19 @@ export function LeadsPage({
                 </td>
                 <td>
                   {lead.phone}
+                  {lead.number_label && (
+                    <small
+                      className={lead.number_hold ? "number-held" : undefined}
+                      title={lead.number_hold_reason ?? undefined}
+                    >
+                      {lead.number_hold
+                        ? `Not dialed · ${lead.number_hold_reason}`
+                        : lead.number_label}
+                    </small>
+                  )}
+                  {lead.trigger_label && (
+                    <small>Why now: {lead.trigger_label}</small>
+                  )}
                   <small>{lead.timezone || "Timezone needs review"}</small>
                   {lead.state && (
                     <small>
@@ -310,6 +325,11 @@ export function LeadsPage({
                 }
               />
             </label>
+            <ColumnMap
+              headers={csvHeaders(csv)}
+              value={columnMap}
+              onChange={setColumnMap}
+            />
             <div className="button-row">
               <label className="secondary file-button">
                 <Upload size={15} />
@@ -346,11 +366,13 @@ export function LeadsPage({
                         list_name: listName.trim(),
                         rows: parseCSV(csv),
                         prepare: true,
+                        ...(columnMap ? { column_map: columnMap } : {}),
                       },
                       { timeoutMs: LONG_REQUEST_MS },
                     );
                     setReport(report);
                     setCSV("");
+                    setColumnMap(null);
                     await refresh();
                     await history.load(false, query, leadView);
                     await lists.reload();
@@ -1598,4 +1620,14 @@ export function Empty({ text }: { text: string }) {
       <p>{text}</p>
     </div>
   );
+}
+
+/** The header names of pasted CSV text, or none until it parses. */
+function csvHeaders(text: string): string[] {
+  if (!text.trim()) return [];
+  try {
+    return Object.keys(parseCSV(text)[0] ?? {});
+  } catch {
+    return [];
+  }
 }

@@ -2676,3 +2676,17 @@ details.transcript-card {
 .learning-facts dd {
   margin: 0;
 }
+
+.column-map {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+.column-map-row {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+}
+.column-map-row .delimiter input {
+  width: 4em;
+}

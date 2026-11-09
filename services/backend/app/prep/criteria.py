@@ -17,7 +17,6 @@ DEFAULT_RULES = (
     {"type": "leaner_team", "label": "Layoffs or a leaner team", "window_days": 180, "strength": "B"},
 )
 STRENGTHS = ("A", "B", "C")
-UNVERIFIED = "from the list, unverified"
 RULE = re.compile(
     r"^(?:(?P<type>[a-z][a-z0-9_]{1,39})\s*:\s*)?(?P<label>.+?)\s*\(\s*(?P<days>\d{1,4})\s*days?\s*,\s*"
     r"(?P<strength>[ABC])\s*\)\s*$"
@@ -162,11 +161,3 @@ def check_trigger(claim, rules, *, today, row_urls=(), page_text=None, names_lea
         "from_row": from_row,
     }
     return {"trigger": record, "bridge": bridge}, []
-
-
-def label(trigger):
-    """How Leads and the Dialer name a trigger's standing."""
-    if not trigger or trigger.get("type") in (None, "none"):
-        return "No trigger found"
-    standing = UNVERIFIED if trigger.get("evidence") == "row_only" else "checked on the page"
-    return f"{trigger['strength']} · {standing}"
