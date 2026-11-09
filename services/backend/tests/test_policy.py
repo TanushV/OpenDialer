@@ -184,3 +184,37 @@ def test_an_active_conversation_can_finish_after_the_new_dialing_cutoff(context)
         context, now=after, timezone="America/New_York", next_attempt_at=None, continuing_call=True
     )
     assert authorize(continuing).allowed
+
+
+def test_a_stronger_trigger_breaks_ties_between_equal_first_calls():
+    from datetime import UTC, datetime
+
+    from app.scheduling.policy import rank_candidates
+
+    now = datetime(2026, 11, 8, 17, tzinfo=UTC)
+    leads = [
+        {"id": "none", "propensity": 0.2, "attempt_count": 0},
+        {"id": "c", "propensity": 0.2, "attempt_count": 0, "trigger": {"strength": "C"}},
+        {"id": "a", "propensity": 0.2, "attempt_count": 0, "trigger": {"strength": "A"}},
+        {"id": "better", "propensity": 0.3, "attempt_count": 0},
+    ]
+    assert [c["id"] for c in rank_candidates(leads, now)] == ["better", "a", "c", "none"]
+
+
+def test_mapped_profile_fields_feed_the_learning_features():
+    from datetime import UTC, datetime
+
+    from app.optimization.learning import lead_features
+
+    lead = {
+        "profile": {"title": "VP Sales", "industry": "Logistics", "size": "120"},
+        "row": {},
+        "number_source": "wiza",
+    }
+    values = lead_features(lead, datetime(2026, 11, 8, tzinfo=UTC))
+    assert (values["title_seniority"], values["industry"], values["number_source"]) == (
+        "vp",
+        "logistics",
+        "wiza",
+    )
+    assert values["company_size"] != "unknown"

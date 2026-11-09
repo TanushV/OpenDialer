@@ -3,6 +3,8 @@ from datetime import datetime
 from app.compliance.policy import Decision, authorize
 from app.leads.record import BY_HAND, number_hold
 
+STRENGTH_ORDER = {"A": 0, "B": 1, "C": 2}
+
 
 def parsed(value):
     return datetime.fromisoformat(value) if isinstance(value, str) else value
@@ -38,10 +40,12 @@ def rank_candidates(candidates, now):
         # Among equally urgent work, a lead never called before goes first (the owner's starting
         # preference); the statistical estimate orders the rest.
         tried = int(c.get("attempt_count", 0) > 0)
+        # A stronger checked trigger breaks ties between equal estimates (R9.9); untrained, that is most ties.
+        strength = STRENGTH_ORDER.get(((c.get("trigger") or {}).get("strength")), 3)
         return (
             (priority, tried, coverage or now, -c.get("propensity", 0.1))
             if priority < 3
-            else (priority, -c.get("propensity", 0.1), tried, coverage or now)
+            else (priority, -round(c.get("propensity", 0.1), 6), strength, tried, coverage or now)
         )
 
     return sorted(candidates, key=key)

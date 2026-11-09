@@ -90,7 +90,16 @@ SENIORITY = (
 TRIGGER_STRENGTHS = {"A", "B", "C"}
 
 
+PROFILE_ROLES = {"title": "title", "job title": "title", "headline": "headline", "industry": "industry"}
+PROFILE_ROLES |= dict.fromkeys(("company size", "employees", "employee count", "headcount"), "size")
+
+
 def _column(lead, *names):
+    """A mapped profile field (R9.3) first, else the row column of that name."""
+    profile = lead.get("profile") or {}
+    mapped = next((profile[PROFILE_ROLES[n]] for n in names if profile.get(PROFILE_ROLES.get(n, ""))), "")
+    if mapped:
+        return str(mapped).strip()
     row = {str(k).strip().lower(): v for k, v in (lead.get("row") or {}).items()}
     return next((str(row[name]).strip() for name in names if row.get(name)), "")
 
