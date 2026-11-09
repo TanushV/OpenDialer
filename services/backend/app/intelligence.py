@@ -168,7 +168,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 ),
                 "lead": {
                     **doc(lead),
-                    **number_view(lead.data),
+                    **number_view(lead.data, self.clock()),
                     "suppressed": self.suppressed(s, p, lead.data["phone"]),
                 },
                 "script": script,
@@ -763,6 +763,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 if prepare_due and p["seller_id"] not in prepared_sellers:
                     prepared_sellers.add(p["seller_id"])
                     await asyncio.to_thread(self.prepare_tick, p)
+                    from app import crm
+
+                    await asyncio.to_thread(crm.schedule_syncs, self, p)
                 # Recovery ends with the seller's control dispatch; one pass per tick.
                 await self.recover(p)
                 completed += 1

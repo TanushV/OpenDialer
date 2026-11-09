@@ -209,6 +209,7 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
                 "crm_list_id": list_id,
                 "number_status": "checking",
                 "dnc": {"status": "not_checked", "reason": "not yet run"},
+                "crm_synced_at": now.isoformat(),
             }
             data.update(_set_phone(service, s, p, None, phone, now))
             if data["number_status"] == "needs_number":
@@ -225,6 +226,8 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
                 changes.update(_set_phone(service, s, p, lead.data, phone, now), number_status="checking")
                 checks.append(lead.id)  # A changed CRM number is checked again (R9B.14).
             update(lead, **changes)
+        for lead in existing.values():
+            update(lead, crm_synced_at=now.isoformat())
         for cid, until in planned["recent"].items():
             lead = existing.get(cid)
             if lead and until > (lead.data.get("next_attempt_at") or ""):
@@ -288,6 +291,31 @@ def _who(p):
     return {k: p.get(k) for k in ("seller_id", "user_id")}
 
 
+def schedule_syncs(service, p, *, starting=False):
+    """Sync every CRM list at Start calling, and every 30 minutes while the rep is calling (R9C.6)."""
+    if not config(service, p).get("hubspot_service_key"):
+        return 0
+    now = service.clock()
+    with service.db.transaction() as s:
+        user = service.required(s, "users", p["user_id"], p)
+        if not starting and (user.data.get("presence") or {}).get("status") != "ready":
+            return 0
+        queued = 0
+        for name, _, synced, _ in lists_due(service, s, p, now):
+            if starting or synced is None or now - synced >= SYNC_EVERY:
+                stamp = now.replace(second=0, microsecond=0).isoformat()
+                service.jobs.enqueue_in(
+                    s,
+                    LANE,
+                    {"kind": "hubspot_sync", "list_name": name, **_who(p)},
+                    f"hubspot-sync:{name}:{stamp}",
+                    tenant_id=p["tenant_id"],
+                    priority=5,
+                )
+                queued += 1
+    return queued
+
+
 async def sync(service, p, list_id, list_name):
     """Read the list's members and their contacts, then write the plan. Calling never waits on it."""
     hs = hubspot(service, p)
@@ -321,7 +349,15 @@ async def run_job(service, p, payload):
     if kind == "crm_log":
         return await log_job(service, p, payload["call_id"])
     if kind == "hubspot_sync":
-        return await sync(service, p, payload["list_id"], payload["list_name"])
+        with service.db.transaction(False) as s:
+            crm = ((_campaign(service, s, p).data.get("lists") or {}).get(payload["list_name"]) or {}).get(
+                "crm"
+            ) or {}
+        return (
+            await sync(service, p, crm["list_id"], payload["list_name"])
+            if crm.get("list_id")
+            else {"skipped": True}
+        )
     if kind == "crm_contact":
         return await contact_job(service, p, payload["lead_id"])
     raise ValueError(f"No crm handler for {kind!r}")

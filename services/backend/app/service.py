@@ -687,8 +687,18 @@ class Service(LeadLists, ReservationPlanner):
                     fail(403, "Agent leg must be established and verified by the server")
             if data.get("status") == "paused":
                 self.release_unused_reservation_in(s, p)
+            starting = (
+                data.get("status") == "ready" and (user.data.get("presence") or {}).get("status") != "ready"
+            )
             update(user, presence={**user.data.get("presence", {}), **data, "at": self.clock().isoformat()})
-            return user.data["presence"]
+            presence = user.data["presence"]
+        if starting:
+            from app import crm
+
+            crm.schedule_syncs(
+                self, p, starting=True
+            )  # Start calling syncs every HubSpot list first (section 6).
+        return presence
 
     def _expirable(self):
         # Unstarted reservations, and inbound routing claims (keyed by their task) past the

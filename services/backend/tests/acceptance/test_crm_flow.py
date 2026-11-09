@@ -238,3 +238,31 @@ def test_a_call_to_a_crm_lead_lands_on_the_contact_with_its_owner_and_no_transcr
     assert record["properties"]["hs_call_disposition"] == "d-mb"
     assert record["associations"][0]["to"]["id"] == "1"
     assert "transcript" not in json.dumps(record).lower()
+
+
+def test_a_list_not_synced_for_a_day_stops_dialing_its_leads_and_start_calling_syncs_it(
+    workspace, monkeypatch, clock
+):
+    from datetime import timedelta
+
+    from journey import ready, reserve
+
+    ws = workspace
+    setup(ws, monkeypatch)
+    post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    run_jobs(ws, rounds=3)
+    import app.leads.record as record
+
+    monkeypatch.setattr(record, "STALE_SYNC", timedelta(hours=1))
+    clock.now = clock.now + timedelta(hours=2)
+    ready(ws, status="paused")
+    stale = ws["client"].post(
+        "/v1/queue/next",
+        headers=ws["headers"],
+        json={"campaign_id": ws["campaign_id"], "list_names": ["HubSpot list"]},
+    )
+    assert stale.status_code == 409 and "CRM_SYNC_STALE" in stale.text
+    assert crm_leads(ws)["1"]["number_hold"] == "CRM_SYNC_STALE"
+    ready(ws)  # Start calling: the list syncs first.
+    run_jobs(ws, rounds=3)
+    assert reserve(ws, list_names=["HubSpot list"]).status_code == 200

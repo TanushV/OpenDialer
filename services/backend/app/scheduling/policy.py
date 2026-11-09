@@ -10,12 +10,12 @@ def parsed(value):
     return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
-def queue_decision(context, lead, *, own_claim=None, endpoint_claimed=False, by_hand=False):
+def queue_decision(context, lead, *, own_claim=None, endpoint_claimed=False, by_hand=False, now=None):
     """Shared read-only eligibility for setup and the queue; never a reservation."""
     reasons = authorize(context).reasons
     if lead.get("status") != "eligible":
         reasons.append("LEAD_NOT_ELIGIBLE")
-    hold = number_hold(lead)
+    hold = number_hold(lead, now)
     if hold and not (by_hand and hold in BY_HAND):
         reasons.append(hold)
     if own_claim:

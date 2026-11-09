@@ -4,6 +4,8 @@ CSV leads are taken as they are: no finder, Trestle or do-not-call check runs on
 column still applies to both sources, because it is free: a `dead` number is never dialed.
 """
 
+from datetime import timedelta
+
 # Why a lead's number is held back from auto-dial, with the words Leads and the Dialer show.
 HOLDS = {
     "NUMBER_DEAD": "The list marks this number dead, so it is not dialed.",
@@ -12,7 +14,10 @@ HOLDS = {
     "NO_VALID_NUMBER": "No valid number was found for this lead.",
     "NEEDS_NUMBER": "This lead has no number yet.",
     "DNC_NOT_CHECKED": "The do-not-call check has not run on this number yet, so it is not auto-dialed.",
+    "CRM_SYNC_STALE": "This HubSpot list has not synced for a day, so its leads wait. Sync the list on Leads.",
 }
+# Section 5: a HubSpot list not synced for a day stops dialing its leads, so a HubSpot opt-out is not missed for long.
+STALE_SYNC = timedelta(hours=24)
 # Holds a rep may override by dialing the lead by hand.
 BY_HAND = {"NUMBER_CONFLICT"}
 STATUS_HOLDS = {
@@ -53,8 +58,14 @@ def csv_fields():
     }
 
 
-def number_hold(lead):
+def number_hold(lead, now=None):
     """The code that keeps this lead's number from auto-dial, or None when it may be dialed."""
+    if now is not None and lead.get("source") == "crm":
+        from datetime import datetime
+
+        synced = lead.get("crm_synced_at")
+        if not synced or now - datetime.fromisoformat(synced) >= STALE_SYNC:
+            return "CRM_SYNC_STALE"
     if lead.get("live_status") == "dead":
         return "NUMBER_DEAD"
     hold = STATUS_HOLDS.get(lead.get("number_status"))
@@ -65,9 +76,9 @@ def number_hold(lead):
     return None
 
 
-def number_view(lead):
+def number_view(lead, now=None):
     """What Leads and the Dialer show about the number and the trigger: labels and, when held, why."""
-    hold = number_hold(lead)
+    hold = number_hold(lead, now)
     return {
         "trigger_label": trigger_label(lead.get("trigger")),
         "number_status": lead.get("number_status") or "not_checked",

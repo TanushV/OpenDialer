@@ -186,7 +186,7 @@ class WorkspaceReads:
 
                 self._mark_suppressed(s, p, selected)
                 for lead in selected:
-                    lead.update(number_view(lead))
+                    lead.update(number_view(lead, self.clock()))
             elif section in {"calls", "tasks"}:
                 self._label_leads(s, p, selected)
             return {
