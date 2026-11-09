@@ -542,3 +542,21 @@ async def test_the_fallback_agent_searches_reads_and_keeps_the_no_retention_rout
     assert {t["function"]["name"] for t in bodies[0]["tools"]} == {"skip_lead", "web_search", "read_page"}
     tool_answers = [m for m in bodies[-1]["messages"] if m.get("role") == "tool"]
     assert "Hilltop Apartments added two buildings" in tool_answers[1]["content"]
+
+
+def test_a_seat_set_to_the_fallback_researches_with_openrouter_even_when_chatgpt_is_signed_in(
+    workspace, app, monkeypatch
+):
+    from app.providers.chat_agent import ChatAgent
+    from helpers import principal
+
+    service, who = app.state.service, principal(workspace)
+    monkeypatch.setattr(service.settings, "simulation", False)
+    monkeypatch.setattr(service, "inference", lambda *a, **k: ScriptedAgent())
+    service.configs.write(who["tenant_id"], {"openrouter_api_key": "or-test"})
+    assert isinstance(service.agent_route(who), ScriptedAgent)
+    service.configs.write(who["tenant_id"], {"research_route": "fallback"})
+    assert isinstance(service.agent_route(who), ChatAgent)
+    monkeypatch.setattr(service, "inference", lambda *a, **k: None)
+    service.configs.write(who["tenant_id"], {"research_route": "chatgpt"})
+    assert isinstance(service.agent_route(who), ChatAgent), "no ChatGPT login: the fallback takes over"

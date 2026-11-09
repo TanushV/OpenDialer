@@ -221,6 +221,7 @@ function SetupRow({
         </form>
       )}
       {row.id === "calls_for" && <CallsFor onSaved={check} />}
+      {row.id === "chatgpt" && <ResearchRoute />}
       {testCall && (
         <Button variant="primary" onClick={() => void testCall()}>
           Test call
@@ -288,5 +289,41 @@ function CallsFor({ onSaved }: { onSaved: () => Promise<void> }) {
         </>
       )}
     </div>
+  );
+}
+
+/** R9C.10: a rep's seat researches with their own ChatGPT login, or with the OpenRouter fallback as its main route. */
+function ResearchRoute() {
+  const { api, run, notice } = useWorkspace();
+  const [route, setRoute] = useState<string | null>(null);
+  useEffect(() => {
+    void api<{ research_route?: string }>("/v1/admin/settings")
+      .then((saved) => setRoute(saved.research_route ?? "chatgpt"))
+      .catch(() => setRoute("chatgpt"));
+  }, [api]);
+  if (route === null) return null;
+  return (
+    <label className="setup-row-form">
+      Research uses
+      <select
+        aria-label="Research uses"
+        value={route}
+        onChange={(e) => {
+          const next = e.target.value;
+          void run(async () => {
+            await api("/v1/admin/settings", "PUT", { research_route: next });
+            setRoute(next);
+            notice(
+              next === "fallback"
+                ? "Research uses OpenRouter (DeepSeek) on this computer."
+                : "Research uses this computer's ChatGPT login, with OpenRouter as the fallback.",
+            );
+          });
+        }}
+      >
+        <option value="chatgpt">ChatGPT login (OpenRouter as fallback)</option>
+        <option value="fallback">OpenRouter only</option>
+      </select>
+    </label>
   );
 }

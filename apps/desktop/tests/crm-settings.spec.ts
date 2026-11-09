@@ -54,6 +54,13 @@ test("the CRM keys save and check in Settings, and the HubSpot panel names a mis
   await save.scrollIntoViewIfNeeded();
   await uncovered(save);
   await noSidewaysScroll(page);
+  const route = page.getByLabel("Research uses");
+  await route.selectOption("fallback");
+  await expect(
+    page
+      .getByText("Research uses OpenRouter (DeepSeek) on this computer.")
+      .first(),
+  ).toBeVisible();
   await expect(page.getByTestId("setup-calls_for")).toContainText(
     "Which HubSpot contacts this computer syncs and calls",
   );
