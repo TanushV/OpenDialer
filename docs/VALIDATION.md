@@ -16,7 +16,7 @@ across 32 requests, with four historical unknowns and zero running. Both numbers
 and capacity refresh is current at 22:04 Pacific. Saved providers/greeting and 08:00–17:00 hours remain; dialing
 is paused with all active lists. Temporary services are stopped and data/extracted apps are in Trash; the awake
 helper is stopped. No new carrier call, microphone session or real-model request occurred. The independent live
-and measured connect-rate gates remain open in the [number plan](NUMBER_CONNECT_PLAN.md).
+and measured connect-rate gates remain open in the [number plan](history/NUMBER_CONNECT_PLAN.md).
 
 
 **Historical software verification: November 5, 2026, 1.0.0.** Published and installed from `b1b774c`.
@@ -36,13 +36,13 @@ The final native production-list choice survives a full app restart; original al
 Agite master v3 and all 57 requested current/reviewed scripts remain, with no pending preparation work or error.
 The imported production list shows 54 of 54 ready. Master-v3 usage remains 1,528,794 reported tokens across
 32 requests; four historical failed requests have unknown counters. No new master-v3 model requests were needed.
-[Playbook/usage verification](evidence/lean/release-0102-20261105.json), [feature checklist](SCRIPT_PLAYBOOK_PLAN.md).
+[Playbook/usage verification](evidence/lean/release-0102-20261105.json), [feature checklist](history/SCRIPT_PLAYBOOK_PLAN.md).
 Both numbers show ready with zero pending setup. Capacity refresh is current at 20:34 Pacific. Saved providers,
 Agite greeting and 08:00–17:00 hours remain; dialing is paused. Disposable test PostgreSQL and extracted apps are
 in Trash, and the task's awake helper is stopped. No new phone call or microphone session was opened.
 The prior owner-confirmed human audio and Cerebras result remains dated to 0.8.14. Live tracked-stage/vendor
 scenarios, a complete fresh rundown, broader carrier/device coverage, real ramp and measured connect-rate lift
-remain open in the [number plan](NUMBER_CONNECT_PLAN.md). Older snapshots below are historical.
+remain open in the [number plan](history/NUMBER_CONNECT_PLAN.md). Older snapshots below are historical.
 
 **Historical software verification: October 30, 2026, 0.6.0.** The [release receipt](evidence/lean/security-release-20261030.json) records backend SQLite/PostgreSQL, browser, frontend, native credential/runtime, frozen restart and Mac packaging checks, dependency audits and release status. The [handoff](HANDOFF.md) explains the current implementation and remaining live/security gates. Earlier results below are historical.
 
@@ -84,7 +84,7 @@ training prove software behavior only; they do not establish live provider compa
 
 ## October 23 verification snapshot
 
-**Status: 0.4.0 lean build on `main` (October 23, 2026). A signed draft release is built from `a05a196` ([run 40066009752](https://github.com/TanushV/OpenDialer/actions/runs/40066009752)) and not published.** It does not read 0.2/0.3 workspaces: the desktop opens a fresh one in `local-2/` and leaves the old folders untouched; a server refuses a 0.2/0.3 database. Plan and step receipts: [LEAN_PLAN.md](LEAN_PLAN.md).
+**Status: 0.4.0 lean build on `main` (October 23, 2026). A signed draft release is built from `a05a196` ([run 40066009752](https://github.com/TanushV/OpenDialer/actions/runs/40066009752)) and not published.** It does not read 0.2/0.3 workspaces: the desktop opens a fresh one in `local-2/` and leaves the old folders untouched; a server refuses a 0.2/0.3 database. Plan and step receipts: [LEAN_PLAN.md](history/LEAN_PLAN.md).
 
 | Gate | Result |
 | --- | --- |
@@ -102,7 +102,7 @@ Simulated providers prove software behavior only. Live Telnyx traffic, funded Ce
 
 # OpenDialer 0.3.3 validation
 
-**Status: developer preview, published October 21, 2026 as [v0.3.3](https://github.com/TanushV/OpenDialer/releases/tag/v0.3.3). The Windows in-place update from 0.2.1 is accepted; the Mac in-place update is pending.** Source `beb3cf3b220e4f0435f5e9fc9bb29578109a1463`; product code is 0.3.0 plus three fixes found by validating the update from 0.2.1. Execution evidence is in [STATUS.md](STATUS.md) and [evidence/completion](evidence/completion/).
+**Status: developer preview, published October 21, 2026 as [v0.3.3](https://github.com/TanushV/OpenDialer/releases/tag/v0.3.3). The Windows in-place update from 0.2.1 is accepted; the Mac in-place update is pending.** Source `beb3cf3b220e4f0435f5e9fc9bb29578109a1463`; product code is 0.3.0 plus three fixes found by validating the update from 0.2.1. Execution evidence is in [STATUS.md](history/STATUS.md) and [evidence/completion](evidence/completion/).
 
 **0.3.0, 0.3.1 and 0.3.2 were withdrawn.** Each was published as a controlled validation release, failed the signed Windows update from 0.2.1, and was then marked prerelease so the updater manifest returned to 0.2.1. Installed data stayed intact throughout.
 - 0.3.0 (19:34–20:31 UTC) installed the exact bytes, but the updated app could not open the migrated workspace: the upgrade flushed its retained recovery copy through a read-only handle, which Windows rejects and macOS accepts (`E14-windows-upgrade-flush.json`).
@@ -126,7 +126,7 @@ No real carrier call, number purchase, funded inference or message was performed
 
 # Historical OpenDialer 0.2.1 acceptance
 
-Released application source is `141c73b1d3925ef652d2a8f981f3455d53159c53`; its unchanged backend was frozen from `05c08bf6e55f9752275180f3c0b59779c19232de`. Later commits contain acceptance-harness and documentation changes. The [optimization checklist](OPTIMIZATION_PLAN.md), [execution log](STATUS.md), preserved specification and [0.1.1 record](VALIDATION_0.1.1.md) retain the requirements and red/green history.
+Released application source is `141c73b1d3925ef652d2a8f981f3455d53159c53`; its unchanged backend was frozen from `05c08bf6e55f9752275180f3c0b59779c19232de`. Later commits contain acceptance-harness and documentation changes. The [optimization checklist](history/OPTIMIZATION_PLAN.md), [execution log](history/STATUS.md), preserved specification and [0.1.1 record](history/VALIDATION_0.1.1.md) retain the requirements and red/green history.
 
 Mac and Windows packages are published together in [v0.2.1](https://github.com/TanushV/OpenDialer/releases/tag/v0.2.1). The existing Mac was updated through its signed updater, without reinstalling or resetting data. Windows passed both fresh NSIS installation and the published 0.1.1 baseline's actual signed in-app upgrade. The withdrawn 0.2.0 candidate is retained as a draft for diagnosis.
 

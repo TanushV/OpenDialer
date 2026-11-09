@@ -1,96 +1,65 @@
 # OpenDialer
 
-A desktop app for calling leads one at a time. You paste your call script once, import a list, and AI agents
-research every lead and write that lead's own version of your script before you call. While you talk, a live
-helper suggests what to ask next. After the call you get a summary, follow-ups and a short list of what to
-practice.
+A desktop dialer for one rep per computer, on Mac or Windows. Import a CSV or sync a HubSpot list, paste your call script
+once, and an AI agent researches each lead and writes that lead's version of your script. Press Start calling and the
+app dials lead after lead, skips voicemail, shows the script and live tips while you talk, and writes a summary with a
+suggested outcome when the call ends.
 
-[Download](https://github.com/TanushV/OpenDialer/releases/latest) · [Install](docs/INSTALL.md) ·
-[Setup guide](docs/GETTING_STARTED.md) · [Example script](docs/examples/script.md) ·
-[Example lead list](docs/examples/leads.csv)
+[Download the latest release](https://github.com/TanushV/OpenDialer/releases/latest) · [Setup guide](docs/GETTING_STARTED.md) ·
+[How it works](docs/ARCHITECTURE.md) · [What's new](docs/RELEASE_NOTES.md) · [Example script](docs/examples/script.md)
 
 ## Install
 
-| Computer | Download | Install |
+| Computer | From the latest release | Install |
 | --- | --- | --- |
-| Apple Silicon Mac, macOS 14 or newer | [Mac installer (.dmg)](https://github.com/TanushV/OpenDialer/releases/download/v0.10.1/OpenDialer_0.10.1_aarch64.dmg) | Open it and drag OpenDialer to Applications. |
-| Windows PC, Intel/AMD 64-bit | [Windows installer (.exe)](https://github.com/TanushV/OpenDialer/releases/download/v0.10.1/OpenDialer_0.10.1_x64-setup.exe) | Run it and follow the prompts. |
+| Apple Silicon Mac, macOS 14 or newer | `OpenDialer_<version>_aarch64.dmg` | Open it and drag OpenDialer to Applications. |
+| Windows PC, 64-bit | `OpenDialer_<version>_x64-setup.exe` | Run it and follow the prompts. Windows may warn once: the installer is not publisher-signed yet. |
 
-Already installed? Open **Settings → More settings → Workspace and app updates → Check for updates**.
-Nothing else needs installing. This is a preview: it is not Apple-notarized or Windows publisher-signed,
-so your computer may ask you to confirm the first open. See [installation help](docs/INSTALL.md).
+The app updates itself: **Settings → More settings → Workspace and app updates → Check for updates**. Your leads,
+script, numbers and saved keys are kept across updates.
 
-## Get started in six steps
+## Set up once
 
-| Step | Where | What you do |
-| --- | --- | --- |
-| 1. Open a workspace | First screen | **Start a local workspace** (just you, data stays on this computer) or **Connect to a server** (your team's). |
-| 2. Connect services | **Settings** | **Calling:** import your calling setup file or paste your Telnyx key. **AI:** click **Use the ChatGPT login on this computer**, then save the live help key (OpenRouter). |
-| 3. Set the rules | **Settings** | **Calling hours:** set the hours and attempts. **Do-not-call check:** optional; turn it on and load your list if you want leads screened. |
-| 4. Add your script | **Script** | Paste your Markdown script (start from the [example](docs/examples/script.md)) and click **Save script**. |
-| 5. Import leads | **Leads** | Name the list, paste or choose a CSV with `name` and `phone`, click **Import leads**. Agents research each lead and write its script; the panel shows progress. |
-| 6. Call | **Dialer** | Get phone numbers ready in **Numbers**, click **Check readiness** in Settings, then **Go ready** and press **Space** for the next call. |
+Settings opens with one row per thing to set. A row turns green only after a real check.
 
-The [setup guide](docs/GETTING_STARTED.md) walks through every step, including phone numbers, the script format
-and what to do when something is blocked.
-
-## Your script, in one minute
-
-```markdown
-# Opening
-- Hi {first_name}, this is {rep} with {seller}. {{ why we're calling {company} now, from research }}
-
-# Screening
-{rep} from {seller}, calling about customer follow-up.
-
-# Discovery
-- How do you follow up with customers today?
-- Who else weighs in on changes to that process?
-
-# Close
-- Would a 15-minute call later this week be useful?
-```
-
-- `# Opening`, `# Screening`, `# Discovery` and `# Close` are required. `# Gatekeeper`, `# Offers`,
-  `# Objections`, `# Facts` and `# Never say` are optional.
-- Each bullet is an option. The AI picks the best ones for each lead.
-- `{{ … }}` is a line the AI writes for each lead from research, following your instruction.
-- `{first_name}`, `{name}`, `{company}`, `{rep}` and `{seller}` are filled in for you.
-
-## What each page is for
-
-| Page | Use it to |
+| Row | What to do |
 | --- | --- |
-| **Dialer** | Call the next lead, read their script, get live tips, record the outcome. |
-| **Leads** | Import lists, watch research progress, open any lead's script and research. |
-| **Review** | See what to practice and how, your goals, follow-ups and past calls. |
-| **Numbers** | Bring in or buy caller numbers and get each one ready to use. |
-| **Script** | Edit your script, see what is working, and describe what you sell. |
-| **Settings** | Connect services and set calling rules. Everything else is under **More settings**. |
+| Telnyx API key | Paste it from the Telnyx portal. Calls, numbers and transcription run on your Telnyx account. |
+| Call connection | Import your calling setup file once. After that it reconnects by itself. |
+| Phone numbers | In Numbers, buy a number or add one you own. A new number starts at 15 calls a day and rises to 60. |
+| ChatGPT login | Run `codex login` in Terminal, then use this computer's login. Research and scripts run on your plan. |
+| OpenRouter key | Live tips during calls and the after-call summary, on a no-retention route. |
+| Test phone | Your own number. **Test call** dials it right away, at any hour. |
+| HubSpot, Treg, RealValidito | Optional: HubSpot lists, number checks and do-not-call checks for HubSpot leads. |
 
-## What it costs to run
+## Call
 
-- **Research and scripts** run on your ChatGPT plan (GPT-6.1 Terra), included in the plan.
-- **Live help and call notes** use your OpenRouter key (Cerebras). An **AI budget per lead list** in
-  More settings caps that spend; it never blocks calling.
-- **Calls and numbers** are billed by Telnyx. Numbers are only bought after you approve an exact quote.
+1. **Script:** paste your Markdown script and click **Save script**. The page says whether your changes are saved.
+2. **Leads:** import a CSV or sync a HubSpot list. Each lead is researched and gets its own script.
+3. **Dialer:** while paused it says how many leads can be called now, or why none can. Press **Start calling** (Space).
+   **P** pauses after the call. When a call ends, press **1** to **6** to save the outcome, or Enter to accept the
+   suggested one. The next call starts by itself.
+4. **Review:** opens with what needs you and the one thing to do about each, then follow-ups, past calls and what the
+   app has learned about your best hours and triggers.
+
+## Calling does not stop by surprise
+
+Everything that can stop a call has a named reason and a way out: it either clears by itself within a stated time, or
+the screen shows the control that fixes it. If something that should clear by itself does not, the app repairs it,
+and if that fails it shows **Reconnect** instead of waiting. These rules are checked in CI over every combination of
+inputs and thousands of randomized runs. See [How it works](docs/ARCHITECTURE.md).
 
 ## Good to know
 
-- There is no call recording and no prerecorded voicemail drop. Raw speech and helper text are deleted
-  within five minutes.
-- Saved keys are encrypted on your computer; no Keychain or password prompts.
-- Automated tests cover software behavior. Real carrier calls, audio hardware and provider accounts need
-  your own check before you rely on them.
-- Hardware: Apple Silicon Mac or 64-bit Windows, 8 GB RAM recommended, a headset and a stable connection.
-  [Measured requirements](docs/REQUIREMENTS.md).
+- No call recordings and no prerecorded voicemail drop. Transcripts stay on this computer for 30 days, then are
+  deleted; delete one sooner from Review. An opt-out deletes that call's transcript.
+- Saved keys are encrypted on this computer, with no Keychain or password prompts.
+- Automated tests cover software behavior. Real carrier calls, audio hardware and provider accounts need your own check.
+- Hardware: Apple Silicon Mac or 64-bit Windows, 8 GB RAM, a headset and a stable connection.
 
-## More help
+## More
 
-- [Install and update](docs/INSTALL.md) · [Setup guide](docs/GETTING_STARTED.md) · [What's new](docs/RELEASE_NOTES.md)
-- [Provider accounts](deploy/runbooks/providers.md) · [Team server](deploy/runbooks/deploy.md) ·
-  [Backup and recovery](deploy/runbooks/recovery.md) · [Security](docs/policies/security.md)
-- [Development and tests](docs/DEVELOPMENT.md) · [All documentation](docs/README.md)
-- [Report a problem](https://github.com/TanushV/OpenDialer/issues)
+[Setup guide](docs/GETTING_STARTED.md) · [How it works](docs/ARCHITECTURE.md) · [Development and tests](docs/DEVELOPMENT.md) ·
+[Report a problem](https://github.com/TanushV/OpenDialer/issues)
 
 [Apache-2.0](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)

@@ -1,6 +1,6 @@
 # Pickup, conversion and grounded guidance
 
-The active development contract is [REMEDIATION_PLAN.md](REMEDIATION_PLAN.md). The features below describe the development source, not a new released desktop build. The objective is observed conversions per original eligible lead and per rep-hour. Human pickup, right-party reach, qualified conversations, held meetings and won sales remain separate. The default goal is a held meeting. A won sale does not imply that a meeting occurred.
+The active development contract is [REMEDIATION_PLAN.md](history/REMEDIATION_PLAN.md). The features below describe the development source, not a new released desktop build. The objective is observed conversions per original eligible lead and per rep-hour. Human pickup, right-party reach, qualified conversations, held meetings and won sales remain separate. The default goal is a held meeting. A won sale does not imply that a meeting occurred.
 
 ## Configure and operate
 

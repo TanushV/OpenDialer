@@ -1,6 +1,6 @@
 # Transcription comparison — October 28, 2026
 
-October 29 decision: the owner selected direct Telnyx/Soniox WebSocket streaming and two-second automatic coaching updates. The current implementation proposal is [MANAGED_WEBHOOK_PLAN.md](MANAGED_WEBHOOK_PLAN.md). The recommendations below record the earlier comparison; they are not an instruction to implement Groq or OpenRouter transcription.
+October 29 decision: the owner selected direct Telnyx/Soniox WebSocket streaming and two-second automatic coaching updates. The current implementation proposal is [MANAGED_WEBHOOK_PLAN.md](history/MANAGED_WEBHOOK_PLAN.md). The recommendations below record the earlier comparison; they are not an instruction to implement Groq or OpenRouter transcription.
 
 Research and a bounded Groq API test only. No runtime implementation, provider configuration, live carrier calls, release, or installed-app changes. The supplied Groq key was entered through a non-echoing prompt, held in the benchmark process, and not saved in these files. The owner intends to rotate it after testing.
 

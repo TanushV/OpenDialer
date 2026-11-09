@@ -10,7 +10,7 @@ history and refreshes it after import. `ScriptEditor.tsx` and compact `Preparati
 current master progress. Existing current-call snapshots, research reuse and token accounting remain.
 Acceptance regressions: `test_list_management.py`, `test_feature_playbook.py`; browser: `removal-refresh.spec.ts`
 and updated `lists.spec.ts`. No schema or physical deletion path was added. Release/native checks are tracked in
-[the follow-up plan](LIST_REMOVAL_PLAN.md).
+[the follow-up plan](history/LIST_REMOVAL_PLAN.md).
 
 # 1.0.0 release and dialing-pool persistence delta (November 5, 2026)
 
@@ -35,7 +35,7 @@ Native completions use short credential-file locks, with a longer deadline for o
 authorization. The desktop `components/TokenUsage.tsx`, `ScriptEditor.tsx` and `ScriptReader.tsx` expose these
 controls, directions and live preview. Regression coverage: `test_script_playbook.py`,
 `acceptance/test_feature_playbook.py`, `test_codex_login.py`, provider/native tests and `script-playbook.spec.ts`.
-See [the usage guide](SCRIPT_PLAYBOOK.md) and [feature checklist](SCRIPT_PLAYBOOK_PLAN.md).
+See [the usage guide](SCRIPT_PLAYBOOK.md) and [feature checklist](history/SCRIPT_PLAYBOOK_PLAN.md).
 
 # 0.9.1 list-management and 0.9.2 planner delta (November 5, 2026)
 

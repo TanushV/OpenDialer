@@ -71,7 +71,7 @@ Initial latency fixtures retain the 503-lead regression and six 700ms concurrent
 
 ## October 18 execution assertion groups
 
-The complete authored node lists are in [EXECUTION_TASKS.json](EXECUTION_TASKS.json). Existing tests are retained alongside new contracts; baseline capture is running before E01. None of these mappings accepts product or native delivery. Compiler-level missing types and explicitly pending installed-update receipts are recorded separately from behavioral failures. Each E section still owns all boundary assertions.
+The complete authored node lists are in [EXECUTION_TASKS.json](history/EXECUTION_TASKS.json). Existing tests are retained alongside new contracts; baseline capture is running before E01. None of these mappings accepts product or native delivery. Compiler-level missing types and explicitly pending installed-update receipts are recorded separately from behavioral failures. Each E section still owns all boundary assertions.
 
 | Case | Step | Authored contract files | Mandatory assertion |
 | --- | --- | --- | --- |

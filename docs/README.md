@@ -18,7 +18,7 @@
 ## Develop and operate
 
 - [Architecture and calling-policy review](ARCHITECTURE.md): diagrams, current behavior, requested cadence and warmup, learning loops, and feature gaps
-- [Calling completion plan](CALLING_COMPLETION_PLAN.md): November 2 scope, optional screening, manual calling, follow-up scripts, live conversation helper and setup fixes
+- [Calling completion plan](history/CALLING_COMPLETION_PLAN.md): November 2 scope, optional screening, manual calling, follow-up scripts, live conversation helper and setup fixes
 - [Development and tests](DEVELOPMENT.md)
 - [Current verification and remaining live gates](VALIDATION.md)
 - [Current handoff](HANDOFF.md) and [code map](HANDOFF_AST.md)
@@ -28,7 +28,7 @@
 
 ## Plans and history
 
-[LEAN_PLAN.md](LEAN_PLAN.md) is the active engineering plan; its Status section records progress.
-[CAMPAIGN_PREP_PLAN.md](CAMPAIGN_PREP_PLAN.md) records the 0.7 design: one Markdown script, per-lead preparation and
-one-page Settings. `REMEDIATION_PLAN.md`, `EXECUTION_SPEC.md`, `EXECUTION_TASKS.json`, `STATUS.md` and older evidence
+[LEAN_PLAN.md](history/LEAN_PLAN.md) is the active engineering plan; its Status section records progress.
+[CAMPAIGN_PREP_PLAN.md](history/CAMPAIGN_PREP_PLAN.md) records the 0.7 design: one Markdown script, per-lead preparation and
+one-page Settings. `history/REMEDIATION_PLAN.md`, `history/EXECUTION_SPEC.md`, `history/EXECUTION_TASKS.json`, `history/STATUS.md` and older evidence
 are historical. For how to use the app, follow the guides above, not old plans or verification snapshots.

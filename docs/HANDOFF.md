@@ -1,7 +1,7 @@
 # OpenDialer testing handoff (CURRENT)
 
 > **Status: CURRENT — 1.0.1 installed**, November 5, 2026. Source `c3a12ea`,
-> [release receipt](evidence/lean/release-101-20261105.json), [completed follow-up](LIST_REMOVAL_PLAN.md).
+> [release receipt](evidence/lean/release-101-20261105.json), [completed follow-up](history/LIST_REMOVAL_PLAN.md).
 > Membership removal now selects actual sources and reports real changes. Remove list hides the list from active
 > views/calling; Show removed lists restores it. Contacts shared with another active list stay available. Active,
 > Removed and All lead views filter before pagination. Duplicate imports lock current lead state against preparation.
@@ -20,10 +20,10 @@
 > Temporary PostgreSQL/native servers are stopped, temporary data and extracted apps are in Trash, and the awake
 > helper is stopped. No new carrier/microphone session or real generation occurred. The broader live stage/vendor
 > guidance, fresh complete rundown, carrier/device, ramp and measured lift gates remain open in
-> [NUMBER_CONNECT_PLAN.md](NUMBER_CONNECT_PLAN.md). Outbound speech remains the rep's voice; the helper is text.
+> [NUMBER_CONNECT_PLAN.md](history/NUMBER_CONNECT_PLAN.md). Outbound speech remains the rep's voice; the helper is text.
 >
 > Historical 0.8.0 calling-completion checkpoint, November 2, 2026.
-> [CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md) section 14 lists what 0.8.0 implemented and verified:
+> [CALLING_COMPLETION_PLAN.md](history/CALLING_COMPLETION_PLAN.md) section 14 lists what 0.8.0 implemented and verified:
 > optional DNC without approval paperwork, follow-up sections, streamed conversational live help, specific readiness,
 > number onboarding and warmup, machine detection and the final-stage second attempt. The Telnyx account owns no
 > numbers yet, so live calls, audio and detection are unverified. Earlier text below describes 0.7.1 and before;
@@ -34,7 +34,7 @@ The installed setup check found that the released Python runtime had no usable d
 WebSockets, although HTTPS login succeeded. 0.6.1 selects bundled trusted roots without disabling
 verification or replacing explicit operator certificate settings. The failing regression, 40 scoped
 checks on each database, and real shared-service heartbeat on the corrected release runtime pass.
-This historical 0.6.1 fix has since shipped; 0.7.1 is installed. See the current checkpoint in `LEAN_PLAN.md`.
+This historical 0.6.1 fix has since shipped; 0.7.1 is installed. See the current checkpoint in `history/LEAN_PLAN.md`.
 > Historical 0.5.0 release: `096c55f`, CI 40164184233 passed all jobs including 164 browser cases.
 > Includes script learning and the review fixes described below. This is the single current handoff.
 > Read with [HANDOFF_AST.md](HANDOFF_AST.md) and [SCRIPT_LEARNING.md](SCRIPT_LEARNING.md).
@@ -42,11 +42,11 @@ This historical 0.6.1 fix has since shipped; 0.7.1 is installed. See the current
 OpenDialer 0.6.0 adds protected credentials and ships the accumulated setup, managed-webhook and state/list changes. Older results below are historical.
 Live-provider and clean-machine installer gates remain open. Continue finding what the tests do not prove,
 adding tests before fixes, and supporting approved live testing. Read this file, then `AGENTS.md`, then the
-Status section of `docs/LEAN_PLAN.md`.
+Status section of `docs/history/LEAN_PLAN.md`.
 
 ## 0.7.x: one script, per-lead preparation, simple settings (October 30–31)
 
-Plan, decisions and real-model evidence: [CAMPAIGN_PREP_PLAN.md](CAMPAIGN_PREP_PLAN.md). What changed for users:
+Plan, decisions and real-model evidence: [CAMPAIGN_PREP_PLAN.md](history/CAMPAIGN_PREP_PLAN.md). What changed for users:
 [release notes](RELEASE_NOTES.md). Where things live: the Markdown parser, renderer and close-out rules are in
 `preparation/templates.py`; agent tools and the simulated agent in `preparation/agent.py`; list requests, threads and
 publication in `preparation/workflows.py`; the Codex agent loop in `providers/codex.py` and the API loop in
@@ -106,7 +106,7 @@ at that checkpoint, installed app/data and downloads were unchanged. The offline
 
 ## October 29 shared webhook integration (shipped in 0.6.0)
 
-Current [plan checkpoint](MANAGED_WEBHOOK_PLAN.md), [verification receipt](evidence/lean/managed-integration-20261029.json)
+Current [plan checkpoint](history/MANAGED_WEBHOOK_PLAN.md), [verification receipt](evidence/lean/managed-integration-20261029.json)
 and [caller setup](GETTING_STARTED.md#calling-card). Supabase control relay, per-PC profile
 import/refresh/reconnect, direct two-track Soniox transport and two-second coaching are wired into the app.
 The Mac profile and provider key remain outside Git. Both existing OpenDialer Telnyx applications point to the
@@ -431,7 +431,7 @@ the literal false in compose. Bind only a disposable loopback port and remove on
 
 ## 7. Features and where they are tested
 
-The kept feature list is in `docs/LEAN_PLAN.md` ("Features that stay"). Main coverage:
+The kept feature list is in `docs/history/LEAN_PLAN.md` ("Features that stay"). Main coverage:
 
 | Feature area | HTTP journeys (`services/backend/tests/acceptance/`) | Other tests |
 |---|---|---|
@@ -546,13 +546,13 @@ Full log: `git log --oneline a950675..HEAD`. Highlights:
 
 ## 13. Documents: current and history
 
-Current: this file, [HANDOFF_AST.md](HANDOFF_AST.md), `AGENTS.md`, [LEAN_PLAN.md](LEAN_PLAN.md) (plan and Status),
+Current: this file, [HANDOFF_AST.md](HANDOFF_AST.md), `AGENTS.md`, [LEAN_PLAN.md](history/LEAN_PLAN.md) (plan and Status),
 [VALIDATION.md](VALIDATION.md) (top section), [RELEASE_NOTES.md](RELEASE_NOTES.md) (0.5.0), `README.md`,
 `deploy/runbooks/*`, `docs/evidence/lean/*`.
 
-History (feature descriptions only; mechanisms and numbers there are out of date): `REMEDIATION_PLAN.md`,
-`EXECUTION_SPEC.md`, `EXECUTION_TASKS.json`, `STATUS.md`, `PLAN.md`, `OPTIMIZATION_PLAN.md`, `ACCEPTANCE_MATRIX.md`,
-`VALIDATION_0.1.1.md`, the 0.3.3 part of `VALIDATION.md`, `ARCHITECTURE_REVIEW_2026-10-18.html`.
+History (feature descriptions only; mechanisms and numbers there are out of date): `history/REMEDIATION_PLAN.md`,
+`history/EXECUTION_SPEC.md`, `history/EXECUTION_TASKS.json`, `history/STATUS.md`, `history/PLAN.md`, `history/OPTIMIZATION_PLAN.md`, `ACCEPTANCE_MATRIX.md`,
+`history/VALIDATION_0.1.1.md`, the 0.3.3 part of `VALIDATION.md`, `history/ARCHITECTURE_REVIEW_2026-10-18.html`.
 
 ## 14. Reporting back
 

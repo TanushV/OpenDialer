@@ -3,9 +3,9 @@
 Approved by the owner on November 6, 2026. This is the active plan. Read it in full on every continuation or context
 compaction, including the Status section at the end, which is the current checkpoint.
 
-It supersedes the "every feature stays" and "both modes" rules of [LEAN_PLAN.md](LEAN_PLAN.md), the manual-dial rule of
-[CALLING_COMPLETION_PLAN.md](CALLING_COMPLETION_PLAN.md) and the "No DDGS" decision of
-[CAMPAIGN_PREP_PLAN.md](CAMPAIGN_PREP_PLAN.md). Those files remain history for what a feature does.
+It supersedes the "every feature stays" and "both modes" rules of [LEAN_PLAN.md](history/LEAN_PLAN.md), the manual-dial rule of
+[CALLING_COMPLETION_PLAN.md](history/CALLING_COMPLETION_PLAN.md) and the "No DDGS" decision of
+[CAMPAIGN_PREP_PLAN.md](history/CAMPAIGN_PREP_PLAN.md). Those files remain history for what a feature does.
 
 ## 1. TLDR
 
@@ -596,7 +596,7 @@ section 5. CSV leads have no shared record, which is why a CSV file stays on one
   A callback from someone no seat has called goes to the owner's seat.
 - Number health is counted per number across the team, so the pool's health comes from everyone's calls.
 
-**Pool size.** The ramp in `NUMBER_CONNECT_PLAN.md` ends at 50 attempts per number per day, under the 75 to 100 that
+**Pool size.** The ramp in `history/NUMBER_CONNECT_PLAN.md` ends at 50 attempts per number per day, under the 75 to 100 that
 dialer vendors cite. 3,000 dials a week is 600 a business day, so 12 numbers at the ceiling, plus 3 spare for
 resting or flagged numbers: 15. While new numbers ramp (15, then 25, then 40 a day), the pool gives about 225, 375 and
 600 a day, so full volume arrives after about 6 business days. Add numbers by 1 per 50 daily dials.
@@ -750,7 +750,7 @@ Targets are hand allocations from the function inventory, not guarantees. Sectio
 - Remove `psycopg`, `pwdlib` and `PyJWT` if nothing still needs them. Add `ddgs`. Keep `numpy`, `scikit-learn` and
   `threadpoolctl` for the trainer.
 - Move finished plans to `docs/history/`. Keep README, GETTING_STARTED, ARCHITECTURE (rewritten), SCRIPT_PLAYBOOK,
-  RELEASE_NOTES, this plan and `evidence/`. `NUMBER_CONNECT_PLAN.md` stays open for its traffic ramp and measurement
+  RELEASE_NOTES, this plan and `evidence/`. `history/NUMBER_CONNECT_PLAN.md` stays open for its traffic ramp and measurement
   gates, resumed after Phase 10.
 
 ## 12. Budgets and estimates
