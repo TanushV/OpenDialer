@@ -405,3 +405,38 @@ def test_blocker_goes_in_and_back_out(code, request):
     check = EXIT_TESTS[code]
     names = check.__code__.co_varnames[: check.__code__.co_argcount]
     check(*(request.getfixturevalue(name) for name in names))
+
+
+def test_a_relay_that_stays_down_is_repaired_then_shown_as_stuck_with_reconnect(
+    workspace, app, fast_relay, monkeypatch
+):
+    """R9E.6: the watchdog restarts a relay that outlived its promise; still down, the blocker stops saying
+    it clears by itself and names Reconnect."""
+    import app.calling.watchdog as watchdog
+    from app.calling.blockers import Exit
+
+    monkeypatch.setitem(watchdog.EXITS, "CONNECTION_RECONNECTING", Exit(by_itself_within=0.2))
+    import_setup_file(workspace)
+    assert eventually(lambda: not codes(workspace, app))
+    fast_relay.script.extend([RuntimeError("network down")] * 1000)
+    assert eventually(lambda: "CONNECTION_RECONNECTING" in codes(workspace, app))
+    service, p, portal = app.state.service, principal(workspace), workspace["client"].portal
+    restarts = []
+    real_start = service.managed.start
+
+    async def start():
+        restarts.append(1)
+        await real_start()
+
+    monkeypatch.setattr(service.managed, "start", start)
+    for _ in range(3):
+        portal.call(service.watch_calling, p)
+        time.sleep(0.25)
+    assert restarts, "the watchdog restarted the relay loop"
+    detail = workspace["client"].get("/v1/blockers", headers=workspace["headers"]).json()["blockers"]
+    stuck = next(b for b in detail if b["code"] == "CONNECTION_RECONNECTING")
+    assert stuck["stuck"] is True and "Reconnect" in stuck["message"]
+    fast_relay.script.clear()
+    assert eventually(lambda: not codes(workspace, app))
+    portal.call(service.watch_calling, p)
+    assert service.watchdog.stuck == set()

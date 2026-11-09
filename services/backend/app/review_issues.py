@@ -70,7 +70,7 @@ def _plural(n, one, many):
 def issues(*, blockers, leads, calls, tasks, now):
     rows = []
     for blocker in blockers:
-        if blocker["code"] in SELF_CLEARING:
+        if blocker["code"] in SELF_CLEARING and not blocker.get("stuck"):
             continue
         rows.append(
             _row(blocker["code"], blocker["message"], blocker["fix"], PAGES.get(blocker["fix"], "Open"))

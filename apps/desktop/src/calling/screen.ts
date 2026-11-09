@@ -11,6 +11,8 @@ export interface Blocker {
   code: string;
   message: string;
   fix: string;
+  /** Promised to clear by itself, was repaired and is still here: Reconnect is shown. */
+  stuck?: boolean;
 }
 
 /** The call fields the screen reads. */

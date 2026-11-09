@@ -73,3 +73,16 @@ def test_the_route_answers_for_the_simulated_workspace(workspace):
     assert isinstance(body["issues"], list)
     for row in body["issues"]:
         assert row["title"] and row["level"] in {"fix", "info"}
+
+
+def test_a_stuck_self_clearing_blocker_is_listed():
+    blockers = [
+        {
+            "code": "CONNECTION_RECONNECTING",
+            "message": "Reconnecting. Press Reconnect.",
+            "fix": "settings",
+            "stuck": True,
+        }
+    ]
+    rows = issues(blockers=blockers, leads=[], calls=[], tasks=[], now=NOW)
+    assert codes(rows) == ["CONNECTION_RECONNECTING"]

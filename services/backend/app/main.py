@@ -639,6 +639,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction(False) as s:
             return {"blockers": [b.detail() for b in service.dial_blockers_in(s, p, rep=True)]}
 
+    @app.get("/v1/calling/readiness")
+    def calling_readiness(p=Depends(administrator)):
+        """R9E.5: run the checks a dial would, while idle; the Dialer shows the result before Start."""
+        return service.calling_readiness(p)
+
     @app.get("/v1/review/issues")
     def review_issues(p=Depends(principal)):
         """What needs the rep, each with the one thing to do: Review opens with this list."""

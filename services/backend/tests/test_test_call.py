@@ -100,3 +100,13 @@ def test_an_empty_queue_says_why(workspace, clock):
     detail = r.json()["detail"]
     assert detail["code"] == "NO_ELIGIBLE_LEADS"
     assert detail["message"].startswith("Everyone left is outside calling hours"), detail
+
+
+def test_readiness_says_how_many_can_be_called_or_why_none(workspace, clock):
+    client, headers = workspace["client"], workspace["headers"]
+    now = client.get("/v1/calling/readiness", headers=headers).json()
+    assert now["blockers"] == [] and now["callable_now"] > 0 and now["why_none"] is None
+    clock.now = datetime(2026, 10, 15, 1, 0, tzinfo=UTC)
+    later = client.get("/v1/calling/readiness", headers=headers).json()
+    assert later["callable_now"] == 0
+    assert later["why_none"].startswith("Everyone left is outside calling hours"), later

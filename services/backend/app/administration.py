@@ -12,7 +12,7 @@ import httpx
 from sqlalchemy import func, or_, select, text
 
 from app.calling import audio_leg
-from app.calling.blockers import Facts
+from app.calling.blockers import Facts, mark_stuck
 from app.calling.blockers import blockers as dial_gate
 from app.calling.state import TERMINAL
 from app.intelligence import Application
@@ -240,34 +240,70 @@ class Dialer(
             if audio and not self.settings.simulation:
                 leg = audio_leg.find(s, p, provider_id=agent, rep_id=p["user_id"])
                 audio = bool(leg and leg.data.get("state") == "answered")
-        return dial_gate(
-            Facts(
-                carrier_setup_required=not self.settings.simulation,
-                integrity_ok=integrity_ok,
-                restore_hold=bool(seller.data.get("restore_hold")),
-                telnyx_configured=bool(conf.get("telnyx_api_key") and conf.get("telnyx_connection_id")),
-                signature_key=bool(conf.get("telnyx_public_key")),
-                audio_setup=bool(conf.get("sip_username") and conf.get("telephony_credential_id")),
-                connection=self.managed.connection_code(p["tenant_id"]),
-                campaign=bool(next(iter(self.scoped(s, "campaigns", p)), None)),
-                number=self.number_setup_blocker(s, p, numbers),
-                test_number=next(
-                    (n.data["phone"] for n in numbers if n.data.get("identity_configured")), None
-                ),
-                pending_optouts=presence.get("pending_optouts", 0),
-                rep_audio_ready=audio,
-                channel_limited=(conf.get("channel_limited_until") or "") > self.clock().isoformat(),
-                pool=(
-                    (
-                        "NUMBER_POOL_UNREACHABLE"
-                        if conf.get("pool_blocked") == "POOL_UNREACHABLE"
-                        else "NUMBER_POOL_EMPTY"
-                    )
-                    if (conf.get("pool_blocked_until") or "") > self.clock().isoformat()
-                    else None
-                ),
+        return self._mark_stuck(
+            dial_gate(
+                Facts(
+                    carrier_setup_required=not self.settings.simulation,
+                    integrity_ok=integrity_ok,
+                    restore_hold=bool(seller.data.get("restore_hold")),
+                    telnyx_configured=bool(conf.get("telnyx_api_key") and conf.get("telnyx_connection_id")),
+                    signature_key=bool(conf.get("telnyx_public_key")),
+                    audio_setup=bool(conf.get("sip_username") and conf.get("telephony_credential_id")),
+                    connection=self.managed.connection_code(p["tenant_id"]),
+                    campaign=bool(next(iter(self.scoped(s, "campaigns", p)), None)),
+                    number=self.number_setup_blocker(s, p, numbers),
+                    test_number=next(
+                        (n.data["phone"] for n in numbers if n.data.get("identity_configured")), None
+                    ),
+                    pending_optouts=presence.get("pending_optouts", 0),
+                    rep_audio_ready=audio,
+                    channel_limited=(conf.get("channel_limited_until") or "") > self.clock().isoformat(),
+                    pool=(
+                        (
+                            "NUMBER_POOL_UNREACHABLE"
+                            if conf.get("pool_blocked") == "POOL_UNREACHABLE"
+                            else "NUMBER_POOL_EMPTY"
+                        )
+                        if (conf.get("pool_blocked_until") or "") > self.clock().isoformat()
+                        else None
+                    ),
+                )
             )
         )
+
+    @property
+    def watchdog(self):
+        from app.calling.watchdog import Watchdog
+
+        if "_watchdog" not in self.__dict__:
+            self.__dict__["_watchdog"] = Watchdog()
+        return self.__dict__["_watchdog"]
+
+    def _mark_stuck(self, found):
+        return mark_stuck(found, self.watchdog.stuck)
+
+    async def watch_calling(self, p):
+        """R9E.6: repair a self-clearing blocker that outlived its promise, and log it."""
+        import logging
+
+        with self.db.transaction(False) as s:
+            codes = [b.code for b in self.dial_blockers_in(s, p, rep=False)]
+        for code in self.watchdog.observe(codes, time.monotonic()):
+            logging.getLogger(__name__).warning("Watchdog: %s outlived its promise; repairing it", code)
+            await self.repair_blocker(p, code)
+
+    async def repair_blocker(self, p, code):
+        managed = self.managed
+        if code == "CONNECTION_SETUP_CHANGING":
+            if not managed.edit_lock.locked():
+                managed.configuring = False
+        elif code.startswith("CONNECTION_") and managed.enabled(p["tenant_id"]):
+            await managed.close()
+            await managed.start()
+        elif code in {"NUMBER_POOL_EMPTY", "NUMBER_POOL_UNREACHABLE"}:
+            self.configs.write(p["tenant_id"], {"pool_blocked_until": None})
+        elif code == "TELNYX_CALL_LIMIT_REACHED":
+            self.configs.write(p["tenant_id"], {"channel_limited_until": None})
 
     def setup_rows(self, p):
         """Settings: one true status and one row per thing to set (section 7, R7.2)."""
@@ -484,6 +520,24 @@ class Dialer(
             "provider_validation": "simulated"
             if self.settings.simulation
             else "requires live account validation",
+        }
+
+    def calling_readiness(self, p):
+        """R9E.5: what pressing Start would do now. Run while idle, so a problem shows before Start, not after."""
+        check = self.preflight(p, full=True)
+        with self.db.transaction(False) as s:
+            found = [
+                b.detail() for b in self.dial_blockers_in(s, p, rep=False, integrity_ok=check["integrity_ok"])
+            ]
+        screening = check.get("screening") or {}
+        callable_now = screening.get("callable_when_ready_count", 0)
+        reasons = set(screening.get("queue_reason_codes") or []) - SETUP_REASONS
+        return {
+            "blockers": found,
+            "callable_now": callable_now,
+            "inspected": screening.get("inspected_count", 0),
+            "why_none": None if callable_now else why_nobody(reasons),
+            "checked_at": self.clock().isoformat(),
         }
 
     def database_integrity(self, *, deep=False):

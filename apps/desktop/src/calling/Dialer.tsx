@@ -192,10 +192,12 @@ function Body({ loop }: { loop: Loop }) {
       ) : (
         between && (
           <p className="muted empty-lead">
-            {phase.kind === "finished"
-              ? (phase.reason ??
-                "Everyone eligible has been called for now. New leads and callbacks start by themselves.")
-              : "Press Start calling. Each lead and its script appear here as the call starts."}
+            {phase.kind === "finished" ? (
+              (phase.reason ??
+              "Everyone eligible has been called for now. New leads and callbacks start by themselves.")
+            ) : (
+              <Readiness />
+            )}
           </p>
         )
       )}
@@ -366,6 +368,7 @@ function ListChoice({ listsKey }: { listsKey: string }) {
 
 function ActionBar({ loop }: { loop: Loop }) {
   const { phase, act, call, muted } = loop;
+  const { api, run, refresh } = useWorkspace();
   const [keypad, setKeypad] = useState(false);
   useEffect(() => setKeypad(false), [call?.id]);
   const suggested = call?.suggested_outcome?.code;
@@ -376,6 +379,20 @@ function ActionBar({ loop }: { loop: Loop }) {
           {phase.blocker.message}
         </p>
       )}
+      {phase.kind === "paused" &&
+        phase.blocker?.stuck &&
+        phase.blocker.code.startsWith("CONNECTION_") && (
+          <Button
+            onClick={() =>
+              void run(async () => {
+                await api("/v1/admin/managed-connection/retry", "POST");
+                await refresh();
+              })
+            }
+          >
+            Reconnect
+          </Button>
+        )}
       {phase.kind === "connecting" && (
         <span className="muted">{loop.audioStatus || "Connecting audio"}</span>
       )}
@@ -543,4 +560,43 @@ function tone() {
   } catch {
     /* No audio output: the status line still says the call ended. */
   }
+}
+
+interface ReadinessCheck {
+  blockers: { code: string }[];
+  callable_now: number;
+  why_none: string | null;
+}
+
+/** R9E.5: while paused, what Start would do, checked every minute so a problem shows before Start. */
+function Readiness() {
+  const { api } = useWorkspace();
+  const [check, setCheck] = useState<ReadinessCheck | null>(null);
+  useEffect(() => {
+    let current = true;
+    const read = () =>
+      void api<ReadinessCheck>("/v1/calling/readiness")
+        .then((value) => current && setCheck(value))
+        .catch(() => current && setCheck(null));
+    read();
+    const timer = window.setInterval(read, 60_000);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [api]);
+  if (!check || check.blockers.length)
+    return (
+      <>
+        Press Start calling. Each lead and its script appear here as the call
+        starts.
+      </>
+    );
+  return (
+    <span data-testid="readiness">
+      {check.callable_now
+        ? `Ready: ${check.callable_now} ${check.callable_now === 1 ? "lead" : "leads"} can be called now. Press Start calling.`
+        : check.why_none}
+    </span>
+  );
 }

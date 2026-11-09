@@ -767,6 +767,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
 
                     await asyncio.to_thread(crm.schedule_syncs, self, p)
                 await self.release_pool_leases(p)
+                await self.watch_calling(p)
                 # Recovery ends with the seller's control dispatch; one pass per tick.
                 await self.recover(p)
                 completed += 1

@@ -15,9 +15,25 @@ class Blocker:
     code: str
     message: str
     fix: str  # Where the rep fixes it: settings, numbers, leads, dialer or attention.
+    # Promised to clear by itself, was repaired once and is still here (R9E.6): the screen shows the real control.
+    stuck: bool = False
 
     def detail(self):
-        return {"code": self.code, "message": self.message, "fix": self.fix}
+        found = {"code": self.code, "message": self.message, "fix": self.fix}
+        return {**found, "stuck": True} if self.stuck else found
+
+
+STUCK = "This did not clear by itself. Press Reconnect; if it stays, quit and reopen OpenDialer."
+
+
+def mark_stuck(found, stuck_codes):
+    """Blockers the watchdog could not clear say so and name what to do, instead of "clears by itself"."""
+    return [
+        Blocker(b.code, f"{b.message} {STUCK}", "settings" if b.fix == "dialer" else b.fix, stuck=True)
+        if b.code in stuck_codes
+        else b
+        for b in found
+    ]
 
 
 CATALOG = {
