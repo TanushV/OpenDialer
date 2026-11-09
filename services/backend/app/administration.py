@@ -208,6 +208,15 @@ class Dialer(
                 pending_optouts=presence.get("pending_optouts", 0),
                 rep_audio_ready=audio,
                 channel_limited=(conf.get("channel_limited_until") or "") > self.clock().isoformat(),
+                pool=(
+                    (
+                        "NUMBER_POOL_UNREACHABLE"
+                        if conf.get("pool_blocked") == "POOL_UNREACHABLE"
+                        else "NUMBER_POOL_EMPTY"
+                    )
+                    if (conf.get("pool_blocked_until") or "") > self.clock().isoformat()
+                    else None
+                ),
             )
         )
 

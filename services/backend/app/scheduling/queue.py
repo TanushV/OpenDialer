@@ -251,7 +251,7 @@ class ReservationPlanner:
             {**n, "active_obligations": n.get("active_obligations", 0) + self._number_holds(p, n["id"])}
             for n in self.inventory_evidence(s, p, fast=True)
         ]
-        if self.managed.enabled(p["tenant_id"]):
+        if self.managed.enabled(p["tenant_id"]) and not self.configs.read(p["tenant_id"]).get("number_pool"):
             inventory = self.managed.assigned(p["tenant_id"], inventory)
         claims = s.info["active_claims"]
         own = next((c for c in claims if c.rep_id == p["user_id"]), None)

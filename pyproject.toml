@@ -29,6 +29,7 @@ dev = [
     "ruff>=0.15,<1",
     "pyinstaller>=6.19,<7",
     "setuptools>=84.1.0",
+    "pgserver>=0.1.4",
 ]
 [build-system]
 requires = ["hatchling"]
@@ -55,6 +56,6 @@ ignore = ["E501", "S101", "B008"]
 # Test helpers named conftest are imported from services/backend/tests, not the root fixture.
 known-third-party = ["conftest"]
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**" = ["S105", "S106", "S311"]
+"**/tests/**" = ["S105", "S106", "S311", "S608"]
 "tests/**" = ["S105", "S106", "S311"]
 "scripts/e2e_server.py" = ["S105", "S106"]

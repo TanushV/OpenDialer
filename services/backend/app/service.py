@@ -933,7 +933,9 @@ class Service(LeadLists, ReservationPlanner):
             lead = self.required(s, "leads", call.data["lead_id"], p, lock=True)
             self.refuse_outside_test_line(p, lead)
             number = self.required(s, "number_inventory", call.data["number_id"], p)
-            self.managed.require_number(p["tenant_id"], number.data)
+            if not self.configs.read(p["tenant_id"]).get("number_pool"):
+                # With the shared pool (D26) the caller ID is leased at dial time instead of owned by this seat.
+                self.managed.require_number(p["tenant_id"], number.data)
             decision = authorize(self.context(s, {**p, **call.data.get("dial_scope", {})}, lead, number))
             submission_decision = self.record_decision(s, p, lead, decision)
             if not decision.allowed:
@@ -1017,6 +1019,58 @@ class Service(LeadLists, ReservationPlanner):
                     update(call, **moved(call.data, "dial.uncertain", self.clock()))
                     emit(s, p["tenant_id"], "call.updated", call, self.clock(), {"state": "RECONCILING"})
 
+    async def _lease_pool_number(self, p, call_id, prospect):
+        """D26: the relay picks this dial's caller ID from the shared pool. No answer, no dial: the call is not placed,
+        is not counted against the lead, and this seat waits with a named blocker that clears by itself."""
+        from app.numbers import pool
+        from app.optimization.geography import AREA_STATES
+
+        try:
+            phone = await pool.lease(
+                self.managed.client, prospect, pool.area_preferences(prospect, AREA_STATES), call_id
+            )
+        except pool.PoolUnavailable as exc:
+            until = self.clock() + timedelta(seconds=30)
+            self.configs.write(
+                p["tenant_id"], {"pool_blocked_until": until.isoformat(), "pool_blocked": exc.reason}
+            )
+            raise CarrierNotSubmitted(exc.reason) from exc
+        leases = self.configs.read(p["tenant_id"]).get("pool_leases") or []
+        self.configs.write(
+            p["tenant_id"], {"pool_leases": [*leases, call_id][-200:], "pool_blocked_until": None}
+        )
+        await asyncio.to_thread(self._record_pool_number, p, call_id, phone)
+        return phone
+
+    def _record_pool_number(self, p, call_id, phone):
+        with self.db.transaction() as s:
+            update(self.required(s, "call_attempts", call_id, p), pool_number=phone, from_number=phone)
+
+    async def release_pool_leases(self, p):
+        """End the pool lease of every call that has ended, so the team's 15 numbers are free for the next dials."""
+        from app.numbers import pool
+
+        leases = self.configs.read(p["tenant_id"]).get("pool_leases") or []
+        if not leases:
+            return 0
+        ended = []
+        for call_id in leases:
+            with self.db.transaction(False) as s:
+                call = self.scoped_get(s, p, "call_attempts", call_id)
+            if call is None or call.data["state"] in TERMINAL:
+                await pool.release(self.managed.client, call_id)
+                ended.append(call_id)
+        if ended:
+            current = self.configs.read(p["tenant_id"]).get("pool_leases") or []
+            self.configs.write(p["tenant_id"], {"pool_leases": [c for c in current if c not in ended]})
+        return len(ended)
+
+    def scoped_get(self, s, p, kind, object_id):
+        from app.platform.db import get
+
+        row = get(s, kind, object_id, p["tenant_id"])
+        return row if row and row.seller_id == p["seller_id"] else None
+
     def _dial_completed(self, p, call_id, claimed, owner, receipt):
         command_id, call_data, phone, payload = claimed
         cancel = False
@@ -1051,7 +1105,10 @@ class Service(LeadLists, ReservationPlanner):
             except Exception as exc:
                 # Configuration fails before any request exists; nothing can be live.
                 raise CarrierNotSubmitted(type(exc).__name__) from exc
-            receipt = await provider.dial(claimed[3])
+            payload = claimed[3]
+            if self.configs.read(p["tenant_id"]).get("number_pool"):
+                payload = {**payload, "from": await self._lease_pool_number(p, call_id, claimed[2])}
+            receipt = await provider.dial(payload)
         except Exception as exc:
             await asyncio.to_thread(self._dial_failed, p, call_id, claimed[0], owner, exc)
             return

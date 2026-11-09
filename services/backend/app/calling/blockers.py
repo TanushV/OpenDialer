@@ -68,6 +68,15 @@ CATALOG = {
         "A test session dials only your own test line. Turn test sessions off in Settings to call leads.",
         "settings",
     ),
+    "NUMBER_POOL_EMPTY": (
+        "No pool number is free: each is in use by another rep or at today's cap. Calling resumes by itself; add numbers "
+        "to the pool if this keeps happening.",
+        "numbers",
+    ),
+    "NUMBER_POOL_UNREACHABLE": (
+        "The shared number pool did not answer, so no caller ID could be chosen. This clears by itself when it answers.",
+        "dialer",
+    ),
     "TELNYX_CALL_LIMIT_REACHED": (
         "Telnyx account call limit reached: other reps are using every line. Calling resumes by itself in a minute. "
         "If this keeps happening, ask Telnyx support to raise the account's calls-at-once limit.",
@@ -98,9 +107,9 @@ class Facts:
     test_number: str | None = None  # The number to call for the one-time test call.
     pending_optouts: int = 0
     rep_audio_ready: bool | None = None  # None when the question is not being asked (Settings).
-    channel_limited: bool = (
-        False  # Telnyx refused this seat's last dial over the account's channel limit (R9C.4).
-    )
+    # Telnyx refused this seat's last dial over the account's channel limit (R9C.4).
+    channel_limited: bool = False
+    pool: str | None = None  # NUMBER_POOL_* while the last pool lease was refused (R9C.8).
 
 
 def blockers(facts):
@@ -124,6 +133,8 @@ def blockers(facts):
         codes.append(facts.number)
     if facts.pending_optouts:
         codes.append("PENDING_LOCAL_OPTOUTS")
+    if facts.pool:
+        codes.append(facts.pool)
     if facts.channel_limited:
         codes.append("TELNYX_CALL_LIMIT_REACHED")
     if facts.rep_audio_ready is False:
