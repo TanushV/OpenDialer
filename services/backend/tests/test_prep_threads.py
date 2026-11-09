@@ -435,3 +435,110 @@ def test_the_agent_sees_the_trigger_list_and_row_signals_first():
         {"type": "hiring", "label": "Hiring reps", "window_days": 60, "strength": "A"}
     ]
     assert context["leads"][0]["signals"] == {"aligned": True, "items": []}
+
+
+async def test_a_chatgpt_failure_hands_the_thread_to_the_fallback_with_the_same_output_shape(
+    workspace, app, monkeypatch
+):
+    class Fallback(ScriptedAgent):
+        billing, route, model = "openrouter", "fallback", "deepseek/deepseek-v4.1-flash"
+
+    service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent("limit"))
+    monkeypatch.setattr(service, "fallback_agent", lambda p, fetch=None: Fallback())
+    monkeypatch.setattr(service, "reserve_optional_budget", lambda *a, **k: True)
+    result = await service.run_prep_thread(who, ids)
+    fallback, state = service_script(service, who, ids[0])
+    assert result.get("paused") is None and state["status"] == "ready"
+    assert fallback["route"] == "fallback" and set(fallback["written"]) == {"ai-1"}
+    assert SCRIPT_SHAPE <= set(fallback)
+    with service.db.transaction(False) as s:
+        lead = service.required(s, "leads", ids[0], who).data
+    assert lead["research_route"] == "fallback" and lead["trigger"]["type"] == "none"
+
+
+async def test_a_primary_script_has_the_same_shape(workspace, app, monkeypatch):
+    service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent())
+    await service.run_prep_thread(who, ids)
+    primary, _ = service_script(service, who, ids[0])
+    assert primary["route"] == "chatgpt" and SCRIPT_SHAPE <= set(primary)
+
+
+SCRIPT_SHAPE = {"picks", "written", "trigger", "bridge", "summary", "route", "template_version", "reviewed"}
+
+
+async def test_the_fallback_agent_searches_reads_and_keeps_the_no_retention_route():
+    import httpx
+    from app.providers.chat_agent import ChatAgent
+
+    bodies, replies = (
+        [],
+        iter(
+            [
+                {
+                    "tool_calls": [
+                        {
+                            "id": "1",
+                            "type": "function",
+                            "function": {"name": "web_search", "arguments": '{"query": "Hilltop"}'},
+                        }
+                    ]
+                },
+                {
+                    "tool_calls": [
+                        {
+                            "id": "2",
+                            "type": "function",
+                            "function": {"name": "read_page", "arguments": '{"url": "https://h.example/n"}'},
+                        }
+                    ]
+                },
+                {
+                    "tool_calls": [
+                        {
+                            "id": "3",
+                            "type": "function",
+                            "function": {
+                                "name": "skip_lead",
+                                "arguments": '{"lead": "lead-1", "reason": "Closed for good."}',
+                            },
+                        }
+                    ]
+                },
+                {"content": "done"},
+            ]
+        ),
+    )
+
+    def respond(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", **next(replies)}}], "usage": {}}
+        )
+
+    async def search(query):
+        return [{"title": "Hilltop", "url": "https://h.example/n", "snippet": "news"}]
+
+    async def page(url):
+        return {"title": "Hilltop news", "text": "Hilltop Apartments added two buildings."}
+
+    handled = []
+
+    async def handler(name, args):
+        handled.append(name)
+        return json.dumps({"ok": True})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        agent = ChatAgent("key", search=search, fetch_page=page, http=http)
+        await agent.run(
+            "go",
+            [{"name": "skip_lead", "description": "d", "schema": {"type": "object"}}],
+            handler,
+            "{}",
+            lambda: None,
+        )
+    assert handled == ["skip_lead"]
+    assert all(body["provider"] == {"zdr": True, "data_collection": "deny"} for body in bodies)
+    assert bodies[0]["model"] == "deepseek/deepseek-v4.1-flash"
+    assert {t["function"]["name"] for t in bodies[0]["tools"]} == {"skip_lead", "web_search", "read_page"}
+    tool_answers = [m for m in bodies[-1]["messages"] if m.get("role") == "tool"]
+    assert "Hilltop Apartments added two buildings" in tool_answers[1]["content"]

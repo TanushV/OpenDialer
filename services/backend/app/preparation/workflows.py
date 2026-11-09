@@ -117,11 +117,35 @@ class Preparation:
         )
 
     def agent_route(self, p):
-        """The agent that prepares leads for this admin, or None when no AI is connected."""
+        """The agent that prepares leads: the ChatGPT login, else the OpenRouter fallback, else None (D8)."""
         if self.settings.simulation:
             return SimulatedAgent()
-        provider = self.inference(p["tenant_id"], "script_write", p["user_id"])
-        return provider if provider and hasattr(provider, "run") else None
+        conf = self.configs.read(p["tenant_id"])
+        provider = None
+        if conf.get("research_route") != "fallback":
+            provider = self.inference(p["tenant_id"], "script_write", p["user_id"])
+        if provider and hasattr(provider, "run"):
+            return provider
+        return self.fallback_agent(p)
+
+    def fallback_agent(self, p, fetch=None):
+        """DeepSeek V4.1 Flash on OpenRouter with local search (R9.10), when an OpenRouter key is saved."""
+        if self.settings.simulation:
+            return None
+        key = self.configs.read(p["tenant_id"]).get("openrouter_api_key")
+        if not key:
+            return None
+        from app.providers import ddgs
+        from app.providers.chat_agent import ChatAgent
+
+        if fetch is None:
+            from app.platform.config import LIMITS
+            from app.research.fetch import SafeFetcher
+
+            async def fetch(url):
+                return await SafeFetcher(max_bytes=LIMITS.research_bytes).fetch(url)
+
+        return ChatAgent(key, search=ddgs.search, fetch_page=fetch)
 
     def fallback_script(self, s, p, lead):
         """The base script with the seller's default options and no AI text."""
@@ -913,33 +937,59 @@ class Preparation:
                 if facts
             }
         usage, failure, run_status = {}, None, "completed"
-        try:
-            usage = await agent.run(
-                INSTRUCTIONS,
-                TOOLS,
-                work.handle,
-                json.dumps(context),
-                work.follow_up,
-                web_search=not reuse,
-                max_turns=3,
-                on_usage=observe,
-            )
-        except asyncio.CancelledError:
-            run_status = "cancelled"
-            raise
-        except PlanLimit as exc:
-            run_status = "failed"
-            await asyncio.to_thread(self.pause_preparation, p, str(exc), PLAN_PAUSE)
-            await asyncio.to_thread(
-                self.finish_thread, p, owner, claimed, None, None, release=False, requeue=True
-            )
-            return {"prepared": 0, "paused": True}
-        except Exception as exc:
-            logging.getLogger(__name__).warning("Preparation thread failed: %s", type(exc).__name__)
-            run_status = "failed"
-            failure = "The AI thread stopped before finishing: " + type(exc).__name__
-        finally:
-            await asyncio.shield(observe(usage, run_status))
+        fallback = None if getattr(agent, "route", "") == "fallback" else self.fallback_agent(p, fetch)
+        work.route = getattr(agent, "route", "chatgpt")
+        tracking["route"] = work.route
+        while True:
+            try:
+                usage = await agent.run(
+                    INSTRUCTIONS,
+                    TOOLS,
+                    work.handle,
+                    json.dumps(context),
+                    work.follow_up,
+                    web_search=not reuse,
+                    max_turns=3,
+                    on_usage=observe,
+                )
+                run_status = "completed"
+                break
+            except asyncio.CancelledError:
+                run_status = "cancelled"
+                await asyncio.shield(observe(usage, run_status))
+                raise
+            except Exception as exc:
+                run_status = "failed"
+                logging.getLogger(__name__).warning(
+                    "Preparation on the %s route failed: %s", work.route, type(exc).__name__
+                )
+                await asyncio.shield(observe(usage, run_status))
+                if fallback is not None and await asyncio.to_thread(
+                    self.reserve_optional_budget,
+                    p,
+                    request_key + ":fallback",
+                    METERED_ESTIMATE_PER_LEAD_USD * len(claimed),
+                    object_id=claimed[0]["lead"]["id"],
+                    work_kind="preparation",
+                    scope=scope,
+                ):
+                    # R9.12: the plan limit, a lost login or a failing ChatGPT route hands the same thread, with
+                    # what it already accepted, to the fallback; every record says which route wrote it.
+                    agent, fallback, usage = fallback, None, {}
+                    request_key += ":fallback"
+                    work.route = tracking["route"] = "fallback"
+                    tracking["model"] = agent.model
+                    provider_name = agent.billing
+                    continue
+                if isinstance(exc, PlanLimit):
+                    await asyncio.to_thread(self.pause_preparation, p, str(exc), PLAN_PAUSE)
+                    await asyncio.to_thread(
+                        self.finish_thread, p, owner, claimed, None, None, release=False, requeue=True
+                    )
+                    return {"prepared": 0, "paused": True}
+                failure = "The AI thread stopped before finishing: " + type(exc).__name__
+                break
+        await asyncio.shield(observe(usage, run_status))
         review = await self.review_thread(p, work, owner, tracking) if work.done else {}
         published = await asyncio.to_thread(
             self.finish_thread, p, owner, claimed, work, failure, review=review
@@ -1181,6 +1231,7 @@ class Preparation:
                 ),
                 "reviewed": not (review or {}).get("unreviewed") and not self.settings.simulation,
                 "summary": work.researched.get(alias, ""),
+                "route": getattr(work, "route", "chatgpt"),
                 **trigger_changes(work, alias, rejected),
                 "expires_at": expiry.isoformat(),
                 "created_at": now.isoformat(),
@@ -1195,7 +1246,11 @@ def trigger_changes(work, alias, rejected):
     if record is None:
         return {}
     bridge = None if f"{alias}:bridge" in rejected else record["bridge"]
-    return {"trigger": record["trigger"], "bridge": bridge}
+    return {
+        "trigger": record["trigger"],
+        "bridge": bridge,
+        "research_route": getattr(work, "route", "chatgpt"),
+    }
 
 
 def get_fact(s, p, fact_id):

@@ -113,7 +113,7 @@ def watch_launcher(stream, on_lost=_launcher_lost):
 
 def parser():
     parser = argparse.ArgumentParser(description="OpenDialer local authority")
-    parser.add_argument("command", nargs="?", choices=["serve", "migrate"], default="serve")
+    parser.add_argument("command", nargs="?", choices=["serve", "migrate", "self-check"], default="serve")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--simulation", action="store_true", default=None)
@@ -128,8 +128,21 @@ def parser():
     return parser
 
 
+def self_check():
+    """R9.11: the packaged backend can load the fallback agent's search (ddgs and its native primp) offline."""
+    import ddgs
+    import primp  # noqa: F401 - native extension the search client needs
+
+    from app.providers import chat_agent  # noqa: F401
+
+    ddgs.DDGS()
+    print("ok: ddgs " + getattr(ddgs, "__version__", "?"))
+
+
 def main():
     args = parser().parse_args()
+    if args.command == "self-check":
+        return self_check()
     launch = read_launch_secrets(sys.stdin.buffer) if args.secrets_stdin else None
     overrides = {k: v for k, v in vars(args).items() if k in {"data_dir", "simulation"} and v is not None}
     if launch:

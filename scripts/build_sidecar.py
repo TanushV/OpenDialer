@@ -161,6 +161,11 @@ def authority_arguments():
         str(root / "scripts/pyinstaller_hooks"),
         "--collect-all",
         "tzdata",
+        # R9.11: the fallback agent's search loads its engines by name and needs primp's native library.
+        "--collect-all",
+        "ddgs",
+        "--collect-all",
+        "primp",
         str(root / "scripts/backend_entry.py"),
     ]
 

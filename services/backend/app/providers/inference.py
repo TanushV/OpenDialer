@@ -27,8 +27,10 @@ class InferenceClient:
         http=None,
         timeout=30,
         tool_name=None,
+        extra_body=None,
     ):
         self.mode, self.api_key, self.model = mode, api_key, model
+        self.extra_body = extra_body or {}
         self.billing = "litellm" if mode == "litellm" else "openai"
         self.tool_name = tool_name
         self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
@@ -104,6 +106,7 @@ class InferenceClient:
                                 "messages": messages,
                                 "tools": offered,
                                 "parallel_tool_calls": False,
+                                **self.extra_body,
                             },
                             "/chat/completions",
                         )

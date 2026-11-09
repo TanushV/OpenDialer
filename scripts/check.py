@@ -190,6 +190,15 @@ def sidecars():
     if fitted.returncode:
         print("  FAIL  frozen trainer did not learn the planted pattern")
         return False
+    searched = subprocess.run(  # noqa: S603 - the sidecar this tier just built
+        [str(backend), "self-check"], capture_output=True, text=True, timeout=120, check=False
+    )
+    if searched.returncode or not searched.stdout.startswith("ok: ddgs"):
+        print(
+            "  FAIL  frozen backend cannot load web search: " + (searched.stderr or searched.stdout)[-1500:]
+        )
+        return False
+    print("  pass  backend self-check (web search loads)")
     return smoke(backend)
 
 
