@@ -1,82 +1,12 @@
 import { useState } from "react";
 import { useWorkspace } from "../context";
-import { useDefinitions } from "../state/definitions";
 
 export function AccessAndRecovery() {
   const { api, run, notice, refresh } = useWorkspace();
-  const bounds = useDefinitions();
-  const minimum = bounds?.setup?.password?.min_length;
   const [reference, setReference] = useState("");
-  const [user, setUser] = useState({
-    name: "",
-    email: "",
-    password: "",
-    role: "rep",
-    sip_username: "",
-    telephony_credential_id: "",
-  });
-  const short = minimum === undefined || user.password.length < minimum;
+  // D25: a team is seats, each on its own computer (Settings, Team calling); this workspace has one rep.
   return (
     <div className="two-column">
-      <section className="card padded">
-        <h2>Team access</h2>
-        {(
-          [
-            "name",
-            "email",
-            "password",
-            "sip_username",
-            "telephony_credential_id",
-          ] as const
-        ).map((k) => (
-          <label key={k}>
-            {
-              {
-                name: "Team member name",
-                email: "Team member email",
-                password: "Initial team password",
-                sip_username: "Per-rep SIP username",
-                telephony_credential_id: "Per-rep credential ID",
-              }[k]
-            }
-            <input
-              type={k === "password" ? "password" : "text"}
-              minLength={k === "password" ? minimum : undefined}
-              value={user[k]}
-              onChange={(e) => setUser({ ...user, [k]: e.target.value })}
-            />
-          </label>
-        ))}
-        <label>
-          Member role
-          <select
-            value={user.role}
-            onChange={(e) => setUser({ ...user, role: e.target.value })}
-          >
-            <option value="rep">Rep</option>
-            <option value="admin">Administrator</option>
-          </select>
-        </label>
-        <button
-          className="secondary"
-          disabled={!user.email || short}
-          onClick={() =>
-            void run(async () => {
-              await api("/v1/admin/users", "POST", user);
-              setUser({ ...user, password: "" });
-              notice("Member created with a scoped seller role.");
-            })
-          }
-        >
-          Create team member
-        </button>
-        {(!user.email || short) && (
-          <p className="fine">
-            Enter an email and an initial password of at least{" "}
-            {minimum ?? "the required"} characters.
-          </p>
-        )}
-      </section>
       <section className="card padded">
         <h2>Restore authorization review</h2>
         <p className="muted small">
