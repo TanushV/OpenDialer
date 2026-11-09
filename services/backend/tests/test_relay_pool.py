@@ -64,8 +64,8 @@ def db(tmp_path_factory):
     sql(f"insert into auth.users values {seats}")
     sql(
         f"insert into public.relay_workspaces(id, label) values ('{SEAT_A}', 'A'), ('{SEAT_B}', 'B'), ('{OWNER}', 'Owner');"
-        f"insert into public.relay_routes values ('conn-a', 'acct', '{SEAT_A}', 'key'), ('conn-b', 'acct', '{SEAT_B}', 'key'),"
-        f" ('conn-pool', 'acct', '{OWNER}', 'key');"
+        f"insert into public.relay_routes values ('1000001', 'acct', '{SEAT_A}', 'key'), ('1000002', 'acct', '{SEAT_B}', 'key'),"
+        f" ('1000003', 'acct', '{OWNER}', 'key');"
         f"insert into public.relay_pool_settings(owner_workspace) values ('{OWNER}');"
     )
     yield sql
@@ -136,7 +136,7 @@ def test_a_seat_cannot_release_another_seats_lease(db):
     assert lease(db, SEAT_B, "+12125550002", ["415"], "theirs") == "", f"{phone} is still leased by seat A"
 
 
-def receive(db, event_id, call_id, frm, to, connection="conn-pool"):
+def receive(db, event_id, call_id, frm, to, connection="1000003"):
     payload = f'{{"direction": "incoming", "from": "{frm}", "to": "{to}", "call_control_id": "{call_id}", "connection_id": "{connection}"}}'
     receipt = (
         f'{{"workspace_id": "{OWNER}", "account_id": "acct", "hash": "{event_id}", "received_at": "2026-11-09T10:00:00Z",'
@@ -162,3 +162,42 @@ def test_clients_cannot_read_the_pool_tables_or_forge_a_seat(db):
         db("select * from public.relay_pool_leases", role="authenticated", seat=SEAT_A)
     with pytest.raises(RuntimeError):
         db(f"select relay_pool_seat('x', '+12125550000', '{SEAT_A}')", role="authenticated", seat=SEAT_A)
+
+
+def test_only_the_owner_sets_up_a_seat_on_its_own_account_and_a_route_is_never_shared(db):
+    hash_ = "a" * 64
+    settings = '\'{"telephony_credential_id": "cred-9", "sip_username": "rep9"}\'::jsonb'
+    with pytest.raises(RuntimeError, match="Only the team owner"):
+        db(
+            f"select relay_invite_seat('Rep', '{hash_}', '123456789', {settings})",
+            role="authenticated",
+            seat=SEAT_A,
+        )
+    with pytest.raises(RuntimeError, match="Route already assigned"):
+        db(
+            f"select relay_invite_seat('Rep', '{hash_}', '1000001', {settings})",
+            role="authenticated",
+            seat=OWNER,
+        )
+    seat = db(
+        f"select relay_invite_seat('Rep 9', '{hash_}', '123456789', {settings})",
+        role="authenticated",
+        seat=OWNER,
+    )
+    route = db(
+        f"select routes->0->>'account_id' || '|' || (settings->>'telnyx_connection_id') from public.relay_invitations where workspace_id = '{seat}'"
+    )
+    assert route == "acct|123456789", "the new seat's route is on the owner's account"
+    db(f"insert into auth.users values ('{seat}')")  # managed-setup creates the sign-in before activation
+    db(f"select relay_activate('{hash_}')", role="service_role")
+    assert db("select workspace_id from public.relay_routes where connection_id = '123456789'") == seat
+
+
+def test_only_the_owner_changes_the_pool(db):
+    with pytest.raises(RuntimeError, match="Only the team owner"):
+        db("select relay_set_pool_number('+13125550000')", role="authenticated", seat=SEAT_A)
+    db("select relay_set_pool_number('+13125550000', 40)", role="authenticated", seat=OWNER)
+    assert (
+        db("select area_code || '|' || daily_cap from public.relay_pool where phone = '+13125550000'")
+        == "312|40"
+    )

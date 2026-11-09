@@ -32,6 +32,7 @@ test("the CRM keys save and check in Settings, and the HubSpot panel names a mis
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   const dnc = page.getByTestId("setup-realvalidito");
   await expect(dnc).toContainText("Do-not-call check on CRM leads");
+  await dnc.getByRole("button", { name: "Add", exact: true }).click();
   await dnc.getByLabel("New RealValidito key").fill("rv-key-test");
   const save = dnc.getByRole("button", { name: "Save and check" });
   await expect(save).toBeDisabled();
@@ -45,6 +46,7 @@ test("the CRM keys save and check in Settings, and the HubSpot panel names a mis
     ["treg", "Treg token"],
   ]) {
     const row = page.getByTestId(`setup-${id}`);
+    await row.getByRole("button", { name: "Add", exact: true }).click();
     await row.getByLabel(`New ${label}`).fill(`${id}-test-value`);
     await row.getByRole("button", { name: "Save and check" }).click();
     await expect(
@@ -64,4 +66,14 @@ test("the CRM keys save and check in Settings, and the HubSpot panel names a mis
   await expect(page.getByTestId("setup-calls_for")).toContainText(
     "Which HubSpot contacts this computer syncs and calls",
   );
+  // R9C.9: the Team panel names what it needs before a seat can be set up.
+  const team = page.getByRole("group", { name: "Team calling" });
+  await team.locator("summary").click();
+  await expect(team).toContainText("Not in use yet");
+  await team.getByLabel("Rep name").fill("Rep One");
+  await team.getByLabel("Rep's Telnyx API key").fill("KEY-test-only-123");
+  await team.getByRole("button", { name: "Create setup file" }).click();
+  await expect(
+    page.getByText("Import the owner's calling setup file first").first(),
+  ).toBeVisible();
 });

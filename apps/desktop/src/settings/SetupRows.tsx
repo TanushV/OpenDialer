@@ -158,6 +158,8 @@ function SetupRow({
 }) {
   const { run } = useWorkspace();
   const [values, setValues] = useState<Record<string, string>>({});
+  // Optional services not set yet show one Add button, so Settings stays one short page.
+  const [adding, setAdding] = useState(false);
   const field = FIELDS[row.id];
   const filled =
     !!field && field.keys.every(([key]) => (values[key] ?? "").trim());
@@ -182,7 +184,10 @@ function SetupRow({
       <Status tone={TONE[row.state]} label={`${row.label} status`}>
         {WORD[row.state]}: {row.detail}
       </Status>
-      {field && (
+      {field && row.state === "optional" && !adding && (
+        <Button onClick={() => setAdding(true)}>Add</Button>
+      )}
+      {field && (row.state !== "optional" || adding) && (
         <form
           className="setup-row-form"
           onSubmit={(event) => {

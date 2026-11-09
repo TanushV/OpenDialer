@@ -211,3 +211,53 @@ create or replace function relay_private.pool_cleanup() returns void language sq
 $$;
 revoke all on function relay_private.pool_cleanup() from public, anon, authenticated;
 select cron.schedule('relay-pool-retention', '23 * * * *', 'select relay_private.pool_cleanup()');
+
+-- Seat setup (R9C.9) from the team owner's own seat, with no operator step and no admin key on any computer. Only the
+-- owner's workspace may invite; the new seat's route must be a connection on the owner's Telnyx account and signing key,
+-- and a connection already routed to another seat is refused. The invitation is redeemed through managed-setup.
+create function relay_private.invite_seat(label text, token_hash text, connection_id text, settings jsonb) returns uuid
+language plpgsql security definer set search_path='' as $$
+declare owner public.relay_routes; seat uuid := gen_random_uuid();
+begin
+ if auth.uid() is null or not exists(select 1 from public.relay_pool_settings where owner_workspace = auth.uid()) then
+  raise exception 'Only the team owner can set up a seat';
+ end if;
+ if length(label) not between 1 and 100 or token_hash !~ '^[0-9a-f]{64}$' or connection_id !~ '^[0-9]{6,40}$' then
+  raise exception 'Invalid request';
+ end if;
+ if exists(select 1 from public.relay_routes where relay_routes.connection_id = invite_seat.connection_id) then
+  raise exception 'Route already assigned';
+ end if;
+ select * into owner from public.relay_routes where workspace_id = auth.uid() limit 1;
+ if not found then raise exception 'The owner has no route'; end if;
+ insert into public.relay_invitations(hash, workspace_id, label, settings, routes)
+  values (token_hash, seat, label,
+   jsonb_build_object('telnyx_connection_id', invite_seat.connection_id, 'telnyx_public_key', owner.public_key,
+    'telephony_credential_id', settings->>'telephony_credential_id', 'sip_username', settings->>'sip_username'),
+   jsonb_build_array(jsonb_build_object('connection_id', invite_seat.connection_id, 'account_id', owner.account_id,
+    'public_key', owner.public_key)));
+ return seat;
+end $$;
+revoke all on function relay_private.invite_seat(text, text, text, jsonb) from public, anon;
+grant execute on function relay_private.invite_seat(text, text, text, jsonb) to authenticated;
+create function public.relay_invite_seat(label text, token_hash text, connection_id text, settings jsonb) returns uuid
+language sql security invoker set search_path='' as $$ select relay_private.invite_seat(label, token_hash, connection_id, settings) $$;
+revoke all on function public.relay_invite_seat(text, text, text, jsonb) from public, anon;
+grant execute on function public.relay_invite_seat(text, text, text, jsonb) to authenticated;
+
+-- The owner adds or pauses a pool number (bought in the Telnyx portal and put on the shared incoming route).
+create function relay_private.set_pool_number(phone text, daily_cap integer, active boolean) returns void
+language plpgsql security definer set search_path='' as $$
+begin
+ if auth.uid() is null or not exists(select 1 from public.relay_pool_settings where owner_workspace = auth.uid()) then
+  raise exception 'Only the team owner can change the pool';
+ end if;
+ insert into public.relay_pool(phone, area_code, daily_cap, active) values (phone, substr(phone, 3, 3), daily_cap, active)
+  on conflict on constraint relay_pool_pkey do update set daily_cap = excluded.daily_cap, active = excluded.active;
+end $$;
+revoke all on function relay_private.set_pool_number(text, integer, boolean) from public, anon;
+grant execute on function relay_private.set_pool_number(text, integer, boolean) to authenticated;
+create function public.relay_set_pool_number(phone text, daily_cap integer default 50, active boolean default true)
+returns void language sql security invoker set search_path='' as $$ select relay_private.set_pool_number(phone, daily_cap, active) $$;
+revoke all on function public.relay_set_pool_number(text, integer, boolean) from public, anon;
+grant execute on function public.relay_set_pool_number(text, integer, boolean) to authenticated;

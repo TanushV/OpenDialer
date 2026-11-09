@@ -32,6 +32,7 @@ import { isAdmin, label, useWorkspace } from "../context";
 import { limits, options, useDefinitions } from "../state/definitions";
 import type { Policy } from "../types";
 import { SetupRows } from "../settings/SetupRows";
+import { Team } from "../settings/Team";
 
 type BudgetData = {
   per_list_usd: number;
@@ -124,6 +125,7 @@ function AdminSettings({
         onTestCall={() => onNavigate("Dialer")}
         reload={settings.load}
       />
+      <Team />
       {!settings.data ? (
         <section className="card padded">
           <p role="status">
