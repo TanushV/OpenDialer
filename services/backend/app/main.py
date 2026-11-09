@@ -713,7 +713,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.get("/v1/calls/{call_id}")
     def get_call(call_id: str, p=Depends(principal)):
         from app.coaching.context import upgrade_state
-        from app.postcall.analysis import suggested_outcome
+        from app.postcall.analysis import suggested_outcome, summary_suggestion
         from app.postcall.rubrics import effective
 
         with db.transaction(False) as s:
@@ -725,14 +725,16 @@ def create_app(settings=None, *, clock=None, carrier=None):
             derived = upgrade_state(state, call_id=call_id, rubric=effective(call.data))
             coach = service.visible_help(s, p, call, state)
             segments = service.transcript_rows(s, p, call_id)
+            summary = service.call_summary(s, p, call_id)
             return {
                 **{k: v for k, v in doc(call).items() if k != "recording_url"},
+                "aftercall": summary,
                 "transcript": segments,
                 "raw_evidence_status": service.raw_status(call, segments),
                 "coach": coach,
                 "conversation_state": state,
                 "rundown_status": derived["finalization"]["status"],
-                "suggested_outcome": suggested_outcome(derived),
+                "suggested_outcome": summary_suggestion(summary) or suggested_outcome(derived),
             }
 
     @app.post("/v1/calls/{call_id}/stay")

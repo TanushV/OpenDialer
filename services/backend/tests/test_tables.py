@@ -46,6 +46,7 @@ ALLOWED = {
     "reviews",
     "scorecards",
     "script_memories",
+    "call_summaries",
     "script_versions",
     "sellers",
     "sessions",

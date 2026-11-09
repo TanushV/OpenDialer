@@ -77,7 +77,9 @@ def relogin(ws):
 
 
 def refresh_learning(ws):
-    run_jobs(ws, rounds=2)  # Finish post-call work first, as the background lanes would.
+    run_jobs(
+        ws, rounds=4
+    )  # Finish post-call work first (finalize and the after-call summary), as the lanes would.
     post(ws, "/v1/admin/optimization/refresh")
     run_jobs(ws, rounds=4)
     return get(ws, "/v1/optimization/script")

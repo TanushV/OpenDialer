@@ -498,7 +498,9 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                     else:
                         raise UnknownJobKind(f"No {lane} handler for job kind {kind!r}")
                 elif lane == "postcall":
-                    if kind == "conversation_review":
+                    if kind == "aftercall_summary":
+                        await self.summarize_call(p, job["payload"]["call_id"])
+                    elif kind == "conversation_review":
                         await self.review_conversation(p, job["payload"]["call_id"])
                     elif kind in {FINALIZE_KIND, None}:
                         # None: persisted legacy jobs and producers not yet on enqueue_finalize.
@@ -832,7 +834,86 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
         """
         from app.postcall.finalize import enqueue
 
+        self.enqueue_summary(s, p, call)
         return enqueue(self, s, p, call, reason)
+
+    def enqueue_summary(self, s, p, call):
+        """R10.2: one after-call summary per transcript version, queued when the call ends or its transcript changes."""
+        if call.data.get("state") not in {"ENDED", "FINALIZED", "ENDING"}:
+            return None
+        version = call.data.get("transcript_version", 0)
+        return self.jobs.enqueue_in(
+            s,
+            "postcall",
+            {
+                "kind": "aftercall_summary",
+                "call_id": call.id,
+                "seller_id": p["seller_id"],
+                "user_id": p.get("user_id") or call.data["rep_id"],
+            },
+            f"aftercall-summary:{call.id}:{version}",
+            tenant_id=p["tenant_id"],
+        )
+
+    def summary_model(self, p):
+        """The after-call model: DeepSeek V4.1 Flash on OpenRouter's no-retention route; simulated in simulation."""
+        key = self.configs.read(p["tenant_id"]).get("openrouter_api_key")
+        if not key:
+            return None
+        if self.settings.simulation:
+            from app.providers.simulated import SimulatedSummaryModel
+
+            return SimulatedSummaryModel()
+        from app.providers.chat_agent import BASE_URL, MODEL, ROUTING
+        from app.providers.inference import InferenceClient
+
+        return InferenceClient("litellm", key, MODEL, base_url=BASE_URL, extra_body=ROUTING, timeout=60)
+
+    async def summarize_call(self, p, call_id):
+        from app.aftercall.summary import summarize
+
+        with self.db.transaction(False) as s:
+            call = self.required(s, "call_attempts", call_id, p)
+            lead = self.required(s, "leads", call.data["lead_id"], p)
+            segments = self.transcript_rows(s, p, call_id)
+            version = call.data.get("transcript_version", 0)
+            goal = self.optimization_config(s, p).get("conversion_goal")
+        model = self.summary_model(p)
+        if model is None:
+            result = {
+                "status": "unavailable",
+                "error": "Add an OpenRouter key in Settings for after-call summaries",
+            }
+        else:
+            result = await summarize(model, segments, lead.data, goal)
+        with self.db.transaction() as s:
+            call = self.required(s, "call_attempts", call_id, p)
+            if call.data.get("transcript_version", 0) != version:
+                return  # A newer transcript queued its own summary.
+            # Its own record, not the call row: the summary never races an edit of the call.
+            values = {
+                **result,
+                "call_id": call_id,
+                "transcript_version": version,
+                "at": self.clock().isoformat(),
+            }
+            record = self._by_key(s, p, "call_summaries", call_id)
+            if record:
+                update(record, **values)
+            else:
+                put(
+                    s, "call_summaries", p["tenant_id"], p["seller_id"], values, key=call_id, now=self.clock()
+                )
+            emit(s, p["tenant_id"], "call.updated", call, self.clock())
+            if result.get("summary"):
+                from app import crm
+
+                crm.enqueue_summary(self, s, p, call)
+
+    def call_summary(self, s, p, call_id):
+        """The after-call summary record's data, or None before it is written."""
+        record = self._by_key(s, p, "call_summaries", call_id)
+        return record.data if record else None
 
     def _carry_finalization(self, s, p, call, state, before):
         """A review edit of an owned or completed finalization carries its fingerprints."""

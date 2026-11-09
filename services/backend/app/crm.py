@@ -360,6 +360,8 @@ async def run_job(service, p, payload):
         )
     if kind == "crm_contact":
         return await contact_job(service, p, payload["lead_id"])
+    if kind == "crm_summary":
+        return await summary_job(service, p, payload["call_id"])
     raise ValueError(f"No crm handler for {kind!r}")
 
 
@@ -577,6 +579,10 @@ async def log_job(service, p, call_id):
     await asyncio.to_thread(_mark_attempt, service, p, call_id)
     hubspot_id = await crm_log.log_call(hs, record, mapped, uncertain=uncertain)
     await asyncio.to_thread(_mark_logged, service, p, call_id, hubspot_id)
+    with service.db.transaction(False) as s:
+        summary = (service.call_summary(s, p, call_id) or {}).get("summary")
+    if summary:
+        await crm_log.add_summary(hs, hubspot_id, summary)
     if outcome in {"wrong_party", "invalid_endpoint"}:
         await hs.update_contact(lead_data["external_id"], {"phone_status": "wrong_number"})
     if outcome == "opt_out":
@@ -584,6 +590,32 @@ async def log_job(service, p, call_id):
             lead_data["external_id"], {"opendialer_opt_out": "true", "opendialer_opt_out_reason": "opt_out"}
         )
     return {"hubspot_call_id": hubspot_id}
+
+
+async def summary_job(service, p, call_id):
+    """R10.2: a summary that finished after the call was logged is added to the HubSpot call record."""
+    from app.aftercall import crm_log
+
+    with service.db.transaction(False) as s:
+        call = service.required(s, "call_attempts", call_id, p)
+        hubspot_id = call.data.get("crm_logged")
+        summary = (service.call_summary(s, p, call_id) or {}).get("summary")
+    if not hubspot_id or not summary:
+        return {"skipped": True}
+    await crm_log.add_summary(hubspot(service, p), hubspot_id, summary)
+    return {"hubspot_call_id": hubspot_id}
+
+
+def enqueue_summary(service, s, p, call):
+    if call.data.get("crm_logged"):
+        service.jobs.enqueue_in(
+            s,
+            LANE,
+            {"kind": "crm_summary", "call_id": call.id, **_who(p)},
+            f"crm-summary:{call.id}:{call.data.get('transcript_version', 0)}",
+            tenant_id=p["tenant_id"],
+            max_attempts=6,
+        )
 
 
 def _mark_attempt(service, p, call_id):

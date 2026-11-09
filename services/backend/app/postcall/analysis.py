@@ -138,6 +138,20 @@ def learning_observations(observations, lineage=None):
     ]
 
 
+def summary_suggestion(summary):
+    """R10.2: the one-request after-call summary's suggestion, in the shape the Dialer reads; None if it has none."""
+    found = (summary or {}).get("suggested_outcome")
+    if not found:
+        return None
+    role = {
+        "wrong_party": "wrong_party",
+        "gatekeeper": "gatekeeper",
+        "voicemail": "unknown",
+        "no_answer": "unknown",
+    }
+    return {**found, "contact_role": role.get(found["code"], "right_party"), "source": "summary"}
+
+
 def suggested_outcome(derived):
     """A reviewed interpretation for a rep to accept; never an observed business label."""
     items = [

@@ -101,3 +101,26 @@ class SimulatedCarrier:
             (r for r in self.purchases if isinstance(r, dict) and r.get("customer_reference") == reference),
             None,
         )
+
+
+class SimulatedSummaryModel:
+    """Simulation's after-call model: a plain summary of the last prospect line; no network."""
+
+    async def complete(self, instructions, context, schema):
+        lines = context["transcript"].splitlines()
+        said = next((line.split(": ", 1)[1] for line in reversed(lines) if line.startswith("Prospect: ")), "")
+        lowered = said.lower()
+        outcome = (
+            "meeting_booked"
+            if "works" in lowered or "book" in lowered
+            else "not_interested"
+            if "not interested" in lowered or "no budget" in lowered
+            else "unclear"
+        )
+        data = {
+            "summary": f"The prospect said: {said}" if said else "The rep spoke; the prospect said nothing.",
+            "suggested_outcome": outcome,
+            "outcome_reason": said[:200],
+            "next_step": "",
+        }
+        return type("Result", (), {"data": data})()

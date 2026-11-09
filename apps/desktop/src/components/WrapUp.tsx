@@ -148,6 +148,17 @@ export function WrapUp({
             : "Choose an outcome when the available evidence cannot confirm it automatically."}
         </p>
       </div>
+      {call.aftercall?.status === "ready" && (
+        <div className="aftercall-summary" aria-label="Call summary">
+          <p>{call.aftercall.summary}</p>
+          {call.aftercall.next_step && (
+            <p className="muted small">Next: {call.aftercall.next_step}</p>
+          )}
+        </div>
+      )}
+      {call.aftercall?.status === "unavailable" && (
+        <p className="muted small">{call.aftercall.error}</p>
+      )}
       {call.suggested_outcome && (
         <div>
           <p>

@@ -185,6 +185,7 @@ class InferenceClient:
                 },
                 stream=False,
                 max_tokens=2000,
+                **self.extra_body,
             )
         else:
             path = "/responses"

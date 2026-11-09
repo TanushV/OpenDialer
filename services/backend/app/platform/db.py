@@ -135,6 +135,7 @@ TABLES = [
     "conversion_events",
     "coaching_feedback",
     "script_memories",
+    "call_summaries",
 ]
 MODELS = {}
 for _name in TABLES:

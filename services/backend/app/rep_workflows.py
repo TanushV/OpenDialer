@@ -1281,7 +1281,7 @@ class RepWorkflows:
         update(record, **values)
 
     def _disposition_result(self, s, p, call, lead, receipt, task, callback_review, tasks):
-        from app.postcall.analysis import suggested_outcome
+        from app.postcall.analysis import suggested_outcome, summary_suggestion
 
         if task is None and callback_review is None:
             task = next(
@@ -1303,5 +1303,6 @@ class RepWorkflows:
             "rundown_status": (
                 memory.data.get("finalization", {}).get("status", "pending") if memory else "pending"
             ),
-            "suggested_outcome": suggested_outcome(memory.data if memory else {}),
+            "suggested_outcome": summary_suggestion(call.data)
+            or suggested_outcome(memory.data if memory else {}),
         }

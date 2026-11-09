@@ -168,6 +168,13 @@ export interface Coach {
   evidence_segment_ids: string[];
 }
 export interface Call {
+  /** R10.2: the one-request after-call summary, once written. */
+  aftercall?: {
+    status: "ready" | "failed" | "no_speech" | "unavailable";
+    summary?: string | null;
+    next_step?: string | null;
+    error?: string;
+  } | null;
   /** Carrier hang-up side: "callee" is the prospect, "caller" is this app's side. */
   provider_hangup_source?: string | null;
   connected_seconds?: number | null;
