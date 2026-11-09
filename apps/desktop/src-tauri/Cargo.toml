@@ -24,6 +24,8 @@ url = "2"
 # Already locked through tauri-plugin-shell; used only to terminate the owned SSH process group.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Power"] }
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 tokio = { version = "1", features = ["macros", "rt", "time"] }

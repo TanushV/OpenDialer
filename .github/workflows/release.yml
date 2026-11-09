@@ -18,8 +18,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
   desktop:
     needs: verified
-    # Mac only (D2): the app ships for this Mac and no other platform.
-    runs-on: macos-15
+    # Mac and Windows (D2): every release carries both, from the same verified commit.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       # The uv installer download has returned 504s; PyPI is the fallback for the same pinned version.
@@ -48,16 +52,37 @@ jobs:
       - name: Freeze the authority and trainer sidecars
         run: uv run python scripts/build_sidecar.py
       - name: Finish and verify scoped macOS signing
+        if: runner.os == 'macOS'
         run: uv run python scripts/package_macos.py --build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # R9D.4: Windows installers carry the updater signature. Authenticode signing (Azure Trusted Signing or an OV
+      # certificate) is added through WINDOWS_SIGN_COMMAND once the owner chooses the route; until then the build says so.
+      - name: Build the Windows installers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ($env:WINDOWS_SIGN_COMMAND) {
+            $config = @{ bundle = @{ windows = @{ signCommand = $env:WINDOWS_SIGN_COMMAND } } } | ConvertTo-Json -Depth 5 -Compress
+            npm run tauri build -- --bundles nsis,msi --config $config
+          } else {
+            Write-Output "::warning::Windows installers are not Authenticode-signed yet; SmartScreen will warn until R9D.4 is set up."
+            npm run tauri build -- --bundles nsis,msi
+          }
+        working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          WINDOWS_SIGN_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND }}
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-macOS
+          name: desktop-${{ runner.os }}
           path: |
             apps/desktop/src-tauri/target/release/bundle/macos/*.tar.gz*
             apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe*
+            apps/desktop/src-tauri/target/release/bundle/msi/*.msi*
   draft:
     needs: desktop
     runs-on: ubuntu-24.04

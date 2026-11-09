@@ -79,6 +79,36 @@ jobs:
         with:
           name: browser-mac-failure-traces
           path: apps/desktop/test-results
+  browser-chromium:
+    # R9D.3: Windows runs the app in WebView2, which is Chromium; the same suite and layout audit run there too.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # The uv installer download has returned 504s; PyPI is the fallback for the same pinned version.
+      - uses: astral-sh/setup-uv@v6
+        id: uv
+        continue-on-error: true
+        with:
+          version: '0.10.12'
+      - if: steps.uv.outcome == 'failure'
+        run: pipx install uv==0.10.12
+      - run: uv sync --frozen --python 3.12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci && npx playwright install --with-deps chromium
+        working-directory: apps/desktop
+      - run: python3 scripts/check.py run browser
+        env:
+          PW_WORKERS: '2'
+          PW_BROWSER: chromium
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-chromium-failure-traces
+          path: apps/desktop/test-results
   desktop-shell:
     runs-on: macos-15
     steps:
@@ -105,3 +135,31 @@ jobs:
         env:
           OPENDIALER_TEST_CODEX_NATIVE: '1'
       - run: python3 scripts/check.py run rust
+  windows:
+    # R9D.1: the same backend, frozen sidecars and desktop shell on Windows, which a rep's seat can run (D2).
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      # The uv installer download has returned 504s; PyPI is the fallback for the same pinned version.
+      - uses: astral-sh/setup-uv@v6
+        id: uv
+        continue-on-error: true
+        with:
+          version: '0.10.12'
+      - if: steps.uv.outcome == 'failure'
+        run: pipx install uv==0.10.12
+      - run: uv sync --frozen --python 3.12
+      - run: uv run python scripts/check.py run backend
+        env:
+          PYTHONUTF8: '1'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci && npm run build
+        working-directory: apps/desktop
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: uv run python scripts/build_sidecar.py
+      - run: uv run python scripts/check.py run sidecars rust
+

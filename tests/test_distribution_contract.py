@@ -39,7 +39,7 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
 
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
-    for name in ("OpenDialer.app.tar.gz", "OpenDialer_1.0.2_aarch64.dmg"):
+    for name in ("OpenDialer.app.tar.gz", "OpenDialer_1.0.2_aarch64.dmg", "OpenDialer_1.0.2_x64-setup.exe"):
         (artifacts / name).write_bytes(b"test artifact")
         (artifacts / (name + ".sig")).write_text("test signature")
     output = tmp_path / "output"
@@ -54,7 +54,9 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
         ],
         check=True,
     )
-    notes = json.loads((output / "latest.json").read_text())["notes"]
+    manifest = json.loads((output / "latest.json").read_text())
+    assert {"darwin-aarch64", "windows-x86_64", "windows-x86_64-nsis"} <= set(manifest["platforms"])
+    notes = manifest["notes"]
     # The updater shows this release's headlines, not an earlier release's.
     release_notes = (ROOT / "docs/RELEASE_NOTES.md").read_text()
     version = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())["version"]
@@ -69,6 +71,30 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
     assert "Your workspace is preserved; update in place" not in notes
     assert "macOS may ask for microphone access again" in notes
     assert "re-import" in notes
+
+
+def test_a_release_needs_both_systems(tmp_path):
+    import subprocess
+    import sys
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    for name in ("OpenDialer.app.tar.gz", "OpenDialer_1.0.2_aarch64.dmg"):
+        (artifacts / name).write_bytes(b"test artifact")
+        (artifacts / (name + ".sig")).write_text("test signature")
+    done = subprocess.run(  # noqa: S603 - fixed repository script and disposable test paths
+        [
+            sys.executable,
+            str(ROOT / "scripts/release_manifest.py"),
+            "--artifacts",
+            str(artifacts),
+            "--output",
+            str(tmp_path / "o"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode and "Windows" in done.stderr
 
 
 def test_signed_installer_updates_do_not_ship_unused_zip_extraction():

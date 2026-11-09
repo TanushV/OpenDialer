@@ -178,8 +178,9 @@ def sidecars():
     host = ["rustc", "--print", "host-tuple"]  # toolchain on PATH, as in CI
     triple = subprocess.run(host, capture_output=True, text=True, check=True)  # noqa: S603
     binaries = TAURI / "binaries"
-    backend = binaries / f"opendialer-backend-{triple.stdout.strip()}"
-    trainer = binaries / f"opendialer-trainer-{triple.stdout.strip()}"
+    suffix = ".exe" if os.name == "nt" else ""  # R9D.1: the Windows sidecars are .exe files.
+    backend = binaries / f"opendialer-backend-{triple.stdout.strip()}{suffix}"
+    trainer = binaries / f"opendialer-trainer-{triple.stdout.strip()}{suffix}"
     subprocess.run(  # noqa: S603 - the sidecar this tier just built
         [str(trainer), "--self-check"], check=True, stdout=subprocess.DEVNULL, timeout=300
     )

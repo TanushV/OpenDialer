@@ -326,35 +326,106 @@ async fn drain_backend(
     .await;
 }
 
-/// Holds `caffeinate` while the rep is Ready, so the Mac does not sleep mid-session (R4.11, G8).
+/// Keeps the computer awake while the rep is Ready, so it does not sleep mid-session (R4.11, R9D.2, G8).
 #[derive(Default)]
-struct KeepAwake(Mutex<Option<std::process::Child>>);
+struct KeepAwake(Mutex<Option<awake::Hold>>);
 
-/// `caffeinate` keeps the system and display awake and exits by itself if this app does.
-fn keep_awake_arguments(pid: u32) -> Vec<String> {
-    vec!["-d".into(), "-i".into(), "-w".into(), pid.to_string()]
+/// macOS: `caffeinate` keeps the system and display awake and exits by itself if this app does.
+#[cfg(target_os = "macos")]
+mod awake {
+    pub fn arguments(pid: u32) -> Vec<String> {
+        vec!["-d".into(), "-i".into(), "-w".into(), pid.to_string()]
+    }
+
+    pub struct Hold(std::process::Child);
+
+    impl Hold {
+        pub fn start() -> Result<Self, String> {
+            std::process::Command::new("/usr/bin/caffeinate")
+                .args(arguments(std::process::id()))
+                .spawn()
+                .map(Hold)
+                .map_err(|_| "Cannot keep this Mac awake".to_string())
+        }
+        pub fn alive(&mut self) -> bool {
+            matches!(self.0.try_wait(), Ok(None))
+        }
+        pub fn stop(mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
+/// Windows: one thread holds `SetThreadExecutionState` for the system and display until it is told to stop; the
+/// request ends with that thread, and with the app.
+#[cfg(windows)]
+mod awake {
+    use std::sync::mpsc;
+    use windows_sys::Win32::System::Power::{
+        SetThreadExecutionState, ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
+    };
+
+    pub const AWAKE: u32 = ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED;
+
+    pub struct Hold {
+        stop: mpsc::Sender<()>,
+        thread: std::thread::JoinHandle<()>,
+    }
+
+    impl Hold {
+        pub fn start() -> Result<Self, String> {
+            let (stop, wait) = mpsc::channel::<()>();
+            let (ready, started) = mpsc::channel::<bool>();
+            let thread = std::thread::spawn(move || {
+                // SAFETY: a plain Win32 call with documented flag values; it only affects this thread's request.
+                let held = unsafe { SetThreadExecutionState(AWAKE) } != 0;
+                let _ = ready.send(held);
+                let _ = wait.recv();
+                unsafe { SetThreadExecutionState(ES_CONTINUOUS) };
+            });
+            match started.recv() {
+                Ok(true) => Ok(Hold { stop, thread }),
+                _ => Err("Cannot keep this PC awake".to_string()),
+            }
+        }
+        pub fn alive(&mut self) -> bool {
+            !self.thread.is_finished()
+        }
+        pub fn stop(self) {
+            let _ = self.stop.send(());
+            let _ = self.thread.join();
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+mod awake {
+    pub struct Hold;
+    impl Hold {
+        pub fn start() -> Result<Self, String> {
+            Err("Keep-awake is not supported on this system".to_string())
+        }
+        pub fn alive(&mut self) -> bool {
+            false
+        }
+        pub fn stop(self) {}
+    }
 }
 
 #[tauri::command]
 fn keep_awake(state: State<'_, KeepAwake>, on: bool) -> Result<bool, String> {
     let mut held = state.0.lock().map_err(|_| "Keep-awake state unavailable")?;
-    if let Some(child) = held.as_mut() {
-        if !matches!(child.try_wait(), Ok(None)) {
+    if let Some(hold) = held.as_mut() {
+        if !hold.alive() {
             *held = None; // It ended on its own; start a new one if still wanted.
         }
     }
     match (on, held.is_some()) {
-        (true, false) => {
-            let child = std::process::Command::new("/usr/bin/caffeinate")
-                .args(keep_awake_arguments(std::process::id()))
-                .spawn()
-                .map_err(|_| "Cannot keep this Mac awake")?;
-            *held = Some(child);
-        }
+        (true, false) => *held = Some(awake::Hold::start()?),
         (false, true) => {
-            if let Some(mut child) = held.take() {
-                let _ = child.kill();
-                let _ = child.wait();
+            if let Some(hold) = held.take() {
+                hold.stop();
             }
         }
         _ => {}
@@ -402,6 +473,37 @@ fn stop_owned_runtimes(backend: &LocalBackend) {
     }
     if let Ok(Some(owned)) = backend.take() {
         let _ = owned.child.kill();
+        #[cfg(windows)]
+        wait_for_backend_release(std::time::Duration::from_secs(10));
+    }
+}
+
+/// The updater's installer replaces opendialer-backend.exe and opendialer-trainer.exe right after cleanup. A child
+/// still terminating keeps its image mapped, so wait until each executable can be opened exclusively, within one
+/// shared limit (the Windows update lesson from 0.3.3).
+#[cfg(windows)]
+fn wait_for_backend_release(limit: std::time::Duration) {
+    use std::os::windows::fs::OpenOptionsExt;
+    let Some(directory) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
+    else {
+        return;
+    };
+    let deadline = std::time::Instant::now() + limit;
+    for name in ["opendialer-backend.exe", "opendialer-trainer.exe"] {
+        let path = directory.join(name);
+        while path.is_file() && std::time::Instant::now() < deadline {
+            match std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .share_mode(0)
+                .open(&path)
+            {
+                Ok(_) => break,
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(100)),
+            }
+        }
     }
 }
 
@@ -461,7 +563,23 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn keep_awake_holds_system_and_display_and_ends_with_the_app() {
-        assert_eq!(keep_awake_arguments(42), ["-d", "-i", "-w", "42"]);
+        assert_eq!(awake::arguments(42), ["-d", "-i", "-w", "42"]);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn keep_awake_holds_system_and_display_until_released() {
+        use windows_sys::Win32::System::Power::{
+            ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED,
+        };
+        assert_eq!(
+            awake::AWAKE,
+            ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+        );
+        let mut hold = awake::Hold::start().expect("SetThreadExecutionState");
+        assert!(hold.alive());
+        hold.stop();
     }
 }
