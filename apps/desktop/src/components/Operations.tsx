@@ -87,15 +87,6 @@ export function LeadsPage({
           </p>
         </div>
       </div>
-      {admin && (
-        <ListsPage
-          embedded
-          onChanged={async () => {
-            await history.load(false, query, leadView);
-            await lists.reload();
-          }}
-        />
-      )}
       <section className="card table-card" aria-label="Leads">
         <div className="leads-toolbar">
           <h3>{history.totalLabel ?? w.leads.length} leads</h3>
@@ -301,6 +292,16 @@ export function LeadsPage({
           label={history.query ? "Continue lead search" : "Load more leads"}
         />
       </section>
+      {/* Below the leads: it loads after them, so it never pushes the leads toolbar down (R10.10). */}
+      {admin && (
+        <ListsPage
+          embedded
+          onChanged={async () => {
+            await history.load(false, query, leadView);
+            await lists.reload();
+          }}
+        />
+      )}
       {admin && (
         <HubSpotLists
           onSynced={async () => {

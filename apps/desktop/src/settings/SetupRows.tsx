@@ -182,7 +182,9 @@ function SetupRow({
         </span>
       </div>
       <Status tone={TONE[row.state]} label={`${row.label} status`}>
-        {WORD[row.state]}: {row.detail}
+        {row.detail === WORD[row.state]
+          ? row.detail
+          : `${WORD[row.state]}: ${row.detail}`}
       </Status>
       {field && row.state === "optional" && !adding && (
         <Button onClick={() => setAdding(true)}>Add</Button>

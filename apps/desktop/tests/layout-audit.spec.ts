@@ -91,3 +91,54 @@ for (const size of SIZES) {
         });
   });
 }
+
+/** R10.10: every page, not only the Dialer: its main control is uncovered and still, and nothing scrolls sideways. */
+const PAGES: [string, string][] = [
+  ["Leads", "Search lead history"],
+  ["Review", "Review"],
+  ["Numbers", "Check my Telnyx numbers"],
+  ["Script", "Save script"],
+  ["Settings", "Save and check"],
+];
+
+for (const size of SIZES) {
+  test(`every page holds its layout at ${size.width}x${size.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(size);
+    await page.goto("/");
+    await expect(page.getByText("Opening your workspace…")).toBeHidden();
+    const sample = page.getByRole("button", {
+      name: "Try a simulated workspace",
+    });
+    if (await sample.isVisible()) await sample.click();
+    const findings: Finding[] = [];
+    for (const [title, control] of PAGES) {
+      await page
+        .getByRole("button", { name: title, exact: true })
+        .first()
+        .click();
+      const target =
+        control === title
+          ? page.getByRole("heading", { name: title, exact: true })
+          : page.getByRole("button", { name: control, exact: true }).first();
+      await expect(target).toBeVisible();
+      await target.scrollIntoViewIfNeeded();
+      const cover = await coveredBy(target);
+      if (cover)
+        findings.push({ phase: title, problem: `${cover} covers ${control}` });
+      const moved = await drift(target);
+      if (moved > DRIFT_LIMIT)
+        findings.push({
+          phase: title,
+          problem: `${control} moved ${Math.round(moved)}px`,
+        });
+      try {
+        await noSidewaysScroll(page);
+      } catch {
+        findings.push({ phase: title, problem: "page scrolls sideways" });
+      }
+    }
+    expect(findings).toEqual([]);
+  });
+}
