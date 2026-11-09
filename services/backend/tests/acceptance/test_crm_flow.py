@@ -266,3 +266,32 @@ def test_a_list_not_synced_for_a_day_stops_dialing_its_leads_and_start_calling_s
     ready(ws)  # Start calling: the list syncs first.
     run_jobs(ws, rounds=3)
     assert reserve(ws, list_names=["HubSpot list"]).status_code == 200
+
+
+def test_checking_the_hubspot_key_creates_the_apps_fields_once(workspace, monkeypatch):
+    ws = workspace
+    service = ws["client"].app.state.service
+    made = []
+
+    def respond(request):
+        if request.url.path == "/crm/v3/owners":
+            return httpx.Response(200, json={"results": []})
+        if request.method == "GET":
+            return httpx.Response(404)
+        made.append(json.loads(request.content)["name"])
+        return httpx.Response(201, json={})
+
+    setup(ws, monkeypatch)
+    monkeypatch.setattr(
+        service, "http", httpx.AsyncClient(transport=httpx.MockTransport(respond)), raising=False
+    )
+    monkeypatch.setattr(service.settings, "simulation", False)
+    rows = post(ws, "/v1/settings/rows/hubspot/check")
+    row = next(r for r in rows["rows"] if r["id"] == "hubspot")
+    assert row["state"] == "ok" and "created 4 fields" in row["detail"]
+    assert set(made) == {
+        "phone_status",
+        "opendialer_opt_out",
+        "opendialer_opt_out_reason",
+        "opendialer_call_id",
+    }

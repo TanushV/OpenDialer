@@ -297,7 +297,16 @@ class Dialer(
         elif row_id == "hubspot":
             from app.providers.hubspot import HubSpot
 
-            ok, detail = await HubSpot(conf["hubspot_service_key"], http=http).check()
+            client = HubSpot(conf["hubspot_service_key"], http=http)
+            ok, detail = await client.check()
+            if ok:
+                from app.providers.hubspot import HubSpotError
+
+                try:
+                    made = await client.ensure_properties()  # R9B.10: once, at setup.
+                    detail = "Connected" + (f"; created {len(made)} fields" if made else "")
+                except HubSpotError as exc:
+                    ok, detail = False, f"Connected, but the app's fields could not be created ({exc})"
         elif row_id == "treg":
             from app.providers.treg import Treg
 

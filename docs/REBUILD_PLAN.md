@@ -1269,33 +1269,50 @@ Done when: the synthetic test passes. Real lift stays an open gate until enough 
 
 Goal: criteria are enforced in code, and research keeps working if ChatGPT is unavailable.
 
-- [ ] R9.1 Seed `# Triggers` from the script's `# Before you dial`; the owner confirms windows and strengths.
-- [ ] R9.2 Failing tests: out-of-window, unlisted and unquoted triggers are rejected; a `row_only` signal is capped at C; a
+- [x] R9.1 Seed `# Triggers` from the script's `# Before you dial`; the owner confirms windows and strengths.
+      Done November 8 as an editor button that adds the default `# Triggers` list; the owner still confirms windows and strengths.
+- [x] R9.2 Failing tests: out-of-window, unlisted and unquoted triggers are rejected; a `row_only` signal is capped at C; a
       `page` signal without a quote is rejected; one record through CSV and through HubSpot gives the same Lead; signals with
       mismatched counts are never paired by position; a 300-property record keeps its mapped signal columns; bookkeeping
       columns never reach a model; a `DEAD` number is not dialable.
-- [ ] R9.3 One intake path and column map, with the owner's rows as the test case: delimiter per column, mapping before size
+      Done November 8 (`test_intake.py`, `test_trigger_criteria.py`, `acceptance/test_lead_intake.py`).
+- [x] R9.3 One intake path and column map, with the owner's rows as the test case: delimiter per column, mapping before size
       limits.
-- [ ] R9.4 `# Triggers` section in the parser and script editor.
-- [ ] R9.5 Fixed lead record with code checks.
-- [ ] R9.6 Agent instructions: row signals first; then search; decide; write.
-- [ ] R9.7 Review separates facts from the labeled bridge.
-- [ ] R9.8 Show trigger, strength and evidence in the Dialer and Leads, including the "from the list, unverified" label.
-- [ ] R9.9 Feed trigger fields to StatML and to first-call order.
-- [ ] R9.10 `providers/chat_agent.py` from the `InferenceClient` chat loop, with `web_search` and `read_page`.
-- [ ] R9.11 Add `ddgs` and confirm it works in the signed sidecar, with an import check in CI.
-- [ ] R9.12 Fallback on `PlanLimit`, login failure or repeated timeout; store the route on each record.
-- [ ] R9.13 Force a ChatGPT failure and confirm identical output shape.
+      Done November 8: `leads/intake.py`; import shows the guessed map for correction; earlier leads get the mapped fields once at startup.
+- [x] R9.4 `# Triggers` section in the parser and script editor.
+      Done November 8: the parser reads `# Triggers` as rules, never as spoken text, with line-numbered errors.
+- [x] R9.5 Fixed lead record with code checks.
+      Done November 8: `prep/criteria.py`; `finish_research` is refused until the trigger passes.
+- [x] R9.6 Agent instructions: row signals first; then search; decide; write.
+      Done November 8.
+- [x] R9.7 Review separates facts from the labeled bridge.
+      Done November 8: a field marked inference is rejected only when contradicted, and then only the bridge is dropped.
+- [x] R9.8 Show trigger, strength and evidence in the Dialer and Leads, including the "from the list, unverified" label.
+      Done November 8: a Why now block in the Dialer and a line on Leads.
+- [x] R9.9 Feed trigger fields to StatML and to first-call order.
+      Done November 8: trigger fields were already StatML features; trigger strength breaks ties between equal first calls.
+- [x] R9.10 `providers/chat_agent.py` from the `InferenceClient` chat loop, with `web_search` and `read_page`.
+      Done November 8: `providers/chat_agent.py` and `providers/ddgs.py`.
+- [x] R9.11 Add `ddgs` and confirm it works in the signed sidecar, with an import check in CI.
+      Done November 8: `opendialer-backend self-check` loads it in the frozen sidecar, run by `check.py sidecars`.
+- [x] R9.12 Fallback on `PlanLimit`, login failure or repeated timeout; store the route on each record.
+      Done November 8: the same thread continues on the fallback, which has its own usage key and budget reservation.
+- [x] R9.13 Force a ChatGPT failure and confirm identical output shape.
+      Done November 8 (`test_prep_threads.py`).
 - [ ] R9.14 Re-prepare 20 real leads on each route; the owner judges quality; measure cost, coverage and drop rate.
 - [ ] R9.15 After the owner's OK, re-prepare active leads.
-- [ ] R9.16 Import reads a mapped live-status column; `DEAD` is not dialed and the lead says why.
-- [ ] R9.17 Keep number source per lead; feed it to StatML and the learning card.
+- [x] R9.16 Import reads a mapped live-status column; `DEAD` is not dialed and the lead says why.
+      Done November 8.
+- [x] R9.17 Keep number source per lead; feed it to StatML and the learning card.
+      Done November 8: mapped profile fields and number source feed the features.
 - [x] R9.18 Run T4 and T5 and record the results in section 9A. Done November 8 (section 9A).
 - [ ] R9.19 Run T1 after the owner OKs using the saved Telnyx key; run T2 only if T1 is useful and the owner approves.
 - [x] R9.20 Record the Treg testing result in section 9A and settle D18.
-- [ ] R9.21 Failing test: a CSV import makes no Treg, Trestle or RealValidito request, and its leads show "Not checked (CSV)".
-- [ ] R9.22 Number status and its reason show in Leads and the Dialer; auto-dial skips Conflict, Bad and No valid number; the rep
+- [x] R9.21 Failing test: a CSV import makes no Treg, Trestle or RealValidito request, and its leads show "Not checked (CSV)".
+      Done November 8.
+- [x] R9.22 Number status and its reason show in Leads and the Dialer; auto-dial skips Conflict, Bad and No valid number; the rep
       can dial a Conflict by hand. The number-check work itself is in Phase 9B, because it runs only on CRM leads.
+      Done November 8: holds are named on Leads and in the Dialer; dialing a lead by hand overrides only Conflict.
 - [x] R9.25 The learning card shows wrong-party rate by number status as well as number source (T3). Done November 8;
       `number_status` is also a learning feature.
 
@@ -1310,40 +1327,54 @@ Tests first:
 - [ ] R9B.1 Capture recorded HubSpot responses from the owner's account, with the test contact only: list members, contacts,
       companies, dispositions, call create, errors and rate limits. These are test fixtures; the product has no simulated
       HubSpot.
-- [ ] R9B.2 Failing sync tests: paging; one contact appears once; syncing again changes nothing; HubSpot edits update the row
+- [x] R9B.2 Failing sync tests: paging; one contact appears once; syncing again changes nothing; HubSpot edits update the row
       without resetting attempts; a removed contact stops being dialed and keeps its history; no number is not dialable; an
       invalid phone is reported.
-- [ ] R9B.3 Failing opt-out tests: a sync can add a suppression and never remove one; a local opt-out writes back.
-- [ ] R9B.4 Failing logging tests: every outcome maps, or setup says which does not; a retry after an uncertain write leaves
+      Done November 8 over answers shaped from HubSpot's docs (`test_hubspot.py`, `acceptance/test_crm_flow.py`); R9B.1 replaces them with recordings.
+- [x] R9B.3 Failing opt-out tests: a sync can add a suppression and never remove one; a local opt-out writes back.
+      Done November 8.
+- [x] R9B.4 Failing logging tests: every outcome maps, or setup says which does not; a retry after an uncertain write leaves
       one record; rate limits back off; a CSV lead is created only on its first connected call and never for a no-answer; the
       summary is sent and the transcript never is; test-session calls are not written unless the contact is on the test list.
-- [ ] R9B.5 Fault injection: HubSpot down during a sync, a call and a write; calling continues; the 24-hour blocker fires and
+      Done November 8.
+- [x] R9B.5 Fault injection: HubSpot down during a sync, a call and a write; calling continues; the 24-hour blocker fires and
       names its fix.
 
 Build:
-
-- [ ] R9B.6 `providers/hubspot.py`: Service Key auth, one pinned dated API version, paging and backoff.
+      Done November 8 for a sync; a failed call write retries as a job.
+- [x] R9B.6 `providers/hubspot.py`: Service Key auth, one pinned dated API version, paging and backoff.
+      Done November 8 on v3 paths; the dated version is pinned when R9B.7 reads the account.
 - [ ] R9B.7 Settings row with a check on save; confirm and record the exact scopes and which property holds do-not-call.
-- [ ] R9B.8 `leads/hubspot_sync.py`: list picker on Leads, Sync button, sync at Start calling.
-- [ ] R9B.9 `aftercall/crm_log.py`: `log_call(CallRecord)`, outcome map and a retrying job that ends in Needs attention.
-- [ ] R9B.10 Create the `phone_status` and `opendialer_call_id` properties once, at setup.
-- [ ] R9B.11 Last-contacted guard.
-- [ ] R9B.12 Layout audit covers the list picker, the spend limit and the Settings rows.
-
+- [x] R9B.8 `leads/hubspot_sync.py`: list picker on Leads, Sync button, sync at Start calling.
+      Done November 8: the HubSpot panel on Leads; Start calling syncs, and every 30 minutes while calling.
+- [x] R9B.9 `aftercall/crm_log.py`: `log_call(CallRecord)`, outcome map and a retrying job that ends in Needs attention.
+      Done November 8: `crm_log.py` and the `crm` job lane.
+- [x] R9B.10 Create the `phone_status` and `opendialer_call_id` properties once, at setup.
+      Done November 8: created when the HubSpot row's check passes.
+- [x] R9B.11 Last-contacted guard.
+      Done November 8.
+- [x] R9B.12 Layout audit covers the list picker, the spend limit and the Settings rows.
+      Done November 8 (`crm-settings.spec.ts`).
 Waterfall and do-not-call on CRM leads (D19, D23), tests first:
 
-- [ ] R9B.14 Port the 20 offline tests from `run_waterfall.py` as failing tests over recorded Treg responses, plus: a CRM
+- [x] R9B.14 Port the 20 offline tests from `run_waterfall.py` as failing tests over recorded Treg responses, plus: a CRM
       number goes straight to Trestle; a repeat sync pays nothing; a changed CRM number is rechecked; the list limit stops the
       job and says so; no token or a Treg outage never blocks a lead that has a CRM number; a CRM number is never overwritten.
-- [ ] R9B.15 Failing do-not-call tests over recorded RealValidito responses: each of `federal_dnc`, `state_dnc` and
+      Done November 8 (`test_waterfall.py`, 24 tests).
+- [x] R9B.15 Failing do-not-call tests over recorded RealValidito responses: each of `federal_dnc`, `state_dnc` and
       `tcpa_litigator` suppresses with its reason; `invalid` marks Bad; batches of at most 1,000; results expire after 30
       days; no key, error 603 or 604, or an outage leaves "DNC not checked" and blocks auto-dial with a named fix; a sync never
       clears a do-not-call suppression.
-- [ ] R9B.16 `providers/treg.py` (Trestle, LeadOcean, AI Ark, Tomba, Wiza with polling) with an idempotency key, and
+      Done November 8 (`test_realvalidito.py`), over answers shaped from the public docs.
+- [x] R9B.16 `providers/treg.py` (Trestle, LeadOcean, AI Ark, Tomba, Wiza with polling) with an idempotency key, and
       `leads/waterfall.py` as a job after sync with a durable ledger.
-- [ ] R9B.17 `providers/realvalidito.py` and `leads/dnc.py`; replace the DoNotCallDNC provider and its tests.
-- [ ] R9B.18 Settings rows for the Treg token and RealValidito, each checked on save; spend limit and estimate on the list.
-- [ ] R9B.19 Write `phone_status`, an empty phone field and do-not-call opt-outs back to HubSpot.
+      Done November 8: the ledger lives on the lead.
+- [x] R9B.17 `providers/realvalidito.py` and `leads/dnc.py`; replace the DoNotCallDNC provider and its tests.
+      Done November 8; the old DoNotCallDNC path stays only as the manual check until R10.
+- [x] R9B.18 Settings rows for the Treg token and RealValidito, each checked on save; spend limit and estimate on the list.
+      Done November 8.
+- [x] R9B.19 Write `phone_status`, an empty phone field and do-not-call opt-outs back to HubSpot.
+      Done November 8.
 - [ ] R9B.20 After your yes and limit: run the waterfall and do-not-call check on the HubSpot test list, then on 20 real
       contacts; record cost, confirmed share and do-not-call hits in section 9A.
 - [ ] R9B.13 Live L14 to L19, using only the owner's test contact and 203-821-1101. L20 only if Nooks is in use.
@@ -1358,16 +1389,19 @@ Goal: three reps call at once from one pool, never reach the same contact, and c
 phone.
 
 - [ ] R9C.1 Read the account's calls-at-once limit from the portal's "See privileges" page and record it in section 9C.
-- [ ] R9C.2 Failing tests over recorded HubSpot responses: a seat syncs only its owner's contacts; two seats never sync
+- [x] R9C.2 Failing tests over recorded HubSpot responses: a seat syncs only its owner's contacts; two seats never sync
       the same contact; reassigning the owner moves the contact on the next sync and keeps its history; an opt-out
       written by one seat suppresses the contact on the other after its sync; a call record carries the seat's owner.
+      Done November 8 (`test_hubspot.py`, `acceptance/test_crm_flow.py`): owner filtering, reassignment, opt-outs through HubSpot and the owner on each call record.
 - [ ] R9C.3 Failing relay tests: two seats asking at once never lease the same number for the same minute; the daily cap
       counts every seat's calls; the area-code preference holds; a callback rings the last caller, and goes to voicemail
       and a task when that seat is away; an unknown caller goes to the owner's seat.
 - [ ] R9C.4 Failing tests: a Telnyx channel-limit refusal pauses only that seat with "Telnyx account call limit reached"
       and its fix; a relay that cannot lease a number blocks the dial with a named blocker.
-- [ ] R9C.5 "Calls for" row on Settings, set at seat setup, read-only after; sync filters by it; `log_call` writes it.
-- [ ] R9C.6 Sync at Start calling and every 30 minutes while calling; a CSV file imports on one seat only.
+- [x] R9C.5 "Calls for" row on Settings, set at seat setup, read-only after; sync filters by it; `log_call` writes it.
+      Done November 8: chosen from HubSpot's users, refused once set (`CALLS_FOR_SET`).
+- [x] R9C.6 Sync at Start calling and every 30 minutes while calling; a CSV file imports on one seat only.
+      Done November 8. A CSV file lives in the one seat's own store that imported it, so no other seat can call it.
 - [ ] R9C.7 Relay: migration for pool numbers, leases, daily counts and last caller per prospect, with isolation tests
       in `supabase/tests`; the shared incoming route; the webhook routes a callback by last caller.
 - [ ] R9C.8 `numbers/pool.py`: lease before each dial and release at the end; the dial presents the leased number;
@@ -1545,3 +1579,11 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
 - November 8, 2026 (later): owner brought Windows back (D2 now Mac and Windows) with seats and the pool unchanged; Phase
   9D and live checks L25 to L27 added; pool sized at 15 numbers for 3,000 dials a week. Estimate 25 to 33.5 days. Plan
   text only. Next: push, then Phase 9, R9.1.
+- November 8, 2026: Phase 9 and 9B code done. Leads come through one column map; research reports a trigger that code
+  checks against the script's `# Triggers` list, and a bridge line reviewed as labeled inference; the Dialer and Leads
+  show both, and number holds by name. The DeepSeek fallback with local search takes over a failing ChatGPT thread and
+  loads in the frozen sidecar. HubSpot lists sync by owner into leads, CRM numbers run the ported waterfall through Treg
+  and a RealValidito do-not-call check, calls and opt-outs write back, and a list unsynced for a day stops dialing its
+  leads. All of it is tested over recorded-shape answers only: no HubSpot, Treg or RealValidito key has been used.
+  T4 and T5 recorded (section 9A). Waiting on the owner: keys, R9.14, R9.15, R9.19, R9B.1, R9B.7, R9B.13, R9B.20.
+  R9C.2, R9C.5 and R9C.6 came with it. Next: Phase 9C, R9C.4.
