@@ -1393,23 +1393,30 @@ phone.
       the same contact; reassigning the owner moves the contact on the next sync and keeps its history; an opt-out
       written by one seat suppresses the contact on the other after its sync; a call record carries the seat's owner.
       Done November 8 (`test_hubspot.py`, `acceptance/test_crm_flow.py`): owner filtering, reassignment, opt-outs through HubSpot and the owner on each call record.
-- [ ] R9C.3 Failing relay tests: two seats asking at once never lease the same number for the same minute; the daily cap
+- [x] R9C.3 Failing relay tests: two seats asking at once never lease the same number for the same minute; the daily cap
       counts every seat's calls; the area-code preference holds; a callback rings the last caller, and goes to voicemail
       and a task when that seat is away; an unknown caller goes to the owner's seat.
-- [ ] R9C.4 Failing tests: a Telnyx channel-limit refusal pauses only that seat with "Telnyx account call limit reached"
+      Done November 8 (`test_relay_pool.py`, on a local PostgreSQL 16 with the real migrations and stubbed Supabase pieces): 10 simultaneous leases get 10 numbers; the cap counts both seats; area code then least used; a callback follows the last caller, else the owner. The harness caught two defects first: an ambiguous column that would have failed every lease on Supabase, and a lease race between snapshot and lock.
+- [x] R9C.4 Failing tests: a Telnyx channel-limit refusal pauses only that seat with "Telnyx account call limit reached"
       and its fix; a relay that cannot lease a number blocks the dial with a named blocker.
+      Done November 8 (`calling/carrier_errors.py`): recognised by its words until L22 records the exact code.
 - [x] R9C.5 "Calls for" row on Settings, set at seat setup, read-only after; sync filters by it; `log_call` writes it.
       Done November 8: chosen from HubSpot's users, refused once set (`CALLS_FOR_SET`).
 - [x] R9C.6 Sync at Start calling and every 30 minutes while calling; a CSV file imports on one seat only.
       Done November 8. A CSV file lives in the one seat's own store that imported it, so no other seat can call it.
-- [ ] R9C.7 Relay: migration for pool numbers, leases, daily counts and last caller per prospect, with isolation tests
+- [x] R9C.7 Relay: migration for pool numbers, leases, daily counts and last caller per prospect, with isolation tests
       in `supabase/tests`; the shared incoming route; the webhook routes a callback by last caller.
-- [ ] R9C.8 `numbers/pool.py`: lease before each dial and release at the end; the dial presents the leased number;
+      Done November 8: `20261109010000_shared_number_pool.sql`. Not applied to the live relay: that needs the owner's OK, because it replaces `relay_receive`.
+- [x] R9C.8 `numbers/pool.py`: lease before each dial and release at the end; the dial presents the leased number;
       number health is read from the relay's counts.
-- [ ] R9C.9 Seat setup: from a rep's API key, create the Call Control application with a channel cap of 2, the telephony
+      Done November 8 (`numbers/pool.py`, `test_number_pool.py`): no lease, no dial, a named blocker, nothing counted; the maintenance pass releases ended calls.
+- [x] R9C.9 Seat setup: from a rep's API key, create the Call Control application with a channel cap of 2, the telephony
       credential and the relay workspace, and write the private setup file; it never changes another seat.
-- [ ] R9C.10 Research route per seat: the ChatGPT login or the OpenRouter fallback as main route, chosen in Settings.
-- [ ] R9C.11 Layout audit covers the new rows and blockers.
+      Done November 8 (`numbers/seat.py`, `relay_invite_seat`, Team calling in Settings): only the owner's seat can invite, on its own account; the seat file carries the shared keys and turns the pool on.
+- [x] R9C.10 Research route per seat: the ChatGPT login or the OpenRouter fallback as main route, chosen in Settings.
+      Done November 8.
+- [x] R9C.11 Layout audit covers the new rows and blockers.
+      Done November 8: the Settings page stays under 30 visible controls (optional keys open with Add; Team calling is folded).
 - [ ] R9C.12 Live L21 to L24 with the owner's test contact, 203-821-1101 and a second approved phone.
 
 Done when: the tests pass, L21 to L24 pass, and a forced relay outage stops dialing on every seat with a named blocker
@@ -1587,3 +1594,7 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   leads. All of it is tested over recorded-shape answers only: no HubSpot, Treg or RealValidito key has been used.
   T4 and T5 recorded (section 9A). Waiting on the owner: keys, R9.14, R9.15, R9.19, R9B.1, R9B.7, R9B.13, R9B.20.
   R9C.2, R9C.5 and R9C.6 came with it. Next: Phase 9C, R9C.4.
+- November 8, 2026: Phase 9C code done: seats by HubSpot owner, the shared pool in the relay with atomic leases and
+  team-wide caps, callbacks to the last caller, a named blocker for Telnyx's account call limit, per-seat research
+  route, and seat setup from the owner's computer. Waiting on the owner: applying the relay migration to the live
+  project, R9C.1, the pool numbers, and live checks L21 to L24. Next: Phase 9D (Windows), R9D.1.
