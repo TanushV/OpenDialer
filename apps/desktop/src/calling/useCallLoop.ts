@@ -440,6 +440,16 @@ export function useCallLoop(visible: boolean) {
     setHeld(false);
     setFinished(null);
     await withConnecting(connectAudio);
+    if (pausing.current) {
+      // Pause pressed while the audio was connecting wins. Its "paused" may have reached the server before
+      // this start's "ready", so say paused again; nothing is reserved or dialed.
+      await api("/v1/rep/presence", "POST", {
+        status: "paused",
+        audio_ready: true,
+        telephony_ready: false,
+      });
+      return;
+    }
     setStarted(true);
     callingRef.current = true;
     await refresh();

@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { AUTHORITY, expect, test } from "./fixtures";
 import {
   answer,
   callStatus,
@@ -362,6 +362,50 @@ test("Pause pressed while the next lead is loading places no call and shows no e
     await page.waitForTimeout(500);
     expect(starts).toBe(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
+});
+
+test("Pause pressed while audio is connecting wins: nothing is reserved or dialed and the rep stays paused", async ({
+  page,
+}) => {
+  await enter(page);
+  await prepareSimulationCall(page, "Pause while connecting", "+14155550785");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let holding = true;
+  // Hold the step that marks the rep ready, so the screen stays on "Connecting audio" and it lands late.
+  await page.route("**/v1/rep/presence", async (route) => {
+    if (holding && route.request().postDataJSON()?.status === "ready") {
+      holding = false;
+      await held;
+    }
+    await route.continue();
+  });
+  const sent: string[] = [];
+  page.on("request", (r) => {
+    if (/queue\/next|calls\/start/.test(r.url())) sent.push(r.url());
+  });
+  try {
+    await startCalling(page).click();
+    await expect(callStatus(page)).toContainText("Connecting audio");
+    await page.keyboard.press("KeyP");
+    release();
+    await expect(startCalling(page)).toBeVisible();
+    await page.waitForTimeout(800);
+    expect(sent).toEqual([]);
+    // The server agrees: the rep is paused, even though "ready" reached it after "paused".
+    const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+      headers: { "X-Local-Token": "e2e-local-token" },
+      data: {},
+    });
+    const token = (await local.json()).access_token;
+    const workspace = await page.request.get(`${AUTHORITY}/v1/workspace`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect((await workspace.json()).user.presence.status).toBe("paused");
   } finally {
     release();
     await page.unrouteAll({ behavior: "ignoreErrors" });

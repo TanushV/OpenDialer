@@ -1734,7 +1734,8 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   not be checked without retyping them; follow-ups were long forms, now one row each. Found by review and fixed: a
   live helper turn that never reached OpenRouter kept its budget hold, and the helper never saw which script section
   the rep was on during a call. Found by Chromium CI and fixed: a Pause pressed while the next lead was loading still
-  dialed that lead. Open and not started: R3.2 (mixins to modules), R3.4 (users, roles, password sign-in
+  dialed that lead, and a Pause pressed while audio was connecting still reserved a lead and could leave the server
+  thinking the rep was ready. Open and not started: R3.2 (mixins to modules), R3.4 (users, roles, password sign-in
   and sessions; a same-workspace teammate is still a code path, though the UI no longer creates one), R3.5 (typed core
   records), R4.5 (dial code into `calling/dial.py`), R5.2 (global element CSS) and R9E.1 (one calling model; its laws
   are checked piecewise today). These change structure, not behavior; each is a multi-day rewrite.
