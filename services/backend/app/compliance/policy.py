@@ -54,6 +54,9 @@ class CallContext:
     local_end_hour: int = 17
     permission: str = "live"
     permitted_permissions: set[str] | None = None
+    # The rep's own test phone during a test call: no prospect is called, so calling hours, time zones,
+    # attempt limits, retry spacing and do-not-call registries do not apply. An opt-out still does.
+    own_test_line: bool = False
 
 
 @dataclass
@@ -81,45 +84,47 @@ def authorize(c: CallContext) -> Decision:
     require(c.endpoint_valid, "INVALID_ENDPOINT")
     require(c.ownership != "wrong_party", "WRONG_PARTY")
     require(not c.internal_suppressed, "INTERNAL_SUPPRESSION")
-    if c.registry_required:
-        # Only a clearance computed for this exact endpoint permits a dial; an account-level
-        # "available" or endpoint-free decision is never a clearance.
-        national = c.registry_decision or {}
-        if national.get("decision") != "clear":
-            codes = national.get("reason_codes") or ["REGISTRY_NOT_CLEARED_FOR_ENDPOINT"]
-            reasons.extend(r for r in codes if r not in reasons)
-        elif not national.get("endpoint"):
-            reasons.append("REGISTRY_NOT_CLEARED_FOR_ENDPOINT")
-    require(not c.state_registry_required or c.state_registry_current, "STATE_REGISTRY_MISSING")
-    require(not c.state_registry_required or not c.state_registry_listed, "STATE_REGISTRY_LISTED")
-    require(not c.consent_required or c.consent_valid, "CONSENT_MISSING")
-    require(not c.consent_revoked, "CONSENT_REVOKED")
-    zones = calling_zones(c)
-    if not zones:
-        reasons.append("TIMEZONE_UNCERTAIN")
-    for zone in () if c.continuing_call else zones:
-        try:
-            local = c.now.astimezone(ZoneInfo(zone))
-        except (ZoneInfoNotFoundError, ValueError):
+    if not c.own_test_line:
+        if c.registry_required:
+            # Only a clearance computed for this exact endpoint permits a dial; an account-level
+            # "available" or endpoint-free decision is never a clearance.
+            national = c.registry_decision or {}
+            if national.get("decision") != "clear":
+                codes = national.get("reason_codes") or ["REGISTRY_NOT_CLEARED_FOR_ENDPOINT"]
+                reasons.extend(r for r in codes if r not in reasons)
+            elif not national.get("endpoint"):
+                reasons.append("REGISTRY_NOT_CLEARED_FOR_ENDPOINT")
+        require(not c.state_registry_required or c.state_registry_current, "STATE_REGISTRY_MISSING")
+        require(not c.state_registry_required or not c.state_registry_listed, "STATE_REGISTRY_LISTED")
+        require(not c.consent_required or c.consent_valid, "CONSENT_MISSING")
+        require(not c.consent_revoked, "CONSENT_REVOKED")
+        zones = calling_zones(c)
+        if not zones:
             reasons.append("TIMEZONE_UNCERTAIN")
-            break
-        if not c.local_start_hour <= local.hour < min(17, c.local_end_hour):
-            reasons.append("OUTSIDE_CALLING_WINDOW")
-            break
+        for zone in () if c.continuing_call else zones:
+            try:
+                local = c.now.astimezone(ZoneInfo(zone))
+            except (ZoneInfoNotFoundError, ValueError):
+                reasons.append("TIMEZONE_UNCERTAIN")
+                break
+            if not c.local_start_hour <= local.hour < min(17, c.local_end_hour):
+                reasons.append("OUTSIDE_CALLING_WINDOW")
+                break
     require(c.rep_ready, "REP_NOT_READY")
     require(c.audio_ready, "AUDIO_NOT_READY")
     require(c.number_healthy, "NUMBER_UNHEALTHY")
     require(c.number_authorized, "NUMBER_NOT_AUTHORIZED")
-    # A requested callback is a new promise outside the closed cold sequence.
-    require(c.callback_due or c.attempt_count < c.max_attempts, "ATTEMPT_LIMIT")
-    require(c.pair_open or c.next_attempt_at is None or c.now >= c.next_attempt_at, "NOT_DUE")
-    require(
-        c.callback_due
-        or c.pair_open
-        or c.last_attempt_at is None
-        or (c.now - c.last_attempt_at).total_seconds() >= c.min_retry_seconds,
-        "CADENCE_LIMIT",
-    )
+    if not c.own_test_line:
+        # A requested callback is a new promise outside the closed cold sequence.
+        require(c.callback_due or c.attempt_count < c.max_attempts, "ATTEMPT_LIMIT")
+        require(c.pair_open or c.next_attempt_at is None or c.now >= c.next_attempt_at, "NOT_DUE")
+        require(
+            c.callback_due
+            or c.pair_open
+            or c.last_attempt_at is None
+            or (c.now - c.last_attempt_at).total_seconds() >= c.min_retry_seconds,
+            "CADENCE_LIMIT",
+        )
     require(c.budget_available, "BUDGET_EXHAUSTED")
     require(c.route_allowed, "ROUTE_NOT_ALLOWED")
     require(c.permission in (c.permitted_permissions or set()), "PERMISSION_NOT_GRANTED")

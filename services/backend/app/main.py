@@ -675,7 +675,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.delete("/v1/settings/test-call")
     def end_test_call(p=Depends(administrator)):
-        service.configs.write(p["tenant_id"], {"test_session": False})
+        service.end_test_session(p)
         return {"test_session": False}
 
     @app.get("/v1/learning/summary")
@@ -740,7 +740,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/calls/{call_id}/disposition")
     def disposition(call_id: str, data: Disposition, p=Depends(principal)):
-        return service.save_disposition(p, call_id, data.model_dump(mode="json"))
+        saved = service.save_disposition(p, call_id, data.model_dump(mode="json"))
+        if saved.get("is_test") and service.in_test_session(p):
+            # A test call is one call: once its outcome is saved, normal calling is back.
+            service.end_test_session(p)
+        return saved
 
     @app.post("/v1/leads/{lead_id}/meeting")
     def report_meeting(lead_id: str, data: MeetingEdit, p=Depends(principal)):
@@ -1195,6 +1199,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             fail(422, "Provider edits require request_id and expected_version together")
         if values.get("dnc_seller_authorization"):
             values["dnc_seller_authorization"]["seller_id"] = p["seller_id"]
+        if values.get("test_session") and not (values.get("test_phone") or service.test_phone(p)):
+            fail(409, "Type your phone number in Test phone first")
         from urllib.parse import urlsplit
 
         for key in ("webhook_url", "inference_base_url"):

@@ -318,7 +318,7 @@ class ReservationPlanner:
             if not self._hold_in_flight(p, lead.id):
                 denied.append("CANDIDATE_IN_FLIGHT")
                 return False
-            if self._company_contacted(s, p, lead, claims, now):
+            if not self.own_test_line(p, lead) and self._company_contacted(s, p, lead, claims, now):
                 denied.append("COMPANY_CONTACTED_TODAY")
                 self._release_in_flight(p, [lead.id])
                 return False

@@ -114,7 +114,10 @@ def test_a_test_session_dials_only_the_owners_test_line(workspace, app):
     assert test_line_refusal("+16175550100", test_session=False, test_lines={"+12038211101"}) == []
     assert test_line_refusal("+12038211101", test_session=True, test_lines={"+12038211101"}) == []
     client, headers = workspace["client"], workspace["headers"]
-    assert client.put("/v1/admin/settings", headers=headers, json={"test_session": True}).status_code == 200
+    # A test session needs a test phone; without one it cannot be turned on.
+    assert client.put("/v1/admin/settings", headers=headers, json={"test_session": True}).status_code == 409
+    body = {"test_session": True, "test_phone": "+12038211101"}
+    assert client.put("/v1/admin/settings", headers=headers, json=body).status_code == 200
     # The queue offers nothing outside the Test line list, so no prospect is reserved.
     assert reserve(workspace).status_code == 409
     assert app.state.service.carrier(workspace["tenant_id"]).dials == []

@@ -44,6 +44,55 @@ NO_LEADS = (
 SETUP_REASONS = {"REP_NOT_READY", "AUDIO_NOT_READY", "LIVE_OBLIGATION", "RESERVATION_EXISTS"}
 TIMING_REASONS = {"OUTSIDE_CALLING_WINDOW", "NOT_DUE", "CADENCE_LIMIT", "ENDPOINT_CLAIMED"}
 REGISTRY_REASONS = {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"}
+# Why nobody can be called, in the order a rep can act on it. The first reason present is shown, then the rest briefly.
+WHY_NOBODY = [
+    (
+        {"OUTSIDE_CALLING_WINDOW"},
+        "Everyone left is outside calling hours (8 AM to 5 PM in each lead's time zone). "
+        "Calling picks up by itself when their hours open.",
+    ),
+    (
+        {"TIMEZONE_UNCERTAIN"},
+        "Some leads have no known time zone, so they are not called. Add a state or time zone in Leads.",
+    ),
+    (
+        {"NOT_DUE", "CADENCE_LIMIT"},
+        "The rest were called recently and wait at least a day before the next try.",
+    ),
+    (
+        {"COMPANY_CONTACTED_TODAY"},
+        "Some companies were already called today; their other contacts wait until tomorrow.",
+    ),
+    ({"ATTEMPT_LIMIT"}, "Some leads reached their most attempts and are not called again."),
+    ({"OUTREACH_HOLD"}, "Some leads are paused, removed, on a paused list, or already booked."),
+    (
+        {"NUMBER_CONFLICT", "NUMBER_BAD", "NUMBER_DEAD", "NO_VALID_NUMBER", "NEEDS_NUMBER"},
+        "Some leads have no usable number. Review shows them.",
+    ),
+    ({"DNC_NOT_CHECKED"}, "Some HubSpot leads wait for the do-not-call check."),
+    ({"CRM_SYNC_STALE"}, "Some HubSpot leads wait for their list to sync. Sync it in Leads."),
+    (
+        {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"},
+        "Some leads wait for do-not-call screening.",
+    ),
+    (
+        {"INTERNAL_SUPPRESSION", "WRONG_PARTY", "INVALID_ENDPOINT"},
+        "Some leads opted out or have a wrong number.",
+    ),
+]
+
+
+def why_nobody(reasons):
+    reasons = set(reasons)
+    found = [text for codes, text in WHY_NOBODY if codes & reasons]
+    if not found:
+        return (
+            "No lead is ready to call. Leads still being researched show on the Leads page; import a list or "
+            "sync a HubSpot list to add more."
+        )
+    return " ".join(found[:3])
+
+
 NO_LEAD_DUE_NOW = "No lead is inside calling hours and due right now; the queue offers them when they are."
 
 
@@ -532,8 +581,8 @@ class Dialer(
         return "CALLER_NUMBER_PAUSED"
 
     def no_lead_detail(self, s, p, reasons):
-        """The refusal for Next call, naming the number problem when a number is part of it."""
-        detail = {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons), "message": NO_LEADS}
+        """The refusal for Next call: the plain reason nobody can be called, most useful first."""
+        detail = {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons), "message": why_nobody(reasons)}
         if not set(reasons) & NUMBER_REASONS:
             return detail
         # Number setup itself is a blocker (`dial_blockers_in`) checked before the queue runs; here a

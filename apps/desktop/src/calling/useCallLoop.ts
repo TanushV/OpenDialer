@@ -61,6 +61,7 @@ export function useCallLoop(visible: boolean) {
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [finished, setFinished] = useState<{
     next_eligible_at: string | null;
+    reason?: string;
   } | null>(null);
   const [muted, setMuted] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -385,7 +386,8 @@ export function useCallLoop(visible: boolean) {
         );
       } catch (error) {
         if (error instanceof ApiError && error.code === "NO_ELIGIBLE_LEADS") {
-          setFinished({ next_eligible_at: null });
+          // The queue says why nobody can be called; the Dialer shows that, not a generic line.
+          setFinished({ next_eligible_at: null, reason: error.message });
           return;
         }
         throw error;

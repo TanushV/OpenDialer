@@ -33,7 +33,7 @@ export interface ScreenInput {
   blockers: Blocker[];
   call: ScreenCall | null;
   /** The queue has no one to call now; the next eligible time when known. */
-  finished: { next_eligible_at: string | null } | null;
+  finished: { next_eligible_at: string | null; reason?: string } | null;
 }
 
 export type Phase =
@@ -46,7 +46,7 @@ export type Phase =
   | { kind: "ended"; who: "they" | "you" | null; seconds: number | null }
   | { kind: "saved"; outcome: string; countdown_ms: number }
   | { kind: "skipped"; outcome: string; countdown_ms: number }
-  | { kind: "finished"; next_eligible_at: string | null };
+  | { kind: "finished"; next_eligible_at: string | null; reason?: string };
 
 export type PhaseKind = Phase["kind"];
 
@@ -97,6 +97,7 @@ export function screen(input: ScreenInput): Phase {
     return {
       kind: "finished",
       next_eligible_at: input.finished.next_eligible_at,
+      reason: input.finished.reason,
     };
   return { kind: "dialing", ringing: false };
 }

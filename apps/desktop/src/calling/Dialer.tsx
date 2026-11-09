@@ -193,7 +193,8 @@ function Body({ loop }: { loop: Loop }) {
         between && (
           <p className="muted empty-lead">
             {phase.kind === "finished"
-              ? "Everyone eligible has been called for now. New leads and callbacks start by themselves."
+              ? (phase.reason ??
+                "Everyone eligible has been called for now. New leads and callbacks start by themselves.")
               : "Press Start calling. Each lead and its script appear here as the call starts."}
           </p>
         )

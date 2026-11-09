@@ -20,7 +20,7 @@ from app.calling.recovery import next_step
 from app.calling.state import TERMINAL, moved, transition
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize, retry_seconds
-from app.lead_lists import LeadLists, memberships
+from app.lead_lists import LeadLists, memberships, set_memberships
 from app.leads import intake
 from app.leads.record import csv_fields, number_view
 from app.optimization.geography import plausible_zones
@@ -651,6 +651,7 @@ class Service(LeadLists, ReservationPlanner):
             # Live calls carry the speech-to-text the live helper needs; nothing is recorded.
             permitted_permissions=set(config.get("permissions", []))
             | ({"transcription"} if "live" in config.get("permissions", []) else set()),
+            own_test_line=self.own_test_line(p, lead),
         )
 
     def record_decision(self, s, p, lead, decision):
@@ -738,8 +739,17 @@ class Service(LeadLists, ReservationPlanner):
         typed = normalize_phone(self.configs.read(p["tenant_id"]).get("test_phone") or "").e164
         return TEST_LINES | ({typed} if typed else set())
 
+    def test_phone(self, p):
+        """The test phone saved in Settings, or None."""
+        return normalize_phone(self.configs.read(p["tenant_id"]).get("test_phone") or "").e164 or None
+
     def in_test_session(self, p):
-        return bool(self.configs.read(p["tenant_id"]).get("test_session"))
+        # A test session with no saved test phone would dial no one, so it does not exist.
+        return bool(self.configs.read(p["tenant_id"]).get("test_session") and self.test_phone(p))
+
+    def own_test_line(self, p, lead):
+        """The rep's own test phone during a test call: calling hours and attempt limits do not apply to it."""
+        return self.in_test_session(p) and lead.data.get("phone") in self.test_lines(p)
 
     def refuse_outside_test_line(self, p, lead):
         refuse(
@@ -749,28 +759,56 @@ class Service(LeadLists, ReservationPlanner):
         )
 
     def start_test_session(self, p):
-        """R7.5: the test phone becomes a lead on the Test line list and calling is limited to it."""
-        from app.compliance.phone import normalize_phone
+        """Test call: the saved test phone becomes the one callable lead, whatever state an older copy was in.
 
-        phone = normalize_phone(self.configs.read(p["tenant_id"]).get("test_phone") or "").e164
+        An existing lead with that number (archived, paused, called before, on another list) is put back on the
+        Test line list and made due now; otherwise it is created. The session ends when the test call is saved.
+        """
+        phone = self.test_phone(p)
         if not phone:
-            fail(409, "Add your test phone in Settings first")
+            fail(409, "Type your phone number in Test phone first")
         with self.db.transaction(False) as s:
             campaign = next(iter(self.scoped(s, "campaigns", p)), None)
+            existing = next(
+                (row for row in self.scoped(s, "leads", p) if row.data.get("phone") == phone), None
+            )
         if not campaign:
             fail(409, "Import a lead list first")
-        self.import_leads(
-            p,
-            {
-                "campaign_id": campaign.id,
-                "list_name": TEST_LIST,
-                "rows": [{"name": "Your test phone", "phone": phone, "company": "Test call"}],
-            },
-        )
-        self.configs.write(p["tenant_id"], {"test_session": True})
-        with self.db.transaction(False) as s:
+        if existing is None:
+            self.import_leads(
+                p,
+                {
+                    "campaign_id": campaign.id,
+                    "list_name": TEST_LIST,
+                    "rows": [{"name": "Your test phone", "phone": phone, "company": "Test call"}],
+                    "prepare": False,
+                },
+            )
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
             lead = next(row for row in self.scoped(s, "leads", p) if row.data.get("phone") == phone)
-        return {"test_session": True, "lead_id": lead.id, "phone": phone}
+            set_memberships(lead, [TEST_LIST, *memberships(lead.data)])
+            update(
+                lead,
+                archived=False,
+                dial_paused=False,
+                # The rep's own phone is always callable in a test session; only an opt-out still stops it.
+                status="eligible",
+                next_attempt_at=None,
+                pair_opened_at=None,
+                due_at=None,
+            )
+            campaign = self.required(s, "campaigns", lead.data["campaign_id"], p, lock=True)
+            catalog = dict(campaign.data.get("lists", {}))
+            catalog[TEST_LIST] = {**catalog.get(TEST_LIST, {}), "archived": False, "paused": False}
+            update(campaign, lists=catalog)
+            emit(s, p["tenant_id"], "lead.updated", lead, self.clock())
+            lead_id = lead.id
+        self.configs.write(p["tenant_id"], {"test_session": True})
+        return {"test_session": True, "lead_id": lead_id, "phone": phone}
+
+    def end_test_session(self, p):
+        self.configs.write(p["tenant_id"], {"test_session": False})
 
     def _prepare_call(self, p, data):
         now = self.clock()
