@@ -408,6 +408,8 @@ export function useCallLoop(visible: boolean) {
       setFinished(null);
       setEditing(false);
       setPacket(await api<Packet>(`/v1/leads/${next.lead.id}/packet`));
+      // Pause pressed while the lead was loading: no call is placed (Pause released the reservation).
+      if (!callingRef.current) return;
       setCall(
         await api<Call>("/v1/calls/start", "POST", {
           reservation_id: next.reservation_id,

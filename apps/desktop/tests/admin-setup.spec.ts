@@ -478,8 +478,13 @@ test("Test call limits calling to the test phone until the session ends", async 
   await row.getByLabel("New Test phone").fill("+1 202 555 0199");
   await row.getByRole("button", { name: "Save and check" }).click();
   await row.getByRole("button", { name: "Test call", exact: true }).click();
+  const placed = page.waitForResponse(
+    (r) => r.url().endsWith("/v1/calls/start") && r.ok(),
+  );
   await page.getByRole("button", { name: /^Start calling/ }).click();
   await expect(page.getByTestId("lead-name")).toHaveText("Your test phone");
+  // Pause once the call is placed: a Pause before that rightly places no call.
+  await placed;
   await page.getByRole("button", { name: /^Pause/ }).click();
   await page.getByRole("button", { name: /^Skip/ }).click();
   await expect(

@@ -336,3 +336,34 @@ test("Esc and the outcome keys work while a button has focus, as after any click
     /Saved|Start calling|Dialing|Ringing/,
   );
 });
+
+test("Pause pressed while the next lead is loading places no call and shows no error", async ({
+  page,
+}) => {
+  await enter(page);
+  await prepareSimulationCall(page, "Pause while loading", "+14155550784");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/v1/leads/*/packet", async (route) => {
+    await held;
+    await route.continue();
+  });
+  let starts = 0;
+  page.on("request", (r) => {
+    if (r.url().endsWith("/v1/calls/start")) starts++;
+  });
+  const packet = page.waitForRequest((r) => r.url().includes("/packet"));
+  try {
+    await startCalling(page).click();
+    await packet;
+    await pauseCalling(page).click();
+    release();
+    await expect(startCalling(page)).toBeVisible();
+    await page.waitForTimeout(500);
+    expect(starts).toBe(0);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
+});
