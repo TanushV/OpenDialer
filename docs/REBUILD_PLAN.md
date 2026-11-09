@@ -1170,6 +1170,8 @@ Goal: nothing moves, nothing gets covered, and the rep always knows what is happ
       retries were set to 0. Reverted the same day: with no retry, CI showed older flakes the retry had
       hidden. Under load a test's click sometimes never reaches its handler (no request is sent) while the page
       re-reads the workspace many times a second. Open: find and fix that, then set CI retries to 0 again.
+      Done November 9: the cause, the whole app redrawing on every background event, was fixed (`refresh.ts`
+      keeps unchanged parts), and CI runs every browser test once (`retries: process.env.CI ? 0 : 1`).
 - [ ] R5.13 Owner uses the Dialer on test calls and reports anything confusing.
 
 Done when: the audit passes and the owner confirms it reads clearly.

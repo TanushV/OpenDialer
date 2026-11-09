@@ -9,9 +9,10 @@ export default defineConfig({
   testMatch: "**/*.spec.ts",
   workers: Number(process.env.PW_WORKERS ?? 4),
   fullyParallel: true,
-  // One retry, reported as flaky. R5.12 set CI to 0, which exposed older flakes: under load some clicks
-  // never reach their handler while the workspace refreshes many times a second. Back to 0 once that is fixed.
-  retries: 1,
+  // R5.12: CI runs each test once, so a flaky test fails and cannot hide a defect. The cause of the old
+  // flakes (the whole app redrawing on every event, so clicks missed their handler) is fixed in refresh.ts.
+  // A shared local Mac under outside load keeps one retry, reported as flaky.
+  retries: process.env.CI ? 0 : 1,
   // Steps poll the authority; allow for a loaded machine.
   expect: { timeout: 10_000 },
   timeout: 60_000,
