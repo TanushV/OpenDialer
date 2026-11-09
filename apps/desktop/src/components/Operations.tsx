@@ -20,6 +20,7 @@ import { LONG_REQUEST_MS, native, openSource } from "../api/client";
 import { date, isAdmin, label, percent, useWorkspace } from "../context";
 import { parseCSV } from "../state/csv";
 import { ColumnMap, type ColumnMapping } from "./ColumnMap";
+import { HubSpotLists } from "./HubSpotLists";
 import type { Lead, NumberRecord, Packet } from "../types";
 import { ProspectBrief } from "./ProspectBrief";
 import { BulkLeadActions, leadLists, listLabel, useLists } from "./LeadLists";
@@ -293,6 +294,15 @@ export function LeadsPage({
           label={history.query ? "Continue lead search" : "Load more leads"}
         />
       </section>
+      {admin && (
+        <HubSpotLists
+          onSynced={async () => {
+            await refresh();
+            await history.load(false, query, leadView);
+            await lists.reload();
+          }}
+        />
+      )}
       {admin && (
         <section className="card import-card">
           <div>

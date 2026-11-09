@@ -23,11 +23,26 @@ interface Rows {
   rows: Row[];
 }
 
-/** Rows whose value is typed here; saving one runs its check at once. */
-const FIELDS: Record<string, { key: string; secret: boolean }> = {
-  telnyx: { key: "telnyx_api_key", secret: true },
-  openrouter: { key: "openrouter_api_key", secret: true },
-  test_phone: { key: "test_phone", secret: false },
+/** Rows whose values are typed here; saving runs the row's check at once. */
+const FIELDS: Record<string, { keys: [string, string][]; secret: boolean }> = {
+  telnyx: { keys: [["telnyx_api_key", "Telnyx API key"]], secret: true },
+  openrouter: {
+    keys: [["openrouter_api_key", "OpenRouter key"]],
+    secret: true,
+  },
+  test_phone: { keys: [["test_phone", "Test phone"]], secret: false },
+  hubspot: {
+    keys: [["hubspot_service_key", "HubSpot Service Key"]],
+    secret: true,
+  },
+  treg: { keys: [["treg_token", "Treg token"]], secret: true },
+  realvalidito: {
+    keys: [
+      ["realvalidito_api_key", "RealValidito key"],
+      ["realvalidito_api_secret", "RealValidito secret"],
+    ],
+    secret: true,
+  },
 };
 const TONE = {
   ok: "good",
@@ -98,9 +113,8 @@ export function SetupRows({
         <SetupRow
           key={row.id}
           row={row}
-          save={async (value) => {
-            const field = FIELDS[row.id];
-            await api("/v1/admin/settings", "PUT", { [field.key]: value });
+          save={async (values) => {
+            await api("/v1/admin/settings", "PUT", values);
             setData(
               await api<Rows>(`/v1/settings/rows/${row.id}/check`, "POST"),
             );
@@ -138,13 +152,15 @@ function SetupRow({
   testCall,
 }: {
   row: Row;
-  save: (value: string) => Promise<void>;
+  save: (values: Record<string, string>) => Promise<void>;
   check: () => Promise<void>;
   testCall?: () => Promise<void>;
 }) {
   const { run } = useWorkspace();
-  const [value, setValue] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
   const field = FIELDS[row.id];
+  const filled =
+    !!field && field.keys.every(([key]) => (values[key] ?? "").trim());
   return (
     <div className="setup-row" data-testid={`setup-${row.id}`}>
       <div className="setup-row-text">
@@ -172,25 +188,39 @@ function SetupRow({
           onSubmit={(event) => {
             event.preventDefault();
             void run(async () => {
-              await save(value.trim());
-              setValue("");
+              await save(
+                Object.fromEntries(
+                  field.keys.map(([key]) => [key, values[key].trim()]),
+                ),
+              );
+              setValues({});
             });
           }}
         >
-          <input
-            aria-label={`New ${row.label}`}
-            type={field.secret ? "password" : "tel"}
-            value={value}
-            placeholder={
-              row.state === "missing" ? "" : "Saved; type to replace"
-            }
-            onChange={(event) => setValue(event.target.value)}
-          />
-          <Button type="submit" disabled={!value.trim()}>
+          {field.keys.map(([key, name]) => (
+            <input
+              key={key}
+              aria-label={
+                field.keys.length === 1 ? `New ${row.label}` : `New ${name}`
+              }
+              type={field.secret ? "password" : "tel"}
+              value={values[key] ?? ""}
+              placeholder={
+                row.state === "missing" || row.state === "optional"
+                  ? name
+                  : "Saved; type to replace"
+              }
+              onChange={(event) =>
+                setValues({ ...values, [key]: event.target.value })
+              }
+            />
+          ))}
+          <Button type="submit" disabled={!filled}>
             Save and check
           </Button>
         </form>
       )}
+      {row.id === "calls_for" && <CallsFor onSaved={check} />}
       {testCall && (
         <Button variant="primary" onClick={() => void testCall()}>
           Test call
@@ -200,6 +230,62 @@ function SetupRow({
         <Button variant="text" onClick={() => void check()}>
           Check again
         </Button>
+      )}
+    </div>
+  );
+}
+
+/** Which HubSpot user this computer calls for: chosen once when the seat is set up, then read-only (D25). */
+function CallsFor({ onSaved }: { onSaved: () => Promise<void> }) {
+  const { api, run } = useWorkspace();
+  const [owners, setOwners] = useState<{ id: string; name: string }[]>([]);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [pick, setPick] = useState("");
+  if (chosen) return null;
+  return (
+    <div className="setup-row-form">
+      {owners.length === 0 ? (
+        <Button
+          onClick={() =>
+            void run(async () => {
+              const found = await api<{
+                owners: { id: string; name: string }[];
+                calls_for: string | null;
+              }>("/v1/hubspot/owners");
+              setOwners(found.owners);
+              setChosen(found.calls_for);
+              setPick(found.owners[0]?.id ?? "");
+            })
+          }
+        >
+          Choose HubSpot user
+        </Button>
+      ) : (
+        <>
+          <select
+            aria-label="Calls for"
+            value={pick}
+            onChange={(e) => setPick(e.target.value)}
+          >
+            {owners.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            disabled={!pick}
+            onClick={() =>
+              void run(async () => {
+                await api("/v1/hubspot/calls-for", "PUT", { owner_id: pick });
+                setChosen(pick);
+                await onSaved();
+              })
+            }
+          >
+            Save
+          </Button>
+        </>
       )}
     </div>
   );
