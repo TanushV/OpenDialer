@@ -19,7 +19,12 @@ def by_key(s, kind, p, key):
     return s.scalar(scoped(kind, p).where(MODELS[kind].external_key == key))
 
 
-NOT_PLACED = {"carrier_not_submitted", "operator_confirmed_not_placed", "unsent_intent_cancelled"}
+NOT_PLACED = {
+    "carrier_not_submitted",
+    "carrier_channel_limit",
+    "operator_confirmed_not_placed",
+    "unsent_intent_cancelled",
+}
 
 
 def account_rate(service, s, p, component, field):

@@ -68,6 +68,11 @@ CATALOG = {
         "A test session dials only your own test line. Turn test sessions off in Settings to call leads.",
         "settings",
     ),
+    "TELNYX_CALL_LIMIT_REACHED": (
+        "Telnyx account call limit reached: other reps are using every line. Calling resumes by itself in a minute. "
+        "If this keeps happening, ask Telnyx support to raise the account's calls-at-once limit.",
+        "dialer",
+    ),
     "REP_AUDIO_NOT_READY": (
         "Connecting your audio. Check your headset or microphone if this stays.",
         "dialer",
@@ -93,6 +98,9 @@ class Facts:
     test_number: str | None = None  # The number to call for the one-time test call.
     pending_optouts: int = 0
     rep_audio_ready: bool | None = None  # None when the question is not being asked (Settings).
+    channel_limited: bool = (
+        False  # Telnyx refused this seat's last dial over the account's channel limit (R9C.4).
+    )
 
 
 def blockers(facts):
@@ -116,6 +124,8 @@ def blockers(facts):
         codes.append(facts.number)
     if facts.pending_optouts:
         codes.append("PENDING_LOCAL_OPTOUTS")
+    if facts.channel_limited:
+        codes.append("TELNYX_CALL_LIMIT_REACHED")
     if facts.rep_audio_ready is False:
         codes.append("REP_AUDIO_NOT_READY")
     return [blocked(code, facts.test_number) for code in sorted(set(codes), key=ORDER.__getitem__)]

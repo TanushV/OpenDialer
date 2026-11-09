@@ -14,6 +14,8 @@ from sqlalchemy import delete, or_, select
 
 from app.calling import audio_leg
 from app.calling.blockers import refuse, test_line_refusal
+from app.calling.carrier_errors import PAUSE_SECONDS as CHANNEL_PAUSE
+from app.calling.carrier_errors import is_channel_limit
 from app.calling.recovery import next_step
 from app.calling.state import TERMINAL, moved, transition
 from app.compliance.phone import normalize_phone
@@ -34,6 +36,13 @@ from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
 from app.scheduling.queue import ReservationPlanner
 
 TEST_LIST = "Test line"
+
+
+def _body(response):
+    try:
+        return response.json()
+    except ValueError:
+        return response.text
 
 
 def dt(value):
@@ -980,8 +989,13 @@ class Service(LeadLists, ReservationPlanner):
             s.refresh(command, with_for_update=True)
             call = self.required(s, "call_attempts", call_id, p)
             if owns_effect(command.data, owner, self.clock()) and command.data["status"] == "sending":
-                unsent = isinstance(exc, CarrierNotSubmitted)
                 rejected = isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500
+                limited = rejected and is_channel_limit(exc.response.status_code, _body(exc.response))
+                # Over the account's channel limit nothing reached the prospect: not counted, and this seat waits.
+                unsent = isinstance(exc, CarrierNotSubmitted) or limited
+                if limited:
+                    until = self.clock() + timedelta(seconds=CHANNEL_PAUSE)
+                    self.configs.write(p["tenant_id"], {"channel_limited_until": until.isoformat()})
                 update(
                     command,
                     status="failed" if rejected or unsent else "uncertain",
@@ -994,7 +1008,9 @@ class Service(LeadLists, ReservationPlanner):
                     lead = self.required(s, "leads", call.data["lead_id"], p)
                     if lead.data.get("attempt_count") == call.data.get("attempt_ordinal"):
                         update(lead, **command.data.get("prior_attempt", {}))
-                    self.finish_call(s, p, call, "carrier_not_submitted")
+                    self.finish_call(
+                        s, p, call, "carrier_channel_limit" if limited else "carrier_not_submitted"
+                    )
                 elif rejected:
                     self.finish_call(s, p, call, "provider_rejected")
                 elif call.data["state"] == "DIALING" and not call.data.get("provider_id"):

@@ -110,3 +110,41 @@ def test_a_lost_microphone_names_itself_and_calling_returns_with_it(workspace, a
     assert blockers(workspace) == ["REP_AUDIO_NOT_READY"]
     ready(workspace)
     assert blockers(workspace) == []
+
+
+def test_a_telnyx_channel_limit_refusal_pauses_only_this_seat_and_is_not_counted(
+    workspace, app, carrier, clock, monkeypatch
+):
+    """R9C.4: over the account's calls-at-once limit, the dial is refused; this seat waits a minute with a named
+    blocker, the lead keeps its attempt, and calling resumes by itself."""
+    from app.calling.carrier_errors import is_channel_limit
+
+    async def limited(*args, **kwargs):
+        request = httpx.Request("POST", "https://api.telnyx.com/v2/calls")
+        body = {
+            "errors": [
+                {
+                    "code": "90041",
+                    "title": "Channel limit exceeded",
+                    "detail": "Concurrent call limit reached",
+                }
+            ]
+        }
+        response = httpx.Response(403, json=body, request=request)
+        raise httpx.HTTPStatusError("refused", request=request, response=response)
+
+    monkeypatch.setattr(carrier, "dial", limited)
+    call = start(workspace, "limit-dial").json()
+    current = workspace["client"].get(f"/v1/calls/{call['id']}", headers=workspace["headers"]).json()
+    assert current["state"] in {"ENDED", "FINALIZED"}
+    assert "TELNYX_CALL_LIMIT_REACHED" in blockers(workspace)
+    lead = (
+        workspace["client"]
+        .get(f"/v1/leads/{call['lead_id']}/packet", headers=workspace["headers"])
+        .json()["lead"]
+    )
+    assert lead["attempt_count"] == 0, "nothing reached the prospect, so the attempt is not counted"
+    clock.now += timedelta(seconds=61)
+    assert "TELNYX_CALL_LIMIT_REACHED" not in blockers(workspace)
+    assert not is_channel_limit(403, {"errors": [{"title": "Invalid caller ID"}]})
+    assert not is_channel_limit(503, "channel limit")
