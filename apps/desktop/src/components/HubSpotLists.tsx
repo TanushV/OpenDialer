@@ -49,6 +49,13 @@ export function HubSpotLists({ onSynced }: { onSynced: () => Promise<void> }) {
           >
             Choose a HubSpot list
           </Button>
+        ) : lists.length === 0 ? (
+          <p className="hint" role="status">
+            Your HubSpot has no contact lists yet. In HubSpot, open Contacts,
+            then Lists, then Create list. Add the contacts you want to call,
+            then come back and choose it here.{" "}
+            <Button onClick={() => setLists(null)}>Check again</Button>
+          </p>
         ) : (
           <>
             <Field label="HubSpot list">

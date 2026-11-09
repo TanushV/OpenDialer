@@ -198,3 +198,24 @@ async def test_setup_creates_its_properties_once():
 
     created = await hubspot(respond).ensure_properties()
     assert "phone_status" not in made and "opendialer_call_id" in made and len(created) == len(made)
+
+
+async def test_logging_a_call_already_in_hubspot_finds_it_instead_of_failing():
+    """Live, November 9: HubSpot refuses a second record with the same opendialer_call_id (HTTP 400)."""
+    created = []
+
+    def respond(request):
+        if request.url.path.endswith("/search"):
+            return httpx.Response(200, json={"results": [{"id": "hs-1"}] if created else []})
+        if created:
+            return httpx.Response(400, json={"category": "VALIDATION_ERROR", "message": "duplicate value"})
+        created.append(json.loads(request.content))
+        return httpx.Response(201, json={"id": "hs-1"})
+
+    record = crm_log.CallRecord(
+        "call-2", "501", "no_answer", "2026-11-09T11:55:00Z", 12_000, "+14155550100", "+16175550100"
+    )
+    hs = hubspot(respond)
+    assert await crm_log.log_call(hs, record, {"no_answer": "d-na"}) == "hs-1"
+    assert await crm_log.log_call(hs, record, {"no_answer": "d-na"}) == "hs-1"
+    assert len(created) == 1

@@ -84,11 +84,24 @@ def properties(record, disposition_id):
 
 async def log_call(hubspot, record, dispositions_map, *, uncertain=False):
     """Write one call record; a retry after an uncertain write finds the first one instead. Returns its HubSpot id."""
+    from app.providers.hubspot import HubSpotError
+
     if uncertain:
         existing = await hubspot.find_call(record.call_id)
         if existing:
             return existing
-    return await hubspot.create_call(properties(record, dispositions_map[record.outcome]), record.contact_id)
+    try:
+        return await hubspot.create_call(
+            properties(record, dispositions_map[record.outcome]), record.contact_id
+        )
+    except HubSpotError as error:
+        # The app's call id is unique in HubSpot, so a record already there is refused; any retry finds it.
+        if error.status not in (400, 409):
+            raise
+        existing = await hubspot.find_call(record.call_id)
+        if not existing:
+            raise
+        return existing
 
 
 async def add_summary(hubspot, hubspot_call_id, summary):
