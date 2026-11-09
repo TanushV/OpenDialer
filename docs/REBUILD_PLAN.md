@@ -9,7 +9,7 @@ It supersedes the "every feature stays" and "both modes" rules of [LEAN_PLAN.md]
 
 ## 1. TLDR
 
-- Make OpenDialer a small, single-user Mac dialer that is simple enough for bugs to show up in the code and tests.
+- Make OpenDialer a small, single-user dialer for Mac and Windows that is simple enough for bugs to show up in the code and tests.
 - A team calls as seats: one rep, one Mac, one copy of the app. HubSpot's contact owner decides who calls whom, the relay
   shares one number pool across seats and routes callbacks to the rep who called, and there is no shared server (D25, D26).
 - Keep the working integrations: Telnyx, speech, ChatGPT agent, relay and signed releases.
@@ -21,8 +21,8 @@ It supersedes the "every feature stays" and "both modes" rules of [LEAN_PLAN.md]
   app; CSV leads are taken as they are.
 - Build everything on `main`, with one worker in one thread. A local check loop gives answers in seconds while working and
   must pass in full before every push; GitHub CI confirms on a clean machine (section 12A).
-- Estimate: backend 39,300 to about 17,100 lines, frontend 22,100 to about 6,600 lines, 22 to 28.5 working days, plus
-  about 6 owner sittings of 30 to 60 minutes.
+- Estimate: backend 39,300 to about 17,100 lines, frontend 22,100 to about 6,600 lines, 25 to 33.5 working days, plus
+  about 7 owner sittings of 30 to 60 minutes.
 
 **What this plan can and cannot promise.** Failure-proof is not possible, because Telnyx, the network and the Mac can
 always fail. Failure-resistant is possible: a failure stays contained, says what happened, recovers by itself where it
@@ -33,7 +33,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | # | Decision | Status |
 |---|---|---|
 | D1 | Remove hosted mode, PostgreSQL, teams and roles. One user, one Mac, one SQLite file. A team is several such Macs (D25). | Approved; clarified November 8 |
-| D2 | Mac only. The Windows build and its release path go. | Approved default |
+| D2 | Mac and Windows. The Windows build came out in R2.1 and returns in Phase 9D, after the calling core is settled on Mac, with the same features, seats and pool. One SQLite file per computer on either system. | Owner decision, November 8; replaces "Mac only" |
 | D3 | StatML stays and must actually learn. Repair it rather than cut it. | Owner decision |
 | D4 | Coaching goes. The live helper stays, plus one AI after-call summary with a suggested outcome, because follow-up scripts read that summary. | Owner decision; the summary is an assumption the owner may veto |
 | D5 | Auto-dial replaces manual-only dialing. One call at a time, with the rep present. | Owner decision; see risk R1 |
@@ -86,6 +86,10 @@ Open owner inputs:
 - [ ] Research route on rep seats: each rep signs in to their own ChatGPT on their Mac, or rep seats use the OpenRouter
       fallback as their primary route (section 9C).
 - [ ] A second phone, or a second person, for the two-seat live check L22.
+- [ ] A Windows PC for L25 to L27, and the Windows signing route: Azure Trusted Signing (monthly fee, needs a business
+      identity check) or an OV code-signing certificate (R9D.4).
+- [ ] Number pool size for 3,000 dials a week: 15 local numbers (12 at the 50-a-day ceiling plus 3 spare), bought in
+      the target area codes; full volume after about 6 business days of ramp (section 9C).
 
 ## 3. Audit evidence
 
@@ -555,7 +559,7 @@ How several reps call at once (D25, D26). There is no shared server and no in-ap
 
 | Shared by every seat | Per seat |
 |---|---|
-| One Telnyx account (Verified), one outbound voice profile, one bill | A Telnyx API key named for the rep, so one can be revoked alone |
+| One Telnyx account (Verified), one outbound voice profile, one credential connection holding every rep's credential, one bill | A Telnyx API key named for the rep, so one can be revoked alone |
 | The number pool, on one shared incoming route | A Call Control application with a channel cap of 2 (one call) |
 | One HubSpot account and Service Key | A telephony credential for the rep's audio; Telnyx sends calls only to the last device registered on a credential |
 | One Treg token (its daily cap limits total spend) and one RealValidito key | A relay workspace and its private setup file |
@@ -582,6 +586,11 @@ section 5. CSV leads have no shared record, which is why a CSV file stays on one
   within 30 days. If that seat is offline or on a call, the caller reaches voicemail and that seat gets a missed-call task.
   A callback from someone no seat has called goes to the owner's seat.
 - Number health is counted per number across the team, so the pool's health comes from everyone's calls.
+
+**Pool size.** The ramp in `NUMBER_CONNECT_PLAN.md` ends at 50 attempts per number per day, under the 75 to 100 that
+dialer vendors cite. 3,000 dials a week is 600 a business day, so 12 numbers at the ceiling, plus 3 spare for
+resting or flagged numbers: 15. While new numbers ramp (15, then 25, then 40 a day), the pool gives about 225, 375 and
+600 a day, so full volume arrives after about 6 business days. Add numbers by 1 per 50 daily dials.
 
 **Concurrency.** Each live call is expected to use 2 channels, the prospect and the rep's leg; L22 measures it. Verified
 gives 10, enough for 5 reps at once. Beyond that, ask Telnyx support. A channel-limit refusal pauses only that seat, with
@@ -635,6 +644,9 @@ Line: **203-821-1101**, the owner's own phone.
 | L22 | Two seats call two test phones at once | Both calls have audio both ways; neither seat sees the other's contact; the channels one call uses are recorded |
 | L23 | A seat dials from a pool number that is not on its own application | The test phone shows the pool number; if Telnyx refuses it, D26 is reversed |
 | L24 | Call the pool number back from the test phone | It rings the seat that called; with that seat paused it reaches voicemail and makes a task there |
+| L25 | Install the signed Windows build on a clean PC and set up a seat | Setup, keys and blockers match the Mac |
+| L26 | Windows seat calls 203-821-1101 while a Mac seat calls the second phone | Audio both ways on both; separate pool numbers; no shared contact |
+| L27 | Update the Windows seat, then roll back | Workspace data, keys and call history are kept |
 
 Each session records a receipt under `docs/evidence/rebuild/`: scenario, version, pass or fail, timing and notes. It also
 answers whether the hourly carrier cap applies and whether the automated notice plays.
@@ -763,8 +775,9 @@ Real numbers are known at the end of Phase 3.
 | 9 | Research, intake, number check and fallback | 3 to 4 |
 | 9B | HubSpot, in-app waterfall and do-not-call | 2 to 3 |
 | 9C | Seats and the shared number pool | 2.5 to 3.5 |
+| 9D | Windows build, signing and updater | 3 to 5 |
 | 10 | Helper, summary, remaining pages, docs, 2.0 | 1.5 to 2 |
-| | **Total** | **22 to 28.5** |
+| | **Total** | **25 to 33.5** |
 
 Basis: this repo's own history, including 58,000 lines removed on October 22 and 8 lean-plan steps in about 2 days. Phase
 4 is the least predictable, because each live failure adds time. The intake and HubSpot days are a rougher estimate than
@@ -1360,6 +1373,25 @@ phone.
 Done when: the tests pass, L21 to L24 pass, and a forced relay outage stops dialing on every seat with a named blocker
 and never lets two seats call one contact. **Owner sitting 5.**
 
+### Phase 9D: Windows
+
+Goal: the same app on Windows, signed and self-updating, so a seat can be a Windows PC (D2). Built after Phase 9C so the
+calling core, seats and pool are settled first; the Windows work is packaging and the few system-specific pieces.
+
+- [ ] R9D.1 CI: a `windows-latest` job runs the backend tests, freezes the sidecar, runs `scripts/trainer_check.py`
+      against it and builds the desktop app; `check.py full` stays the Mac gate and CI is the Windows gate.
+- [ ] R9D.2 System-specific pieces, each behind one small function with a test: keep-awake (`caffeinate` on Mac,
+      `SetThreadExecutionState` on Windows, G8), the app data and private key file paths and their permissions,
+      microphone permission prompts, and sidecar start and stop.
+- [ ] R9D.3 Browser suite and layout audit also in Chromium, which is what Windows' WebView2 uses; the Mac stays WebKit.
+- [ ] R9D.4 Signing: Windows code signing (Azure Trusted Signing or an OV certificate; owner input) in `release.yml`.
+- [ ] R9D.5 Signed updater for Windows; `release_manifest.py` requires both systems' artifacts again. Carry the known
+      update-harness lessons: Restart Manager stopping the sidecar, read-only files during replace.
+- [ ] R9D.6 Live L25 to L27 on a Windows PC: install, test call with audio both ways, a Windows seat beside a Mac seat
+      from the shared pool, then update and rollback with workspace data kept.
+
+Done when: CI is green on both systems, L25 to L27 pass, and a signed Windows build updates itself. **Owner sitting 6.**
+
 ### Phase 10: helper, summary, remaining pages and release
 
 Goal: finish the remaining surface and ship.
@@ -1384,11 +1416,11 @@ Pages:
 Docs and release:
 
 - [ ] R10.11 Rewrite README, GETTING_STARTED and ARCHITECTURE; move finished plans to `docs/history/`; simplify `AGENTS.md`.
-- [ ] R10.12 Full live matrix L1 to L19 and L21 to L24, plus L20 if Nooks is in use.
+- [ ] R10.12 Full live matrix L1 to L19 and L21 to L24 on Mac, L25 to L27 on Windows, plus L20 if Nooks is in use.
 - [ ] R10.13 Signed 2.0 through the gated release, on the owner's OK; verify installed data, version, signatures and rollback.
 - [ ] R10.14 Confirm CI matches the "after the rebuild" table in section 12A and tag `v2.0.0`.
 
-Done when: every live check passes and the owner signs off. **Owner sitting 6.**
+Done when: every live check passes on Mac and Windows and the owner signs off. **Owner sitting 7.**
 
 ## 14. Risks
 
@@ -1416,7 +1448,6 @@ Done when: every live check passes and the owner signs off. **Owner sitting 6.**
 ## 15. What stays out of scope
 
 - A shared server, hosted serving, in-app logins, roles and team permissions. A team is seats (D25).
-- Windows.
 - Paid Telnyx Number Reputation.
 - Claims of connect-rate or conversion lift without real measurement.
 - Buying numbers, placing billable calls outside the test protocol, or installing on this Mac without an explicit OK.
@@ -1503,3 +1534,6 @@ Done when: every live check passes and the owner signs off. **Owner sitting 6.**
   Verified, every check met including KYC. Estimate now 22 to 28.5 days. Plan text only. Not yet pushed: `ca1eebb`
   (R8.4) and `bc06452` (R8.10). Uncommitted: `leads/intake.py` and `prep/criteria.py` with their tests in the
   scratchpad. Next: push, then Phase 9, R9.1.
+- November 8, 2026 (later): owner brought Windows back (D2 now Mac and Windows) with seats and the pool unchanged; Phase
+  9D and live checks L25 to L27 added; pool sized at 15 numbers for 3,000 dials a week. Estimate 25 to 33.5 days. Plan
+  text only. Next: push, then Phase 9, R9.1.

@@ -1,6 +1,6 @@
 # Working agreement
 
-**The active plan is `docs/REBUILD_PLAN.md` (owner approved November 6, 2026).** Read it in full on every continuation or context compaction, including its Status section, which is the current checkpoint. Where it conflicts with anything below or with an older plan, it wins. Hosted mode, PostgreSQL and Windows were removed in its Phase 2 (R2.1): the app is one Mac and one SQLite file.
+**The active plan is `docs/REBUILD_PLAN.md` (owner approved November 6, 2026).** Read it in full on every continuation or context compaction, including its Status section, which is the current checkpoint. Where it conflicts with anything below or with an older plan, it wins. Hosted mode and PostgreSQL were removed in its Phase 2 (R2.1). Windows was removed there too and returns in Phase 9D (D2, November 8): the app is one computer and one SQLite file per rep, on Mac or Windows.
 
 **Build rules (section 12A of that plan).** One worker, in one thread: no subagents, Workflow runs, parallel sessions, worktrees or concurrent writers. Commit directly to `main` with no feature branches, and start no new work while `main`'s CI is red. Once Phase 0 step R0.0 adds it, iterate with `uv run python scripts/check.py` (fast tier) and run `scripts/check.py full` before every push; never push a failing full check. CI changes in the same phase as the code it covers.
 
