@@ -156,3 +156,55 @@ def test_every_blocker_has_a_way_out_and_claims_to_clear_itself_only_when_it_doe
         assert way_out.by_itself_within is None or way_out.by_itself_within <= 120, code
         if "by itself" in CATALOG[code][0]:
             assert way_out.by_itself_within, f"{code} says it clears by itself but nothing clears it"
+
+
+def test_every_combination_of_facts_names_blockers_that_each_have_a_way_out():
+    """R9E.2: all combinations, not samples. Anything wrong yields a blocker; each has an exit; all fine yields none."""
+    from itertools import product
+
+    from app.calling.blockers import EXITS, Facts, blockers
+
+    flags = {
+        "integrity_ok": [True, False],
+        "restore_hold": [False, True],
+        "telnyx_configured": [True, False],
+        "signature_key": [True, False],
+        "audio_setup": [True, False],
+        "connection": [
+            None,
+            "CONNECTION_RECONNECTING",
+            "CONNECTION_DELIVERY_GAP",
+            "CONNECTION_SIGN_IN_REQUIRED",
+        ],
+        "campaign": [True, False],
+        "number": [None, "NO_CALLER_NUMBER", "CALLER_NUMBER_PAUSED"],
+        "pending_optouts": [0, 2],
+        "rep_audio_ready": [None, True, False],
+        "channel_limited": [False, True],
+        "pool": [None, "NUMBER_POOL_EMPTY"],
+    }
+    checked = 0
+    for values in product(*flags.values()):
+        facts = Facts(**dict(zip(flags, values, strict=True)))
+        found = blockers(facts)
+        bad = (
+            not facts.integrity_ok
+            or facts.restore_hold
+            or not facts.telnyx_configured
+            or not facts.signature_key
+            or not facts.audio_setup
+            or facts.connection
+            or not facts.campaign
+            or facts.number
+            or facts.pending_optouts
+            or facts.rep_audio_ready is False
+            or facts.channel_limited
+            or facts.pool
+        )
+        assert bool(found) == bool(bad), facts
+        assert len({b.code for b in found}) == len(found), "a blocker is listed twice"
+        for b in found:
+            assert EXITS[b.code].by_itself_within or EXITS[b.code].control
+            assert b.message and b.fix
+        checked += 1
+    assert checked > 10_000
