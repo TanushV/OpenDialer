@@ -103,3 +103,12 @@ def test_rule_lines_are_checked():
     assert [e["line"] for e in errors] == [4, 5]
     assert parse_rules([(2, "- a: One (0 days, A)")])[1][0]["message"] == "A trigger window is 1 to 730 days"
     assert parse_rules([])[1][0]["line"] == 0
+
+
+def test_the_script_editor_offers_the_same_default_trigger_list():
+    import re
+    from pathlib import Path
+
+    editor = Path(__file__).resolve().parents[3] / "apps/desktop/src/components/ScriptEditor.tsx"
+    offered = re.search(r"export const TRIGGERS = `(.*?)`;", editor.read_text(), re.S)
+    assert offered and offered[1] == default_section()

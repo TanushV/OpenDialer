@@ -1,4 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+
+/** The default `# Triggers` section (section 9). Research may only claim these, inside each window; edit to taste. */
+export const TRIGGERS = `# Triggers
+> Why to call now. The agent may only claim these, inside each window.
+- hiring_sellers: Hiring AEs, SDRs or BDRs (90 days, A)
+- new_sales_leader: New sales leader (180 days, A)
+- new_funding: New funding (180 days, B)
+- expansion: Expansion or new market (180 days, B)
+- leaner_team: Layoffs or a leaner team (180 days, B)`;
 import { Check, FileUp, Sparkles } from "lucide-react";
 import { isAdmin, useWorkspace } from "../context";
 import type { ScriptError, ScriptTemplate } from "../types";
@@ -284,6 +293,17 @@ export function ScriptEditor() {
               }}
             />
           </label>
+          {!/^#\s+triggers\s*$/im.test(text) && (
+            <button
+              className="secondary"
+              onClick={() => {
+                edited.current = true;
+                setText(`${text.trimEnd()}\n\n${TRIGGERS}`);
+              }}
+            >
+              Add trigger list
+            </button>
+          )}
           <button
             className="primary"
             disabled={
@@ -324,9 +344,11 @@ export function ScriptEditor() {
             Start with <code># Opening</code> and <code># Close</code>. Add{" "}
             <code># Pitch</code>, <code># Discovery</code>, <code># Goal</code>,{" "}
             <code># Instructions</code> and <code># Preparation</code> as
-            useful. Screening has an identity default; <code># Gatekeeper</code>
-            , <code># Offers</code>, <code># Objections</code>,{" "}
-            <code># Facts</code> and <code># Never say</code> are optional.
+            useful. <code># Triggers</code> lists why-now reasons research may
+            claim, each as <code>- Label (90 days, A)</code>. Screening has an
+            identity default; <code># Gatekeeper</code>, <code># Offers</code>,{" "}
+            <code># Objections</code>, <code># Facts</code> and{" "}
+            <code># Never say</code> are optional.
           </li>
           <li>
             Use <code>##</code> for named options and objections. Prefix rep
