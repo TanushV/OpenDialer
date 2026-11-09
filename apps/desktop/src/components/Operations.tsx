@@ -21,7 +21,13 @@ import { ColumnMap, type ColumnMapping } from "./ColumnMap";
 import { HubSpotLists } from "./HubSpotLists";
 import type { Lead, NumberRecord, Packet } from "../types";
 import { ProspectBrief } from "./ProspectBrief";
-import { BulkLeadActions, leadLists, listLabel, useLists } from "./LeadLists";
+import {
+  BulkLeadActions,
+  ListsPage,
+  leadLists,
+  listLabel,
+  useLists,
+} from "./LeadLists";
 import { PreparationPanel } from "./PreparationPanel";
 import { ScriptEditor } from "./ScriptEditor";
 import { TokenUsage } from "./TokenUsage";
@@ -81,7 +87,16 @@ export function LeadsPage({
           </p>
         </div>
       </div>
-      <section className="card table-card">
+      {admin && (
+        <ListsPage
+          embedded
+          onChanged={async () => {
+            await history.load(false, query, leadView);
+            await lists.reload();
+          }}
+        />
+      )}
+      <section className="card table-card" aria-label="Leads">
         <div className="leads-toolbar">
           <h3>{history.totalLabel ?? w.leads.length} leads</h3>
           <select

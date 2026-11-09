@@ -53,7 +53,14 @@ export function useLists(names: string[] | null = null) {
   return state;
 }
 
-export function ListsPage() {
+/** The lists table. On the Leads page it sits above the leads (R10.6); `onChanged` reloads the leads below. */
+export function ListsPage({
+  embedded = false,
+  onChanged,
+}: {
+  embedded?: boolean;
+  onChanged?: () => Promise<void>;
+}) {
   const { api, run, refresh, snapshot: w, notice } = useWorkspace();
   const lists = useLists();
   const [names, setNames] = useState<Record<string, string>>({});
@@ -70,6 +77,7 @@ export function ListsPage() {
     });
     await lists.reload();
     await refresh();
+    await onChanged?.();
     notice(
       action === "archive"
         ? "List removed from active views and dialing. Restore it using Show removed lists. Contacts in other active lists remain."
@@ -80,18 +88,20 @@ export function ListsPage() {
   }
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Lists</h1>
-          <p>
-            Remove a whole list here, or choose which lists to call in Dialer.
-            Removed lists can be restored with their history.
-          </p>
+      {!embedded && (
+        <div className="page-heading">
+          <div>
+            <h1>Lists</h1>
+            <p>
+              Remove a whole list here, or choose which lists to call in Dialer.
+              Removed lists can be restored with their history.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
       <section className="card table-card" aria-label="Lead lists">
         <div className="table-toolbar">
-          <h3>Imported lists</h3>
+          <h3>Your lists</h3>
           <button onClick={() => void run(lists.reload)}>Refresh lists</button>
         </div>
         <label className="check">

@@ -26,8 +26,13 @@ async function add(page: Page, list: string, csv: string) {
   await waitForPreparation(page);
   await expect(row(page, csv.split("\n")[1].split(",")[0])).toBeVisible();
 }
+// Lists and leads share the Leads page (R10.6): a list name is looked up in the lists table, a person in the leads.
+const LISTS = new Set(["Remove source 101", "Keep source 101"]);
 const row = (page: Page, name: string) =>
-  page.getByRole("row").filter({ has: page.getByText(name, { exact: true }) });
+  page
+    .getByRole("region", { name: LISTS.has(name) ? "Lead lists" : "Leads" })
+    .getByRole("row")
+    .filter({ has: page.getByText(name, { exact: true }) });
 
 test("remove and restore a whole list while shared contacts stay active", async ({
   page,
@@ -43,7 +48,7 @@ test("remove and restore a whole list while shared contacts stay active", async 
     "Keep source 101",
     "name,phone,timezone\nShared removal,+14155550622,America/Los_Angeles",
   );
-  await page.getByRole("button", { name: "Lists", exact: true }).click();
+  await page.getByRole("button", { name: "Leads", exact: true }).click();
   await row(page, "Remove source 101")
     .getByRole("button", { name: "Remove list", exact: true })
     .click();
@@ -54,7 +59,7 @@ test("remove and restore a whole list while shared contacts stay active", async 
   await page.getByLabel("Lead view", { exact: true }).selectOption("removed");
   await expect(row(page, "Unique removal")).toBeVisible();
   await expect(row(page, "Shared removal")).toBeHidden();
-  await page.getByRole("button", { name: "Lists", exact: true }).click();
+  await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page.getByLabel("Show removed lists", { exact: true }).check();
   await row(page, "Remove source 101")
     .getByRole("button", { name: "Restore list", exact: true })

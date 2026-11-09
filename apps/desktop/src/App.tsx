@@ -40,7 +40,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Dialer } from "./calling/Dialer";
 import { LiveConnection, type LiveEvent } from "./api/live";
-import { ListsPage } from "./components/LeadLists";
 import { ScriptPage, LeadsPage, NumbersPage } from "./components/Operations";
 import { ReviewPage } from "./components/ReviewPage";
 import { SettingsPage } from "./components/SettingsPage";
@@ -66,7 +65,6 @@ const EVENT_REFRESH_MS = 500;
 const navigation = [
   { title: "Dialer", icon: Phone, admin: false },
   { title: "Leads", icon: Users, admin: false },
-  { title: "Lists", icon: Users, admin: false },
   { title: "Review", icon: BookOpen, admin: false },
   { title: "Numbers", icon: Radio, admin: true },
   { title: "Script", icon: FileText, admin: false },
@@ -797,9 +795,7 @@ export function App() {
             <div hidden={view !== "Dialer"}>
               <Dialer visible={view === "Dialer"} />
             </div>
-            {view === "Dialer" ? null : view === "Lists" ? (
-              <ListsPage />
-            ) : view === "Leads" ? (
+            {view === "Dialer" ? null : view === "Leads" || view === "Lists" ? (
               <LeadsPage onNavigate={setView} />
             ) : view === "Review" ? (
               <ReviewPage onNavigate={(page) => setView(page as View)} />

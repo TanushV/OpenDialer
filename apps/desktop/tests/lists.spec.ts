@@ -30,8 +30,9 @@ test("manage lists and archive/restore selected leads without losing records", a
 }) => {
   await enter(page);
   await add(page, "Managed list 091", "+14155550961");
-  await page.getByRole("button", { name: "Lists", exact: true }).click();
+  await page.getByRole("button", { name: "Leads", exact: true }).click();
   const list = page
+    .getByRole("region", { name: "Lead lists" })
     .getByRole("row")
     .filter({ has: page.getByText("Managed list 091", { exact: true }) });
   await expect(list).toBeVisible();
@@ -52,9 +53,12 @@ test("manage lists and archive/restore selected leads without losing records", a
   await page
     .getByRole("button", { name: "Apply to selected leads", exact: true })
     .click();
-  const contact = page.getByRole("row").filter({
-    has: page.getByText("Managed list 091", { exact: true }),
-  });
+  const contact = page
+    .getByRole("region", { name: "Leads" })
+    .getByRole("row")
+    .filter({
+      has: page.getByText("Managed list 091", { exact: true }),
+    });
   await expect(contact).toBeHidden();
   await page.getByLabel("Lead view", { exact: true }).selectOption("removed");
   await expect(contact.getByText("Removed", { exact: true })).toBeVisible();
