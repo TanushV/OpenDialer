@@ -7,8 +7,11 @@ attached lead has an accepted script or a skip.
 
 import json
 import re
+from datetime import date
 from urllib.parse import urlsplit
 
+from app.leads.intake import signal_urls
+from app.prep.criteria import DEFAULT_RULES, check_trigger, none_record
 from app.preparation.templates import TOKEN, check_submission
 
 MAX_FACTS = 12
@@ -57,12 +60,36 @@ TOOLS = [
     },
     {
         "name": "finish_research",
-        "description": "Close research for one lead, with a short summary. Allowed with no facts when nothing usable was found.",
+        "description": "Close research for one lead: a short summary, the trigger (why to call now) and one spoken bridge "
+        "line. The trigger type must be on the triggers list and its date inside that type's window, or use type none. "
+        "evidence page needs the page URL and an exact quote that names the company; row_only is for a signal in the "
+        "lead's row whose page cannot be read, and is capped at strength C. The app checks all of this.",
         "schema": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["lead", "summary"],
-            "properties": {"lead": {"type": "string"}, "summary": {"type": "string"}},
+            "required": ["lead", "summary", "trigger", "bridge"],
+            "properties": {
+                "lead": {"type": "string"},
+                "summary": {"type": "string"},
+                "trigger": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["type", "date", "source_url", "quote", "evidence"],
+                    "properties": {
+                        "type": {"type": "string"},
+                        "date": {"type": ["string", "null"]},
+                        "source_url": {"type": ["string", "null"]},
+                        "quote": {"type": ["string", "null"]},
+                        "evidence": {"type": ["string", "null"], "enum": ["page", "row_only", None]},
+                    },
+                },
+                "bridge": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["text"],
+                    "properties": {"text": {"type": "string"}},
+                },
+            },
         },
     },
     {
@@ -116,9 +143,12 @@ TOOLS = [
 
 INSTRUCTIONS = """You prepare sales calls for one business. You get a group of leads, each with its full imported row.
 Work in two phases for every lead.
-1. Research: use web search to learn about the lead and their company: what they do, size, locations, recent news,
-   anything that makes the call relevant. Read the pages you cite. Save useful facts with save_facts, each with the
-   page URL and an exact quote copied from that page. Then call finish_research for that lead.
+1. Research: first open the signal links in the lead's row (signals), then use web search to learn about the lead
+   and their company. Read the pages you cite. Save useful facts with save_facts, each with the page URL and an exact
+   quote copied from that page. Decide the trigger: the strongest reason to call now that is on the triggers list and
+   inside its window, or none. Then call finish_research with the summary, the trigger and one bridge line: a short,
+   natural spoken sentence linking the trigger (or what you learned) to the call. The bridge is labeled as your
+   inference, so it may interpret, but it must not contradict the facts.
 2. Script writing: pick the best options for this lead in every section that has options and write the text for each
    {{ }} block in the options you picked, following that block's instruction. Every written text cites the fact ids it
    relies on (saved fact ids, or row:<column> for the lead's row). Submit with submit_script.
@@ -152,6 +182,14 @@ def identity_terms(lead):
     return terms
 
 
+def about_lead(lead, url, text):
+    """Whether a page (its normalized text) names this lead or their company, or is the company's own site."""
+    host = (urlsplit(url).hostname or "").casefold().removeprefix("www.")
+    domain = (lead.get("domain") or lead["row"].get("domain") or "").casefold().removeprefix("www.")
+    present = words(text)
+    return any(t <= present for t in identity_terms(lead["row"] | lead)) or bool(domain and host == domain)
+
+
 def script_outline(template):
     """What the agent sees: sections, option ids and texts, and every block's instruction."""
     instructions = {block["id"]: block["instruction"] for block in template["blocks"]}
@@ -179,17 +217,29 @@ def script_outline(template):
 class ThreadWork:
     """The tool handler and close-out state for one thread of leads."""
 
-    def __init__(self, leads, template, fetch_page):
+    def __init__(self, leads, template, fetch_page, today=None):
         self.leads = {f"lead-{i}": lead for i, lead in enumerate(leads, 1)}
         self.aliases = {lead["id"]: alias for alias, lead in self.leads.items()}
         self.template, self.fetch_page = template, fetch_page
+        self.rules = list(template.get("triggers") or DEFAULT_RULES)
+        self.today = today or date.today()
         self.facts = {alias: {} for alias in self.leads}
         self.pages, self.researched, self.done, self.skipped = {}, {}, {}, {}
+        self.triggers = {}
         self.tool_calls, self.rejections = 0, 0
 
     def context(self, memory=None):
         return {
-            "leads": [{"lead": alias, "row": lead["row"]} for alias, lead in self.leads.items()],
+            "leads": [
+                {
+                    "lead": alias,
+                    "row": lead["row"],
+                    "signals": lead.get("signals") or {"aligned": True, "items": []},
+                }
+                for alias, lead in self.leads.items()
+            ],
+            "triggers": self.rules,
+            "today": self.today.isoformat(),
             "script": script_outline(self.template),
             "facts": self.template.get("facts", []),
             "never_say": self.template.get("never_say", []),
@@ -247,13 +297,7 @@ class ThreadWork:
             if len(self.facts[alias]) >= MAX_FACTS:
                 errors.append(f"{label}: at most {MAX_FACTS} facts per lead")
                 break
-            page = self.pages.get(url)
-            if page is None:
-                try:
-                    page = await self.fetch_page(url)
-                except Exception as exc:
-                    page = {"error": type(exc).__name__}
-                self.pages[url] = page
+            page = await self._page(url)
             if page.get("error"):
                 errors.append(
                     f"{label}: the page could not be read ({page['error']}); cite a page that loads"
@@ -263,10 +307,7 @@ class ThreadWork:
             if norm(quote) not in text:
                 errors.append(f"{label}: the quote is not on {url}; copy it exactly")
                 continue
-            terms, host = identity_terms(lead["row"] | lead), (parsed.hostname or "").casefold()
-            domain = (lead.get("domain") or lead["row"].get("domain") or "").casefold().removeprefix("www.")
-            present = words(text)
-            if not (any(t <= present for t in terms) or (domain and host.removeprefix("www.") == domain)):
+            if not about_lead(lead, url, text):
                 errors.append(f"{label}: {url} does not name this lead or their company")
                 continue
             identity = f"{alias}/f{len(self.facts[alias]) + 1}"
@@ -279,11 +320,41 @@ class ThreadWork:
             saved.append(identity)
         return {"ok": not errors, "saved": saved, "errors": errors}
 
+    async def _page(self, url):
+        page = self.pages.get(url)
+        if page is None:
+            try:
+                page = await self.fetch_page(url)
+            except Exception as exc:
+                page = {"error": type(exc).__name__}
+            self.pages[url] = page
+        return page
+
     async def _finish_research(self, args):
         try:
             alias = self._lead(args)
         except ValueError as exc:
             return {"ok": False, "errors": [str(exc)]}
+        lead = self.leads[alias]
+        claim = {"trigger": args.get("trigger") or {}, "bridge": args.get("bridge")}
+        url = str(claim["trigger"].get("source_url") or "").strip()
+        page_text, names_lead = None, False
+        if claim["trigger"].get("evidence") == "page" and url.startswith(("http://", "https://")):
+            page = await self._page(url)
+            if not page.get("error"):
+                page_text = page.get("title", "") + " " + page["text"]
+                names_lead = about_lead(lead, url, norm(page_text))
+        record, errors = check_trigger(
+            claim,
+            self.rules,
+            today=self.today,
+            row_urls=signal_urls(lead.get("signals") or {}),
+            page_text=page_text,
+            names_lead=names_lead,
+        )
+        if errors:
+            return {"ok": False, "errors": errors}
+        self.triggers[alias] = record
         self.researched[alias] = (args.get("summary") or "").strip()[:600]
         return {
             "ok": True,
@@ -354,7 +425,15 @@ class SimulatedAgent:
                     ],
                 },
             )
-            await handler("finish_research", {"lead": alias, "summary": "Simulated research."})
+            await handler(
+                "finish_research",
+                {
+                    "lead": alias,
+                    "summary": "Simulated research.",
+                    "trigger": none_record()["trigger"] | {"type": "none"},
+                    "bridge": {"text": f"I looked at what {company} does before calling."},
+                },
+            )
             picks, written = [], []
             for section in context["script"]:
                 ids = [option["id"] for option in section["options"]]

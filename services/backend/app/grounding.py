@@ -25,6 +25,8 @@ that something never happened. Ratings require the stated rubric anchor and actu
 Use UNCERTAIN for ambiguity or insufficient context, CONTRADICTED for a conflicting assertion,
 and UNSUPPORTED for an invented assertion. NON_FACTUAL is only for a genuinely nonassertive
 script question, greeting or nonassertive guidance; never use it to approve an analysis, commitment or rating.
+A field marked inference is the writer's labeled interpretation: judge it only for contradiction with the sources
+and for being unfit to say aloud, and use CONTRADICTED for either; otherwise SUPPORTED or NON_FACTUAL.
 Return each requested field exactly once with its verdict and supporting source IDs, and echo
 the fingerprint. No invented source IDs. Do not include source quotations in the response."""
 
@@ -91,6 +93,13 @@ def accept_review(request, data, request_id, *, partial=False):
         field = expected[verdict.field]
         if not set(verdict.evidence).issubset(sources):
             raise ValueError("Meaning review references an unknown source")
+        if field.get("inference") is True:
+            # A labeled inference is rejected only when it contradicts the sources (section 9, step 6).
+            if verdict.verdict == "CONTRADICTED":
+                if not partial:
+                    raise ValueError("Meaning review found a contradicted inference")
+                rejected.append(verdict.field)
+            continue
         if verdict.verdict == "NON_FACTUAL" and (
             request["kind"] == "script"
             or request["kind"] == "guidance"

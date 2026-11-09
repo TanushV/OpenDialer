@@ -34,6 +34,12 @@ PAGE = {
 }
 
 
+NO_TRIGGER = {
+    "trigger": {"type": "none", "date": None, "source_url": None, "quote": None, "evidence": None},
+    "bridge": {"text": "I saw you manage several buildings."},
+}
+
+
 def leads():
     return [
         {
@@ -116,7 +122,7 @@ def test_scripts_close_out_only_after_research_and_with_valid_submissions():
             }
         ],
     )
-    assert call(work, "finish_research", lead="lead-1", summary="Expanding landlord")["ok"]
+    assert call(work, "finish_research", lead="lead-1", summary="Expanding landlord", **NO_TRIGGER)["ok"]
     wrong = call(
         work,
         "submit_script",
@@ -198,7 +204,7 @@ class ScriptedAgent:
             )
         )
         assert saved["saved"] == [f"{first_lead}/f1"] and "quote is not on" in saved["errors"][0]
-        await handler("finish_research", {"lead": first_lead, "summary": "Growing landlord."})
+        await handler("finish_research", {"lead": first_lead, "summary": "Growing landlord.", **NO_TRIGGER})
         picks = [
             {"section": s["section"], "ids": [o["id"] for o in s["options"]][:1]}
             for s in context["script"]
@@ -216,7 +222,7 @@ class ScriptedAgent:
         )["ok"]
         if self.behaviour == "partial":
             return {"input_tokens": 100, "output_tokens": 10}
-        await handler("finish_research", {"lead": second, "summary": "Nothing found."})
+        await handler("finish_research", {"lead": second, "summary": "Nothing found.", **NO_TRIGGER})
         await handler("skip_lead", {"lead": second, "reason": "No public trace of this business."})
         return {"input_tokens": 100, "output_tokens": 10}
 
@@ -340,7 +346,7 @@ async def test_the_meaning_review_drops_unsupported_written_text(workspace, app,
     class Reviewer:
         async def complete(self, instructions, request, schema):
             verdicts = [
-                {"field": f["field"], "verdict": "CONTRADICTED", "evidence": f["evidence"] or ["x"]}
+                {"field": f["field"], "verdict": "CONTRADICTED", "evidence": f["evidence"]}
                 for f in request["fields"]
             ]
             return InferenceResult({"fingerprint": request["fingerprint"], "verdicts": verdicts}, {}, "r1")
@@ -350,6 +356,8 @@ async def test_the_meaning_review_drops_unsupported_written_text(workspace, app,
     await service.run_prep_thread(who, ids)
     script, state = service_script(service, who, ids[0])
     assert state["status"] == "ready" and "ai-1" not in script["written"]
+    # The labeled bridge is judged only for contradiction, and a contradicted one is dropped, not the trigger.
+    assert script["bridge"] is None and script["trigger"]["type"] == "none"
 
 
 def service_script(service, who, lead_id):
@@ -357,3 +365,73 @@ def service_script(service, who, lead_id):
         lead = service.required(s, "leads", lead_id, who)
         row = service.script_row(s, who, lead)
         return (dict(row.data) if row else {}), service.preparation_state(s, who, lead)
+
+
+def test_finish_research_keeps_only_a_trigger_that_passes_the_code_checks():
+    from datetime import date
+
+    rows = leads()
+    rows[1]["signals"] = {
+        "aligned": True,
+        "items": [{"summary": "New site", "date": "2026-10-01", "url": "https://x.example/gone"}],
+    }
+    work = ThreadWork(rows, parse_markdown(SCRIPT), fetch, today=date(2026, 11, 8))
+    claim = {
+        "type": "expansion",
+        "date": "2026-10-01",
+        "source_url": PAGE["url"],
+        "quote": "added two buildings on Elm Street",
+        "evidence": "page",
+    }
+    bridge = {"text": "Congrats on the new Elm Street buildings."}
+    stale = call(
+        work,
+        "finish_research",
+        lead="lead-1",
+        summary="s",
+        trigger={**claim, "date": "2025-01-01"},
+        bridge=bridge,
+    )
+    assert not stale["ok"] and "outside the 180-day window" in stale["errors"][0]
+    unlisted = call(
+        work,
+        "finish_research",
+        lead="lead-1",
+        summary="s",
+        trigger={**claim, "type": "rebrand"},
+        bridge=bridge,
+    )
+    assert not unlisted["ok"] and "not on the list" in unlisted["errors"][0]
+    misquoted = call(
+        work,
+        "finish_research",
+        lead="lead-1",
+        summary="s",
+        trigger={**claim, "quote": "added ten buildings downtown"},
+        bridge=bridge,
+    )
+    assert not misquoted["ok"] and "not on" in misquoted["errors"][0]
+    assert call(work, "finish_research", lead="lead-1", summary="s", trigger=claim, bridge=bridge)["ok"]
+    assert work.triggers["lead-1"]["trigger"]["strength"] == "B"
+    assert work.triggers["lead-1"]["bridge"] == {"text": bridge["text"], "is_inference": True}
+    row_only = {
+        "type": "expansion",
+        "date": "2026-10-01",
+        "source_url": "https://x.example/gone",
+        "quote": None,
+        "evidence": "row_only",
+    }
+    assert call(work, "finish_research", lead="lead-2", summary="s", trigger=row_only, bridge=bridge)["ok"]
+    assert work.triggers["lead-2"]["trigger"]["strength"] == "C"
+    assert work.triggers["lead-2"]["trigger"]["from_row"] is True
+
+
+def test_the_agent_sees_the_trigger_list_and_row_signals_first():
+    work = ThreadWork(
+        leads(), parse_markdown(SCRIPT + "\n# Triggers\n- hiring: Hiring reps (60 days, A)\n"), fetch
+    )
+    context = work.context()
+    assert context["triggers"] == [
+        {"type": "hiring", "label": "Hiring reps", "window_days": 60, "strength": "A"}
+    ]
+    assert context["leads"][0]["signals"] == {"aligned": True, "items": []}

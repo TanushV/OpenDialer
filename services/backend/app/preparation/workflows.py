@@ -834,6 +834,7 @@ class Preparation:
                 "name": item["lead"].get("name"),
                 "company": item["lead"].get("company"),
                 "domain": item["lead"].get("domain"),
+                "signals": item["lead"].get("signals"),
             }
             for item in claimed
         ]
@@ -846,7 +847,7 @@ class Preparation:
             async def fetch(url):
                 return await SafeFetcher(max_bytes=LIMITS.research_bytes).fetch(url)
 
-        work = ThreadWork(leads, template, fetch)
+        work = ThreadWork(leads, template, fetch, today=self.clock().date())
         for item in claimed:
             alias = work.aliases[item["lead"]["id"]]
             for fact in item["facts"]:
@@ -954,6 +955,11 @@ class Preparation:
             for block, value in result["written"].items():
                 cited = [i for i in value["fact_ids"] if not i.startswith("row:")]
                 fields.append({"field": f"{alias}:{block}", "value": value["text"], "evidence": cited})
+            bridge = (work.triggers.get(alias) or {}).get("bridge")
+            if bridge:
+                fields.append(
+                    {"field": f"{alias}:bridge", "value": bridge["text"], "evidence": [], "inference": True}
+                )
             for identity, fact in work.facts[alias].items():
                 sources.append({"id": identity, "statement": fact["statement"], "quote": fact["quote"]})
             row = work.leads[alias]["row"]
@@ -1041,6 +1047,7 @@ class Preparation:
                 elif current_key != item["key"]:
                     changes["preparation"] = {**state, "status": "stale"}
                 elif work and alias in work.done:
+                    changes.update(trigger_changes(work, alias, rejected))
                     script = self.store_prepared_in(s, p, lead, work, alias, rejected, review)
                     changes["preparation"] = {
                         "status": "ready",
@@ -1054,6 +1061,7 @@ class Preparation:
                     changes["refresh_research"] = False
                     published += 1
                 elif work and alias in work.skipped:
+                    changes.update(trigger_changes(work, alias, rejected))
                     self.store_facts_in(s, p, lead, work, alias)
                     changes["preparation"] = {
                         "status": "skipped",
@@ -1173,11 +1181,21 @@ class Preparation:
                 ),
                 "reviewed": not (review or {}).get("unreviewed") and not self.settings.simulation,
                 "summary": work.researched.get(alias, ""),
+                **trigger_changes(work, alias, rejected),
                 "expires_at": expiry.isoformat(),
                 "created_at": now.isoformat(),
             },
             now=now,
         )
+
+
+def trigger_changes(work, alias, rejected):
+    """The checked trigger and bridge for a lead; a bridge the review found contradicted is dropped."""
+    record = work.triggers.get(alias)
+    if record is None:
+        return {}
+    bridge = None if f"{alias}:bridge" in rejected else record["bridge"]
+    return {"trigger": record["trigger"], "bridge": bridge}
 
 
 def get_fact(s, p, fact_id):

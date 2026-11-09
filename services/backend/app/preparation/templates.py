@@ -47,6 +47,8 @@ ALIASES = {
     "book the meeting": "close",
 }
 CONTEXT = {"goal", "instructions", "preparation"}
+# `# Triggers` is read by code (section 9): the agent may only claim these, inside each window.
+TRIGGERS = "triggers"
 # How many options of each section a lead's script uses: (minimum, maximum). Objections keep all.
 PICKS = {
     "opening": (1, 1),
@@ -169,7 +171,9 @@ def parse_markdown(markdown):
             key = HEADINGS.get(
                 name,
                 (
-                    name if name in CONTEXT else "custom:" + re.sub(r"[^a-z0-9]+", "-", name).strip("-"),
+                    name
+                    if name in CONTEXT or name == TRIGGERS
+                    else "custom:" + re.sub(r"[^a-z0-9]+", "-", name).strip("-"),
                     False,
                     "fixed",
                 ),
@@ -183,7 +187,7 @@ def parse_markdown(markdown):
             continue
         if current == SKIP:
             continue
-        if heading and current and current not in CONTEXT:
+        if heading and current and current not in CONTEXT and current != TRIGGERS:
             card = {"title": heading[2].strip(), "line": number, "lines": []}
             raw[current]["cards"].append(card)
             continue
@@ -340,6 +344,12 @@ def parse_markdown(markdown):
             if BLOCK.search(match[1]):
                 errors.append({"line": number, "message": "Facts and Never say cannot contain {{ }}"})
             target.append(match[1][:400])
+    triggers = None
+    if TRIGGERS in raw:
+        from app.prep.criteria import parse_rules
+
+        triggers, problems = parse_rules(raw[TRIGGERS]["lines"])
+        errors.extend(problems)
     notes = {}
     for key in CONTEXT:
         if key in raw:
@@ -371,6 +381,7 @@ def parse_markdown(markdown):
         "facts": facts,
         "never_say": never,
         "context": context,
+        **({"triggers": triggers} if triggers is not None else {}),
         **notes,
     }
 

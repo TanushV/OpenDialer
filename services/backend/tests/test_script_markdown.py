@@ -218,3 +218,21 @@ def test_follow_up_and_voicemail_are_optional_plain_wording_kept_off_the_first_c
     with pytest.raises(ScriptError) as error:
         parse_markdown(STARTER + "\n# Voicemail\nHi {nickname}\n")
     assert "Unknown field {nickname}" in str(error.value.errors)
+
+
+def test_a_triggers_section_is_read_by_code_and_never_spoken():
+    from app.prep.criteria import DEFAULT_RULES, default_section
+
+    template = parse_markdown(STARTER + "\n" + default_section())
+    assert template["triggers"] == list(DEFAULT_RULES)
+    assert all(section["key"] != "triggers" for section in template["sections"])
+    assert "triggers" not in template["context"]
+    assert "triggers" not in parse_markdown(STARTER)
+
+
+def test_a_bad_trigger_line_is_reported_with_its_line():
+    text = STARTER + "\n# Triggers\n- Hiring SDRs (90 days, A)\n- New office soon\n"
+    with pytest.raises(ScriptError) as caught:
+        parse_markdown(text)
+    line = len(STARTER.splitlines()) + 4
+    assert {"line": line, "message": "Write each trigger as '- Label (90 days, A)'"} in caught.value.errors
