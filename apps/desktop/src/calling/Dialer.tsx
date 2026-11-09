@@ -510,11 +510,15 @@ function useKeys(
       )
         return;
       const target = event.target;
+      // Typing stays typing. A focused button or link keeps only its own Space and Enter: Chromium (WebView2
+      // on Windows) leaves focus on a clicked button, and Esc or 1 to 6 must still act on the call.
       if (
         target instanceof Element &&
-        target.closest(
-          "input, textarea, select, button, a, [contenteditable], [role=dialog]",
-        )
+        (target.closest(
+          "input, textarea, select, [contenteditable], [role=dialog]",
+        ) ||
+          (target.closest("button, a") &&
+            (event.code === "Space" || event.key === "Enter")))
       )
         return;
       if (phase.kind === "ended" && event.key === "Enter" && suggested) {

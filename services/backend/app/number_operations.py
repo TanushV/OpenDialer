@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.compliance.phone import normalize_phone
 from app.optimization.numbering import assess_number_health, number_ready
-from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, put, uid, update
+from app.platform.db import MODELS, audit, doc, emit, put, uid, update
 from app.scheduling.models import OPTIMIZATION_DEFAULTS
 from app.service import dt, fail
 
@@ -296,102 +296,39 @@ class NumberOperations:
             and number_ready(value),
         }
 
-    def number_review_view(self, p, number_id, lead_id=None):
+    def number_health(self, p, number_id):
+        """One number as the queue sees it: readiness and the health counted from its own calls."""
         with self.db.transaction(False) as s:
             self._configuration_actor(s, p)
             number = self.required(s, "number_inventory", number_id, p)
             view = next(n for n in self.inventory_evidence(s, p, fast=True) if n["id"] == number_id)
-            config = self.optimization_config(s, p)
-            ceiling = self.number_workload_ceiling(config)
-            binding = None
-            if lead_id:
-                self.required(s, "leads", lead_id, p)
-                binding = self._by_key(s, p, "lead_number_bindings", lead_id)
             return {
                 "number": {**doc(number), **self.number_readiness_in(s, p, number)},
                 "health": view["health"],
-                "binding": doc(binding) if binding else None,
-                "workload": {
-                    "current_limit": view["daily_limit"],
-                    "approved_daily_limit": number.data["daily_limit"],
-                    "maximum_reviewed_limit": ceiling,
-                    # The staffed, approved ceiling bounds every suggestion. Healthy or sparse
-                    # (unknown) evidence may use it; deterioration or errors never raise a limit.
-                    "recommended_limit": ceiling
-                    if view["health"]["status"] in {"observed", "unknown"}
-                    else min(ceiling, number.data["daily_limit"]),
-                    "reason": view["health"]["recommended_action"],
-                },
-                "policy": config["health_policy"],
             }
+
+    def resume_number(self, p, number_id):
+        """R10.7: a paused number goes back to work, once its route, test call and health allow it."""
+        with self.db.transaction() as s:
+            self.db.authorize_stream(s, p)
+            self._configuration_actor(s, p)
+            number = self.required(s, "number_inventory", number_id, p)
+            view = next(n for n in self.inventory_evidence(s, p, fast=True) if n["id"] == number_id)
+            if not number.data.get("identity_configured") or view["configuration_errors"]:
+                fail(409, "Set up this number's route first")
+            if not view["workspace_test_passed"]:
+                fail(409, "Make the test call first")
+            if view["health"]["status"] in {"blocked", "investigating"}:
+                fail(409, "This number's recent calls were blocked or flagged; it stays paused")
+            lifecycle = "healthy" if view["health"]["status"] == "observed" else "limited_real_use"
+            update(number, lifecycle=lifecycle, reason=None, inbound_retained=True)
+            audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "number.resumed", number.id, self.clock())
+            emit(s, p["tenant_id"], "number.updated", number, self.clock())
+            return {**doc(number), **self.number_readiness_in(s, p, number)}
 
     def number_workload_ceiling(self, config):
         """The per-number daily cap; the staffing planner that once lowered it is gone (R2.2)."""
         return config["daily_capacity_per_number"]
-
-    def reassign_number(self, p, number_id, body):
-        change = body["reassignment"]
-        if (
-            not isinstance(change, dict)
-            or set(change) != {"lead_id", "old_number_id", "reason"}
-            or not isinstance(change["reason"], str)
-            or not 3 <= len(change["reason"].strip()) <= 500
-        ):
-            fail(422, "Reassignment requires lead, old number and a reviewed reason")
-        with self.db.transaction() as s:
-            self.db.authorize_stream(s, p)
-            self._configuration_actor(s, p)
-            lead = self.required(s, "leads", change["lead_id"], p)
-            number = self.required(s, "number_inventory", number_id, p)
-            old = self.required(s, "number_inventory", change["old_number_id"], p)
-            binding = self._by_key(s, p, "lead_number_bindings", lead.id)
-            if not binding:
-                fail(409, "The lead has no existing identity to reassign")
-            identity = self.local_edit_in(s, p, "number_reassignment", number_id, binding, body, "owner_id")
-            if identity[2]:
-                return {
-                    **doc(number),
-                    "reassignment": binding.data.get("reassignment"),
-                    "receipt": identity[2],
-                }
-            self.check_edit_version(binding, body)
-            if binding.data["number_id"] != old.id or old.id == number.id:
-                fail(409, "Original binding changed; reload before reassignment")
-            if not self.number_readiness_in(s, p, number)["outbound_ready"]:
-                fail(409, "The replacement identity is not ready")
-            if s.scalar(
-                select(ActiveClaim).where(
-                    ActiveClaim.tenant_id == p["tenant_id"],
-                    ActiveClaim.seller_id == p["seller_id"],
-                    ActiveClaim.endpoint_id == lead.data["endpoint_id"],
-                )
-            ):
-                fail(409, "Finish the active call or reservation before reassigning")
-            receipt = {
-                **change,
-                "new_number_id": number.id,
-                "effective_at": self.clock().isoformat(),
-                "actor_id": p["user_id"],
-            }
-            update(binding, number_id=number.id, reassignment=receipt)
-            update(old, inbound_retained=True)
-            update(lead, number_assignment_version=binding.version)
-            audit(
-                s,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "number.binding_reassigned",
-                binding.id,
-                self.clock(),
-                receipt,
-            )
-            emit(s, p["tenant_id"], "planning.changed", lead, self.clock())
-            return {
-                **doc(number),
-                "reassignment": receipt,
-                "receipt": self.local_edit_receipt(s, p, identity, binding),
-            }
 
     def _configuration_actor(self, s, p):
         user = self.required(s, "users", p["user_id"], p)

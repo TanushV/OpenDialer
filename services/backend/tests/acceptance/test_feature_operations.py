@@ -123,30 +123,9 @@ def test_paused_numbers_block_dialing_until_a_reviewed_resume(workspace, clock):
         assert patched["lifecycle"] == "paused_for_outbound"
     assert get(workspace, "/v1/admin/numbers/summary")["inventory"]["ready"] == 0
     assert refused(workspace) & {"NUMBER_UNHEALTHY", "CALLER_NUMBER_PAUSED"}
-    rep = post(
-        workspace,
-        "/v1/admin/users",
-        {"email": "rep-staffing@example.test", "name": "Riley Rep", "role": "rep", "password": PASSWORD},
-    )
-    window = {
-        "start_at": (clock.now - timedelta(hours=1)).isoformat(),
-        "end_at": (clock.now + timedelta(hours=8)).isoformat(),
-        "reps": 1,
-        "rep_ids": [rep["id"]],
-    }
-    call(workspace, "PUT", "/v1/admin/optimization", json={"staffed_windows": [window]})
     number = numbers(workspace)["+14155550100"]
-    resumed = post(
-        workspace,
-        f"/v1/admin/numbers/{number['id']}/review",
-        {
-            "request_id": str(uuid4()),
-            "expected_version": number["version"],
-            "decision": "resume",
-            "review_reference": "Maintenance cleared by operator",
-            "daily_limit": 1,
-        },
-    )
+    # R10.7: one click puts a paused number back to work once its route, test call and health allow it.
+    resumed = post(workspace, f"/v1/admin/numbers/{number['id']}/resume")
     assert resumed["lifecycle"] == "limited_real_use"
     assert offered(workspace) in (PT, ET, CT)
 
@@ -176,11 +155,12 @@ def test_external_reputation_flags_numbers_until_cleared_and_review_shows_it(wor
     for phone in ("+14155550100", "+12125550100"):
         import_reputation(phone, reputation("spam_likely", now - timedelta(hours=1)))
     assert get(workspace, "/v1/admin/numbers/summary")["inventory"]["ready"] == ready_before - 2
-    review = get(workspace, f"/v1/admin/numbers/{numbers(workspace)['+14155550100']['id']}/review")
+    review = get(workspace, f"/v1/admin/numbers/{numbers(workspace)['+14155550100']['id']}/health")
     assert review["health"]["status"] == "investigating" and review["number"]["outbound_ready"] is False
-    assert {"workload", "policy"} <= set(review)
-    assert review["workload"]["current_limit"] == 0
-    assert review["workload"]["approved_daily_limit"] == numbers(workspace)["+14155550100"]["daily_limit"]
+    flagged = post(
+        workspace, f"/v1/admin/numbers/{numbers(workspace)['+14155550100']['id']}/resume", status=409
+    )
+    assert "flagged" in flagged["detail"]
     assert refused(workspace) & {"NUMBER_UNHEALTHY", "CALLER_NUMBER_PAUSED"}
     future = reputation("clear", now + timedelta(hours=1))
     call(
@@ -197,8 +177,8 @@ def test_external_reputation_flags_numbers_until_cleared_and_review_shows_it(wor
     for phone in ("+14155550100", "+12125550100"):
         import_reputation(phone, reputation("clear", now - timedelta(minutes=30)))
     assert get(workspace, "/v1/admin/numbers/summary")["inventory"]["ready"] == ready_before
-    restored = get(workspace, f"/v1/admin/numbers/{numbers(workspace)['+14155550100']['id']}/review")
-    assert restored["workload"]["current_limit"] == restored["workload"]["approved_daily_limit"] == 100
+    restored = get(workspace, f"/v1/admin/numbers/{numbers(workspace)['+14155550100']['id']}/health")
+    assert restored["number"]["outbound_ready"] is True
 
 
 def test_expired_label_evidence_requires_an_explicit_clear(workspace, clock):
@@ -231,38 +211,6 @@ def test_expired_label_evidence_requires_an_explicit_clear(workspace, clock):
     save_label(None, status=422)
     save_label("Clear")
     assert numbers(workspace)[phone]["outbound_ready"]
-
-
-def test_reassignment_moves_an_existing_lead_identity_to_a_verified_number(workspace):
-    packet = reserve(workspace).json()
-    post(workspace, "/v1/rep/presence", {"status": "paused"})
-    lead, old_number = packet["lead"]["id"], packet["number"]["id"]
-    new_number = next(
-        n for n in numbers(workspace).values() if n["id"] != old_number and n["phone"].startswith("+1")
-    )
-    binding = get(workspace, f"/v1/admin/numbers/{new_number['id']}/review", params={"lead_id": lead})[
-        "binding"
-    ]
-    assert binding["number_id"] == old_number
-    moved = call(
-        workspace,
-        "PATCH",
-        f"/v1/admin/numbers/{new_number['id']}",
-        json={
-            "reassignment": {
-                "lead_id": lead,
-                "old_number_id": old_number,
-                "reason": "Carrier moved the line; new route verified",
-            },
-            "request_id": str(uuid4()),
-            "expected_version": binding["version"],
-        },
-    )
-    assert moved["reassignment"]["new_number_id"] == new_number["id"]
-    current = get(workspace, f"/v1/admin/numbers/{new_number['id']}/review", params={"lead_id": lead})[
-        "binding"
-    ]
-    assert current["number_id"] == new_number["id"]
 
 
 def test_number_search_quotes_and_purchases_stay_blocked(workspace, carrier):
@@ -430,7 +378,7 @@ def test_observed_number_health_reports_delivery_pickup_and_case_mix_from_real_c
         clock.now += timedelta(seconds=20)
     post(workspace, "/v1/admin/optimization/refresh")
     run_jobs(workspace, rounds=2)
-    health = get(workspace, f"/v1/admin/numbers/{number_id}/review")["health"]
+    health = get(workspace, f"/v1/admin/numbers/{number_id}/health")["health"]
     answers = sum(HUMAN_LABELS.get(o) is True for o in outcomes)
     classified = sum(o in HUMAN_LABELS for o in outcomes)
     failures = outcomes.count("temporary_failure")

@@ -99,14 +99,9 @@ test("callback fallback settings survive reload and explain offline routing", as
   await panel.getByRole("button", { name: "Save callback routing" }).click();
   await expect(panel).toContainText("Callback routing saved");
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Review number evidence" })
-    .first()
-    .click();
+  // Clearing the fallback leaves outbound numbers ready to dial.
   await expect(
-    page.getByText("Ready for reviewed outbound use", {
-      exact: false,
-    }),
+    page.getByText("Ready to dial", { exact: true }).first(),
   ).toBeVisible();
 });
 

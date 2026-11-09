@@ -382,7 +382,6 @@ def setting_bounds():
         Conversion,
         HealthPolicy,
         ModelTrial,
-        NumberReview,
         OptimizationSettings,
     )
     from app.preparation.templates import PreparationPolicy
@@ -402,7 +401,6 @@ def setting_bounds():
             "callback_routing": CallbackRoutingEdit,
             "conversion": Conversion,
             "model_trial": ModelTrial,
-            "number_review": NumberReview,
             "setup": Setup,
             "screening": ScreeningRequest,
         }.items()
@@ -1350,7 +1348,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "request_id",
             "expected_version",
             "external_reputation",
-            "reassignment",
         }
         if set(data) - allowed:
             fail(422, "Unrecognized number settings")

@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import Annotated, Literal
-from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends
@@ -97,14 +96,6 @@ class Conversion(Strict):
     occurred_at: datetime
     source_reference: str = Field(min_length=3, max_length=1000)
     value_usd: float | None = Field(default=None, ge=0)
-
-
-class NumberReview(Strict):
-    request_id: UUID | None = None
-    expected_version: int | None = Field(default=None, ge=1, strict=True)
-    decision: Literal["increase", "reduce", "pause", "resume"]
-    review_reference: str = Field(min_length=3, max_length=1000)
-    daily_limit: int | None = Field(default=None, ge=1, le=1000)
 
 
 class Retraction(Strict):
@@ -341,79 +332,10 @@ def register_optimization(app, service, principal, administrator):
             emit(s, p["tenant_id"], "conversion.recorded", lead, service.clock(), {"retracted": True})
             return doc(result)
 
-    @app.get("/v1/admin/numbers/{number_id}/review")
-    def number_evidence(number_id: str, lead_id: str | None = None, p=Depends(administrator)):
-        return service.number_review_view(p, number_id, lead_id)
+    @app.get("/v1/admin/numbers/{number_id}/health")
+    def number_health(number_id: str, p=Depends(administrator)):
+        return service.number_health(p, number_id)
 
-    @app.post("/v1/admin/numbers/{number_id}/review")
-    def review_number(number_id: str, body: NumberReview, p=Depends(administrator)):
-        data = body.model_dump(mode="json", exclude_none=True)
-        with service.db.transaction() as s:
-            service.db.authorize_stream(s, p)
-            service._configuration_actor(s, p)
-            number = service.required(s, "number_inventory", number_id, p)
-            emergency = body.decision == "pause" and body.request_id is None and body.daily_limit is None
-            identity = (
-                None
-                if emergency
-                else service.local_edit_in(s, p, "number_review", number_id, number, data, "owner_id")
-            )
-            if identity and identity[2]:
-                return {**doc(number), "receipt": identity[2]}
-            if identity:
-                service.check_edit_version(number, data)
-            view = next(n for n in service.inventory_evidence(s, p, fast=True) if n["id"] == number_id)
-            config = service.optimization_config(s, p)
-            limit = body.daily_limit or number.data.get("daily_limit", 5)
-            if body.decision in {"increase", "resume"}:
-                if not number.data.get("identity_configured") or view["configuration_errors"]:
-                    fail(409, "Confirmed owned identity and disabled recording are required")
-                if not view["workspace_test_passed"]:
-                    fail(409, "Make the workspace test call first")
-                if view["health"]["status"] in {"blocked", "investigating"}:
-                    fail(409, "Resolve the recorded health evidence before increasing or resuming")
-                if limit > service.number_workload_ceiling(config):
-                    fail(409, "Requested limit exceeds reviewed ceiling or available staff capacity")
-                if body.decision == "increase" and limit <= number.data["daily_limit"]:
-                    fail(422, "Increase must raise the existing limit")
-                lifecycle = "healthy" if view["health"]["status"] == "observed" else "limited_real_use"
-            elif body.decision == "pause":
-                lifecycle = "paused_for_outbound"
-            else:
-                lifecycle = number.data["lifecycle"]
-                if limit >= number.data.get("daily_limit", 5):
-                    fail(422, "Reduction must lower the existing daily limit")
-            evidence = {
-                "decision": body.decision,
-                "reference": body.review_reference,
-                "previous_limit": number.data["daily_limit"],
-                "new_limit": limit,
-                "health_samples": view["health"]["samples"],
-                "health_policy_version": view["health"].get("policy_version"),
-                "health_as_of": view["health"].get("as_of"),
-                "reviewed_at": service.clock().isoformat(),
-                "actor_id": p["user_id"],
-            }
-            update(
-                number,
-                lifecycle=lifecycle,
-                daily_limit=limit,
-                inbound_retained=True,
-                real_use_review_reference=body.review_reference,
-                workload_review=evidence,
-            )
-            audit(
-                s,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "number.evidence_reviewed",
-                number.id,
-                service.clock(),
-                evidence,
-            )
-            emit(s, p["tenant_id"], "number.updated", number, service.clock())
-            return {
-                **doc(number),
-                **({"receipt": service.local_edit_receipt(s, p, identity, number)} if identity else {}),
-            }
+    @app.post("/v1/admin/numbers/{number_id}/resume")
+    def resume_number(number_id: str, p=Depends(administrator)):
+        return service.resume_number(p, number_id)

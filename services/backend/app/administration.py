@@ -867,10 +867,6 @@ class Dialer(
         from app.number_operations import ExternalReputation
         from app.optimization.numbering import unresolved_label
 
-        if "reassignment" in body:
-            if set(body) != {"reassignment", "request_id", "expected_version"}:
-                fail(422, "Reassignment must be a separate identified edit")
-            return self.reassign_number(p, number_id, body)
         for key, ceiling in (("daily_limit", 10000), ("capacity", 20)):
             if key in body and (type(body[key]) is not int or not 1 <= body[key] <= ceiling):
                 fail(422, "Positive integer workload limits are required")
@@ -917,7 +913,7 @@ class Dialer(
                 if next_state in order[2:] and (
                     next_state != old or any(k in body for k in ("daily_limit", "capacity"))
                 ):
-                    fail(409, "Use the evidence and workload review to approve limited use")
+                    fail(409, "Use Resume to put this number back to work")
             elif next_state not in {
                 "investigating",
                 "paused_for_outbound",
@@ -931,7 +927,7 @@ class Dialer(
                 if k not in {"expected_version", "request_id", "identity_configured"}
             }
             if "daily_limit" in values and values["daily_limit"] > number.data["daily_limit"]:
-                fail(409, "Use the evidence and workload review before increasing capacity")
+                fail(409, "A number's daily calls rise by themselves as it is used")
             update(number, **values, inbound_retained=True)
             audit(
                 s,

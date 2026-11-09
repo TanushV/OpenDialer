@@ -311,3 +311,25 @@ test("an outcome pressed while the call is still ending is kept and saved once t
     await page.unrouteAll({ behavior: "ignoreErrors" });
   }
 });
+
+test("Esc and the outcome keys work while a button has focus, as after any click on Windows", async ({
+  page,
+}) => {
+  // Chromium (WebView2 on Windows) keeps focus on a clicked button; WebKit does not. Focus one on purpose.
+  await enter(page);
+  await prepareSimulationCall(page, "Focused button", "+14155550783");
+  await startDialing(page);
+  await answer(page);
+  await page
+    .getByRole("button", { name: "Simulate human answer", exact: true })
+    .focus();
+  await page.keyboard.press("Escape");
+  await expect(callStatus(page)).toContainText("You ended the call");
+  await outcomeKeys(page)
+    .getByRole("button", { name: /Not interested$/ })
+    .focus();
+  await page.keyboard.press("Digit3");
+  await expect(callStatus(page)).toContainText(
+    /Saved|Start calling|Dialing|Ringing/,
+  );
+});

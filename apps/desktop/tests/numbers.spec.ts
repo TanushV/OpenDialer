@@ -1,151 +1,59 @@
-import { expect, test, hosted, HOSTED_ONLY } from "./fixtures";
+import { expect, test } from "./fixtures";
 import { openMoreSettings } from "./navigation";
 
-test("number review distinguishes operational evidence from unknown external reputation", async ({
-  page,
-}) => {
+async function enterSimulation(page: import("@playwright/test").Page) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .isVisible()
-  )
-    await page
-      .getByRole("button", { name: "Try a simulated workspace" })
-      .click();
-  await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
+  const sample = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await sample.isVisible()) await sample.click();
+}
+
+test("a number pauses and resumes from its own row, with no review form", async ({
+  page,
+}) => {
+  // R10.7: each number shows whether it can dial, its calls today against its cap, and one control.
+  await enterSimulation(page);
   await page.getByRole("button", { name: "Numbers", exact: true }).click();
-  for (const state of [
-    "Ready",
-    "Pending setup",
-    "Limited use",
-    "Paused outbound",
-  ])
-    await expect(
-      page
-        .getByRole("region", { name: "Inventory status" })
-        .getByText(state, { exact: true }),
-    ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Review number evidence" })
-    .first()
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Number evidence and workload" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("External label unknown", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Comparable classified attempts", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Reviewed daily limit")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Advance stage", exact: true }),
-  ).toBeHidden();
+  const ready = page
+    .locator("tr")
+    .filter({ has: page.getByText("Ready to dial", { exact: true }) })
+    .first();
+  const phone = (await ready.locator("strong").textContent())!;
+  const row = page.locator("tr").filter({ hasText: phone });
+  await expect(row).toContainText(/\d+ today · \d+ max/);
+  await row.getByRole("button", { name: "Pause outbound" }).click();
+  await expect(row.getByText("Paused", { exact: true })).toBeVisible();
+  await row.getByRole("button", { name: "Resume", exact: true }).click();
+  await expect(row.getByText("Ready to dial", { exact: true })).toBeVisible();
+  for (const gone of ["Review number evidence", "Apply number review"])
+    await expect(page.getByRole("button", { name: gone })).toHaveCount(0);
 });
 
-for (const connected of [false]) {
-  test(`${connected ? "connected" : "local"} number review recovers a stale edit and saves evidence policy`, async ({
-    page,
-  }) => {
-    await page.goto("/");
-    await expect(page.getByText("Opening your workspace…")).toBeHidden();
-    if (connected) {
-      if (await page.getByTitle("Sign out").isVisible())
-        await page.getByTitle("Sign out").click();
-      await page.getByRole("button", { name: "Connect to a server" }).click();
-      test.skip(!hosted, HOSTED_ONLY);
-      await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
-      await page.getByLabel("Email").fill("team@example.test");
-      await page
-        .getByLabel("Password", { exact: true })
-        .fill("Connected-test-password-123");
-      await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    } else if (
-      await page
-        .getByRole("button", { name: "Try a simulated workspace" })
-        .isVisible()
-    ) {
-      await page
-        .getByRole("button", { name: "Try a simulated workspace" })
-        .click();
-    }
-    await page.getByRole("button", { name: "Numbers", exact: true }).click();
-    await page
-      .getByRole("button", { name: "Review number evidence" })
-      .first()
-      .click();
-    const original = Number(
-      await page.getByLabel("Reviewed daily limit").inputValue(),
-    );
-    await page.getByLabel("Number review decision").selectOption("reduce");
-    await page.getByLabel("Reviewed daily limit").fill(String(original - 1));
-    await page
-      .getByLabel("Number review reference")
-      .fill("Operator reviewed available workload");
-    let blocked = true;
-    await page.route("**/v1/admin/numbers/*/review", async (route) => {
-      if (blocked && route.request().method() === "POST") {
-        blocked = false;
-        return route.fulfill({
-          status: 409,
-          json: { detail: "Number changed; reload evidence" },
-        });
-      }
-      return route.continue();
-    });
-    await page.getByRole("button", { name: "Apply number review" }).click();
-    await expect(page.getByRole("alert")).toContainText(
-      "Number changed; reload evidence",
-    );
-    await expect(
-      page.getByRole("button", { name: "Apply number review" }),
-    ).toBeEnabled();
-    await page.getByRole("button", { name: "Reload evidence" }).click();
-    await expect(page.getByLabel("Reviewed daily limit")).toHaveValue(
-      String(original),
-    );
-    await page.getByLabel("Reviewed daily limit").fill(String(original - 1));
-    const saved = page.waitForResponse(
-      (r) => r.url().endsWith("/review") && r.request().method() === "POST",
-    );
-    await page.getByRole("button", { name: "Apply number review" }).click();
-    expect((await saved).ok()).toBeTruthy();
-    await page.reload();
-    await page.getByRole("button", { name: "Numbers", exact: true }).click();
-    await page
-      .getByRole("button", { name: "Review number evidence" })
-      .first()
-      .click();
-    await expect(page.getByLabel("Reviewed daily limit")).toHaveValue(
-      String(original - 1),
-    );
-    await openMoreSettings(page, "Learning");
-    await page
-      .getByText("Advanced number evidence policy", { exact: true })
-      .click();
-    await page.getByLabel("Health observation window (days)").fill("17");
-    const policy = page.waitForResponse(
-      (r) =>
-        r.url().endsWith("/v1/admin/optimization") &&
-        r.request().method() === "PUT",
-    );
-    await page
-      .getByRole("button", { name: "Save planning assumptions" })
-      .click();
-    expect((await policy).ok()).toBeTruthy();
-    await page.reload();
-    await openMoreSettings(page, "Learning");
-    await page
-      .getByText("Advanced number evidence policy", { exact: true })
-      .click();
-    await expect(
-      page.getByLabel("Health observation window (days)"),
-    ).toHaveValue("17");
-  });
-}
+test("the number health window saves under Advanced", async ({ page }) => {
+  await enterSimulation(page);
+  await openMoreSettings(page, "Learning");
+  await page
+    .getByText("Advanced number evidence policy", { exact: true })
+    .click();
+  await page.getByLabel("Health observation window (days)").fill("17");
+  const policy = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/v1/admin/optimization") &&
+      r.request().method() === "PUT",
+  );
+  await page.getByRole("button", { name: "Save planning assumptions" }).click();
+  expect((await policy).ok()).toBeTruthy();
+  await page.reload();
+  await openMoreSettings(page, "Learning");
+  await page
+    .getByText("Advanced number evidence policy", { exact: true })
+    .click();
+  await expect(page.getByLabel("Health observation window (days)")).toHaveValue(
+    "17",
+  );
+});
 
 test("numbers already in Telnyx are listed and added one at a time", async ({
   page,

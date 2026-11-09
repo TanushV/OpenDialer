@@ -1530,10 +1530,15 @@ Pages:
 
 - [x] R10.6 Leads and Lists become one page.
       Done November 9: the lists table sits above the leads on Leads; the Lists page is gone from the menu.
-- [ ] R10.7 Numbers: list, buy, add, ready status, daily cap.
+- [x] R10.7 Numbers: list, buy, add, ready status, daily cap.
+      Done November 9: each number is one row (ready status, calls today against its cap, Set up route, Pause or
+      Resume). The manual evidence-and-workload review, imported spam labels in the UI and lead reassignment are gone;
+      Resume keeps the same checks (route, test call, health) in one click.
 - [x] R10.8 Script: clear "unsaved draft" state versus saved version; memory view.
       Done November 9: a Saved or Unsaved state with Discard; usage and rewrite tools folded.
-- [ ] R10.9 Review: calls, timeline, follow-ups as compact rows, learning card.
+- [x] R10.9 Review: calls, timeline, follow-ups as compact rows, learning card.
+      Done November 9: Review opens with Needs you, then follow-ups, calls and the learning card; a call shows its
+      outcome, summary, timeline, transcript and the rep's note.
 - [x] R10.10 Layout audit passes on every page.
       Done November 9: `tests/layout-audit.spec.ts` covers every page at both sizes; it caught the Leads toolbar shifting 43px, fixed by moving the lists table below the leads.
 
