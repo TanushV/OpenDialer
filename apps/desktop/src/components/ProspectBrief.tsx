@@ -150,6 +150,7 @@ export function ProspectBrief({
           <p className="muted">Estimates: unknown for this lead.</p>
         )}
       </div>
+      <WhyNow lead={packet.lead} />
       <div data-testid="prospect-brief" className="small">
         <p>
           Local time:{" "}
@@ -410,6 +411,42 @@ export function ProspectBrief({
           </details>
         </details>
       </div>
+    </div>
+  );
+}
+
+/** The checked trigger, its evidence and the bridge line, plus the number's status (section 9, R9.8, R9.22). */
+export function WhyNow({ lead }: { lead: Packet["lead"] }) {
+  const trigger = lead.trigger;
+  const found = trigger && trigger.type !== "none";
+  return (
+    <div data-testid="why-now" className="small why-now">
+      <p>
+        <strong>Why now:</strong>{" "}
+        {found
+          ? `${label(trigger.type)} · ${lead.trigger_label}`
+          : "No trigger found"}
+        {found && trigger.date ? ` · ${trigger.date}` : ""}
+      </p>
+      {found && trigger.quote && <p className="muted">“{trigger.quote}”</p>}
+      {found && trigger.source_url && (
+        <p>
+          <a href={trigger.source_url} target="_blank" rel="noreferrer">
+            {trigger.evidence === "row_only" ? "Link from the list" : "Source"}
+          </a>
+        </p>
+      )}
+      {lead.bridge?.text && (
+        <p>
+          Bridge: {lead.bridge.text} <span className="muted">(inference)</span>
+        </p>
+      )}
+      {lead.number_label && (
+        <p className={lead.number_hold ? "number-held" : undefined}>
+          Number: {lead.number_label}
+          {lead.number_hold_reason ? ` · ${lead.number_hold_reason}` : ""}
+        </p>
+      )}
     </div>
   );
 }

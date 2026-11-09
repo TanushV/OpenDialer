@@ -45,6 +45,7 @@ export interface Lead {
   dial_by_hand?: boolean;
   trigger?: Trigger | null;
   trigger_label?: string;
+  bridge?: { text: string; is_inference: true } | null;
 }
 export interface Trigger {
   type: string;

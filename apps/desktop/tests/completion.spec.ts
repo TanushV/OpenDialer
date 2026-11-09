@@ -199,6 +199,10 @@ for (const connected of [false]) {
       await page.getByRole("button", { name: "Dialer", exact: true }).click();
       await startDialing(page);
       await expect(page.getByTestId("prospect-brief")).toBeVisible();
+      // R9.8: the checked trigger and the number status (the bridge is covered by test_why_now.py).
+      const why = page.getByTestId("why-now");
+      await expect(why).toContainText("Why now: No trigger found");
+      await expect(why).toContainText("Number: Not checked (CSV)");
       await answer(page);
       try {
         await page.evaluate(() => window.scrollTo(0, 0));

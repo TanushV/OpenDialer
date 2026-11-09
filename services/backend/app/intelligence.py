@@ -8,6 +8,7 @@ from sqlalchemy import case, func, select
 
 from app.accounting import RequestAccounting
 from app.coaching.workflows import LiveHelper
+from app.leads.record import number_view
 from app.platform.config import LIMITS, PROVIDER_DEFAULTS, inference_model
 from app.platform.db import MODELS, audit, doc, emit, get, put, rows, uid, update
 from app.postcall.analysis import build_analysis
@@ -165,7 +166,11 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 **self.prospect_context_in(
                     s, p, lead, calls, commitments, history["followup_tasks"], decision=decision
                 ),
-                "lead": {**doc(lead), "suppressed": self.suppressed(s, p, lead.data["phone"])},
+                "lead": {
+                    **doc(lead),
+                    **number_view(lead.data),
+                    "suppressed": self.suppressed(s, p, lead.data["phone"]),
+                },
                 "script": script,
                 "preparation": preparation,
                 "research": {"facts": facts, "sources": sources, "fact_limit": 64},
