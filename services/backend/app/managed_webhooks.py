@@ -182,6 +182,24 @@ class ManagedConnection:
             if not self.assigned(tenant_id, [number]):
                 fail(409, "This number is not assigned to this workspace")
 
+    async def settle_gap(self, batch, acknowledgements):
+        """Clear the relay's delivery gap once nothing here is waiting on the missed events.
+
+        The relay marks a gap when events sat unacknowledged for a day, usually because the app was closed. Those
+        events belonged to calls that have long ended; once no call, inbound call or calling operation is open and
+        every received event is applied, the gap is cleared and calling resumes by itself. Before, only a Reconnect
+        button cleared it, and that button is hidden while the connection is up, so calling stayed blocked.
+        """
+        if not batch.get("gap_since") or acknowledgements:
+            return False
+        if not await asyncio.to_thread(self.local_caught_up):
+            return False
+        if await asyncio.to_thread(idle_reason, self.service, self.config["tenant_id"]):
+            return False
+        await self.client.rpc("relay_clear_gap", {}).execute()
+        logging.getLogger(__name__).info("Relay delivery gap cleared: nothing was pending locally")
+        return True
+
     def local_caught_up(self):
         with self.service.db.transaction(False) as session:
             inbox = MODELS["webhook_inbox"]
@@ -352,6 +370,8 @@ class ManagedConnection:
                         and not batch.get("gap_since")
                         and await asyncio.to_thread(self.local_caught_up)
                     )
+                    if await self.settle_gap(batch, acknowledgements):
+                        continue
                     self.state = "delivery_gap" if batch.get("gap_since") else "connected"
                     if acknowledgements:
                         continue
@@ -390,37 +410,43 @@ def installation_id(data_dir):
     return value
 
 
-def require_idle(service, p):
+def idle_reason(service, tenant_id):
+    """Why setup or a gap reset must wait (a call, an inbound call or a calling operation still open), else None."""
     with service.db.transaction(False) as session:
         calls = MODELS["call_attempts"]
         if session.scalar(
-            select(calls.id)
-            .where(calls.tenant_id == p["tenant_id"], calls.op_status.not_in(TERMINAL))
-            .limit(1)
+            select(calls.id).where(calls.tenant_id == tenant_id, calls.op_status.not_in(TERMINAL)).limit(1)
         ):
-            fail(409, "Finish or reconcile the current call before changing setup")
+            return "Finish or reconcile the current call before changing setup"
         tasks = MODELS["followup_tasks"]
         if session.scalar(
             select(tasks.id)
             .where(
-                tasks.tenant_id == p["tenant_id"],
+                tasks.tenant_id == tenant_id,
                 tasks.data["inbound_state"]
                 .as_string()
                 .in_(["answering", "ringing", "connected", "notifying", "ending"]),
             )
             .limit(1)
         ):
-            fail(409, "Finish the incoming call before changing setup")
+            return "Finish the incoming call before changing setup"
         commands = MODELS["command_outbox"]
         if session.scalar(
             select(commands.id)
             .where(
-                commands.tenant_id == p["tenant_id"],
+                commands.tenant_id == tenant_id,
                 commands.op_status.in_(["pending", "sending", "reconciling", "review_required"]),
             )
             .limit(1)
         ):
-            fail(409, "Resolve pending calling operations before changing setup")
+            return "Resolve pending calling operations before changing setup"
+    return None
+
+
+def require_idle(service, p):
+    reason = idle_reason(service, p["tenant_id"])
+    if reason:
+        fail(409, reason)
 
 
 def bind_api(app, service, principal, administrator):

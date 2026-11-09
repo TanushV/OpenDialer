@@ -63,7 +63,7 @@ function StatusBar({ loop }: { loop: Loop }) {
             {lead.company ? ` · ${lead.company}` : ""}
           </span>
         )}
-        {paused && phase.blocker && (
+        {paused && phase.blocker && phase.blocker.fix !== "dialer" && (
           <span className="muted">
             Fix this in {label(phase.blocker.fix)}; calling resumes on Start.
           </span>

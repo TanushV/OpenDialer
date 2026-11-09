@@ -403,3 +403,29 @@ def test_confirmed_managed_number_can_dial_without_a_registration_timer(workspac
         json={"reservation_id": offered.json()["reservation_id"], "idempotency_key": "first-dial"},
     )
     assert started.is_success, started.text
+
+
+async def test_a_relay_delivery_gap_clears_by_itself_once_nothing_is_pending(workspace, app, monkeypatch):
+    """November 9: a gap from days with the app closed kept calling blocked; only a hidden Reconnect cleared it."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    import app.managed_webhooks as managed
+    from app.managed_webhooks import ManagedConnection, idle_reason
+
+    connection = ManagedConnection(app.state.service)
+    connection.config = {"tenant_id": workspace["tenant_id"]}
+    rpc = MagicMock(return_value=SimpleNamespace(execute=AsyncMock()))
+    connection.client = SimpleNamespace(rpc=rpc)
+    gap = {"gap_since": "2026-11-07T10:00:00+00:00", "events": []}
+
+    assert await connection.settle_gap({"events": []}, []) is False, "no gap, nothing to clear"
+    assert await connection.settle_gap(gap, ["ack"]) is False, "events still being acknowledged"
+    with monkeypatch.context() as patch:
+        patch.setattr(managed, "idle_reason", lambda service, tenant: "Finish the current call")
+        assert await connection.settle_gap(gap, []) is False, "an open call waits for its events"
+    rpc.assert_not_called()
+
+    assert idle_reason(app.state.service, workspace["tenant_id"]) is None
+    assert await connection.settle_gap(gap, []) is True
+    rpc.assert_called_once_with("relay_clear_gap", {})
