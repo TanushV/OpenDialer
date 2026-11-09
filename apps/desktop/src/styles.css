@@ -2690,3 +2690,36 @@ details.transcript-card {
 .column-map-row .delimiter input {
   width: 4em;
 }
+
+/* Leads: one toolbar row (count, view, list, search); bulk actions appear only once a lead is selected. */
+.leads-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 22px;
+  border-bottom: 1px solid #e9ede2;
+}
+.leads-toolbar h3 {
+  font-size: 13px;
+  margin: 0 8px 0 0;
+}
+.leads-toolbar select {
+  width: auto;
+  min-width: 150px;
+  margin: 0;
+  height: 34px;
+  padding: 0 28px 0 10px;
+  font-size: 12px;
+}
+.leads-toolbar .search {
+  margin-left: auto;
+}
+.leads-loading {
+  padding: 28px 22px;
+  color: #7c8573;
+  font-size: 13px;
+}
+.compact-field select {
+  max-width: 320px;
+}

@@ -5,10 +5,8 @@ import {
   ArrowRight,
   ChevronRight,
   Layers3,
-  Radio,
   RefreshCw,
   Search,
-  ShieldCheck,
   Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -83,10 +81,9 @@ export function LeadsPage({
           </p>
         </div>
       </div>
-      <PreparationPanel onNavigate={onNavigate} />
       <section className="card table-card">
-        <label>
-          Show
+        <div className="leads-toolbar">
+          <h3>{history.totalLabel ?? w.leads.length} leads</h3>
           <select
             aria-label="Lead view"
             value={leadView}
@@ -99,9 +96,6 @@ export function LeadsPage({
             <option value="removed">Removed leads</option>
             <option value="all">All leads and history</option>
           </select>
-        </label>
-        <label>
-          Filter leads by list
           <select
             aria-label="Filter leads by list"
             value={filterList ?? "__all_lists__"}
@@ -121,8 +115,30 @@ export function LeadsPage({
                 </option>
               ))}
           </select>
-        </label>
-        {admin && (
+          <div className="search">
+            <Search size={16} />
+            <input
+              aria-label="Search leads"
+              placeholder="Find a person or company"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter")
+                  void run(() => history.load(false, query, leadView));
+              }}
+            />
+            <button
+              aria-label="Search lead history"
+              disabled={history.busy}
+              onClick={() =>
+                void run(() => history.load(false, query, leadView))
+              }
+            >
+              Search
+            </button>
+          </div>
+        </div>
+        {admin && selected.length > 0 && (
           <BulkLeadActions
             selected={selected}
             memberships={[
@@ -141,27 +157,6 @@ export function LeadsPage({
             }}
           />
         )}
-        <div className="table-toolbar">
-          <h3>{history.totalLabel ?? w.leads.length} leads</h3>
-          <div className="search">
-            <Search size={16} />
-            <input
-              aria-label="Search leads"
-              placeholder="Find a person or company"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <button
-              aria-label="Search lead history"
-              disabled={history.busy}
-              onClick={() =>
-                void run(() => history.load(false, query, leadView))
-              }
-            >
-              Search
-            </button>
-          </div>
-        </div>
         {history.query && history.cursor && (
           <p role="status">More records remain to search.</p>
         )}
@@ -231,18 +226,10 @@ export function LeadsPage({
                         : lead.number_label}
                     </small>
                   )}
-                  {lead.trigger_label && (
-                    <small>Why now: {lead.trigger_label}</small>
-                  )}
-                  <small>{lead.timezone || "Timezone needs review"}</small>
-                  {lead.state && (
-                    <small>
-                      {lead.state}
-                      {lead.state_source === "provided"
-                        ? ""
-                        : " · estimated from phone"}
-                    </small>
-                  )}
+                  {lead.trigger_label &&
+                    lead.trigger_label !== "No trigger found" && (
+                      <small>Why now: {lead.trigger_label}</small>
+                    )}
                 </td>
                 <td>
                   <span
@@ -280,7 +267,7 @@ export function LeadsPage({
             ))}
           </tbody>
         </table>
-        {!leads.length && !history.cursor && (
+        {!leads.length && !history.cursor && history.ready && (
           <Empty
             text={
               history.query
@@ -289,11 +276,17 @@ export function LeadsPage({
             }
           />
         )}
+        {!leads.length && !history.ready && (
+          <p className="leads-loading" role="status">
+            Loading leads…
+          </p>
+        )}
         <HistoryMore
           history={history}
           label={history.query ? "Continue lead search" : "Load more leads"}
         />
       </section>
+      <PreparationPanel onNavigate={onNavigate} />
       {admin && (
         <HubSpotLists
           onSynced={async () => {
@@ -849,95 +842,11 @@ export function NumbersPage() {
     <>
       <div className="page-heading">
         <div>
-          <span className="eyebrow">A CONSISTENT CALLING IDENTITY</span>
           <h1>Numbers &amp; callbacks</h1>
           <p>
-            Each number’s daily cap rises with real use, up to its reviewed
-            maximum.
+            A new number starts at 15 real calls a day and rises to 60 as you
+            use it. No fake calls are made.
           </p>
-          <p>
-            Use owned numbers, keep familiar identities, and stay reachable.
-          </p>
-        </div>
-      </div>
-      <section
-        className="card padded"
-        aria-label="Free Caller Registry and label checks"
-      >
-        <h3>Free Caller Registry and label checks</h3>
-        <p>
-          Export the owned inventory and submit it once. Check caller display on
-          real phones and record any label in Number evidence.
-        </p>
-        <div className="button-row">
-          <button
-            onClick={() =>
-              void run(async () => {
-                const { csv } = await api<{ csv: string }>(
-                  "/v1/admin/numbers/registry-export",
-                );
-                if (native()) {
-                  const path = await invoke<string>("save_registry_csv", {
-                    csv,
-                  });
-                  notice(`Registry CSV saved to ${path}`);
-                  return;
-                }
-                const url = URL.createObjectURL(
-                  new Blob([csv], { type: "text/csv" }),
-                );
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = "opendialer-caller-registry.csv";
-                link.click();
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-              })
-            }
-          >
-            Export registry CSV
-          </button>
-          <button
-            onClick={() =>
-              void run(() => openSource("https://freecallerregistry.com/fcr/"))
-            }
-          >
-            Open Free Caller Registry
-          </button>
-        </div>
-      </section>
-      <label className="card padded">
-        Plan numbers for list
-        <select
-          value={listName === null ? "__all_lists__" : listName}
-          onChange={(e) =>
-            setListName(
-              e.target.value === "__all_lists__" ? null : e.target.value,
-            )
-          }
-        >
-          <option value="__all_lists__">All campaign leads</option>
-          {(plan.summary?.lists ?? []).map((name) => (
-            <option key={name} value={name}>
-              {name || "Unnamed imports"}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="number-summary">
-        <div className="card">
-          <Radio size={23} />
-          <strong>{inventory?.total ?? "…"}</strong>
-          <p>Owned numbers in inventory</p>
-        </div>
-        <div className="card">
-          <ShieldCheck size={23} />
-          <strong>{inventory?.ready ?? "…"}</strong>
-          <p>Ready for outbound use</p>
-        </div>
-        <div className="card">
-          <RefreshCw size={23} />
-          <strong>{plan.summary?.stable_assignments ?? "…"}</strong>
-          <p>Leads with a stable caller identity</p>
         </div>
       </div>
       <section className="card padded" aria-label="Inventory status">
@@ -974,27 +883,7 @@ export function NumbersPage() {
             answer it here. Every number opens after that.
           </p>
         ) : null}
-        <p className="fine">
-          Counts cover your whole inventory. Ready may include reviewed limited
-          use. Inbound identities remain retained.
-        </p>
       </section>
-      <NumberPurchasing
-        states={plan.summary?.states ?? []}
-        listName={listName}
-        onChanged={async () => {
-          await refresh();
-          await history.load();
-          await plan.load();
-        }}
-      />
-      <CallerIdentity
-        onChanged={async () => {
-          await refresh();
-          await history.load();
-        }}
-      />
-      <CallbackRouting />
       <section className="card table-card">
         <div className="table-toolbar">
           <h3>Your number inventory</h3>
@@ -1050,24 +939,83 @@ export function NumbersPage() {
           <Empty text="No numbers yet. Buy one above, or check your Telnyx numbers and add one." />
         )}
       </section>
-      <section className="card import-card">
-        <div>
-          <span className="eyebrow">LEGITIMATE WARMUP</span>
-          <h2>Start small. Stay reachable.</h2>
-          <p className="muted">
-            A number you buy or add sets itself up: route confirmed and
-            recording off. It starts at 15 real calls a day and rises to 60 as
-            you use it. No fake calls are made.
-          </p>
-          <div className="lifecycle">
-            Added
-            <ChevronRight size={12} />
-            Route set
-            <ChevronRight size={12} />
-            Warmup
-            <ChevronRight size={12} />
-            Healthy
-          </div>
+      <label className="card padded compact-field">
+        Plan numbers for list
+        <select
+          value={listName === null ? "__all_lists__" : listName}
+          onChange={(e) =>
+            setListName(
+              e.target.value === "__all_lists__" ? null : e.target.value,
+            )
+          }
+        >
+          <option value="__all_lists__">All campaign leads</option>
+          {(plan.summary?.lists ?? []).map((name) => (
+            <option key={name} value={name}>
+              {name || "Unnamed imports"}
+            </option>
+          ))}
+        </select>
+      </label>
+      <NumberPurchasing
+        states={plan.summary?.states ?? []}
+        listName={listName}
+        onChanged={async () => {
+          await refresh();
+          await history.load();
+          await plan.load();
+        }}
+      />
+      <CallerIdentity
+        onChanged={async () => {
+          await refresh();
+          await history.load();
+        }}
+      />
+      <CallbackRouting />
+      <section
+        className="card padded"
+        aria-label="Free Caller Registry and label checks"
+      >
+        <h3>Free Caller Registry and label checks</h3>
+        <p>
+          Export the owned inventory and submit it once. Check caller display on
+          real phones and record any label in Number evidence.
+        </p>
+        <div className="button-row">
+          <button
+            onClick={() =>
+              void run(async () => {
+                const { csv } = await api<{ csv: string }>(
+                  "/v1/admin/numbers/registry-export",
+                );
+                if (native()) {
+                  const path = await invoke<string>("save_registry_csv", {
+                    csv,
+                  });
+                  notice(`Registry CSV saved to ${path}`);
+                  return;
+                }
+                const url = URL.createObjectURL(
+                  new Blob([csv], { type: "text/csv" }),
+                );
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = "opendialer-caller-registry.csv";
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              })
+            }
+          >
+            Export registry CSV
+          </button>
+          <button
+            onClick={() =>
+              void run(() => openSource("https://freecallerregistry.com/fcr/"))
+            }
+          >
+            Open Free Caller Registry
+          </button>
         </div>
       </section>
     </>

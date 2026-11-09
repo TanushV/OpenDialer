@@ -92,6 +92,8 @@ export function useHistory<T extends { id: string; version?: number }>(
     totalLabel: total == null ? null : countLabel(total, capped),
     cursor,
     busy,
+    // False until the first read answers, so an empty page is not shown while it loads.
+    ready: loaded !== null,
     load,
     update,
     query: loaded?.query || "",

@@ -351,12 +351,7 @@ export function BulkLeadActions({
       >
         Apply to selected leads
       </button>
-      <p className="fine">
-        Select the checkboxes beside the leads first. Remove from list changes
-        only that membership; Remove leads hides contacts from active views and
-        calling. To remove an entire list, use Lists. History and opt-outs are
-        retained.
-      </p>
+      <p className="fine">History and opt-outs are always kept.</p>
     </section>
   );
 }
