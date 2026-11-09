@@ -37,10 +37,10 @@ export function LearningCard() {
   return (
     <Panel title="What it has learned" aria-label="What it has learned">
       <p>
-        {data.calls_used} calls used
+        {data.calls_used} {data.calls_used === 1 ? "call" : "calls"} so far.{" "}
         {data.learning
-          ? "."
-          : `; learning starts at ${data.required_calls}. Until then, estimates lean on starting assumptions.`}
+          ? "It is training on them and switches to the learned model only once it beats the starting estimates."
+          : `Best hours show from 3 calls in an hour; a learned model is tried from ${data.required_calls} calls (${Math.max(0, data.required_calls - data.calls_used)} to go).`}
       </p>
       <dl className="learning-facts">
         <dt>Best hours to reach someone</dt>

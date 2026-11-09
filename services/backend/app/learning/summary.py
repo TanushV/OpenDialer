@@ -3,7 +3,7 @@ number source and status, the live model and its last change. Read from the late
 
 from collections import defaultdict
 
-MIN_GROUP = 5  # Groups with fewer calls are not ranked.
+MIN_GROUP = 3  # Groups with fewer calls are not ranked.
 
 
 def _rate(groups, key):
@@ -15,7 +15,7 @@ def _rate(groups, key):
     return sorted(ranked, key=lambda r: (-r[key], -r["calls"], str(r["value"])))
 
 
-def summary(rows, models, *, required_rows=100):
+def summary(rows, models, *, required_rows=40):
     """`rows` are training rows; `models` are model version records."""
     labeled = [r for r in rows if r.get("human") in (0, 1)]
     pickup_by_hour, goal_by_trigger = defaultdict(list), defaultdict(list)

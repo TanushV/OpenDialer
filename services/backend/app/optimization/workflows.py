@@ -31,6 +31,8 @@ RESOLVED_STATES = {"ENDED", "FINALIZED", "BUSY", "NO_ANSWER", "TEMPORARY_FAILURE
 STAGES = ("p_human", "p_right_party_given_human", "p_conversion_given_right_party")
 
 DEFAULTS = OPTIMIZATION_DEFAULTS
+OLD_TRAINING_START = 100
+MIN_CLASS = 5  # Answered and unanswered calls each needed before a model is trained.
 # Under the bounded training child's 16 MiB input, leaving room for its envelope.
 TRAINING_SNAPSHOT_MAX_BYTES = 15 * 1024 * 1024
 
@@ -399,6 +401,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
             self.required(s, "campaigns", campaign_id, p) if campaign_id else self.selected_campaign(s, p)
         )
         config = {**DEFAULTS, **campaign.data.get("optimization", {})}
+        if config["training_min_rows"] == OLD_TRAINING_START:
+            # Campaigns saved before November 9 stored the old 100-call start; learning now starts at 40.
+            config["training_min_rows"] = DEFAULTS["training_min_rows"]
         config["health_policy"] = HealthPolicy.model_validate(config.get("health_policy", {})).model_dump()
         config["estimate_policy"] = EstimatePolicy.model_validate(
             config.get("estimate_policy", {})
@@ -857,7 +862,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         positives = sum(known)
         reason = (
             "Independent labeled outcomes and both answer classes are required"
-            if len(known) < minimum or min(positives, len(known) - positives) < 10
+            if len(known) < minimum or min(positives, len(known) - positives) < MIN_CLASS
             else training_support(data)
         )
         if reason:

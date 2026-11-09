@@ -45,3 +45,24 @@ def test_the_summary_route_answers_for_a_new_workspace(workspace):
         and body["learning"] is False
         and body["model"] == {"live": False, "promoted_at": None}
     )
+
+
+def test_learning_starts_at_forty_calls_and_ranks_an_hour_from_three():
+    from app.learning.summary import MIN_GROUP
+    from app.scheduling.models import OPTIMIZATION_DEFAULTS
+
+    assert OPTIMIZATION_DEFAULTS["training_min_rows"] == 40 and MIN_GROUP == 3
+    card = summary([row(9, 1)] * 3, [])
+    assert card["best_hours"] == [{"value": 9, "calls": 3, "rate": 1.0}]
+
+
+def test_a_campaign_saved_with_the_old_hundred_call_start_moves_to_the_new_one(workspace, app):
+    from helpers import principal
+
+    service, db, p = app.state.service, app.state.service.db, principal(workspace)
+    with db.transaction() as s:
+        campaign = service.selected_campaign(s, p)
+        saved = {**campaign.data.get("optimization", {}), "training_min_rows": 100}
+        campaign.data = {**campaign.data, "optimization": saved}
+    with db.transaction(False) as s:
+        assert service.optimization_config(s, p)["training_min_rows"] == 40

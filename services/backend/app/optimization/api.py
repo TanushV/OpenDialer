@@ -49,7 +49,7 @@ class OptimizationSettings(Strict):
     rep_minutes: float | None = Field(default=None, ge=0, le=100800)
     handling_seconds: float | None = Field(default=None, ge=10, le=7200)
     daily_capacity_per_number: int | None = Field(default=None, ge=1, le=1000)
-    training_min_rows: int | None = Field(default=None, ge=100, le=20000)
+    training_min_rows: int | None = Field(default=None, ge=20, le=20000)
     staffed_windows: list[StaffedWindow] | None = Field(default=None, max_length=100)
     additional_ready_after_hours: int | None = Field(default=None, ge=0, le=168)
     staffing_timezone: str | None = None

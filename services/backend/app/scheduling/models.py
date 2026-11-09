@@ -61,7 +61,7 @@ OPTIMIZATION_DEFAULTS = {
     "rep_minutes": 480,
     "handling_seconds": 120,
     "daily_capacity_per_number": 60,
-    "training_min_rows": 100,
+    "training_min_rows": 40,
     "staffed_windows": [],
     "additional_ready_after_hours": 0,
     "staffing_timezone": "UTC",

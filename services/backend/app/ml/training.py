@@ -64,7 +64,7 @@ ESTIMATOR = {
 
 REVIEW_POLICY = {
     "version": "rolling-review-v3",
-    "minimum_rows": 100,
+    "minimum_rows": 40,
     "minimum_calibration_validation_class": 10,
     "minimum_bootstrap_groups": 30,
     "material_brier_regression": 0.01,

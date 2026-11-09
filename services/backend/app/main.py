@@ -639,6 +639,23 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction(False) as s:
             return {"blockers": [b.detail() for b in service.dial_blockers_in(s, p, rep=True)]}
 
+    @app.get("/v1/review/issues")
+    def review_issues(p=Depends(principal)):
+        """What needs the rep, each with the one thing to do: Review opens with this list."""
+        from app.review_issues import issues
+
+        mine = (lambda m: m.op_owner_id == p["user_id"]) if p["role"] == "rep" else (lambda m: True)
+        with db.transaction(False) as s:
+            return {
+                "issues": issues(
+                    blockers=[b.detail() for b in service.dial_blockers_in(s, p, rep=False)],
+                    leads=[m.data for m in service.scoped(s, "leads", p)],
+                    calls=[m.data for m in service.scoped(s, "call_attempts", p) if mine(m)],
+                    tasks=[m.data for m in service.scoped(s, "followup_tasks", p) if mine(m)],
+                    now=service.clock(),
+                )
+            }
+
     @app.post("/v1/calls/start")
     async def start_call(data: CallStart, p=Depends(principal)):
         return await service.start_call(p, data.model_dump())
@@ -672,7 +689,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             latest = (campaign.data.get("dataset_summaries") or [None])[-1] if campaign else None
             dataset = get(s, "learning_datasets", latest["id"], p["tenant_id"]) if latest else None
             models = [m.data for m in service.scoped(s, "model_versions", p)]
-            required = service.optimization_config(s, p)["training_min_rows"] if campaign else 100
+            required = service.optimization_config(s, p)["training_min_rows"] if campaign else 40
         return summary(dataset.data.get("rows", []) if dataset else [], models, required_rows=required)
 
     @app.get("/v1/calling/voicemail-report")

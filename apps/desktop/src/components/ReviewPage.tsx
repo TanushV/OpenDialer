@@ -16,8 +16,13 @@ import { FollowupTasks } from "./FollowupTasks";
 import { WrapUp } from "./WrapUp";
 import { CallTimeline } from "./CallTimeline";
 import { LearningCard } from "./LearningCard";
+import { ReviewIssues } from "./ReviewIssues";
 
-export function ReviewPage() {
+export function ReviewPage({
+  onNavigate,
+}: {
+  onNavigate?: (page: string) => void;
+}) {
   const { snapshot: w, api, run, notice, refresh } = useWorkspace();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   useSpeechExpiry(analysis, setAnalysis);
@@ -69,7 +74,7 @@ export function ReviewPage() {
         <div className="page-heading">
           <div>
             <h1>Review</h1>
-            <p>Coaching, follow-ups and your past calls.</p>
+            <p>What needs you, then your follow-ups and past calls.</p>
           </div>
           <label className="inline-label">
             Filter
@@ -87,8 +92,12 @@ export function ReviewPage() {
             </select>
           </label>
         </div>
-        <LearningCard />
-        <section className="card padded" aria-label="Follow-ups">
+        <ReviewIssues onNavigate={onNavigate} />
+        <section
+          className="card padded"
+          aria-label="Follow-ups"
+          data-review-section
+        >
           <h2>Follow-ups</h2>
           <FollowupTasks />
         </section>
@@ -143,6 +152,7 @@ export function ReviewPage() {
             <Empty text="Your completed conversations will appear here." />
           )}
         </section>
+        <LearningCard />
       </>
     );
   const evidence = (ids: string[]) => (

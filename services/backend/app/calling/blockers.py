@@ -87,6 +87,13 @@ CATALOG = {
         "dialer",
     ),
 }
+# Blockers that clear by themselves; Review does not list them as something for the rep to fix.
+SELF_CLEARING = {
+    "CONNECTION_RECONNECTING",
+    "CONNECTION_DELIVERY_GAP",
+    "REP_AUDIO_NOT_READY",
+    "NUMBER_POOL_UNREACHABLE",
+}
 # Order of `CATALOG` is the order shown: the first blocker is the one to fix first.
 ORDER = {code: index for index, code in enumerate(CATALOG)}
 

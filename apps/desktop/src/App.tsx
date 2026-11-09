@@ -802,7 +802,7 @@ export function App() {
             ) : view === "Leads" ? (
               <LeadsPage onNavigate={setView} />
             ) : view === "Review" ? (
-              <ReviewPage />
+              <ReviewPage onNavigate={(page) => setView(page as View)} />
             ) : view === "Numbers" && isAdmin(snapshot.user.role) ? (
               <NumbersPage />
             ) : view === "Script" ? (
