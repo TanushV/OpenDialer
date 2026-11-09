@@ -102,7 +102,8 @@ def run_steps(steps, note=None):
     for name, commands in steps.items():
         log = Path(logs.name) / f"{name}.log"
         # One shell per step keeps a step's commands in order while steps run side by side.
-        shell = " && ".join(f"cd {_quote(str(folder))} && {_join(command)}" for command, folder in commands)
+        cd = "cd /d" if os.name == "nt" else "cd"
+        shell = " && ".join(f"{cd} {_quote(str(folder))} && {_join(command)}" for command, folder in commands)
         handle = log.open("wb")
         process = subprocess.Popen(  # noqa: S602 - fixed commands; a keyword is quoted
             shell, shell=True, stdout=handle, stderr=subprocess.STDOUT, env=_env()
@@ -138,6 +139,8 @@ def _join(command):
 
 
 def _quote(text):
+    if os.name == "nt":
+        return subprocess.list2cmdline([text])  # cmd.exe takes double quotes, never single ones (R9D.1).
     safe = text and all(c.isalnum() or c in "-_./=:,@+" for c in text)
     return text if safe else "'" + text.replace("'", "'\\''") + "'"
 
