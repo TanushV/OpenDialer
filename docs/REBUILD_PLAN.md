@@ -1427,8 +1427,10 @@ and never lets two seats call one contact. **Owner sitting 5.**
 Goal: the same app on Windows, signed and self-updating, so a seat can be a Windows PC (D2). Built after Phase 9C so the
 calling core, seats and pool are settled first; the Windows work is packaging and the few system-specific pieces.
 
-- [ ] R9D.1 CI: a `windows-latest` job runs the backend tests, freezes the sidecar, runs `scripts/trainer_check.py`
+- [x] R9D.1 CI: a `windows-latest` job runs the backend tests, freezes the sidecar, runs `scripts/trainer_check.py`
       against it and builds the desktop app; `check.py full` stays the Mac gate and CI is the Windows gate.
+      Done November 8: green on `windows-2022` (backend tests, frozen sidecars, shell tests). Windows-only defects it
+      found are fixed: `cmd.exe` quoting in `check.py`, and the onefile sidecar's child holding files after a stop.
 - [x] R9D.2 System-specific pieces, each behind one small function with a test: keep-awake (`caffeinate` on Mac,
       `SetThreadExecutionState` on Windows, G8), the app data and private key file paths and their permissions,
       microphone permission prompts, and sidecar start and stop.
@@ -1603,3 +1605,10 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   team-wide caps, callbacks to the last caller, a named blocker for Telnyx's account call limit, per-seat research
   route, and seat setup from the owner's computer. Waiting on the owner: applying the relay migration to the live
   project, R9C.1, the pool numbers, and live checks L21 to L24. Next: Phase 9D (Windows), R9D.1.
+- November 8, 2026: Phase 9D's code is done and CI is green on Mac, Linux, Windows and Chromium (`18d639f`). Windows
+  ships again as signed-for-update NSIS and MSI installers; Authenticode waits for the owner's signing route (R9D.4).
+  A Dialer loop found by the Chromium run is fixed: pausing re-paused itself hundreds of times a second and hid the
+  reason calling stopped. Still open: Phase 10 (R10.1 to R10.11; R10.5 changes the speech privacy boundary and is
+  not started), R3.2, R3.4 to R3.6 and R4.5 (structure), R5.2, R5.12 (one import flake under full load remains) and
+  R7.2. Waiting on the owner: keys, the relay migration, pool numbers, a Windows PC and signing route, and the live
+  checks. Next: Phase 10, R10.1.
