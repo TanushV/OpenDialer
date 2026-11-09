@@ -144,3 +144,15 @@ def test_a_test_call_dials_only_the_typed_test_phone_and_counts_as_a_test(worksp
     ).json()
     assert call["is_test"] is True
     assert client.delete("/v1/settings/test-call", headers=headers).json() == {"test_session": False}
+
+
+def test_every_blocker_has_a_way_out_and_claims_to_clear_itself_only_when_it_does():
+    """G10: no blocker is a dead end. One that says it clears by itself has a promised time."""
+    from app.calling.blockers import CATALOG, EXITS
+
+    assert set(EXITS) == set(CATALOG)
+    for code, way_out in EXITS.items():
+        assert way_out.by_itself_within or way_out.control, code
+        assert way_out.by_itself_within is None or way_out.by_itself_within <= 120, code
+        if "by itself" in CATALOG[code][0]:
+            assert way_out.by_itself_within, f"{code} says it clears by itself but nothing clears it"

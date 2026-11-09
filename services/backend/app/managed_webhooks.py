@@ -95,6 +95,8 @@ async def deliver(service, tenant_id, events):
 # The relay lease lasts 45 seconds; an exchange at least every 20 keeps it, and a 35-second-old one is still fresh.
 POLL_SECONDS = 20
 EXCHANGE_FRESH_SECONDS = 35
+UNJOINED_POLL_SECONDS = 5  # Without Realtime wake-ups the exchange polls this often.
+RECONNECT_SECONDS = 5  # A failed exchange retries after this long.
 
 
 class ManagedConnection:
@@ -379,7 +381,9 @@ class ManagedConnection:
                         await self.listen(first["topic"])
                     try:
                         # Realtime wakes this early; without it, polling keeps the exchange fresh.
-                        await asyncio.wait_for(self.wake.wait(), POLL_SECONDS if self.joined.is_set() else 5)
+                        await asyncio.wait_for(
+                            self.wake.wait(), POLL_SECONDS if self.joined.is_set() else UNJOINED_POLL_SECONDS
+                        )
                     except TimeoutError:
                         pass
             except asyncio.CancelledError:
@@ -390,7 +394,7 @@ class ManagedConnection:
                 logging.getLogger(__name__).warning("Relay exchange failed: %s", self.state)
                 if self.client:
                     await self.client.remove_all_channels()
-                await asyncio.sleep(5)
+                await asyncio.sleep(RECONNECT_SECONDS)
 
 
 def installation_id(data_dir):

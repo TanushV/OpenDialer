@@ -87,6 +87,43 @@ CATALOG = {
         "dialer",
     ),
 }
+
+
+@dataclass(frozen=True)
+class Exit:
+    """How a blocker ends (G10). Every blocker has at least one way out the rep can see or that needs nobody."""
+
+    by_itself_within: int | None = (
+        None  # Seconds within which software clears it; None if only a control does.
+    )
+    control: str | None = None  # The visible control that clears it, where one does.
+
+
+EXITS = {
+    "DATABASE_INTEGRITY_FAILURE": Exit(control="Settings: Restore a backup"),
+    "RESTORE_RECONCILIATION_REQUIRED": Exit(control="Settings: Finish checking the restored backup"),
+    "TELNYX_NOT_CONFIGURED": Exit(control="Settings: Telnyx API key"),
+    "WEBHOOK_SIGNATURE_KEY_MISSING": Exit(control="Settings: Import setup file"),
+    "AUDIO_SETUP_MISSING": Exit(control="Settings: Import setup file"),
+    "CONNECTION_SETUP_CHANGING": Exit(by_itself_within=60),
+    "CONNECTION_SIGN_IN_REQUIRED": Exit(control="Settings: Import setup file"),
+    "CONNECTION_IN_USE_ELSEWHERE": Exit(by_itself_within=90),
+    "CONNECTION_RECONNECTING": Exit(by_itself_within=60),
+    "CONNECTION_DELIVERY_GAP": Exit(by_itself_within=60),
+    "NO_CAMPAIGN": Exit(control="Leads: Import a list"),
+    "NO_CALLER_NUMBER": Exit(control="Numbers: Buy or add a number"),
+    "CALLER_NUMBER_ROUTE_REQUIRED": Exit(control="Numbers: Set up route"),
+    "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": Exit(
+        control="Call the number from your phone and answer it here"
+    ),
+    "CALLER_NUMBER_PAUSED": Exit(control="Numbers: Resume outbound"),
+    "PENDING_LOCAL_OPTOUTS": Exit(by_itself_within=60),
+    "TEST_SESSION_TEST_LINE_ONLY": Exit(control="Settings: End test session"),
+    "NUMBER_POOL_EMPTY": Exit(by_itself_within=60, control="Numbers: Add numbers to the pool"),
+    "NUMBER_POOL_UNREACHABLE": Exit(by_itself_within=60),
+    "TELNYX_CALL_LIMIT_REACHED": Exit(by_itself_within=60),
+    "REP_AUDIO_NOT_READY": Exit(by_itself_within=30, control="Dialer: Check audio"),
+}
 # Blockers that clear by themselves; Review does not list them as something for the rep to fix.
 SELF_CLEARING = {
     "CONNECTION_RECONNECTING",
