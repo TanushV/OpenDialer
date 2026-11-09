@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
 from app.calling.blockers import CATALOG, blocked, refuse
+from app.calling.relay import after_exchange, after_failure
 from app.calling.state import TERMINAL
 from app.platform.db import MODELS
 from app.platform.secret_files import read_private, write_private
@@ -185,22 +186,20 @@ class ManagedConnection:
                 fail(409, "This number is not assigned to this workspace")
 
     async def settle_gap(self, batch, acknowledgements):
-        """Clear the relay's delivery gap once nothing here is waiting on the missed events.
+        """Clear the relay's delivery gap once nothing here is waiting on the missed events (see `after_exchange`).
 
-        The relay marks a gap when events sat unacknowledged for a day, usually because the app was closed. Those
-        events belonged to calls that have long ended; once no call, inbound call or calling operation is open and
-        every received event is applied, the gap is cleared and calling resumes by itself. Before, only a Reconnect
-        button cleared it, and that button is hidden while the connection is up, so calling stayed blocked.
+        The relay marks a gap when events sat unacknowledged for a day, usually because the app was closed. Before
+        November 9 only a Reconnect button cleared it, and that button was hidden while connected.
         """
         if not batch.get("gap_since") or acknowledgements:
             return False
-        if not await asyncio.to_thread(self.local_caught_up):
-            return False
-        if await asyncio.to_thread(idle_reason, self.service, self.config["tenant_id"]):
-            return False
-        await self.client.rpc("relay_clear_gap", {}).execute()
-        logging.getLogger(__name__).info("Relay delivery gap cleared: nothing was pending locally")
-        return True
+        caught = await asyncio.to_thread(self.local_caught_up)
+        idle = not await asyncio.to_thread(idle_reason, self.service, self.config["tenant_id"])
+        nxt = after_exchange(gap=True, acknowledged=False, local_caught_up=caught, idle=idle)
+        if nxt.clear_gap:
+            await self.client.rpc("relay_clear_gap", {}).execute()
+            logging.getLogger(__name__).info("Relay delivery gap cleared: nothing was pending locally")
+        return nxt.clear_gap
 
     def local_caught_up(self):
         with self.service.db.transaction(False) as session:
@@ -362,20 +361,28 @@ class ManagedConnection:
                     self.last_exchange = monotonic()
                     acknowledgements = await deliver(self.service, self.config["tenant_id"], batch["events"])
                     self.numbers = set(batch.get("numbers", []))
-                    if not acknowledgements and not batch.get("gap_since"):
-                        for _ in range(20):
+                    gap = bool(batch.get("gap_since"))
+                    if not acknowledgements and not gap:
+                        for _ in range(
+                            20
+                        ):  # Applied events finish their local jobs within about two seconds.
                             if await asyncio.to_thread(self.local_caught_up):
                                 break
                             await asyncio.sleep(0.1)
-                    self.caught_up = (
-                        not acknowledgements
-                        and not batch.get("gap_since")
-                        and await asyncio.to_thread(self.local_caught_up)
+                    caught = await asyncio.to_thread(self.local_caught_up)
+                    idle = gap and not await asyncio.to_thread(
+                        idle_reason, self.service, self.config["tenant_id"]
                     )
-                    if await self.settle_gap(batch, acknowledgements):
-                        continue
-                    self.state = "delivery_gap" if batch.get("gap_since") else "connected"
-                    if acknowledgements:
+                    nxt = after_exchange(
+                        gap=gap, acknowledged=bool(acknowledgements), local_caught_up=caught, idle=idle
+                    )
+                    self.caught_up, self.state = nxt.caught_up, nxt.state
+                    if nxt.clear_gap:
+                        await self.client.rpc("relay_clear_gap", {}).execute()
+                        logging.getLogger(__name__).info(
+                            "Relay delivery gap cleared: nothing was pending locally"
+                        )
+                    if nxt.again:
                         continue
                     if not self.joined.is_set():
                         await self.listen(first["topic"])
@@ -390,7 +397,7 @@ class ManagedConnection:
                 raise
             except Exception as exc:
                 self.last_exchange = 0
-                self.state = "in_use_elsewhere" if "another computer" in str(exc) else "reconnecting"
+                self.state = after_failure(exc)
                 logging.getLogger(__name__).warning("Relay exchange failed: %s", self.state)
                 if self.client:
                     await self.client.remove_all_channels()
