@@ -1669,3 +1669,13 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   (`docs/evidence/rebuild/2026-11-09-hubspot-treg-live.md`): sync, waterfall ($0.03), write-back, call logging, summary
   and opt-out all work; a repeat call log now finds the first record. Phase 9E R9E.2 to R9E.6 done; R10.6 done; Script
   page shows its save state and folds usage tools. Next: Settings (R7.2), Phase 10 helper and after-call, R9E.7.
+- November 9, 2026: next steps, in order. (1) R10.5 first: transcript text is held only in the in-memory raw store for
+  minutes (`privacy.py` `transcript_rows`, `self.raw`), so no summary can read it later. Persist each final segment's
+  text and speaker on its `transcript_segments` row with a 30-day expiry (D7), read it back in `transcript_rows`, purge
+  expired rows in the maintenance tick, add `DELETE /v1/calls/{id}/transcript`, then retire the raw store. (2) R10.2:
+  `app/aftercall/summary.py`, one `InferenceClient.complete()` over the whole transcript (no 32-segment page) through
+  OpenRouter's no-retention route (`chat_agent.ROUTING`; add `extra_body` to `complete()`), returning summary, suggested
+  outcome and next step, each field validated on its own (R10.3). The current post-call path never runs in production
+  because `postcall_zdr_verified` is unset, so live calls get no summary today. Then point `suggested_outcome` reads at
+  the new record, add the summary to the HubSpot call record, and stop enqueuing `conversation_finalize` and review.
+  (3) R10.1 helper, R7.2 Settings, R9E.7 relay module, R10.10 layout audit, R10.11 docs, then 2.0.
