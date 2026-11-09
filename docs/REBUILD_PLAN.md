@@ -215,6 +215,7 @@ Each guarantee has an automated test where software can prove it, and a live che
 | G7 | The backend comes back. | Sidecar auto-restart, then one recovery pass. | Kill test | L13 |
 | G8 | The Mac stays awake while the rep is calling. | Hold an awake assertion while Ready, released on Pause. | Unit | L12 |
 | G9 | Two seats never call the same contact, and an opt-out on one seat stops every seat. | A seat syncs only its owner's contacts; the last-contacted guard; opt-outs go to HubSpot at once and every sync adds them; sync before each session and every 30 minutes while calling. | Two-seat sync tests over recorded responses | L22 |
+| G10 | Nothing that stops calling reaches the rep unannounced or without a way out. Every way calling can stop, in any area, either repairs itself within its promise or shows the one control that fixes it. | One calling model checked over every reachable state; a fault soak; a readiness self-test and watchdog in the app (Phase 9E) | Model check and soak in CI | L12, L13 |
 
 | Outage | Behavior after the rebuild |
 |---|---|
@@ -1448,6 +1449,46 @@ calling core, seats and pool are settled first; the Windows work is packaging an
 
 Done when: CI is green on both systems, L25 to L27 pass, and a signed Windows build updates itself. **Owner sitting 6.**
 
+### Phase 9E: calling never stops by surprise
+
+Goal: any problem, in any area, that would stop a call is found before the rep meets it, and repaired by itself where
+software can (owner direction, November 9). Two defects reached the owner on November 9: a relay delivery gap that only
+a hidden button could clear, and a Pause click lost while the button was swapped by a stale re-read. Both passed every
+existing test, because each test checked one piece and none asked whether every stopped state has a way out.
+
+- [ ] R9E.1 One calling model: a small pure state machine of everything that decides whether the next dial happens:
+      setup and keys, relay connection and delivery, numbers and the pool, leads and their holds, the queue, rep
+      audio, presence, Pause and Start, the call itself, after-call, opt-outs and recovery. `blockers()`, the Dialer
+      loop and the relay loop read it; nothing else decides.
+- [ ] R9E.2 Exhaustive check of the model in CI: every reachable state to a set depth, under every event order. Laws:
+      every stopped state has an exit (it clears itself within its stated time, or shows a visible control that clears
+      it); Pause is always honored; no lead is dialed twice at once; an opt-out always holds; no state claims to clear
+      itself unless a path does.
+- [ ] R9E.3 Every blocker code has a test that drives it in and back out through its real code path, not a table.
+      A new blocker without one fails CI.
+- [ ] R9E.4 Fault soak: thousands of seeded runs in CI against the real backend in simulation, injecting the app
+      closed for days, relay gaps, dropped, duplicated and late events, provider outages from section 5, slow
+      re-reads, a killed backend, sleep and wake, a removed mic and clicks during redraws. The R9E.2 laws are checked
+      after every step; a failing seed is kept as a regression test.
+- [ ] R9E.5 Readiness self-test while idle: every minute while the app is open and not calling, run the same checks a
+      dial would (keys valid, relay fresh, a number ready, audio device present, queue has a callable lead, the next
+      lead's script prepared), so a problem shows before Start, not after it.
+- [ ] R9E.6 Watchdog: a self-clearing blocker that outlives its promise triggers its repair automatically and is logged;
+      if the repair fails, the screen shows the real fix control instead of "clears by itself".
+- [ ] R9E.7 Rebuild the relay connection (`managed_webhooks.py`) as a plain module on the model, as Phase 4 did for
+      the dial loop.
+- [ ] R9E.8 The Dialer shows the rep's own Start and Pause at once and never derives a control from a re-read that
+      may predate it (done November 9 for Start and Pause; extend to every control).
+- [ ] R9E.9 Optional, owner decision: a scheduled real test call to the owner's test line to prove the carrier path
+      end to end. It is billable, so it runs only with the owner's yes and a limit.
+
+Done when: R9E.2 and R9E.4 run in CI with no failures, every blocker has its in-and-out test, and a week of real
+use logs no stop that the watchdog or self-test did not catch first.
+
+Bend 2 (HigherOrderCO, September 2026) checks written laws with proofs at compile time. It fits R9E.2 in spirit, but it
+is new, has no editor support and would duplicate the model in a third language, so R9E.2 is written in Python. Revisit
+once the model is small and stable.
+
 ### Phase 10: helper, summary, remaining pages and release
 
 Goal: finish the remaining surface and ship.
@@ -1612,3 +1653,8 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   not started), R3.2, R3.4 to R3.6 and R4.5 (structure), R5.2, R5.12 (one import flake under full load remains) and
   R7.2. Waiting on the owner: keys, the relay migration, pool numbers, a Windows PC and signing route, and the live
   checks. Next: Phase 10, R10.1.
+- November 9, 2026: released 1.0.3, 1.0.4 and 1.0.5. Fixed the whole-app redraw on every background event, a lost Pause
+  click (Start and Pause now decide the screen at once), and a relay delivery gap that kept calling blocked after days
+  closed. Review opens with what needs the rep; learning starts at 40 calls. Owner direction: no problem in any area
+  should stop calling unannounced; added G10 and Phase 9E, which comes before the rest of Phase 10. HubSpot key added
+  and checked by the owner. Next: Phase 9E.
