@@ -7,6 +7,7 @@ import {
   startCalling,
   startDialing,
   waitForPreparation,
+  openLeads,
 } from "./simulation";
 
 test("setup saves a write-only live help key", async ({ page }) => {
@@ -150,7 +151,7 @@ for (const connected of [false]) {
     page,
   }) => {
     await enter(page, connected);
-    await page.getByRole("button", { name: "Leads", exact: true }).click();
+    await openLeads(page);
     await page
       .getByLabel("CSV lead data")
       .fill(
@@ -183,7 +184,7 @@ for (const connected of [false]) {
     }) => {
       await page.setViewportSize({ width, height: 720 });
       await enter(page, connected);
-      await page.getByRole("button", { name: "Leads", exact: true }).click();
+      await openLeads(page);
       await page
         .getByLabel("CSV lead data")
         .fill(

@@ -9,6 +9,7 @@ import {
   startCalling,
   startDialing,
   waitForPreparation,
+  openLeads,
 } from "./simulation";
 
 async function enterSimulation(page: import("@playwright/test").Page) {
@@ -32,7 +33,7 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
 }) => {
   await page.setViewportSize({ width: 1028, height: 749 });
   await enterSimulation(page);
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   await page
     .getByLabel("CSV lead data")
     .fill(
@@ -86,7 +87,7 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
   page,
 }) => {
   await enterSimulation(page);
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   await page
     .getByLabel("CSV lead data")
     .fill(
@@ -160,7 +161,7 @@ test("an imported list shows its progress before any lead finishes preparing", a
     });
   });
   await enterSimulation(page);
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   const panel = page.getByRole("region", { name: "Lead preparation" });
   await expect(panel).toBeVisible();
   await page.getByLabel("List name").fill("Panel refresh list");

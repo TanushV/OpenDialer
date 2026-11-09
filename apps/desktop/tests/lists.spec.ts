@@ -1,5 +1,10 @@
 import { expect, test } from "./fixtures";
-import { finishCall, startDialing, waitForPreparation } from "./simulation";
+import {
+  finishCall,
+  startDialing,
+  waitForPreparation,
+  openLeads,
+} from "./simulation";
 
 async function enter(page: import("@playwright/test").Page) {
   await page.goto("/");
@@ -15,7 +20,7 @@ async function add(
   list: string,
   phone: string,
 ) {
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   await page.getByLabel("List name", { exact: true }).fill(list);
   await page
     .getByLabel("CSV lead data")

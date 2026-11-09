@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "./fixtures";
-import { isolatedSimulationWorkspace, waitForPreparation } from "./simulation";
+import {
+  isolatedSimulationWorkspace,
+  waitForPreparation,
+  openLeads,
+} from "./simulation";
 
 async function enter(page: Page, name: string) {
   await page.goto("/");
@@ -11,7 +15,7 @@ async function enter(page: Page, name: string) {
   await isolatedSimulationWorkspace(page, name);
 }
 async function add(page: Page, list: string, csv: string) {
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   await page.getByLabel("List name", { exact: true }).fill(list);
   await page.getByLabel("CSV lead data").fill(csv);
   await expect(page.getByLabel("List name", { exact: true })).toHaveValue(list);

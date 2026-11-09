@@ -8,6 +8,7 @@ import {
   startCalling,
   startDialing,
   waitForPreparation,
+  openLeads,
 } from "./simulation";
 
 /** The campaign goal lives under Settings → More settings. */
@@ -80,7 +81,7 @@ test("rep explicitly reviews a reopened prospect before resuming outreach", asyn
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   await page
     .getByLabel("CSV lead data")
     .fill(

@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openLeads } from "./simulation";
 
 const CSV = [
   "name,phone,company,timezone,title,finder,network status,signal summaries,signal dates,signal urls,email",
@@ -15,7 +16,7 @@ test("import shows the column map, keeps per-column separators and marks a dead 
     name: "Try a simulated workspace",
   });
   if (await sample.isVisible()) await sample.click();
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   await page.getByLabel("List name", { exact: true }).fill("Intake check");
   await page.getByLabel("CSV lead data").fill(CSV);
   const map = page.getByLabel("Column map");
@@ -37,4 +38,41 @@ test("import shows the column map, keeps per-column separators and marks a dead 
     }),
   ).toBeVisible();
   await expect(page.getByText("Not checked (CSV)").first()).toBeVisible();
+});
+
+test("the guessed column map arrives below Import leads and never moves the button", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  const sample = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await sample.isVisible()) await sample.click();
+  await openLeads(page);
+  // Hold the guess so the button can be measured before and after the map appears.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/v1/leads/column-map", async (route) => {
+    await held;
+    await route.continue();
+  });
+  const button = page.getByRole("button", {
+    name: "Import leads",
+    exact: true,
+  });
+  try {
+    await page.getByLabel("CSV lead data").fill(CSV);
+    await expect(button).toBeEnabled();
+    // Measured in the page, not the window, so a scroll cannot pass for a shift.
+    const top = () =>
+      button.evaluate((b) => b.getBoundingClientRect().top + window.scrollY);
+    const before = await top();
+    release();
+    await expect(page.getByLabel("Column map")).toBeVisible();
+    expect(await top()).toBe(before);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
 });

@@ -351,11 +351,6 @@ export function LeadsPage({
                 }
               />
             </label>
-            <ColumnMap
-              headers={csvHeaders(csv)}
-              value={columnMap}
-              onChange={setColumnMap}
-            />
             <div className="button-row">
               <label className="secondary file-button">
                 <Upload size={15} />
@@ -421,6 +416,12 @@ export function LeadsPage({
                 list · {report.invalid} without a valid phone number
               </p>
             )}
+            {/* Below the buttons: the guessed map arrives after the CSV is read and must not move Import leads. */}
+            <ColumnMap
+              headers={csvHeaders(csv)}
+              value={columnMap}
+              onChange={setColumnMap}
+            />
           </div>
         </section>
       )}

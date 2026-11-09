@@ -10,6 +10,7 @@ import {
   prepareSimulationCall,
   startCalling,
   waitForPreparation,
+  openLeads,
 } from "./simulation";
 
 for (const connected of [false]) {
@@ -595,7 +596,7 @@ test("unfinished wrap-up survives navigation and a full reload", async ({
       .click();
   await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   // This journey owns one additional fictional lead; other flows share the authority.
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   await page
     .getByLabel("CSV lead data")
     .fill(

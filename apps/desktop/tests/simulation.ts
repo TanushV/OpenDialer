@@ -25,8 +25,17 @@ export async function waitForPreparation(page: Page) {
  * authority may have used every seeded lead's attempts, so a calling journey
  * brings its own.
  */
-export async function importLead(page: Page, name: string, phone: string) {
+/** Open Leads and wait until its table has loaded, so nothing below it moves under the next click. */
+export async function openLeads(page: Page) {
   await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Leads" })).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
+}
+
+export async function importLead(page: Page, name: string, phone: string) {
+  await openLeads(page);
   await page
     .getByLabel("CSV lead data")
     .fill(
@@ -49,7 +58,7 @@ export async function prepareSimulationCall(
   await expect(
     page.getByText(/Practice workspace · Calls and provider responses/),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   const rows = [{ name, phone }, ...more]
     .map(
       (lead) =>

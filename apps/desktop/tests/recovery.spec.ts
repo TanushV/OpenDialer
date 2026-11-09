@@ -1,5 +1,5 @@
 import { expect, test, AUTHORITY } from "./fixtures";
-import { waitForPreparation } from "./simulation";
+import { waitForPreparation, openLeads } from "./simulation";
 import { openMoreSettings } from "./navigation";
 
 test("number route recovery preserves its original target and does not offer call controls", async ({
@@ -287,7 +287,7 @@ test("an administrator releases a temporary safety hold with a recorded reason",
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   await page
     .getByLabel("CSV lead data")
     .fill(
