@@ -286,7 +286,6 @@ export function LeadsPage({
           label={history.query ? "Continue lead search" : "Load more leads"}
         />
       </section>
-      <PreparationPanel onNavigate={onNavigate} />
       {admin && (
         <HubSpotLists
           onSynced={async () => {
@@ -515,6 +514,8 @@ export function LeadsPage({
           </section>
         </div>
       )}
+      {/* Last: it grows while research runs, so nothing below it moves under the pointer. */}
+      <PreparationPanel onNavigate={onNavigate} />
     </>
   );
 }

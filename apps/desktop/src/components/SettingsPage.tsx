@@ -1,5 +1,4 @@
 import { ManagedConnection, type ConnectionStatus } from "./ManagedConnection";
-import { countLabel } from "../state/useHistory";
 import { OperatingPolicySettings } from "./OperatingPolicySettings";
 import { CallbackRouting } from "./CallbackRouting";
 import { RecoveryPanel } from "./RecoveryPanel";
@@ -143,62 +142,46 @@ function AdminSettings({
           )}
         </section>
       ) : (
-        <div className="settings-grid">
-          <SettingCard
-            title="Calling"
-            done={!!settings.data.configured.telnyx_api_key}
-            summary={
-              settings.data.configured.telnyx_api_key
-                ? "Telnyx is connected."
-                : "Add your Telnyx API key."
-            }
-          >
-            <TelnyxStep settings={settings} />
-          </SettingCard>
-          <SettingCard
-            title="AI"
-            done={aiDone(settings.data, chatGpt)}
-            summary="ChatGPT researches leads and writes scripts. A Cerebras key powers live help during calls."
-            open
-          >
-            <AiCard settings={settings} onConnected={setChatGpt} />
-          </SettingCard>
-          <SettingCard
-            title="Script"
-            summary="Paste your script once; every lead gets its own version."
-            open
-          >
-            <button className="secondary" onClick={() => onNavigate("Script")}>
-              Open Script
-            </button>
-          </SettingCard>
-          <SettingCard
-            title="Leads"
-            done={(w.pages?.leads?.total ?? w.leads.length) > 0}
-            summary={`${countLabel(w.pages?.leads?.total ?? w.leads.length, w.pages?.leads?.total_capped)} leads imported.`}
-            open
-          >
-            <button className="secondary" onClick={() => onNavigate("Leads")}>
-              Open Leads
-            </button>
-          </SettingCard>
-          <SettingCard
-            title="Calling hours"
-            summary={`${w.policy.local_start_hour}:00 to ${w.policy.local_end_hour}:00 in each lead's time zone · up to ${w.policy.max_attempts} attempts · retries at least a day apart`}
-          >
-            <CallingWindow />
-          </SettingCard>
-          <SettingCard
-            title="Do-not-call check"
-            summary={
-              w.policy.dnc_screening
-                ? "On: leads are checked against the national do-not-call list before calls. Your own opt-outs always apply."
-                : "Optional and off: leads are not looked up. Your own opt-outs always apply."
-            }
-          >
-            <ScreeningChoice />
-          </SettingCard>
-        </div>
+        <>
+          <h2 className="settings-section-title">Change a setting</h2>
+          <div className="settings-grid">
+            <SettingCard
+              title="Calling"
+              done={!!settings.data.configured.telnyx_api_key}
+              summary={
+                settings.data.configured.telnyx_api_key
+                  ? "Telnyx is connected."
+                  : "Add your Telnyx API key."
+              }
+            >
+              <TelnyxStep settings={settings} />
+            </SettingCard>
+            <SettingCard
+              title="AI"
+              done={aiDone(settings.data, chatGpt)}
+              summary="ChatGPT researches leads and writes scripts. A Cerebras key powers live help during calls."
+              open
+            >
+              <AiCard settings={settings} onConnected={setChatGpt} />
+            </SettingCard>
+            <SettingCard
+              title="Calling hours"
+              summary={`${w.policy.local_start_hour}:00 to ${w.policy.local_end_hour}:00 in each lead's time zone · up to ${w.policy.max_attempts} attempts · retries at least a day apart`}
+            >
+              <CallingWindow />
+            </SettingCard>
+            <SettingCard
+              title="Do-not-call check"
+              summary={
+                w.policy.dnc_screening
+                  ? "On: leads are checked against the national do-not-call list before calls. Your own opt-outs always apply."
+                  : "Optional and off: leads are not looked up. Your own opt-outs always apply."
+              }
+            >
+              <ScreeningChoice />
+            </SettingCard>
+          </div>
+        </>
       )}
       <MoreSettings settings={settings} onDisconnect={onDisconnect} />
     </>

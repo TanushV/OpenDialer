@@ -2723,3 +2723,8 @@ details.transcript-card {
 .compact-field select {
   max-width: 320px;
 }
+.settings-section-title {
+  font-size: 14px;
+  margin: 24px 0 10px;
+  color: #43513f;
+}

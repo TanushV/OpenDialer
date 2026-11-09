@@ -203,15 +203,11 @@ test("settings is one short page with everything else folded away", async ({
 }) => {
   await enter(page);
   await openSettings(page);
-  for (const title of [
-    "Calling",
-    "AI",
-    "Script",
-    "Leads",
-    "Calling hours",
-    "Do-not-call check",
-  ])
+  for (const title of ["Calling", "AI", "Calling hours", "Do-not-call check"])
     await expect(page.getByTestId(`setting-${title}`)).toBeVisible();
+  // Script and Leads are rows above; their duplicate cards are gone.
+  for (const gone of ["Script", "Leads"])
+    await expect(page.getByTestId(`setting-${gone}`)).toHaveCount(0);
   await expect(page.locator(".tabs")).toHaveCount(0);
   await expect(page.getByLabel("Voice API connection ID")).toBeHidden();
   expect(await visibleControls(page)).toBeLessThanOrEqual(30);
