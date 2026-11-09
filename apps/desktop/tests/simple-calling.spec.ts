@@ -194,3 +194,37 @@ for (const pause of [false, true]) {
     }
   });
 }
+
+test("Pause stays on screen after Start even while the workspace re-read is slow", async ({
+  page,
+}) => {
+  await enter(page);
+  await prepareSimulationCall(page, "Slow refresh", "+14155550779");
+  // The rep's own Start must not wait for a workspace re-read: a slow one used to swap Pause for
+  // "Calling stops after this call" and back, and a click in between was lost.
+  // A re-read that still says "paused" (it left before the rep's Start reached the server).
+  let stale = true;
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (stale) body.user.presence.status = "paused";
+    await route.fulfill({ response, json: body });
+  });
+  setTimeout(() => (stale = false), 6000);
+  let paused = 0;
+  page.on("request", (request) => {
+    if (
+      request.url().endsWith("/v1/rep/presence") &&
+      request.postData()?.includes('"paused"')
+    )
+      paused++;
+  });
+  await startCalling(page).click();
+  await expect(pauseCalling(page)).toBeVisible();
+  for (let i = 0; i < 10; i++) {
+    await expect(page.getByText("Calling stops after this call")).toBeHidden();
+    await page.waitForTimeout(150);
+  }
+  await pauseCalling(page).click();
+  await expect.poll(() => paused).toBe(1);
+});

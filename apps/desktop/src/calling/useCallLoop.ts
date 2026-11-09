@@ -47,7 +47,10 @@ export function useCallLoop(visible: boolean) {
   const audio = useRef<HTMLAudioElement>(null);
   // Pause takes effect here at once; the server's presence follows.
   const [held, setHeld] = useState(false);
-  const calling = w.user.presence.status === "ready" && !held;
+  // The rep's own Start and Pause decide the screen at once; a workspace re-read that left before the
+  // server saw them must not swap Pause for "Calling stops" and back (a click in between was lost).
+  const [started, setStarted] = useState<boolean | null>(null);
+  const calling = (started ?? w.user.presence.status === "ready") && !held;
   const callingRef = useRef(calling);
   callingRef.current = calling;
   const [connecting, setConnecting] = useState(false);
@@ -420,6 +423,8 @@ export function useCallLoop(visible: boolean) {
     setHeld(false);
     setFinished(null);
     await withConnecting(connectAudio);
+    setStarted(true);
+    callingRef.current = true;
     await refresh();
     callingRef.current = true;
     await nextOrPause();
@@ -428,6 +433,7 @@ export function useCallLoop(visible: boolean) {
     pausing.current = true;
     callingRef.current = false;
     setHeld(true);
+    setStarted(false);
     await api("/v1/rep/presence", "POST", {
       status: "paused",
       audio_ready: w.user.presence.audio_ready ?? false,
