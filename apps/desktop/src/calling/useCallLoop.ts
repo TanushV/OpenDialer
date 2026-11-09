@@ -385,8 +385,10 @@ export function useCallLoop(visible: boolean) {
       // The server's blockers, not this render's snapshot, say whether the audio leg needs renewing.
       const found = await readBlockers();
       if (found.some((b) => !SELF_CLEARING.has(b.code)) || local.length) return;
-      if (found.some((b) => b.code === "REP_AUDIO_NOT_READY"))
+      if (found.some((b) => b.code === "REP_AUDIO_NOT_READY")) {
         await withConnecting(connectAudio);
+        if (await pausedMeanwhile(false)) return;
+      }
       let next: Reservation;
       try {
         next = await nextLeadWithRetry(
@@ -408,8 +410,8 @@ export function useCallLoop(visible: boolean) {
       setFinished(null);
       setEditing(false);
       setPacket(await api<Packet>(`/v1/leads/${next.lead.id}/packet`));
-      // Pause pressed while the lead was loading: no call is placed (Pause released the reservation).
-      if (!callingRef.current) return;
+      // Pause pressed while the lead was reserved or loading: no call is placed and the lead is given back.
+      if (await pausedMeanwhile(true)) return;
       setCall(
         await api<Call>("/v1/calls/start", "POST", {
           reservation_id: next.reservation_id,
@@ -440,21 +442,28 @@ export function useCallLoop(visible: boolean) {
     setHeld(false);
     setFinished(null);
     await withConnecting(connectAudio);
-    if (pausing.current) {
-      // Pause pressed while the audio was connecting wins. Its "paused" may have reached the server before
-      // this start's "ready", so say paused again; nothing is reserved or dialed.
-      await api("/v1/rep/presence", "POST", {
-        status: "paused",
-        audio_ready: true,
-        telephony_ready: false,
-      });
-      return;
-    }
+    if (await pausedMeanwhile(false)) return;
     setStarted(true);
     callingRef.current = true;
     await refresh();
+    if (await pausedMeanwhile(false)) return;
     callingRef.current = true;
     await nextOrPause();
+  }
+  /**
+   * Pause pressed while a step was still answering wins over that step. Its "paused" may have reached the server
+   * before the step's "ready", so it is said again, and a lead reserved meanwhile is given back. True when paused.
+   */
+  async function pausedMeanwhile(reserved: boolean) {
+    // Pause sets `pausing`; a start clears it. A render's `calling` may still be catching up, so it is not used.
+    if (!pausing.current) return false;
+    await api("/v1/rep/presence", "POST", {
+      status: "paused",
+      audio_ready: true,
+      telephony_ready: false,
+    });
+    if (reserved) await api("/v1/queue/release", "POST", {});
+    return true;
   }
   async function pauseCalling() {
     pausing.current = true;

@@ -411,3 +411,52 @@ test("Pause pressed while audio is connecting wins: nothing is reserved or diale
     await page.unrouteAll({ behavior: "ignoreErrors" });
   }
 });
+
+test("Pause pressed while a lead is being reserved gives the lead back and dials nothing", async ({
+  page,
+}) => {
+  await enter(page);
+  await prepareSimulationCall(page, "Pause while reserving", "+14155550786");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let holding = true;
+  await page.route("**/v1/queue/next", async (route) => {
+    // The reservation reaches the server only after Pause has already been sent.
+    if (holding) {
+      holding = false;
+      await held;
+    }
+    await route.continue();
+  });
+  let starts = 0;
+  page.on("request", (r) => {
+    if (r.url().endsWith("/v1/calls/start")) starts++;
+  });
+  const reserving = page.waitForRequest((r) =>
+    r.url().endsWith("/v1/queue/next"),
+  );
+  try {
+    await startCalling(page).click();
+    await reserving;
+    await page.keyboard.press("KeyP");
+    release();
+    await expect(startCalling(page)).toBeVisible();
+    await page.waitForTimeout(800);
+    expect(starts).toBe(0);
+    const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+      headers: { "X-Local-Token": "e2e-local-token" },
+      data: {},
+    });
+    const token = (await local.json()).access_token;
+    const workspace = await (
+      await page.request.get(`${AUTHORITY}/v1/workspace`, {
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).json();
+    expect(workspace.reservation).toBeFalsy();
+    expect(workspace.user.presence.status).toBe("paused");
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  }
+});
