@@ -1501,20 +1501,25 @@ Goal: finish the remaining surface and ship.
 Live helper and after-call:
 
 - [ ] R10.1 Live helper: streamed tips and private help only; remove interpretation layers that nothing else uses.
-- [ ] R10.2 After-call: one request over the whole transcript returns summary, suggested outcome and next step.
-- [ ] R10.3 Fix the three verified defects by design: no batch-wide rejection, no 32-segment cutoff, no "partial" caused by an
+- [x] R10.2 After-call: one request over the whole transcript returns summary, suggested outcome and next step.
+      Done November 9: `aftercall/summary.py`, one request over the whole transcript on OpenRouter's no-retention route; saved in `call_summaries`; the wrap-up shows it and HubSpot gets it. The old finalize path still runs beside it until R10.1 retires it.
+- [x] R10.3 Fix the three verified defects by design: no batch-wide rejection, no 32-segment cutoff, no "partial" caused by an
       unassessed item.
+      Done November 9 by design in `aftercall/summary.py`: no page limit, each field validated alone, no partial state.
 - [ ] R10.4 V4.1 Flash reviews commitments that would create tasks; a failed item fails alone, with Retry.
-- [ ] R10.5 Transcript retention of 30 days; remove the raw-speech store and expiry code; add a delete control.
+- [x] R10.5 Transcript retention of 30 days; remove the raw-speech store and expiry code; add a delete control.
+      Done November 9: text is saved on `transcript_segments` for 30 days, purged by the maintenance tick, deletable from Review; an opt-out deletes it. The in-memory store stays only for the live helper.
 
 Pages:
 
 - [x] R10.6 Leads and Lists become one page.
       Done November 9: the lists table sits above the leads on Leads; the Lists page is gone from the menu.
 - [ ] R10.7 Numbers: list, buy, add, ready status, daily cap.
-- [ ] R10.8 Script: clear "unsaved draft" state versus saved version; memory view.
+- [x] R10.8 Script: clear "unsaved draft" state versus saved version; memory view.
+      Done November 9: a Saved or Unsaved state with Discard; usage and rewrite tools folded.
 - [ ] R10.9 Review: calls, timeline, follow-ups as compact rows, learning card.
-- [ ] R10.10 Layout audit passes on every page.
+- [x] R10.10 Layout audit passes on every page.
+      Done November 9: `tests/layout-audit.spec.ts` covers every page at both sizes; it caught the Leads toolbar shifting 43px, fixed by moving the lists table below the leads.
 
 Docs and release:
 
@@ -1679,3 +1684,7 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   because `postcall_zdr_verified` is unset, so live calls get no summary today. Then point `suggested_outcome` reads at
   the new record, add the summary to the HubSpot call record, and stop enqueuing `conversation_finalize` and review.
   (3) R10.1 helper, R7.2 Settings, R9E.7 relay module, R10.10 layout audit, R10.11 docs, then 2.0.
+- November 9, 2026 (evening): released 1.0.7 (watchdog and Reconnect, readiness before Start, Leads and Lists on one page,
+  Script save state) and built 1.0.8 (after-call summary, 30-day transcripts, steady Leads). R10.2, R10.3, R10.5, R10.8 and
+  R10.10 done. Next: R10.1 (retire the old finalize, review and interpretation path now that the summary replaces it),
+  R10.4, R7.2, R9E.7, R10.11 docs, then 2.0.
