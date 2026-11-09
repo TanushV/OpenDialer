@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { coalesceRefresh } from "../src/state/refresh";
+import { coalesceRefresh, shareUnchanged } from "../src/state/refresh";
 
 function pending<T>() {
   let resolve!: (value: T) => void;
@@ -45,5 +45,36 @@ describe("workspace refresh after a mutation", () => {
     await expect(refresh()).rejects.toThrow("offline");
     await refresh();
     expect(publish).toHaveBeenCalledExactlyOnceWith("ready");
+  });
+});
+
+describe("shareUnchanged", () => {
+  it("keeps the shown workspace when a re-read brings nothing new", () => {
+    const shown = { leads: [{ id: "a" }], event_cursor: 1 };
+    expect(
+      shareUnchanged(shown, { leads: [{ id: "a" }], event_cursor: 2 }),
+    ).toBe(shown);
+  });
+
+  it("replaces only what changed, so screens reading the rest do not redraw", () => {
+    const shown = {
+      leads: [{ id: "a" }],
+      numbers: [{ id: "n" }],
+      event_cursor: 1,
+    };
+    const next = shareUnchanged(shown, {
+      leads: [{ id: "b" }],
+      numbers: [{ id: "n" }],
+      event_cursor: 2,
+    });
+    expect(next).not.toBe(shown);
+    expect(next.numbers).toBe(shown.numbers);
+    expect(next.leads).toEqual([{ id: "b" }]);
+    expect(next.event_cursor).toBe(2);
+  });
+
+  it("takes the first read as it is", () => {
+    const first = { leads: [] };
+    expect(shareUnchanged(null, first)).toBe(first);
   });
 });

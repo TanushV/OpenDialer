@@ -1,4 +1,4 @@
-import { coalesceRefresh } from "./state/refresh";
+import { coalesceRefresh, shareUnchanged } from "./state/refresh";
 import { countLabel } from "./state/useHistory";
 import { receiveSpeech } from "./state/privacy";
 import {
@@ -60,6 +60,9 @@ type View =
   | "Numbers"
   | "Script"
   | "Settings";
+// Background events (lead prep, jobs, syncs) can arrive several a second; one re-read covers a burst of them.
+const EVENT_REFRESH_MS = 500;
+
 const navigation = [
   { title: "Dialer", icon: Phone, admin: false },
   { title: "Leads", icon: Users, admin: false },
@@ -147,6 +150,8 @@ export function App() {
   authority.current = { runtime, session };
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  // The newest event cursor, even when a re-read changed nothing shown and the snapshot was kept.
+  const cursorRef = useRef(snapshot?.event_cursor);
   // Sessions issued by an automatic renewal; one of these expiring stops retrying.
   const renewed = useRef(new WeakSet<Session>());
   const sessionExpired = useCallback(async (rejected: Session) => {
@@ -248,7 +253,8 @@ export function App() {
             authority.current.session !== session
           )
             return;
-          setSnapshot(result);
+          cursorRef.current = result.event_cursor;
+          setSnapshot((current) => shareUnchanged(current, result));
           setOffline(false);
           setExpired(false);
           writeCache(`workspace-${session.user_id}`, {
@@ -341,7 +347,7 @@ export function App() {
       token: session.access_token,
       tenantId: session.tenant_id,
       // Events up to the shown snapshot are already reflected; do not replay them.
-      after: snapshotRef.current?.event_cursor,
+      after: cursorRef.current ?? snapshotRef.current?.event_cursor,
       onStatus: (status) => {
         connected = status === "live";
         setLiveStatus(status);
@@ -364,7 +370,7 @@ export function App() {
           pending = setTimeout(() => {
             pending = null;
             void refresh().catch(() => {});
-          }, 40);
+          }, EVENT_REFRESH_MS);
         }
       },
     });
