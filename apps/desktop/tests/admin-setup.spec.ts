@@ -1,4 +1,4 @@
-import { expect, test, type Page, setUpAuthority } from "./fixtures";
+import { AUTHORITY, expect, test, type Page, setUpAuthority } from "./fixtures";
 import { openScreening } from "./navigation";
 
 test("the Telnyx key is saved and checked in its own row", async ({ page }) => {
@@ -492,4 +492,28 @@ test("Test call limits calling to the test phone until the session ends", async 
   await expect(
     page.getByRole("button", { name: "End test session", exact: true }),
   ).toBeHidden();
+});
+
+test("a key saved without a check can be checked in its row without typing it again", async ({
+  page,
+}) => {
+  await enter(page);
+  // A key saved before the rows existed (or by an older version) has no check yet.
+  const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
+  const token = (await local.json()).access_token;
+  const saved = await page.request.put(`${AUTHORITY}/v1/admin/settings`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { openrouter_api_key: "sk-or-saved-earlier" },
+  });
+  expect(saved.ok()).toBeTruthy();
+  await openSettings(page);
+  const row = page.getByTestId("setup-openrouter");
+  const status = row.getByRole("status", { name: "OpenRouter key status" });
+  await expect(status).toContainText("Not checked");
+  await row.getByRole("button", { name: "Check", exact: true }).click();
+  await expect(status).toContainText("Checked");
+  await expect(row.getByLabel("New OpenRouter key")).toHaveValue("");
 });

@@ -241,9 +241,10 @@ function SetupRow({
           Test call
         </Button>
       )}
-      {!field && (row.state === "unchecked" || row.state === "failed") && (
+      {/* A saved value is checked as it is, without typing it again. */}
+      {(row.state === "unchecked" || row.state === "failed") && (
         <Button variant="text" onClick={() => void check()}>
-          Check again
+          {row.state === "failed" ? "Check again" : "Check"}
         </Button>
       )}
     </div>
