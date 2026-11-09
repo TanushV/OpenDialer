@@ -147,6 +147,20 @@ class ImportLeads(Strict):
     column_map: dict[str, dict[str, str | None]] | None = None
 
 
+class CallsFor(Strict):
+    owner_id: str = Field(min_length=1, max_length=40)
+
+
+class HubSpotSync(Strict):
+    list_id: str = Field(min_length=1, max_length=40)
+    list_name: str = Field(min_length=1, max_length=120)
+
+
+class SpendLimit(Strict):
+    list_name: str = Field(min_length=1, max_length=120)
+    usd: float = Field(ge=0, le=10000, allow_inf_nan=False)
+
+
 class ColumnMapRequest(Strict):
     headers: list[str] = Field(max_length=500)
 
@@ -287,12 +301,23 @@ class ProviderSettings(Strict):
     coach_provider: Literal["openrouter", "static"] | None = None
     openrouter_api_key: str | None = None
     coach_model: str | None = Field(default=None, min_length=3, max_length=200)
+    # Phase 9B: the optional CRM integrations (section 7).
+    realvalidito_api_key: str | None = Field(default=None, max_length=200)
+    realvalidito_api_secret: str | None = Field(default=None, max_length=200)
+    hubspot_service_key: str | None = Field(default=None, max_length=500)
+    treg_token: str | None = Field(default=None, max_length=500)
+    # R9C.10: research on this seat uses the ChatGPT login or the OpenRouter fallback.
+    research_route: Literal["chatgpt", "fallback"] | None = None
 
 
 SECRET_FIELDS = {
     "dnc_api_key",
     "telnyx_api_key",
     "openrouter_api_key",
+    "realvalidito_api_key",
+    "realvalidito_api_secret",
+    "hubspot_service_key",
+    "treg_token",
 }
 _BOUND_KEYS = {
     "minimum": "min",
@@ -720,6 +745,36 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/leads/import")
     def import_leads(data: ImportLeads, p=Depends(administrator)):
         return service.import_leads(p, data.model_dump())
+
+    @app.get("/v1/hubspot/lists")
+    async def hubspot_lists(p=Depends(administrator)):
+        from app import crm
+
+        return await crm.lists(service, p)
+
+    @app.get("/v1/hubspot/owners")
+    async def hubspot_owners(p=Depends(administrator)):
+        from app import crm
+
+        return await crm.owners(service, p)
+
+    @app.put("/v1/hubspot/calls-for")
+    def hubspot_calls_for(data: CallsFor, p=Depends(administrator)):
+        from app import crm
+
+        return crm.set_calls_for(service, p, data.owner_id)
+
+    @app.post("/v1/hubspot/sync")
+    async def hubspot_sync(data: HubSpotSync, p=Depends(administrator)):
+        from app import crm
+
+        return await crm.sync(service, p, data.list_id, data.list_name.strip())
+
+    @app.put("/v1/lists/spend-limit")
+    def list_spend_limit(data: SpendLimit, p=Depends(administrator)):
+        from app import crm
+
+        return crm.set_spend_limit(service, p, data.list_name.strip(), data.usd)
 
     @app.post("/v1/leads/column-map")
     def column_map(data: ColumnMapRequest, p=Depends(administrator)):

@@ -85,9 +85,17 @@ class Settings(BaseSettings):
     worker_enabled: bool = True
     worker_queues: list[
         Literal[
-            "webhook", "live_coach", "postcall", "maintenance", "call_control", "research", "scripts", "ml"
+            "webhook",
+            "live_coach",
+            "postcall",
+            "maintenance",
+            "call_control",
+            "research",
+            "scripts",
+            "ml",
+            "crm",
         ]
-    ] = ["webhook", "live_coach", "postcall", "maintenance", "research", "scripts", "ml"]
+    ] = ["webhook", "live_coach", "postcall", "maintenance", "research", "scripts", "ml", "crm"]
     allowed_origins: list[str] = [
         "tauri://localhost",
         "http://tauri.localhost",

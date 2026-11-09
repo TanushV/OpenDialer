@@ -279,6 +279,40 @@ class Dialer(
             ok, detail = await telnyx.check_key(conf["telnyx_api_key"], http)
         elif row_id == "openrouter":
             ok, detail = await openrouter.check_key(conf["openrouter_api_key"], http)
+        elif row_id == "realvalidito":
+            from app.providers.realvalidito import DNCUnavailable, RealValidito
+
+            try:
+                credits = await RealValidito(
+                    conf["realvalidito_api_key"], conf["realvalidito_api_secret"], http=http
+                ).credits()
+                ok, detail = True, f"{credits} do-not-call credits left"
+            except DNCUnavailable as exc:
+                ok, detail = (
+                    False,
+                    {"DNC_NO_CREDITS": "No credits left", "DNC_KEY_INVALID": "Key or secret refused"}.get(
+                        exc.reason, str(exc)
+                    ),
+                )
+        elif row_id == "hubspot":
+            from app.providers.hubspot import HubSpot
+
+            ok, detail = await HubSpot(conf["hubspot_service_key"], http=http).check()
+        elif row_id == "treg":
+            from app.providers.treg import Treg
+
+            ok, detail = await Treg(conf["treg_token"]).check()
+        elif row_id == "calls_for":
+            from app.providers.hubspot import HubSpot, HubSpotError
+
+            try:
+                owners = await HubSpot(conf["hubspot_service_key"], http=http).owners()
+            except HubSpotError as exc:
+                owners, detail = None, str(exc)
+            owner = next((o for o in owners or [] if o["id"] == str(conf["hubspot_owner_id"])), None)
+            ok = owner is not None
+            if owners is not None:
+                detail = f"Calls for {owner['name']}" if owner else "That HubSpot user no longer exists"
         else:
             raise HTTPException(409, f"The {spec.label} check arrives with its integration")
         checks = {

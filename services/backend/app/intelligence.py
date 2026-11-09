@@ -507,6 +507,10 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                         raise UnknownJobKind(f"No postcall handler for job kind {kind!r}")
                 elif lane == "live_coach":
                     await self.coach_turn(p, job["payload"]["call_id"])
+                elif lane == "crm":
+                    from app import crm
+
+                    await crm.run_job(self, p, job["payload"])
                 elif lane == "ml":
                     if job["payload"].get("kind") == "report_refresh":
                         pass  # A saved report view from before R8.4; the report is now computed when read.
@@ -558,7 +562,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
             "live_coach": LIMITS.live_active,
             "postcall": LIMITS.postcall_active,
         }
-        capacity.update(research=LIMITS.agent_threads, scripts=LIMITS.agent_threads, ml=2)
+        capacity.update(research=LIMITS.agent_threads, scripts=LIMITS.agent_threads, ml=2, crm=2)
         processed = 0
 
         async def drain(lane):
@@ -584,7 +588,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
                 seen.update(j["id"] for j in jobs)
             return False
 
-        lanes = list(queues or ["webhook", "live_coach", "postcall", "scripts", "research", "ml"])
+        lanes = list(queues or ["webhook", "live_coach", "postcall", "scripts", "research", "ml", "crm"])
         idle = await asyncio.gather(*(drain(lane) for lane in lanes))
         if processed and len(lanes) > 1:
             # A sibling's commits can make work due after a lane found nothing; run it in this call.

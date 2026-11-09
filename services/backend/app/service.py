@@ -75,6 +75,7 @@ class Service(LeadLists, ReservationPlanner):
                 "postcall": LIMITS.postcall_active,
                 "preparation": LIMITS.agent_threads,
                 "ml": 2,
+                "crm": 2,
             }.items()
         }
 

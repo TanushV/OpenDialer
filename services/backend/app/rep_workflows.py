@@ -1067,6 +1067,9 @@ class RepWorkflows:
                 invalidate_report(self, s, p, lead.data["campaign_id"])
                 self.refresh_packet_in(s, p, lead)
                 self.enqueue_finalize(s, p, call, "wrapup")
+                from app import crm
+
+                crm.on_outcome(self, s, p, call, lead, outcome)
                 emit(s, p["tenant_id"], "call.updated", call, self.clock())
             receipt = identity[2] or self.local_edit_receipt(s, p, identity, call)
             return self._disposition_result(s, p, call, lead, receipt, task, callback_review, tasks)

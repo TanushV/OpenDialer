@@ -79,6 +79,15 @@ SPECS = (
         optional=True,
     ),
     Spec(
+        "calls_for",
+        "Calls for",
+        "Chosen from HubSpot's users when this seat is set up",
+        None,
+        "Which HubSpot contacts this computer syncs and calls",
+        ("hubspot_service_key", "hubspot_owner_id"),
+        optional=True,
+    ),
+    Spec(
         "treg",
         "Treg token",
         "treg org agent-new opendialer --cap <daily calls>",
