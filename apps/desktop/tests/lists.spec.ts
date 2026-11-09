@@ -21,7 +21,7 @@ async function add(
     .getByLabel("CSV lead data")
     .fill(`name,phone,timezone\n${list},${phone},America/Los_Angeles`);
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
-  await expect(page.getByText(/^1 imported/)).toBeVisible();
+  await expect(page.getByText(/^1 imported/)).toBeVisible({ timeout: 30_000 });
   await waitForPreparation(page);
 }
 

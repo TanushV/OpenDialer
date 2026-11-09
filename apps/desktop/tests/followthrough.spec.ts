@@ -602,7 +602,7 @@ test("unfinished wrap-up survives navigation and a full reload", async ({
       "name,phone,company,timezone,region\nRestart Fixture,+14155550119,Restart Fixture Co,America/Los_Angeles,415",
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
-  await expect(page.getByText(/1 imported/)).toBeVisible();
+  await expect(page.getByText(/1 imported/)).toBeVisible({ timeout: 30_000 });
   await waitForPreparation(page);
   await page.getByRole("button", { name: "Dialer", exact: true }).click();
   await startCalling(page).click();

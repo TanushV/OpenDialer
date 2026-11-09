@@ -37,11 +37,18 @@ function Task({
     article.current?.focus();
   }, [focused]);
   const [when, setWhen] = useState(zonedInput(task.due_at, zone.zone));
-  const [owner, setOwner] = useState(task.owner_id || "");
+  // One rep per workspace (D25): the owner defaults to the rep, and the choice shows only with more than one.
+  const [owner, setOwner] = useState(task.owner_id || w.user.id);
   const [reminder, setReminder] = useState(
     zonedInput(task.snoozed_until, zone.zone),
   );
   const [reason, setReason] = useState("");
+  // R10.9: a compact row; the time, reminder and owner fields fold away unless a decision is needed.
+  const [changing, setChanging] = useState(
+    !!task.review_required ||
+      task.status === "needs_confirmation" ||
+      (!task.due_at && !CLOSED.includes(task.status)),
+  );
   const routing = task.inbound && task.inbound_state !== "ended";
   const closed = CLOSED.includes(task.status) || routing;
   const name = task.lead_name || lead?.name || "Incoming callback";
@@ -78,12 +85,36 @@ function Task({
       ref={article}
       tabIndex={-1}
     >
-      <strong>
-        {name} · {task.action}
-      </strong>
-      <p>
-        <span>{label(task.status)}</span> · {date(task.due_at, zone.zone)}
-      </p>
+      <div className="followup-row">
+        <p>
+          <strong>{name}</strong> · {task.action} ·{" "}
+          <span>{label(task.status)}</span> · {date(task.due_at, zone.zone)}
+        </p>
+        <div className="button-row">
+          <button
+            className="small text-button"
+            disabled={
+              closed || (!!task.review_required && reason.trim().length < 3)
+            }
+            onClick={() =>
+              void change(() => ({ status: "completed", ...confirmation }))
+            }
+          >
+            Complete
+          </button>
+          <button
+            className="small text-button"
+            disabled={
+              closed || (!!task.review_required && reason.trim().length < 3)
+            }
+            onClick={() =>
+              void change(() => ({ status: "cancelled", ...confirmation }))
+            }
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
       {task.callback_suggestion_until && !closed && (
         <p role="status">
           Suggested callback, confirm by{" "}
@@ -145,105 +176,92 @@ function Task({
           action.
         </p>
       )}
-      {task.review_required && (
+      <details
+        className="followup-change"
+        open={changing}
+        onToggle={(event) => setChanging(event.currentTarget.open)}
+      >
+        <summary>Change time or owner</summary>
+        {task.review_required && (
+          <label>
+            Confirmation reason
+            <input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </label>
+        )}
         <label>
-          Confirmation reason
+          Callback time ({zoneCaption(zone)})
           <input
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
+            type="datetime-local"
+            value={when}
+            onChange={(e) => setWhen(e.target.value)}
+            disabled={closed}
           />
         </label>
-      )}
-      <label>
-        Callback time ({zoneCaption(zone)})
-        <input
-          type="datetime-local"
-          value={when}
-          onChange={(e) => setWhen(e.target.value)}
-          disabled={closed}
-        />
-      </label>
-      <label>
-        Reminder until ({zoneCaption(zone)})
-        <input
-          type="datetime-local"
-          value={reminder}
-          onChange={(event) => setReminder(event.target.value)}
-          disabled={closed}
-        />
-      </label>
-      <label>
-        Task owner
-        <select
-          value={owner}
-          onChange={(e) => setOwner(e.target.value)}
-          disabled={closed}
-        >
-          <option value="">Choose an owner</option>
-          {owners.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="button-row">
-        <button
-          className="small secondary"
-          disabled={
-            closed ||
-            !when ||
-            !owner ||
-            (!!task.review_required && reason.trim().length < 3)
-          }
-          onClick={() =>
-            void change(() => ({
-              status: "open",
-              confirmation_state: "confirmed",
-              ...confirmation,
-              due_at: zonedInstant(when, zone.zone),
-              owner_id: owner,
-              timezone: zone.zone,
-            }))
-          }
-        >
-          Save follow-up
-        </button>
-        <button
-          className="small secondary"
-          disabled={closed || !task.due_at || !reminder}
-          onClick={() =>
-            void change(() => ({
-              status: "snoozed",
-              snoozed_until: zonedInstant(reminder, zone.zone),
-            }))
-          }
-        >
-          Snooze reminder
-        </button>
-        <button
-          className="small text-button"
-          disabled={
-            closed || (!!task.review_required && reason.trim().length < 3)
-          }
-          onClick={() =>
-            void change(() => ({ status: "completed", ...confirmation }))
-          }
-        >
-          Complete
-        </button>
-        <button
-          className="small text-button"
-          disabled={
-            closed || (!!task.review_required && reason.trim().length < 3)
-          }
-          onClick={() =>
-            void change(() => ({ status: "cancelled", ...confirmation }))
-          }
-        >
-          Cancel
-        </button>
-      </div>
+        <label>
+          Reminder until ({zoneCaption(zone)})
+          <input
+            type="datetime-local"
+            value={reminder}
+            onChange={(event) => setReminder(event.target.value)}
+            disabled={closed}
+          />
+        </label>
+        {owners.length > 1 && (
+          <label>
+            Task owner
+            <select
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+              disabled={closed}
+            >
+              <option value="">Choose an owner</option>
+              {owners.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <div className="button-row">
+          <button
+            className="small secondary"
+            disabled={
+              closed ||
+              !when ||
+              !owner ||
+              (!!task.review_required && reason.trim().length < 3)
+            }
+            onClick={() =>
+              void change(() => ({
+                status: "open",
+                confirmation_state: "confirmed",
+                ...confirmation,
+                due_at: zonedInstant(when, zone.zone),
+                owner_id: owner,
+                timezone: zone.zone,
+              }))
+            }
+          >
+            Save follow-up
+          </button>
+          <button
+            className="small secondary"
+            disabled={closed || !task.due_at || !reminder}
+            onClick={() =>
+              void change(() => ({
+                status: "snoozed",
+                snoozed_until: zonedInstant(reminder, zone.zone),
+              }))
+            }
+          >
+            Snooze reminder
+          </button>
+        </div>
+      </details>
     </article>
   );
 }

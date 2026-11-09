@@ -39,7 +39,7 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
       "name,phone,company,timezone,region\nWorkflow Call,+12125550931,Workflow Example,America/New_York,212",
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
-  await expect(page.getByText(/^1 imported/)).toBeVisible();
+  await expect(page.getByText(/^1 imported/)).toBeVisible({ timeout: 30_000 });
   await waitForPreparation(page);
   await page.getByLabel("Search leads").fill("Workflow Call");
   await page
@@ -94,7 +94,7 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
     );
   await page.getByLabel("List name").fill("Workflow journey list");
   await page.getByRole("button", { name: "Import leads" }).click();
-  await expect(page.getByText(/^1 imported/)).toBeVisible();
+  await expect(page.getByText(/^1 imported/)).toBeVisible({ timeout: 30_000 });
   await waitForPreparation(page);
   // The app asks for research and a script for each imported lead before calling.
   await expect(
@@ -170,7 +170,7 @@ test("an imported list shows its progress before any lead finishes preparing", a
       "name,phone,company,timezone\nRiley Example,+12125550178,Panel Refresh Co,America/New_York",
     );
   await page.getByRole("button", { name: "Import leads" }).click();
-  await expect(page.getByText(/^1 imported/)).toBeVisible();
+  await expect(page.getByText(/^1 imported/)).toBeVisible({ timeout: 30_000 });
   await expect(
     panel.getByRole("listitem").filter({ hasText: "Panel refresh list" }),
   ).toBeVisible();

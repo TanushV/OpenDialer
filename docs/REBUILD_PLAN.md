@@ -1544,7 +1544,8 @@ Pages:
       Done November 9: a Saved or Unsaved state with Discard; usage and rewrite tools folded.
 - [x] R10.9 Review: calls, timeline, follow-ups as compact rows, learning card.
       Done November 9: Review opens with Needs you, then follow-ups, calls and the learning card; a call shows its
-      outcome, summary, timeline, transcript and the rep's note.
+      outcome, summary, timeline, transcript and the rep's note. Each follow-up is one row with Complete and Cancel;
+      its time and reminder fields fold under Change unless it needs a decision.
 - [x] R10.10 Layout audit passes on every page.
       Done November 9: `tests/layout-audit.spec.ts` covers every page at both sizes; it caught the Leads toolbar shifting 43px, fixed by moving the lists table below the leads.
 

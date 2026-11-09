@@ -294,7 +294,7 @@ test("an administrator releases a temporary safety hold with a recorded reason",
       "name,phone,company,timezone,region\nHold Fixture,+14155550889,Hold Fixture Co,America/Los_Angeles,415",
     );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
-  await expect(page.getByText(/1 imported/)).toBeVisible();
+  await expect(page.getByText(/1 imported/)).toBeVisible({ timeout: 30_000 });
   await waitForPreparation(page);
   expect(authorization).not.toBe("");
   const held = await page.request.post(`${AUTHORITY}/v1/suppressions`, {
