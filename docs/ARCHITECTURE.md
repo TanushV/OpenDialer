@@ -1,6 +1,6 @@
 # How OpenDialer works
 
-November 2026, version 1.0.8. The plan that produced this design, with its decisions and history, is
+November 2026, version 1.0.9. The plan that produced this design, with its decisions and history, is
 [REBUILD_PLAN.md](REBUILD_PLAN.md). Older design documents are in [history/](history/).
 
 ## One computer, one rep, one file
