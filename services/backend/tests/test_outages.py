@@ -102,7 +102,7 @@ def test_a_live_helper_outage_never_stops_a_call(workspace, app, clock, monkeypa
         last_usage, last_request_id = {}, None
 
         async def converse(self, *args, **kwargs):
-            raise httpx.ConnectError("OpenRouter unreachable")
+            raise httpx.ConnectError("OpenRouter unreachable")  # Before any request reached it.
 
     monkeypatch.setattr(live_help, "provider", lambda service, p: Down())
     response = start(workspace, "outage-helper")
@@ -123,6 +123,12 @@ def test_a_live_helper_outage_never_stops_a_call(workspace, app, clock, monkeypa
     assert live["coach"] is None
     assert live["helper_status"] == {"status": "paused", "reason": "transport_fault"}
     assert live["state"] not in {"ENDED", "FINALIZED"} and blockers(workspace) == []
+    # Nothing reached OpenRouter, so the turn's budget hold is released, not left standing.
+    from app.platform.db import rows
+
+    with app.state.service.db.transaction(False) as s:
+        holds = [r.data for r in rows(s, "usage_ledger") if r.data.get("work_kind") == "live_coach"]
+    assert holds and all(h.get("status") == "released" for h in holds), holds
 
 
 @pytest.mark.parametrize("audio", [{"audio_ready": False}, {"telephony_ready": False}])

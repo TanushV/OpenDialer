@@ -8,6 +8,8 @@ import asyncio
 import logging
 from datetime import timedelta
 
+import httpx
+
 from app.calling.state import TERMINAL
 from app.helper import live
 from app.platform.config import PROVIDER_DEFAULTS
@@ -184,7 +186,7 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
 
     task = asyncio.create_task(run())
     service.tips.start(call_id, identity, task)
-    text, status = None, "shown"
+    text, status, unsent = None, "shown", False
     try:
         text = await task
     except asyncio.CancelledError:
@@ -194,20 +196,11 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
         log.warning("Live helper turn failed: %s", type(exc).__name__)
         service.tips.status[call_id] = {"status": "paused", "reason": reason}
         status = "unavailable"
+        # The request never reached OpenRouter: nothing can be billed, so its hold is released.
+        unsent = isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
     finally:
         service.tips.finish(call_id, task)
-        await asyncio.to_thread(
-            service.usage,
-            p,
-            "openrouter",
-            "live_coach",
-            InferenceResult(
-                {}, getattr(coach, "last_usage", {}) or {}, getattr(coach, "last_request_id", None)
-            ),
-            object_id=call_id,
-            reserved=0,
-            request_key=key,
-        )
+        await asyncio.to_thread(_settle, service, p, coach, call_id, key, unsent)
     if status == "cancelled":
         await asyncio.to_thread(_withdraw, service, p, call_id, identity)
         return {**result, "status": status}
@@ -222,6 +215,20 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
     tip = live.card(identity, shown, private=private, done=True, now=service.clock())
     published = await asyncio.to_thread(_publish, service, p, call_id, tip)
     return {**result, "status": "shown" if published else "ended"}
+
+
+def _settle(service, p, coach, call_id, key, unsent):
+    """Record what the turn cost; a request that never left this computer releases its hold."""
+    try:
+        if unsent and not getattr(coach, "last_request_id", None):
+            service.release_unsubmitted_budget(p, key)
+            return
+        result = InferenceResult(
+            {}, getattr(coach, "last_usage", {}) or {}, getattr(coach, "last_request_id", None)
+        )
+        service.usage(p, "openrouter", "live_coach", result, object_id=call_id, reserved=0, request_key=key)
+    except Exception as exc:  # The ledger never decides whether the rep sees a tip.
+        log.warning("Live helper usage was not recorded: %s", type(exc).__name__)
 
 
 def _withdraw(service, p, call_id, identity):

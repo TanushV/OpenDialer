@@ -523,7 +523,14 @@ class SpeechPrivacy:
             # The saved text (30 days) is the record; the in-memory copy only serves the live helper.
             item = self.raw.get(key) or (row.data if "text" in row.data else None)
             if item is not None:
-                result.append({**item, "raw_remaining_ms": self.raw.remaining_ms(key) or 0})
+                # The section the rep read from is worked out when the segment is saved, so it comes from the row.
+                result.append(
+                    {
+                        **item,
+                        "script_section": row.data.get("script_section"),
+                        "raw_remaining_ms": self.raw.remaining_ms(key) or 0,
+                    }
+                )
         return sorted(result, key=lambda item: (item.get("server_received_at", ""), item["segment_id"]))
 
     def raw_status(self, call, segments):
