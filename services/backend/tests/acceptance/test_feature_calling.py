@@ -298,7 +298,9 @@ def test_wrapup_callback_task_is_rescheduled_snoozed_reassigned_and_completed(wo
     assert datetime.fromisoformat(before["due_at"]) == due
     task = edit_task(ws, before, due_at=(due + timedelta(hours=1)).isoformat(), timezone="America/Chicago")
     assert lead_row(ws, started["lead_id"])["callback_due_at"] == task["due_at"]
-    edit_task(ws, before, code=409, due_at=(due + timedelta(hours=2)).isoformat())
+    # R3.6: one writer, so an edit made from an older read still saves; the last save is the task.
+    task = edit_task(ws, before, due_at=(due + timedelta(hours=2)).isoformat())
+    assert datetime.fromisoformat(task["due_at"]) == due + timedelta(hours=2)
     task = edit_task(ws, task, status="snoozed", snoozed_until=(clock.now + timedelta(hours=4)).isoformat())
     assert task_row(ws, task["id"])["status"] == "snoozed"
     task = edit_task(ws, task, owner_id=rep_id)
@@ -450,12 +452,16 @@ def test_return_calls_reach_a_teammate_then_the_fallback_line_then_a_spoken_mess
         },
     )
     assert saved["version"] == 1 and saved["ring_seconds"] == 15
+    # R3.6: an edit from an older read saves (one writer); bad destinations are still refused.
+    other = call(
+        ws, "PUT", routing, json={"expected_version": 0, "destination": "sip:other@pbx.example.test"}
+    )
+    assert other["version"] == 2
     call(
         ws,
         "PUT",
         routing,
-        json={"expected_version": 0, "destination": "sip:other@pbx.example.test"},
-        status=409,
+        json={"expected_version": 2, "destination": "sip:front-desk@pbx.example.test"},
     )
     call(ws, "PUT", routing, json={"expected_version": 1, "destination": "+14155550100"}, status=422)
     call(ws, "PUT", routing, json={"expected_version": 1, "destination": "not a destination"}, status=422)

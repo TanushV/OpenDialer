@@ -145,20 +145,16 @@ class RepWorkflows:
             fail(403, "Current account or session cannot edit this record")
         if "rep" in {p["role"], user.data["role"]} and owner_id not in (None, p["user_id"]):
             fail(403, "This record belongs to another rep")
-        if data.get("request_id") is None or data.get("expected_version") is None:
+        # R3.6: one writer, so the last save is the record; the request ID makes a retried save land once.
+        if data.get("request_id") is None:
             fail(
                 409,
-                {
-                    "code": "client_upgrade_required",
-                    "message": "Update the client to save identified, versioned edits",
-                },
+                {"code": "client_upgrade_required", "message": "Update the client to save identified edits"},
             )
         try:
             request_id = str(UUID(str(data["request_id"])))
         except (ValueError, TypeError, AttributeError):
             fail(422, "request_id must be a UUID")
-        if type(data["expected_version"]) is not int or data["expected_version"] < 1:
-            fail(422, "expected_version must be a positive integer")
         key = f"edit:{kind}:{request_id}"
         digest = hashlib.sha256(
             json.dumps(
@@ -197,34 +193,12 @@ class RepWorkflows:
         )
         return receipt
 
-    def check_edit_version(self, row, data):
-        if row.version != data["expected_version"]:
-            fail(
-                409,
-                {
-                    "code": "version_conflict",
-                    "current_version": row.version,
-                    "message": "Record changed; reload before saving",
-                },
-            )
-
-    def check_prospect_review(self, s, p, lead, data):
-        token = data.get("expected_review_token")
-        if token:
-            campaign = self.required(s, "campaigns", lead.data["campaign_id"], p)
-            matches = token == review_token(lead, campaign)
-        else:
-            matches = lead.version == data["expected_version"]
-        if not matches:
-            fail(409, "Prospect context changed; refresh before saving your review")
-
     def resolve_goal_review(self, p, lead_id, data):
         with self.db.transaction() as s:
             lead = self.required(s, "leads", lead_id, p)
             identity = self.local_edit_in(s, p, "outreach", lead_id, lead, data, "rep_id")
             if identity[2]:
                 return {**doc(lead), "edit_receipt": identity[2]}
-            self.check_prospect_review(s, p, lead, data)
             if lead.data.get("outreach_hold") != "goal_changed":
                 fail(409, "Refresh the prospect; only a goal-change review can be resolved here")
             if p["role"] == "rep" and lead.data.get("rep_id") not in (None, p["user_id"]):
@@ -578,7 +552,6 @@ class RepWorkflows:
             identity = self.local_edit_in(s, p, "task", task_id, task, data, "owner_id")
             if identity[2]:
                 return {**doc(task), "edit_receipt": identity[2]}
-            self.check_edit_version(task, data)
             if task.data.get("inbound") and task.data.get("inbound_state") not in {None, "ended"}:
                 fail(409, "This return call is still active; finish call routing before editing the task")
             edits = {
@@ -818,7 +791,6 @@ class RepWorkflows:
             lead = self.required(s, "leads", lead_id, p)
             identity = self.local_edit_in(s, p, "meeting", lead_id, lead, data, "rep_id")
             if not identity[2]:
-                self.check_prospect_review(s, p, lead, data)
                 if data["status"] in {"no_show", "cancelled"} and not data.get("next_action"):
                     fail(422, "Choose next_action: keep_hold, callback or resume")
                 self._meeting_in(
@@ -904,8 +876,6 @@ class RepWorkflows:
             )
             edit_version = call.data.get("edit_version", 0)
             replayed = bool(identity[2])
-            if not replayed:
-                self._check_disposition_version(call, data, edit_version)
             if source != "rep_reported" and (edit_version or call.data.get("outcome")):
                 fail(409, "A human or previous tool already saved this outcome")
             previous_outcome = call.data.get("outcome")
@@ -953,20 +923,6 @@ class RepWorkflows:
                 emit(s, p["tenant_id"], "call.updated", call, self.clock())
             receipt = identity[2] or self.local_edit_receipt(s, p, identity, call)
             return self._disposition_result(s, p, call, lead, receipt, task, callback_review, tasks)
-
-    def _check_disposition_version(self, call, data, edit_version):
-        if data.get("expected_edit_version") is None:
-            self.check_edit_version(call, data)  # Older clients: whole-row version.
-        elif data["expected_edit_version"] != edit_version:
-            fail(
-                409,
-                {
-                    "code": "version_conflict",
-                    "current_version": call.version,
-                    "current_edit_version": edit_version,
-                    "message": "This call's outcome changed; reload before saving",
-                },
-            )
 
     def _wrapup_note(self, s, p, call, canonical, outcome):
         """A wrap-up callback note is appended to the call's human note."""

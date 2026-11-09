@@ -94,8 +94,6 @@ class ConfigStore:
                     if receipts[request_id] != digest:
                         raise HTTPException(409, "Provider request identity has different input")
                     return
-                if current.get("version", 0) != expected_version:
-                    raise HTTPException(409, "Provider configuration changed; reload before saving")
                 receipts[request_id] = digest
                 while len(receipts) > 128:
                     receipts.pop(next(iter(receipts)))

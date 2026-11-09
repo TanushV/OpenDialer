@@ -1040,7 +1040,11 @@ each area, and `Dialer`, `Application` and `Service` are gone by the end of Phas
       Seats (D25) do not bring any of these back: a seat's identity is its HubSpot owner, its Telnyx credential and its
       relay workspace.
 - [ ] R3.5 Add Pydantic models for Call, Lead, Number, Task, Reservation, Command and Script with `extra="forbid"`.
-- [ ] R3.6 Remove edit-version conflict checks now that there is one writer; keep the idempotent dial and hang-up keys.
+- [x] R3.6 Remove edit-version conflict checks now that there is one writer; keep the idempotent dial and hang-up keys.
+      Done November 9: an outcome, a task, a meeting review, a number, calling hours, callback routing and settings
+      save from any read; the last save is the record and a retried request lands once (its request ID). Kept where
+      a second writer exists or money or the carrier is involved: a background script adoption, a paid lookup, carrier
+      route setup and recovery actions.
 - [x] R3.7 Write the migration: copy `local-2` to `local-3`, drop cut tables, transform documents, mark test calls.
       Done November 7: `platform/migrate.py`, run by the backend on first launch (`--migrate-from`, passed by the shell).
       The copy is transformed and counted before it becomes the store; SQLite `user_version` 3 marks it, so later
@@ -1715,3 +1719,11 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   rep sees), R9E.7 (relay as a plain module; its exits are now tested and watched), R9E.8 beyond Start and Pause, and the
   structural steps R3.2, R3.4 to R3.6 and R4.5. Owner-gated as before: live checks (L1 to L27), the lawyer check, a
   Windows PC and signing, a second phone, the relay pool migration and pool numbers, the RealValidito key.
+- November 9, 2026 (late): R10.1, R10.4, R9E.8, R7.2, R10.7, R10.9 and R3.6 done; 1.0.9 cut. The live helper is
+  tips and private help only (`helper/live.py`); `coaching/`, `postcall/`, the playbook and 10 tables are gone, and
+  Review, the next script and the brief read the after-call summary. Every Dialer key shows at once over any re-read
+  (`withIntent`), checked over every input. Found and fixed: an outcome pressed while a call was still ending was
+  dropped; on Windows (Chromium) the Dialer ignored Esc and 1 to 6 after any click. Settings is rows only; each
+  number is one row with Pause or Resume; one writer, so the last save wins. Backend 38,623 to about 32,400 lines.
+  Open and not started: R3.2, R3.4, R3.5 and R4.5 (structure), R5.2 (global CSS), R5.12 (CI retries to 0). Owner-gated
+  as before.

@@ -108,8 +108,7 @@ class InboundCallbacks:
         with self.db.transaction() as s:
             seller = self.required(s, "sellers", p["seller_id"], p)
             current = self.callback_config(s, p)
-            if data.pop("expected_version") != current["version"]:
-                fail(409, "Callback routing changed; refresh before saving")
+            data.pop("expected_version", None)
             values = {**current, **data, "version": current["version"] + 1}
             if values["destination"] in {n.data["phone"] for n in self.scoped(s, "number_inventory", p)}:
                 fail(422, "Fallback cannot loop back to this seller's inbound numbers")

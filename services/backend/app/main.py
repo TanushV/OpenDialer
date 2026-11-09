@@ -1113,14 +1113,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/admin/policies/{policy_id}/publish")
     def publish(policy_id: str, data: PolicyUpdate, p=Depends(administrator)):
         body = data.model_dump(exclude_none=True)
-        expected = body.pop("expected_version", None)
-        # Versions are immutable: an edit of anything but the current one would silently
-        # replace a newer publication. Concurrent publishes are also fenced by the
-        # campaign row version inside the publication transaction.
+        body.pop("expected_version", None)
+        # Versions are immutable: only the current policy is edited; publishing makes the next version.
         with db.transaction(False) as s:
             policy = service.required(s, "policy_versions", policy_id, p)
             campaign = service.required(s, "campaigns", policy.data["campaign_id"], p)
-            if campaign.data["policy_id"] != policy.id or expected not in {None, policy.version}:
+            if campaign.data["policy_id"] != policy.id:
                 fail(
                     409,
                     "POLICY_VERSION_CONFLICT: a newer calling policy is current; reload it before publishing",

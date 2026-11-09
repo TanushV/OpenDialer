@@ -258,10 +258,11 @@ def test_provider_keys_are_stored_but_never_echoed_back(workspace):
         json={**body, "openrouter_api_key": "other-secret"},
     )
     assert conflict.status_code == 409
+    # R3.6: one writer, so a save from an older read is applied, not refused.
     stale = {"request_id": str(uuid4()), "expected_version": 0, "coach_provider": "openrouter"}
     assert (
         workspace["client"].put("/v1/admin/settings", headers=workspace["headers"], json=stale).status_code
-        == 409
+        == 200
     )
     assert (
         workspace["client"]

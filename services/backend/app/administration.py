@@ -892,8 +892,6 @@ class Dialer(
             )
             if identity and identity[2]:
                 return {**doc(number), "receipt": identity[2]}
-            if identity:
-                self.check_edit_version(number, body)
             if (
                 "external_reputation" in body
                 and not (evidence.spam_label or "").strip()

@@ -155,7 +155,8 @@ def test_operating_policy_reads_fixed_no_spend_terms_and_saves_versioned_edits(w
         headers=workspace["headers"],
         json={"request_id": str(uuid4()), "expected_version": 1, "dnc_source_max_age_days": 7},
     )
-    assert stale.status_code == 409 and stale.json()["detail"]["code"] == "version_conflict"
+    # R3.6: one writer, so a save from an older read is applied, not refused.
+    assert stale.status_code == 200 and get(workspace, path)["dnc_source_max_age_days"] == 7
     for rejected in (
         {"recording_enabled": True},
         {

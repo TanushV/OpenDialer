@@ -527,15 +527,6 @@ def bind_operating_api(app, service, administrator):
             version = seller.data.get("operating_policy_version", 1)
             if identity[2]:
                 return {**get_policy(p), "edit_receipt": identity[2]}
-            if data.expected_version != version:
-                fail(
-                    409,
-                    {
-                        "code": "version_conflict",
-                        "current_version": version,
-                        "message": "Operating policy changed; reload before saving",
-                    },
-                )
             incoming.pop("request_id", None)
             incoming.pop("expected_version", None)
             stored = seller.data.get("operating_policy", {})
