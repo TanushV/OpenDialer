@@ -143,6 +143,12 @@ class ImportLeads(Strict):
     rows: list[dict] = Field(max_length=10000)
     # The app asks for research and per-lead scripts before calling; API clients opt in.
     prepare: bool = False
+    # Role -> {"column", "delimiter"}; omitted, the map is guessed from the headers (section 9).
+    column_map: dict[str, dict[str, str | None]] | None = None
+
+
+class ColumnMapRequest(Strict):
+    headers: list[str] = Field(max_length=500)
 
 
 class Transcript(Strict):
@@ -385,6 +391,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
     clock = clock or (lambda: datetime.now(UTC))
     db = Database(settings.database_url)
     service = Dialer(db, settings, clock, carrier)
+    from app.leads.backfill import backfill_leads
+
+    backfill_leads(db)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -711,6 +720,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/leads/import")
     def import_leads(data: ImportLeads, p=Depends(administrator)):
         return service.import_leads(p, data.model_dump())
+
+    @app.post("/v1/leads/column-map")
+    def column_map(data: ColumnMapRequest, p=Depends(administrator)):
+        from app.leads.intake import ROLES, guess_map
+
+        return {"map": guess_map(data.headers), "roles": sorted(ROLES)}
 
     @app.get("/v1/leads/{lead_id}/packet")
     def packet(lead_id: str, p=Depends(principal)):

@@ -17,7 +17,7 @@ def test_a_csv_lead_records_its_source_and_is_not_number_checked(workspace):
     assert (data["source"], data["external_id"], data["signals"], data["number_status"]) == (
         "csv",
         None,
-        [],
+        {"aligned": True, "items": []},
         "not_checked",
     )
 

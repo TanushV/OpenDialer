@@ -1,17 +1,21 @@
 from datetime import datetime
 
 from app.compliance.policy import Decision, authorize
+from app.leads.record import BY_HAND, number_hold
 
 
 def parsed(value):
     return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
-def queue_decision(context, lead, *, own_claim=None, endpoint_claimed=False):
+def queue_decision(context, lead, *, own_claim=None, endpoint_claimed=False, by_hand=False):
     """Shared read-only eligibility for setup and the queue; never a reservation."""
     reasons = authorize(context).reasons
     if lead.get("status") != "eligible":
         reasons.append("LEAD_NOT_ELIGIBLE")
+    hold = number_hold(lead)
+    if hold and not (by_hand and hold in BY_HAND):
+        reasons.append(hold)
     if own_claim:
         reasons.append("LIVE_OBLIGATION" if own_claim.call_id else "RESERVATION_EXISTS")
     if endpoint_claimed:

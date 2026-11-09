@@ -182,7 +182,11 @@ class WorkspaceReads:
                         else row.get("warmup_allowance", row["approved_daily_limit"])
                     )
             if section == "leads":
+                from app.leads.record import number_view
+
                 self._mark_suppressed(s, p, selected)
+                for lead in selected:
+                    lead.update(number_view(lead))
             elif section in {"calls", "tasks"}:
                 self._label_leads(s, p, selected)
             return {

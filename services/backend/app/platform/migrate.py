@@ -24,7 +24,12 @@ DB = "opendialer.db"
 DB_FILES = (DB, DB + "-wal", DB + "-shm")
 FAILURE_NOTE = "migration-failed.txt"
 # R3.11: every lead before this version came from a CSV file.
-LEAD_FIELDS = {"source": "csv", "external_id": None, "signals": [], "number_status": "not_checked"}
+LEAD_FIELDS = {
+    "source": "csv",
+    "external_id": None,
+    "signals": {"aligned": True, "items": []},
+    "number_status": "not_checked",
+}
 
 
 class MigrationFailed(RuntimeError):

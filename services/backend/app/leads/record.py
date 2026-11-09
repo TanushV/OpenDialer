@@ -1,8 +1,66 @@
-"""Fields every lead carries about where it came from and whether its number was checked (R3.11).
+"""Fields every lead carries about where it came from and whether its number may be dialed (R3.11, R9.16, R9.22).
 
-CSV leads are taken as they are: no finder, Trestle or do-not-call check runs on them (D19, D23).
+CSV leads are taken as they are: no finder, Trestle or do-not-call check runs on them (D19, D23). A mapped live-status
+column still applies to both sources, because it is free: a `dead` number is never dialed.
 """
+
+# Why a lead's number is held back from auto-dial, with the words Leads and the Dialer show.
+HOLDS = {
+    "NUMBER_DEAD": "The list marks this number dead, so it is not dialed.",
+    "NUMBER_CONFLICT": "The number check says this number belongs to someone else. Dial it by hand if you are sure.",
+    "NUMBER_BAD": "This number is invalid or was marked wrong, so it is not dialed.",
+    "NO_VALID_NUMBER": "No valid number was found for this lead.",
+    "NEEDS_NUMBER": "This lead has no number yet.",
+    "DNC_NOT_CHECKED": "The do-not-call check has not run on this number yet, so it is not auto-dialed.",
+}
+# Holds a rep may override by dialing the lead by hand.
+BY_HAND = {"NUMBER_CONFLICT"}
+STATUS_HOLDS = {
+    "conflict": "NUMBER_CONFLICT",
+    "bad": "NUMBER_BAD",
+    "no_valid_number": "NO_VALID_NUMBER",
+    "needs_number": "NEEDS_NUMBER",
+}
+NUMBER_LABELS = {
+    "not_checked": "Not checked (CSV)",
+    "confirmed": "Confirmed",
+    "unconfirmed": "Unconfirmed",
+    "conflict": "Conflict",
+    "bad": "Bad",
+    "no_valid_number": "No valid number",
+    "needs_number": "Needs a number",
+    "checking": "Checking",
+}
 
 
 def csv_fields():
-    return {"source": "csv", "external_id": None, "signals": [], "number_status": "not_checked"}
+    return {
+        "source": "csv",
+        "external_id": None,
+        "signals": {"aligned": True, "items": []},
+        "number_status": "not_checked",
+    }
+
+
+def number_hold(lead):
+    """The code that keeps this lead's number from auto-dial, or None when it may be dialed."""
+    if lead.get("live_status") == "dead":
+        return "NUMBER_DEAD"
+    hold = STATUS_HOLDS.get(lead.get("number_status"))
+    if hold:
+        return hold
+    if lead.get("source") == "crm" and lead.get("dnc", {}).get("status") != "checked":
+        return "DNC_NOT_CHECKED"
+    return None
+
+
+def number_view(lead):
+    """What Leads and the Dialer show about the number: status label and, when held, why."""
+    hold = number_hold(lead)
+    return {
+        "number_status": lead.get("number_status") or "not_checked",
+        "number_label": NUMBER_LABELS.get(lead.get("number_status") or "not_checked", "Not checked"),
+        "number_hold": hold,
+        "number_hold_reason": HOLDS.get(hold),
+        "dial_by_hand": hold in BY_HAND,
+    }

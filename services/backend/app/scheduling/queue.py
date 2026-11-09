@@ -336,6 +336,7 @@ class ReservationPlanner:
                 lead.data,
                 own_claim=own,
                 endpoint_claimed=lead.data["endpoint_id"] in claimed,
+                by_hand=p.get("callback_lead_id") == lead.id,
             )
             denied.extend(decision.reasons)
             if not decision.allowed:

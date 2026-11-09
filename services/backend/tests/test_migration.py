@@ -76,7 +76,7 @@ def test_a_store_is_copied_transformed_and_the_source_is_untouched(tmp_path):
     for (data,) in read(target, "SELECT data FROM leads"):
         lead = json.loads(data)
         assert lead["source"] == "csv" and lead["external_id"] is None
-        assert lead["signals"] == [] and lead["number_status"] == "not_checked"
+        assert lead["signals"] == {"aligned": True, "items": []} and lead["number_status"] == "not_checked"
     assert not (tmp_path / "local-3.partial").exists()
     # The migrated store opens in this version.
     Database("sqlite:///" + str(target / "opendialer.db")).engine.dispose()

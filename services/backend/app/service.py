@@ -19,7 +19,8 @@ from app.calling.state import TERMINAL, moved, transition
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, authorize, retry_seconds
 from app.lead_lists import LeadLists, memberships
-from app.leads.record import csv_fields
+from app.leads import intake
+from app.leads.record import csv_fields, number_view
 from app.optimization.geography import plausible_zones
 from app.platform.config import LIMITS, TEST_LINES
 from app.platform.ctx import Ctx
@@ -41,18 +42,6 @@ def dt(value):
 
 def fail(status, message):
     raise HTTPException(status, message)
-
-
-def imported_row(raw, columns=60, size=8000):
-    """Every imported column, as research context: bounded, plain strings, no empty values."""
-    row = {}
-    for key, value in list(raw.items())[:columns]:
-        text = " ".join(str(value if value is not None else "").split())[:1000]
-        if str(key).strip() and text:
-            row[str(key).strip()[:80]] = text
-    while row and len(json.dumps(row)) > size:
-        row.popitem()
-    return row
 
 
 class Service(LeadLists, ReservationPlanner):
@@ -398,6 +387,13 @@ class Service(LeadLists, ReservationPlanner):
         created = []
         if len(body["rows"]) > self.settings.max_import_rows:
             fail(413, "Import row limit exceeded")
+        headers = list(dict.fromkeys(str(k) for raw in body["rows"] for k in raw))
+        column_map = body.get("column_map")
+        if column_map is None:
+            column_map = intake.guess_map(headers)
+        elif problems := intake.check_map(column_map, headers):
+            fail(422, {"code": "COLUMN_MAP_INVALID", "errors": problems})
+        result["column_map"] = column_map
         now = self.clock()
         with self.db.transaction() as s:
             campaign = self.required(s, "campaigns", body["campaign_id"], p)
@@ -453,7 +449,8 @@ class Service(LeadLists, ReservationPlanner):
                         ZoneInfo(timezone)
                     except (ValueError, KeyError):
                         timezone = None
-                row = imported_row(raw)
+                fields = intake.read(raw, column_map)
+                row = fields["row"]
                 lead = put(
                     s,
                     "leads",
@@ -494,6 +491,10 @@ class Service(LeadLists, ReservationPlanner):
                         "imported_at": now.isoformat(),
                         "synthetic": self.settings.simulation,
                         **csv_fields(),
+                        "signals": fields["signals"],
+                        "profile": fields["profile"],
+                        "number_source": fields["number_source"],
+                        "live_status": fields["live_status"],
                     },
                     key=body["campaign_id"] + ":" + endpoint.id,
                     now=now,
@@ -524,7 +525,7 @@ class Service(LeadLists, ReservationPlanner):
     def leads(self, p):
         with self.db.transaction(False) as s:
             return [
-                {**doc(r), "suppressed": self.suppressed(s, p, r.data["phone"])}
+                {**doc(r), **number_view(r.data), "suppressed": self.suppressed(s, p, r.data["phone"])}
                 for r in self.scoped(s, "leads", p)
             ]
 
