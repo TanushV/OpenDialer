@@ -1429,13 +1429,18 @@ calling core, seats and pool are settled first; the Windows work is packaging an
 
 - [ ] R9D.1 CI: a `windows-latest` job runs the backend tests, freezes the sidecar, runs `scripts/trainer_check.py`
       against it and builds the desktop app; `check.py full` stays the Mac gate and CI is the Windows gate.
-- [ ] R9D.2 System-specific pieces, each behind one small function with a test: keep-awake (`caffeinate` on Mac,
+- [x] R9D.2 System-specific pieces, each behind one small function with a test: keep-awake (`caffeinate` on Mac,
       `SetThreadExecutionState` on Windows, G8), the app data and private key file paths and their permissions,
       microphone permission prompts, and sidecar start and stop.
-- [ ] R9D.3 Browser suite and layout audit also in Chromium, which is what Windows' WebView2 uses; the Mac stays WebKit.
+      Done November 8 for keep-awake (`SetThreadExecutionState` on one held thread) and the updater's wait for the backend files; app data and private files sit in the user's own profile, protected by its ACL rather than mode bits. Microphone permission is checked live in L25. Found and fixed: the training child dropped `SYSTEMROOT` (Windows names it in upper case), so StatML could never train on Windows.
+- [x] R9D.3 Browser suite and layout audit also in Chromium, which is what Windows' WebView2 uses; the Mac stays WebKit.
+      Done November 8: 139 of 139 pass in Chromium. It found a real Dialer loop: pausing released the audio, whose "disconnected" report paused again, hundreds of times a second, and the rep never saw why calling stopped. Fixed with tests.
 - [ ] R9D.4 Signing: Windows code signing (Azure Trusted Signing or an OV certificate; owner input) in `release.yml`.
-- [ ] R9D.5 Signed updater for Windows; `release_manifest.py` requires both systems' artifacts again. Carry the known
+      In part, November 8: the release builds signed-for-update NSIS and MSI installers and signs them with
+      Authenticode through `WINDOWS_SIGN_COMMAND` once the owner sets up a route; until then the build warns.
+- [x] R9D.5 Signed updater for Windows; `release_manifest.py` requires both systems' artifacts again. Carry the known
       update-harness lessons: Restart Manager stopping the sidecar, read-only files during replace.
+      Done November 8 (`release_manifest.py`, `release.yml` matrix; the installer hook stops the old backend before replacing it).
 - [ ] R9D.6 Live L25 to L27 on a Windows PC: install, test call with audio both ways, a Windows seat beside a Mac seat
       from the shared pool, then update and rollback with workspace data kept.
 

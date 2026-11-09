@@ -97,7 +97,7 @@ def keyword_steps(keyword):
 def run_steps(steps, note=None):
     """Start every step at once, then report each one; returns True only when all pass."""
     began = time.monotonic()
-    logs = tempfile.TemporaryDirectory(prefix="opendialer-check-")
+    logs = tempfile.TemporaryDirectory(prefix="opendialer-check-", ignore_cleanup_errors=True)
     running = {}
     for name, commands in steps.items():
         log = Path(logs.name) / f"{name}.log"
@@ -207,7 +207,8 @@ def sidecars():
 
 
 def smoke(backend):
-    with tempfile.TemporaryDirectory(prefix="opendialer-smoke-") as data:
+    # Windows can hold a just-stopped sidecar's files for a moment; a leftover temp folder is not a failure (R9D.1).
+    with tempfile.TemporaryDirectory(prefix="opendialer-smoke-", ignore_cleanup_errors=True) as data:
         port = _free_port()
         env = _env()
         env["OPENDIALER_LOCAL_TOKEN"] = "smoke-local-token"  # noqa: S105 - disposable smoke-test token
@@ -234,11 +235,21 @@ def smoke(backend):
             print("  FAIL  frozen backend did not answer /health within 90 seconds")
             return False
         finally:
-            process.terminate()
-            try:
-                process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                process.kill()
+            stop(process)
+
+
+def stop(process):
+    """End a sidecar. On Windows a onefile sidecar is a parent and child, so the whole tree is ended."""
+    if os.name == "nt":
+        # The system's own taskkill, on the process this script started.
+        tree = ["taskkill", "/T", "/F", "/PID", str(process.pid)]
+        subprocess.run(tree, capture_output=True, check=False)  # noqa: S603, S607
+    else:
+        process.terminate()
+    try:
+        process.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        process.kill()
 
 
 def _free_port():

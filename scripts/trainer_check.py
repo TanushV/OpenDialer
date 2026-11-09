@@ -19,7 +19,7 @@ from test_learning_end_to_end import planted  # noqa: E402
 
 
 def check(trainer):
-    with tempfile.TemporaryDirectory(prefix="opendialer-trainer-check-") as root:
+    with tempfile.TemporaryDirectory(prefix="opendialer-trainer-check-", ignore_cleanup_errors=True) as root:
         output = Path(root).resolve() / "candidate"
         output.mkdir(mode=0o700)
         env = {**worker.child_environment(), "PYINSTALLER_RESET_ENVIRONMENT": "1"}
