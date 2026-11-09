@@ -273,6 +273,19 @@ export function ScriptEditor() {
               ? `Version ${base.version}. Edit below and save.`
               : "Start from the example or paste your own Markdown."}
           </p>
+          {base.template && (
+            <span
+              className={`pill ${unchanged ? "green" : "amber"}`}
+              role="status"
+              aria-label="Script save state"
+            >
+              {unchanged
+                ? `Saved · version ${base.version}`
+                : "Unsaved changes: calls use version " +
+                  base.version +
+                  " until you save"}
+            </span>
+          )}
         </div>
         <div className="button-row">
           <label className="secondary file-button">
@@ -304,6 +317,17 @@ export function ScriptEditor() {
               Add trigger list
             </button>
           )}
+          {!unchanged && base.template && (
+            <button
+              className="secondary"
+              onClick={() => {
+                edited.current = false;
+                setText(base?.template?.markdown ?? STARTER);
+              }}
+            >
+              Discard changes
+            </button>
+          )}
           <button
             className="primary"
             disabled={
@@ -317,10 +341,8 @@ export function ScriptEditor() {
         </div>
       </div>
       <p className="fine">
-        Save meaningful changes to refresh prepared lead scripts automatically
-        from your new script and current research. Formatting-only edits keep
-        the prepared scripts. Active calls keep their original script; paused or
-        removed leads refresh when restored.
+        Saving rewrites each lead's prepared script from this one. A call
+        already under way keeps its script.
       </p>
       {savedFeedback && <p role="status">{savedFeedback}</p>}
       {overtaken && (

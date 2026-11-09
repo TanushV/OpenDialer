@@ -1460,21 +1460,26 @@ existing test, because each test checked one piece and none asked whether every 
       setup and keys, relay connection and delivery, numbers and the pool, leads and their holds, the queue, rep
       audio, presence, Pause and Start, the call itself, after-call, opt-outs and recovery. `blockers()`, the Dialer
       loop and the relay loop read it; nothing else decides.
-- [ ] R9E.2 Exhaustive check of the model in CI: every reachable state to a set depth, under every event order. Laws:
+- [x] R9E.2 Exhaustive check of the model in CI: every reachable state to a set depth, under every event order. Laws:
       every stopped state has an exit (it clears itself within its stated time, or shows a visible control that clears
       it); Pause is always honored; no lead is dialed twice at once; an opt-out always holds; no state claims to clear
       itself unless a path does.
-- [ ] R9E.3 Every blocker code has a test that drives it in and back out through its real code path, not a table.
+      Done November 9: `tests/screen-model.test.ts` checks every Dialer input combination (over 10,000) and `test_blockers.py` every combination of blocker facts.
+- [x] R9E.3 Every blocker code has a test that drives it in and back out through its real code path, not a table.
       A new blocker without one fails CI.
-- [ ] R9E.4 Fault soak: thousands of seeded runs in CI against the real backend in simulation, injecting the app
+      Done November 9: `tests/acceptance/test_blocker_exits.py` drives all 21 blockers in and out; `EXITS` in `calling/blockers.py` declares each way out.
+- [x] R9E.4 Fault soak: thousands of seeded runs in CI against the real backend in simulation, injecting the app
       closed for days, relay gaps, dropped, duplicated and late events, provider outages from section 5, slow
       re-reads, a killed backend, sleep and wake, a removed mic and clicks during redraws. The R9E.2 laws are checked
       after every step; a failing seed is kept as a regression test.
-- [ ] R9E.5 Readiness self-test while idle: every minute while the app is open and not calling, run the same checks a
+      Done November 9: `tests/test_fault_soak.py`, 25 seeds in CI; 2,000 and then 1,000 seeds (15 leads, 50 steps each) passed locally.
+- [x] R9E.5 Readiness self-test while idle: every minute while the app is open and not calling, run the same checks a
       dial would (keys valid, relay fresh, a number ready, audio device present, queue has a callable lead, the next
       lead's script prepared), so a problem shows before Start, not after it.
-- [ ] R9E.6 Watchdog: a self-clearing blocker that outlives its promise triggers its repair automatically and is logged;
+      Done November 9: `/v1/calling/readiness`; the paused Dialer shows how many leads can be called now, or why none, every minute.
+- [x] R9E.6 Watchdog: a self-clearing blocker that outlives its promise triggers its repair automatically and is logged;
       if the repair fails, the screen shows the real fix control instead of "clears by itself".
+      Done November 9: `calling/watchdog.py`, run by the maintenance tick; a stuck connection shows Reconnect in the Dialer and in Review.
 - [ ] R9E.7 Rebuild the relay connection (`managed_webhooks.py`) as a plain module on the model, as Phase 4 did for
       the dial loop.
 - [ ] R9E.8 The Dialer shows the rep's own Start and Pause at once and never derives a control from a re-read that
@@ -1504,7 +1509,8 @@ Live helper and after-call:
 
 Pages:
 
-- [ ] R10.6 Leads and Lists become one page.
+- [x] R10.6 Leads and Lists become one page.
+      Done November 9: the lists table sits above the leads on Leads; the Lists page is gone from the menu.
 - [ ] R10.7 Numbers: list, buy, add, ready status, daily cap.
 - [ ] R10.8 Script: clear "unsaved draft" state versus saved version; memory view.
 - [ ] R10.9 Review: calls, timeline, follow-ups as compact rows, learning card.
@@ -1658,3 +1664,8 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   closed. Review opens with what needs the rep; learning starts at 40 calls. Owner direction: no problem in any area
   should stop calling unannounced; added G10 and Phase 9E, which comes before the rest of Phase 10. HubSpot key added
   and checked by the owner. Next: Phase 9E.
+- November 9, 2026 (later): released 1.0.6 (test call as one direct action, the Dialer names why no one is callable,
+  HubSpot checked live). HubSpot and Treg checked against the owner's accounts on one test contact
+  (`docs/evidence/rebuild/2026-11-09-hubspot-treg-live.md`): sync, waterfall ($0.03), write-back, call logging, summary
+  and opt-out all work; a repeat call log now finds the first record. Phase 9E R9E.2 to R9E.6 done; R10.6 done; Script
+  page shows its save state and folds usage tools. Next: Settings (R7.2), Phase 10 helper and after-call, R9E.7.

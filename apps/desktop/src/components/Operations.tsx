@@ -1575,7 +1575,6 @@ export function ScriptPage({
       </div>
       <ScriptEditor />
       <PreparationPanel onNavigate={onNavigate} compact />
-      <TokenUsage />
       <details className="card padded">
         <summary>What's working</summary>
         <ScriptMemory />
@@ -1583,6 +1582,10 @@ export function ScriptPage({
       <details className="card padded">
         <summary>What you sell</summary>
         <ProductKnowledge />
+      </details>
+      <details className="card padded">
+        <summary>AI usage and script rewrites</summary>
+        <TokenUsage />
       </details>
     </>
   );

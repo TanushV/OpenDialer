@@ -1,3 +1,4 @@
+import { openScriptSection } from "./navigation";
 import { expect, test } from "./fixtures";
 import { isolatedSimulationWorkspace } from "./simulation";
 
@@ -48,6 +49,7 @@ test("a Markdown playbook shows non-spoken cues and measured rewrite usage", asy
         .filter({ hasText: /Script saved/ }),
     ).toBeVisible();
     saved = true;
+    await openScriptSection(page, "AI usage and script rewrites");
     const usage = page.getByRole("region", { name: "Model token usage" });
     await expect(usage).toBeVisible();
     await expect(
