@@ -63,9 +63,7 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
     assert release_notes.splitlines()[0] == "# OpenDialer " + version
     assert "HubSpot lists." in notes
     assert "Windows is back." in notes
-    assert "Pause always works." in notes
-    assert "Review shows what needs you." in notes
-    assert "Learning starts sooner." in notes
+    assert "Calling unblocks itself after time away." in notes
     assert "Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials" in notes
     assert "fresh workspace" in notes
     assert "old data stays untouched" in notes
@@ -185,7 +183,7 @@ def test_version_identity_artifact_contract():
         next(p["version"] for p in python_lock["package"] if p["name"] == "opendialer"),
         next(p["version"] for p in cargo_lock["package"] if p["name"] == "opendialer-desktop"),
     ]
-    assert versions == ["1.0.4"] * len(versions)
+    assert versions == ["1.0.5"] * len(versions)
     assert tauri["identifier"] == "com.opendialer.desktop"
     updater = tauri["plugins"]["updater"]
     assert (
