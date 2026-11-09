@@ -10,6 +10,8 @@ It supersedes the "every feature stays" and "both modes" rules of [LEAN_PLAN.md]
 ## 1. TLDR
 
 - Make OpenDialer a small, single-user Mac dialer that is simple enough for bugs to show up in the code and tests.
+- A team calls as seats: one rep, one Mac, one copy of the app. HubSpot's contact owner decides who calls whom, the relay
+  shares one number pool across seats and routes callbacks to the rep who called, and there is no shared server (D25, D26).
 - Keep the working integrations: Telnyx, speech, ChatGPT agent, relay and signed releases.
 - Cut about 60% of the code, then rebuild the call core, Dialer, Settings, StatML learning and research criteria.
 - Work one module at a time. A calling module is finished only when live calls to the owner's test line pass and the
@@ -19,8 +21,8 @@ It supersedes the "every feature stays" and "both modes" rules of [LEAN_PLAN.md]
   app; CSV leads are taken as they are.
 - Build everything on `main`, with one worker in one thread. A local check loop gives answers in seconds while working and
   must pass in full before every push; GitHub CI confirms on a clean machine (section 12A).
-- Estimate: backend 39,300 to about 17,100 lines, frontend 22,100 to about 6,600 lines, 19.5 to 25 working days, plus
-  about 5 owner sittings of 30 to 60 minutes.
+- Estimate: backend 39,300 to about 17,100 lines, frontend 22,100 to about 6,600 lines, 22 to 28.5 working days, plus
+  about 6 owner sittings of 30 to 60 minutes.
 
 **What this plan can and cannot promise.** Failure-proof is not possible, because Telnyx, the network and the Mac can
 always fail. Failure-resistant is possible: a failure stays contained, says what happened, recovers by itself where it
@@ -30,7 +32,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 
 | # | Decision | Status |
 |---|---|---|
-| D1 | Remove hosted mode, PostgreSQL, teams and roles. One user, one Mac, one SQLite file. | Approved |
+| D1 | Remove hosted mode, PostgreSQL, teams and roles. One user, one Mac, one SQLite file. A team is several such Macs (D25). | Approved; clarified November 8 |
 | D2 | Mac only. The Windows build and its release path go. | Approved default |
 | D3 | StatML stays and must actually learn. Repair it rather than cut it. | Owner decision |
 | D4 | Coaching goes. The live helper stays, plus one AI after-call summary with a suggested outcome, because follow-up scripts read that summary. | Owner decision; the summary is an assumption the owner may veto |
@@ -54,6 +56,8 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D18 | Build the number check with Trestle through Treg. No paid live-line check and no paid namesake lookups. See section 9A. | Owner decision, November 6; this replaces the earlier test-rule result that kept the live-line check |
 | D19 | The number waterfall is LeadOcean, AI Ark, Tomba, then Wiza, with Trestle on every number. For leads pulled from the CRM it runs inside the app. Leads that come from outside the app (CSV) are taken as they are: no Trestle, no finder and no other check. The outside runner stays for building CSV lists. Blitz joins first after its reset. | Owner decision, November 7; replaces "runs outside the app" |
 | D23 | Leads pulled from the CRM get a RealValidito do-not-call check (federal, state and TCPA litigator) before they can be dialed. Any hit is suppressed. CSV leads are not checked. | Owner decision, November 7; replaces the DoNotCallDNC key |
+| D25 | Several reps call at once as seats. Each seat is one rep on one Mac with its own app, SQLite file, relay workspace, Telnyx Call Control application, telephony credential and API key, on the one Telnyx account. HubSpot's contact owner decides which seat calls a contact; a seat syncs only its owner's contacts, so no live lock is needed. One HubSpot Service Key, one Treg token and one RealValidito key serve every seat. A CSV file belongs to one seat. No app login: the Mac's own login protects a seat. See section 9C. | Owner decision, November 8; the Telnyx account is Verified (checked in the portal November 8) |
+| D26 | One shared number pool. Any seat can call from any pool number. The relay picks the number for each call (local area code first, then least used today) and counts daily use across all seats, so the per-number cap holds for the team. Pool numbers sit on one shared incoming route, and a callback rings the seat that last called that prospect, or goes to voicemail and a task on that seat. | Owner decision, November 8; that a Call Control dial may present any number on the account is confirmed in L23 |
 
 Open owner inputs:
 
@@ -74,6 +78,14 @@ Open owner inputs:
 - [ ] OK to close the open "Incoming callback" tasks that came from the owner's own test line (8 of 13 tasks have that
       callback number; 8 are open; confirm the list before closing).
 - [ ] Lawyer check on auto-dial and transcription before real lists (R1, R3).
+- [x] Telnyx account level: Verified, with every check met including KYC (portal, November 8). Docs give 10 calls at once.
+- [ ] Read the calls-at-once limit on the Verified card's "See privileges" page (R9C.1).
+- [ ] How contacts get an owner in HubSpot: by hand, bulk assign or a rotation workflow (rotation needs Sales Hub
+      Professional). Every rep must be a HubSpot user to be an owner.
+- [ ] Pool numbers to buy, about 3 to 5 per seat in the target area codes. The owner buys them; the app does not.
+- [ ] Research route on rep seats: each rep signs in to their own ChatGPT on their Mac, or rep seats use the OpenRouter
+      fallback as their primary route (section 9C).
+- [ ] A second phone, or a second person, for the two-seat live check L22.
 
 ## 3. Audit evidence
 
@@ -147,6 +159,11 @@ Rep keys -> API -> dial/hangup commands -> Telnyx             one state stream
                                                      screen(state) -> fixed Dialer layout
 ```
 
+**Seats (D25, D26).** Each rep's Mac runs this whole picture with its own SQLite file. The relay is the only shared
+piece: it already keeps one workspace per Mac and routes carrier events by Call Control application. For seats it also
+holds the number pool, the team's daily use of each number and which seat last called each prospect. Audio, transcripts,
+leads and learning stay on each Mac.
+
 **Backend layout.** Plain modules and functions that receive a small `Ctx` (db, clock, settings, carrier). Imports run
 downward only.
 
@@ -193,11 +210,13 @@ Each guarantee has an automated test where software can prove it, and a live che
 | G6 | Nothing fails silently. | Log file, call timeline, error boundaries. | Lint and injected render crash | L13 |
 | G7 | The backend comes back. | Sidecar auto-restart, then one recovery pass. | Kill test | L13 |
 | G8 | The Mac stays awake while the rep is calling. | Hold an awake assertion while Ready, released on Pause. | Unit | L12 |
+| G9 | Two seats never call the same contact, and an opt-out on one seat stops every seat. | A seat syncs only its owner's contacts; the last-contacted guard; opt-outs go to HubSpot at once and every sync adds them; sync before each session and every 30 minutes while calling. | Two-seat sync tests over recorded responses | L22 |
 
 | Outage | Behavior after the rebuild |
 |---|---|
 | Telnyx API | Dial fails with a plain reason; retry after confirmation; a live call can still end through WebRTC |
-| Relay or Realtime | Realtime is only a speed-up. New dials stop only if HTTP delivery fails. During a call, carrier status is polled and the WebRTC leg state is watched |
+| Relay or Realtime | Realtime is only a speed-up. New dials stop only if HTTP delivery fails, which is also when no pool number can be leased. During a call, carrier status is polled and the WebRTC leg state is watched |
+| Telnyx account call limit | The seat pauses with "Telnyx account call limit reached" and the fix; other seats keep calling |
 | Transcription | Warning only; calling continues; the call is marked as missing speech |
 | Live helper or OpenRouter | The script stays; calling continues |
 | ChatGPT limit or login | Preparation falls back to V4.1 Flash; existing scripts still work |
@@ -260,6 +279,7 @@ true status from `blockers()` with one fix button.
 | RealValidito key and secret (optional) | [RealValidito console](https://app.realvalidito.com) | Do-not-call check on CRM leads | `getcredits` request |
 | HubSpot Service Key (optional) | HubSpot: Settings > Integrations > Service Keys | List sync and call logging | Authenticated request; required scopes present |
 | Treg token (optional) | `treg org agent-new opendialer --cap <daily calls>` | Waterfall on CRM leads | Authenticated request |
+| Calls for (with HubSpot) | Chosen from HubSpot's owners when the seat is set up | Which contacts this Mac syncs and calls | The owner exists in HubSpot; shown read-only, changed only by setting the seat up again |
 
 Advanced: setup-file import, callback routing, greeting, caller name, backups, updates, Needs attention.
 
@@ -492,8 +512,8 @@ Two homes, one set of rules:
 
 ## 9B. HubSpot
 
-One account, one user, barebones. HubSpot picks who is called and the app picks the order. Calling never depends on
-HubSpot.
+One account, barebones. HubSpot picks who is called and the app picks the order. Calling never depends on HubSpot. With
+seats (D25), each Mac syncs only the list members owned by its "Calls for" user and writes its calls with that owner.
 
 | Direction | What | When |
 |---|---|---|
@@ -527,6 +547,60 @@ Not yet confirmed, and settled in Phase 9B: Service Key scopes and which propert
 `notes_last_contacted` (L18), duplicate handling (L19), and Nooks outcome logging, where reports conflict (L20, only if
 Nooks is in use).
 
+## 9C. Seats and the shared number pool
+
+How several reps call at once (D25, D26). There is no shared server and no in-app login.
+
+**What is shared and what is per seat**
+
+| Shared by every seat | Per seat |
+|---|---|
+| One Telnyx account (Verified), one outbound voice profile, one bill | A Telnyx API key named for the rep, so one can be revoked alone |
+| The number pool, on one shared incoming route | A Call Control application with a channel cap of 2 (one call) |
+| One HubSpot account and Service Key | A telephony credential for the rep's audio; Telnyx sends calls only to the last device registered on a credential |
+| One Treg token (its daily cap limits total spend) and one RealValidito key | A relay workspace and its private setup file |
+| The relay: number leases, daily counts per number, last caller per prospect | The Mac, its SQLite file, leads, learning and transcripts |
+
+**Who calls whom.** HubSpot's contact owner, the standard HubSpot way to divide contacts. A seat's "Calls for" user is set
+when the seat is set up and shown read-only after that, so a rep cannot switch to another rep's contacts by accident.
+Reassigning the owner in HubSpot moves the contact on the next sync; its earlier calls stay on the old seat and are in
+HubSpot. The last-contacted guard (section 9B) skips anyone another seat or dialer reached recently. A CSV file is
+imported on one seat only.
+
+**Opt-outs across seats.** An opt-out on any seat is written to HubSpot at once, and every seat's sync adds it and never
+removes it. Each seat syncs at Start calling and every 30 minutes while calling, which narrows the 24-hour rule in
+section 5. CSV leads have no shared record, which is why a CSV file stays on one seat.
+
+**The number pool.**
+
+- Before each dial, the seat asks the relay for a number. The relay picks a pool number in the prospect's area code if
+  there is one, otherwise the nearest, then the one used least today, under the per-number daily cap counted across all
+  seats. The lease ends with the call.
+- The dial uses the seat's own Call Control application and presents the leased number. L23 confirms Telnyx accepts a
+  number that is not on that application; if it does not, each seat keeps its own numbers and D26 is reversed.
+- Every pool number is on one shared incoming route. A callback rings the seat that last called that number's prospect
+  within 30 days. If that seat is offline or on a call, the caller reaches voicemail and that seat gets a missed-call task.
+  A callback from someone no seat has called goes to the owner's seat.
+- Number health is counted per number across the team, so the pool's health comes from everyone's calls.
+
+**Concurrency.** Each live call is expected to use 2 channels, the prospect and the rep's leg; L22 measures it. Verified
+gives 10, enough for 5 reps at once. Beyond that, ask Telnyx support. A channel-limit refusal pauses only that seat, with
+a named blocker.
+
+**Research on rep seats.** The ChatGPT route signs in per Mac and a ChatGPT login is personal, so each rep either signs
+in to their own ChatGPT or their seat uses the OpenRouter fallback (section 9) as its main route. One OpenRouter key can
+serve every seat.
+
+**Setting up a seat.** The owner, once per rep:
+
+1. Create the rep's Telnyx API key.
+2. Run seat setup on the owner's Mac with that key. It creates the rep's Call Control application, telephony credential
+   and relay workspace, and writes the rep's private setup file.
+3. Import the setup file on the rep's Mac, sign the rep in to ChatGPT or use the fallback, and pick "Calls for".
+
+**Learning.** StatML learns on each seat from that seat's calls. Pooling learning across seats would come from HubSpot's
+call records later; it is not built now.
+
 ## 10. Live test protocol
 
 Line: **203-821-1101**, the owner's own phone.
@@ -557,6 +631,10 @@ Line: **203-821-1101**, the owner's own phone.
 | L18 | Log a call by hand in HubSpot on the test contact, then Sync | `notes_last_contacted` moves and the app skips the contact; if not, the guard is dropped |
 | L19 | Cut the network right after a call record is posted | Exactly one call record after the retry |
 | L20 | Only if Nooks is in use: one Nooks call on a test contact | Its outcome appears in HubSpot and the shared exclusion list removes the contact |
+| L21 | Set up a second seat from its setup file | It shows its own owner, syncs only that owner's test contact and never the first seat's |
+| L22 | Two seats call two test phones at once | Both calls have audio both ways; neither seat sees the other's contact; the channels one call uses are recorded |
+| L23 | A seat dials from a pool number that is not on its own application | The test phone shows the pool number; if Telnyx refuses it, D26 is reversed |
+| L24 | Call the pool number back from the test phone | It rings the seat that called; with that seat paused it reaches voicemail and makes a task there |
 
 Each session records a receipt under `docs/evidence/rebuild/`: scenario, version, pass or fail, timing and notes. It also
 answers whether the hourly carrier cap applies and whether the automated notice plays.
@@ -613,6 +691,7 @@ Targets are hand allocations from the function inventory, not guarantees. Sectio
 | `jobs/queue.py` | 322 | Fewer states; keep crash recovery | 200 |
 | New: `providers/hubspot.py`, `leads/intake.py`, `leads/hubspot_sync.py`, `aftercall/crm_log.py` | 0 | One intake path and HubSpot | 470 |
 | New: `providers/treg.py`, `leads/waterfall.py`, `providers/realvalidito.py`, `leads/dnc.py` | 0 | In-app waterfall and do-not-call check on CRM leads; replaces the DoNotCallDNC path | 450 |
+| New: `numbers/pool.py`, seat setup in `numbers/configure.py`; relay migration and function for leases, counts and callback routing | 0 | Seats and the shared pool (section 9C) | 350 |
 | **Total** | **39,345** | | **about 17,100** |
 
 **Frontend**
@@ -683,8 +762,9 @@ Real numbers are known at the end of Phase 3.
 | 8 | StatML | 1.5 to 2 |
 | 9 | Research, intake, number check and fallback | 3 to 4 |
 | 9B | HubSpot, in-app waterfall and do-not-call | 2 to 3 |
+| 9C | Seats and the shared number pool | 2.5 to 3.5 |
 | 10 | Helper, summary, remaining pages, docs, 2.0 | 1.5 to 2 |
-| | **Total** | **19.5 to 25** |
+| | **Total** | **22 to 28.5** |
 
 Basis: this repo's own history, including 58,000 lines removed on October 22 and 8 lean-plan steps in about 2 days. Phase
 4 is the least predictable, because each live failure adds time. The intake and HubSpot days are a rougher estimate than
@@ -935,6 +1015,8 @@ each area, and `Dialer`, `Application` and `Service` are gone by the end of Phas
       from a new package into legacy code, and lists the 9 existing edges with the step that removes each; the list can
       only shrink.
 - [ ] R3.4 Remove `p`, tenant and seller scoping, roles, password login and sessions; keep the local token.
+      Seats (D25) do not bring any of these back: a seat's identity is its HubSpot owner, its Telnyx credential and its
+      relay workspace.
 - [ ] R3.5 Add Pydantic models for Call, Lead, Number, Task, Reservation, Command and Script with `extra="forbid"`.
 - [ ] R3.6 Remove edit-version conflict checks now that there is one writer; keep the idempotent dial and hang-up keys.
 - [x] R3.7 Write the migration: copy `local-2` to `local-3`, drop cut tables, transform documents, mark test calls.
@@ -1248,6 +1330,36 @@ Waterfall and do-not-call on CRM leads (D19, D23), tests first:
 Done when: L14 to L19 pass, a forced HubSpot outage does not stop a test call, the waterfall and do-not-call tests pass, and
 R9B.20 is recorded. **Owner sitting 4.**
 
+### Phase 9C: seats and the shared number pool
+
+Goal: three reps call at once from one pool, never reach the same contact, and callbacks find the rep who called
+(section 9C, D25, D26). Built on recorded responses; the live checks wait for the keys, the pool numbers and a second
+phone.
+
+- [ ] R9C.1 Read the account's calls-at-once limit from the portal's "See privileges" page and record it in section 9C.
+- [ ] R9C.2 Failing tests over recorded HubSpot responses: a seat syncs only its owner's contacts; two seats never sync
+      the same contact; reassigning the owner moves the contact on the next sync and keeps its history; an opt-out
+      written by one seat suppresses the contact on the other after its sync; a call record carries the seat's owner.
+- [ ] R9C.3 Failing relay tests: two seats asking at once never lease the same number for the same minute; the daily cap
+      counts every seat's calls; the area-code preference holds; a callback rings the last caller, and goes to voicemail
+      and a task when that seat is away; an unknown caller goes to the owner's seat.
+- [ ] R9C.4 Failing tests: a Telnyx channel-limit refusal pauses only that seat with "Telnyx account call limit reached"
+      and its fix; a relay that cannot lease a number blocks the dial with a named blocker.
+- [ ] R9C.5 "Calls for" row on Settings, set at seat setup, read-only after; sync filters by it; `log_call` writes it.
+- [ ] R9C.6 Sync at Start calling and every 30 minutes while calling; a CSV file imports on one seat only.
+- [ ] R9C.7 Relay: migration for pool numbers, leases, daily counts and last caller per prospect, with isolation tests
+      in `supabase/tests`; the shared incoming route; the webhook routes a callback by last caller.
+- [ ] R9C.8 `numbers/pool.py`: lease before each dial and release at the end; the dial presents the leased number;
+      number health is read from the relay's counts.
+- [ ] R9C.9 Seat setup: from a rep's API key, create the Call Control application with a channel cap of 2, the telephony
+      credential and the relay workspace, and write the private setup file; it never changes another seat.
+- [ ] R9C.10 Research route per seat: the ChatGPT login or the OpenRouter fallback as main route, chosen in Settings.
+- [ ] R9C.11 Layout audit covers the new rows and blockers.
+- [ ] R9C.12 Live L21 to L24 with the owner's test contact, 203-821-1101 and a second approved phone.
+
+Done when: the tests pass, L21 to L24 pass, and a forced relay outage stops dialing on every seat with a named blocker
+and never lets two seats call one contact. **Owner sitting 5.**
+
 ### Phase 10: helper, summary, remaining pages and release
 
 Goal: finish the remaining surface and ship.
@@ -1272,11 +1384,11 @@ Pages:
 Docs and release:
 
 - [ ] R10.11 Rewrite README, GETTING_STARTED and ARCHITECTURE; move finished plans to `docs/history/`; simplify `AGENTS.md`.
-- [ ] R10.12 Full live matrix L1 to L19, plus L20 if Nooks is in use.
+- [ ] R10.12 Full live matrix L1 to L19 and L21 to L24, plus L20 if Nooks is in use.
 - [ ] R10.13 Signed 2.0 through the gated release, on the owner's OK; verify installed data, version, signatures and rollback.
 - [ ] R10.14 Confirm CI matches the "after the rebuild" table in section 12A and tag `v2.0.0`.
 
-Done when: every live check passes and the owner signs off. **Owner sitting 5.**
+Done when: every live check passes and the owner signs off. **Owner sitting 6.**
 
 ## 14. Risks
 
@@ -1297,10 +1409,13 @@ Done when: every live check passes and the owner signs off. **Owner sitting 5.**
 | R13 | Numbers may reach the wrong person, and nothing has measured how often. Namesakes pass the Trestle check by design of the D18 cost decision. | `wrong_party` on real calls, T3, the 5% review trigger in section 9A and the opening question. Live tests still dial only the owner's line. |
 | R14 | CSV leads, including the current call sheet, get no do-not-call check by owner decision (D23). | CRM leads are checked by RealValidito. Include unscreened CSV calling in the lawyer check before real lists. |
 | R15 | The in-app waterfall spends money on every new CRM lead. | Per-list limit set before the first sync, an estimate shown first, stored answers never rebought, and a capped Treg token. |
+| R16 | An opt-out on one seat reaches the others only through HubSpot, so another seat could call during the sync gap. | Written to HubSpot at once; sync before each session and every 30 minutes; owners never overlap, so the opted-out contact is not on another seat's list. Include it in the lawyer check. |
+| R17 | The relay becomes shared state for the whole team: a relay defect or outage stops every seat. | Isolation tests in `supabase/tests`, named blockers, and calls already live still end. Supabase Free can pause (R8); move the relay to a paid plan before real team calling. |
+| R18 | A reassigned contact is re-checked on its new seat, paying the waterfall and do-not-call check again. | Small cost, accepted. Stored answers are per seat. |
 
 ## 15. What stays out of scope
 
-- Multiple users, teams or hosted serving.
+- A shared server, hosted serving, in-app logins, roles and team permissions. A team is seats (D25).
 - Windows.
 - Paid Telnyx Number Reputation.
 - Claims of connect-rate or conversion lift without real measurement.
@@ -1383,3 +1498,8 @@ Done when: every live check passes and the owner signs off. **Owner sitting 5.**
   Estimates are counted straight from calls, and the projection engine and its saved report views are gone. The
   frozen trainer is checked in CI by a real training run. Real lift stays an open gate until enough real calls exist.
   Carried forward: R4.5 (Phase 9), R5.2, R5.12, R7.2, R7.8. Next: Phase 9, R9.1.
+- November 8, 2026: owner chose seats for team calling (D25) and a shared number pool (D26); section 9C and Phase 9C
+  added, with live checks L21 to L24, risks R16 to R18 and new owner inputs. The Telnyx account was read in the portal:
+  Verified, every check met including KYC. Estimate now 22 to 28.5 days. Plan text only. Not yet pushed: `ca1eebb`
+  (R8.4) and `bc06452` (R8.10). Uncommitted: `leads/intake.py` and `prep/criteria.py` with their tests in the
+  scratchpad. Next: push, then Phase 9, R9.1.
