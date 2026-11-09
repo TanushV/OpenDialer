@@ -1,0 +1,11 @@
+{
+  "_note": "Shaped from RealValidito's public API docs (November 7, 2026); replace with a recorded response in R9B.20.",
+  "status": "success",
+  "data": [
+    {"number": "6175550100", "cleaned_number": "6175550100", "federal_dnc": false, "state_dnc": {}, "tcpa_litigator": false, "invalid": false},
+    {"number": "6175550101", "cleaned_number": "6175550101", "federal_dnc": true, "state_dnc": {}, "tcpa_litigator": false, "invalid": false},
+    {"number": "6175550102", "cleaned_number": "6175550102", "federal_dnc": false, "state_dnc": {"FL": true}, "tcpa_litigator": false, "invalid": false},
+    {"number": "6175550103", "cleaned_number": "6175550103", "federal_dnc": false, "state_dnc": {}, "tcpa_litigator": true, "invalid": false},
+    {"number": "6175550104", "cleaned_number": "", "federal_dnc": false, "state_dnc": {}, "tcpa_litigator": false, "invalid": true}
+  ]
+}

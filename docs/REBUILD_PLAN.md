@@ -417,6 +417,14 @@ matching the balance change. No call was placed. This is provider evidence, not 
 | Blitz itself | Answered 0 calls. Treg's account is at Blitz's fair-use limit, with the next reset about November 29 |
 | Not run | Telnyx (T1, T2), awaiting the owner's OK on the saved key |
 
+**T4 and T5, November 8, 2026** (free; a scratchpad copy of the 296 real rows; no call placed)
+
+| Test | Result |
+|---|---|
+| T4: every distinct signal URL through the app's fetcher | 153 URLs: 96 readable (63%), 4 too thin, 50 refused (LinkedIn 20, Adzuna 11, learn4good 7, PitchBook 5), 2 unsafe, 1 timeout. Refused pages can only be `row_only` evidence, capped at C |
+| Column map on the real rows | Signals align on 210 rows. On 86 the URL column lists sources, not one link per signal, so those stay one unaligned bundle and are never paired by position |
+| T5: a keyword proxy of the trigger rules on the row signals | 103 rows have a recent trigger on the list (68 hiring sellers, 22 expansion, 13 new funding), 141 have signals that match no rule, 52 have none, and 43 matches are too old or undated. The section 3 baseline was 116, by a looser pass. The agent's own decisions replace this proxy in R9.14 |
+
 Agreed rules applied at the time, with the owner's later decisions:
 
 - Build the Trestle check: **pass** (98% answered; known answers right).
@@ -1282,7 +1290,7 @@ Goal: criteria are enforced in code, and research keeps working if ChatGPT is un
 - [ ] R9.15 After the owner's OK, re-prepare active leads.
 - [ ] R9.16 Import reads a mapped live-status column; `DEAD` is not dialed and the lead says why.
 - [ ] R9.17 Keep number source per lead; feed it to StatML and the learning card.
-- [ ] R9.18 Run T4 and T5 and record the results in section 9A.
+- [x] R9.18 Run T4 and T5 and record the results in section 9A. Done November 8 (section 9A).
 - [ ] R9.19 Run T1 after the owner OKs using the saved Telnyx key; run T2 only if T1 is useful and the owner approves.
 - [x] R9.20 Record the Treg testing result in section 9A and settle D18.
 - [ ] R9.21 Failing test: a CSV import makes no Treg, Trestle or RealValidito request, and its leads show "Not checked (CSV)".
