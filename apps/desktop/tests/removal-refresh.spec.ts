@@ -61,6 +61,13 @@ test("remove and restore a whole list while shared contacts stay active", async 
   await expect(row(page, "Shared removal")).toBeHidden();
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page.getByLabel("Show removed lists", { exact: true }).check();
+  // CI, November 9: a slow restore used to reload the leads with the view shown before the switch below,
+  // replacing the Active view with Removed. Delay it so the switch always lands first.
+  await page.route("**/v1/lists", async (route) => {
+    if (route.request().method() === "PATCH")
+      await new Promise((done) => setTimeout(done, 1200));
+    await route.continue();
+  });
   await row(page, "Remove source 101")
     .getByRole("button", { name: "Restore list", exact: true })
     .click();

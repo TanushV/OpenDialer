@@ -55,6 +55,12 @@ export function LeadsPage({
   const [lookupStatus, setLookupStatus] = useState<Record<string, string>>({});
   const [filterList, setFilterList] = useState<string | null>(null);
   const [leadView, setLeadView] = useState("active");
+  // A reload after a save uses the view and search shown now, not the ones when the save started: a stale reload
+  // could otherwise replace the view the rep just switched to.
+  const current = useRef({ query: "", leadView: "active" });
+  current.current = { query, leadView };
+  const reloadLeads = () =>
+    history.load(false, current.current.query, current.current.leadView);
   const [selected, setSelected] = useState<string[]>([]);
   const lists = useLists();
   const history = useHistory<Lead>("leads", [], {
@@ -158,7 +164,7 @@ export function LeadsPage({
             updated={async () => {
               setSelected([]);
               await refresh();
-              await history.load(false, query, leadView);
+              await reloadLeads();
               await lists.reload();
             }}
           />
@@ -297,7 +303,7 @@ export function LeadsPage({
         <ListsPage
           embedded
           onChanged={async () => {
-            await history.load(false, query, leadView);
+            await reloadLeads();
             await lists.reload();
           }}
         />
@@ -306,7 +312,7 @@ export function LeadsPage({
         <HubSpotLists
           onSynced={async () => {
             await refresh();
-            await history.load(false, query, leadView);
+            await reloadLeads();
             await lists.reload();
           }}
         />
@@ -392,7 +398,7 @@ export function LeadsPage({
                     setCSV("");
                     setColumnMap(null);
                     await refresh();
-                    await history.load(false, query, leadView);
+                    await reloadLeads();
                     await lists.reload();
                     const count = `${report.imported} lead${report.imported === 1 ? "" : "s"} imported.`;
                     notice(
