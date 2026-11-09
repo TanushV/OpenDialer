@@ -160,7 +160,6 @@ function AdminSettings({
               title="AI"
               done={aiDone(settings.data, chatGpt)}
               summary="ChatGPT researches leads and writes scripts. A Cerebras key powers live help during calls."
-              open
             >
               <AiCard settings={settings} onConnected={setChatGpt} />
             </SettingCard>
