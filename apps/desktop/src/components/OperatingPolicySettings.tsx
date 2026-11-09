@@ -136,10 +136,9 @@ export function OperatingPolicySettings() {
         carrier rentals remain payable.
       </p>
       <p>
-        <strong>Raw calls and transcripts: five minutes at most.</strong> Call
-        recording is disabled. Only derived notes, outcomes, statistics and your
-        own notes remain. There is no calendar or CRM synchronization; reps book
-        meetings themselves.
+        <strong>Transcripts: 30 days on this computer.</strong> Calls are not
+        recorded. Transcript text is deleted after 30 days, or sooner from
+        Review; notes, outcomes and statistics remain.
       </p>
       {policy && (
         <form

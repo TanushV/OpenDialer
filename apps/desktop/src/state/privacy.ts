@@ -1,4 +1,4 @@
-// Raw speech, quotes and helper text expire after five minutes; they never enter the offline cache.
+// Transcripts, quotes and helper text never enter the browser offline cache; transcripts stay 30 days in the app only.
 const RAW = new Set([
   "transcript",
   "transcript_revisions",

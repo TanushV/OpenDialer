@@ -308,7 +308,7 @@ def finish_call(ws, app, monkeypatch, script):
     return cid
 
 
-def test_a_model_tip_and_its_quote_last_only_as_long_as_their_raw_speech(workspace, app, monkeypatch, clock):
+def test_a_model_tip_expires_and_its_quote_stays_only_in_the_transcript(workspace, app, monkeypatch, clock):
     ws = workspace
     cid = start(ws)["id"]
     answered_by_human(ws, cid)
@@ -325,10 +325,13 @@ def test_a_model_tip_and_its_quote_last_only_as_long_as_their_raw_speech(workspa
     assert kept["id"] == tip["id"] and OFFLINE_QUOTE in json.dumps(kept)
     clock.now += timedelta(seconds=101)
     after = get(ws, f"/v1/calls/{cid}")
-    assert after["coach"] is None and after["transcript"] == []
+    assert after["coach"] is None, "the tip expires with its display window"
+    assert after["transcript"], "the transcript is kept 30 days (D7)"
     assert [o["text"] for o in after["conversation_state"]["observations"]] == [OBSERVATION]
+    # The quote lives on only in the transcript itself (kept 30 days, D7), never in tips, notes or events.
     for path in (f"/v1/calls/{cid}", f"/v1/calls/{cid}/analysis", "/v1/events"):
-        assert OFFLINE_QUOTE not in json.dumps(get(ws, path)), path
+        body = {k: v for k, v in get(ws, path).items() if k != "transcript"}
+        assert OFFLINE_QUOTE not in json.dumps(body), path
 
 
 def test_selective_fact_review_withdraws_only_the_claim_the_reviewer_rejects(

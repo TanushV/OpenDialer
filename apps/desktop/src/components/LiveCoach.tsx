@@ -399,8 +399,7 @@ export function LiveCoach({
             </button>
           </form>
           <small>
-            F1 requests help without typing. Advice and raw context expire
-            within five minutes.
+            F1 requests help without typing. Advice expires within five minutes.
           </small>
         </div>
       )}

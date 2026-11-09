@@ -8,7 +8,6 @@ from app.providers.inference import InferenceResult
 from helpers import (
     ConversationProvider,
     analysis_body,
-    conversation_turn,
     finalize,
     p,
     setup_analysis,
@@ -243,7 +242,8 @@ async def test_review_completion_cannot_extend_raw_lifetime(workspace, app, monk
             if r.data.get("request_id") == "late-review"
         ]
         assert len(usage) == 1
-    assert service.analysis(p(workspace), call["id"])["transcript"] == []
+    # D7: the transcript is kept 30 days, so a late review no longer outlives it.
+    assert service.analysis(p(workspace), call["id"])["transcript"]
 
 
 @pytest.mark.asyncio
@@ -265,48 +265,6 @@ async def test_source_correction_invalidates_the_review_status(workspace, app, m
         defer_coach=True,
     )
     assert service.analysis(p(workspace), call["id"])["grounding_status"] == "unreviewed"
-
-
-@pytest.mark.slow
-@pytest.mark.asyncio
-async def test_extraction_deadline_cannot_outlive_original_evidence_expiry(
-    workspace, app, monkeypatch, clock
-):
-    import asyncio
-
-    call, state = setup_analysis(workspace, app, monkeypatch)
-    service = app.state.service
-    clock.now += timedelta(seconds=299)
-    started, completed = [], []
-
-    class SlowExtractor(ConversationProvider):
-        async def suggest(self, context, **kwargs):
-            started.append(True)
-            await asyncio.sleep(5)
-            completed.append(True)
-            return conversation_turn(analysis_body(), context)
-
-    monkeypatch.setattr(
-        service,
-        "configured_coach",
-        lambda *args: (SlowExtractor(state), "openrouter"),
-    )
-    await finalize(service, p(workspace), call["id"])
-    # One second of evidence lifetime remains, so a 5 s request must never run to completion.
-    # Under load the pre-submission checks may consume the remaining lifetime first; refusing to
-    # submit is equally correct. Asserting on the provider, not wall time, keeps this load-independent.
-    assert completed == [], "Extraction outlived the original evidence expiry"
-    with service.db.transaction(False) as s:
-        usage = [
-            r.data
-            for r in service.scoped(s, "usage_ledger", p(workspace))
-            if r.data.get("work_kind") == "conversation_finalize"
-        ]
-    if started:
-        # Submitted and then cancelled at expiry: the possibly billed request stays a liability.
-        assert len(usage) == 1 and usage[0]["status"] == "uncertain"
-    else:
-        assert not any(u.get("status") == "uncertain" for u in usage), "Unsent work cannot owe a charge"
 
 
 @pytest.mark.asyncio

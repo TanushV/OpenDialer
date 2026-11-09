@@ -728,6 +728,7 @@ class Application(Preparation, LiveHelper, SpeechPrivacy, RequestAccounting, Ser
     async def maintenance_tick(self):
         await self.periodic_optimization()
         self.raw.purge()
+        await asyncio.to_thread(self.purge_transcripts)
         await asyncio.to_thread(self.queue_unfinished_webhooks)
         prepare_due = time.monotonic() >= getattr(self, "_next_preparation", 0)
         if prepare_due:

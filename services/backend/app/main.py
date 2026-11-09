@@ -743,6 +743,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def hangup(call_id: str, p=Depends(principal)):
         return await service.hangup(p, call_id)
 
+    @app.delete("/v1/calls/{call_id}/transcript")
+    def delete_transcript(call_id: str, p=Depends(principal)):
+        """R10.5: the rep deletes a call's saved transcript now instead of waiting 30 days."""
+        with db.transaction() as s:
+            service.required(s, "call_attempts", call_id, p)
+            service.forget_transcript(s, p, call_id)
+        return {"deleted": True}
+
     @app.post("/v1/calls/{call_id}/disposition")
     def disposition(call_id: str, data: Disposition, p=Depends(principal)):
         saved = service.save_disposition(p, call_id, data.model_dump(mode="json"))

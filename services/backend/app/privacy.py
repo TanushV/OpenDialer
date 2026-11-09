@@ -16,6 +16,8 @@ from typing import NamedTuple
 from app.platform.config import LIMITS
 
 RAW_TTL_SECONDS = 300
+# D7, R10.5: transcript text stays on this computer for 30 days, then is deleted; the rep can delete it sooner.
+TRANSCRIPT_DAYS = 30
 
 
 def usage_metadata(value):
@@ -387,6 +389,7 @@ def persistent_document(kind, data):
                 "call_id",
                 "segment_id",
                 "revision",
+                "text",
                 "side",
                 "speaker_id",
                 "start_ms",
@@ -492,8 +495,40 @@ class SpeechPrivacy:
                     transcript_version=call.data.get("transcript_version", 0) + 1,
                 )
             self.raw.revoke_scope(p["tenant_id"] + ":" + call.id)
+            self.forget_transcript(s, p, call.id)
             return True
         return False
+
+    def forget_transcript(self, s, p, call_id):
+        """Delete a call's saved transcript text (opt-out, the rep's Delete, or 30 days passing)."""
+        from sqlalchemy import select
+
+        from app.platform.db import MODELS
+
+        model = MODELS["transcript_segments"]
+        for row in s.scalars(
+            select(model).where(model.tenant_id == p["tenant_id"], model.ctx_key == call_id)
+        ):
+            if "text" in row.data:
+                row.data = {k: v for k, v in row.data.items() if k != "text"}
+        self.raw.revoke_scope(p["tenant_id"] + ":" + call_id)
+
+    def purge_transcripts(self):
+        """R10.5: saved transcript text older than TRANSCRIPT_DAYS is deleted; the timing metadata stays."""
+        from sqlalchemy import select
+
+        from app.platform.db import MODELS
+
+        model = MODELS["transcript_segments"]
+        with self.db.transaction() as s:
+            expired = s.scalars(
+                select(model)
+                .where(model.ctx_expires_at <= self.clock(), model.data["text"].as_string().is_not(None))
+                .limit(5000)
+            )
+            for row in expired:
+                if "text" in row.data:
+                    row.data = {k: v for k, v in row.data.items() if k != "text"}
 
     def transcript_metadata(self, s, p, call_id):
         from sqlalchemy import select
@@ -526,7 +561,8 @@ class SpeechPrivacy:
         result = []
         for row in metadata:
             key = self.raw_key(p, call_id, row.data["segment_id"])
-            item = self.raw.get(key)
+            # The saved text (30 days) is the record; the in-memory copy only serves the live helper.
+            item = self.raw.get(key) or (row.data if "text" in row.data else None)
             if item is not None:
                 result.append(
                     {
@@ -611,11 +647,13 @@ class SpeechPrivacy:
                 fail(409, "Transcript revision is obsolete")
             received_at = min(received_at or self.clock(), self.clock())
             received = dt(row.data["server_received_at"]) if row else received_at
+            # The live helper reads a short-lived copy in memory; the saved text is kept for TRANSCRIPT_DAYS.
             expires = received + timedelta(seconds=RAW_TTL_SECONDS)
+            kept_until = received + timedelta(days=TRANSCRIPT_DAYS)
             full = {
                 **segment,
                 "server_received_at": received.isoformat(),
-                "raw_expires_at": expires.isoformat(),
+                "raw_expires_at": kept_until.isoformat(),
             }
             metadata = persistent_document(
                 "transcript_segments",
@@ -656,7 +694,7 @@ class SpeechPrivacy:
             update(
                 call,
                 transcript_version=call.data.get("transcript_version", 0) + 1,
-                raw_expires_at=max(call.data.get("raw_expires_at", ""), expires.isoformat()),
+                raw_expires_at=max(call.data.get("raw_expires_at", ""), kept_until.isoformat()),
             )
             version = call.data["transcript_version"]
             if row:

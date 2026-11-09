@@ -326,9 +326,26 @@ export function ReviewPage({
             <Empty text="No permitted final transcript is available for this call." />
           )}
           <p className="fine">
-            Call recordings are disabled. Raw evidence expires within five
-            minutes; retained notes and outcomes remain.
+            Calls are not recorded. This transcript stays on this computer for
+            30 days, then is deleted; notes and outcomes remain.
           </p>
+          {analysis.transcript.length > 0 && (
+            <button
+              className="secondary small"
+              onClick={() =>
+                void run(async () => {
+                  await api(
+                    `/v1/calls/${analysis.call.id}/transcript`,
+                    "DELETE",
+                  );
+                  await reload(analysis.call.id);
+                  notice("Transcript deleted.");
+                })
+              }
+            >
+              Delete transcript
+            </button>
+          )}
           <div className="section-rule" />
           <h3>Observable conversation metrics</h3>
           <p className="muted small">

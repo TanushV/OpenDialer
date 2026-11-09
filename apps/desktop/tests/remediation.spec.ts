@@ -87,7 +87,7 @@ test("no-subscription costs, short retention and prepaid DNC configuration are e
   await enter(page);
   await openMoreSettings(page, "Privacy and spending rules");
   await expect(
-    page.getByText("Raw calls and transcripts: five minutes at most.", {
+    page.getByText("Transcripts: 30 days on this computer.", {
       exact: true,
     }),
   ).toBeVisible();

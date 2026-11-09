@@ -90,7 +90,7 @@ def test_mute_silences_automatic_tips_and_unmute_restores_them(workspace, clock)
     assert helper_tip(ws, clock, call_id) is not None
 
 
-def test_pinned_tip_outlives_its_display_window_but_not_its_raw_speech(workspace, clock):
+def test_pinned_tip_outlives_its_display_window_and_then_expires_while_the_transcript_stays(workspace, clock):
     ws = workspace
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
@@ -103,7 +103,10 @@ def test_pinned_tip_outlives_its_display_window_but_not_its_raw_speech(workspace
     assert kept["id"] == tip["id"] and kept["pinned"] is True
     clock.now += timedelta(seconds=105)
     live = get(ws, f"/v1/calls/{call_id}")
-    assert live["coach"] is None and live["transcript"] == []
+    assert live["coach"] is None
+    assert [s["text"] for s in live["transcript"]] == ["We have no budget for this right now."], (
+        "kept 30 days (D7)"
+    )
 
 
 def test_private_help_answers_the_asker_and_cancel_withdraws_it(workspace, clock):
@@ -168,14 +171,14 @@ def test_feedback_records_display_and_rep_judgement_with_version_checks(workspac
 
 
 @pytest.mark.slow
-def test_raw_speech_expires_at_five_minutes_while_notes_and_outcome_remain(workspace, clock):
+def test_the_transcript_is_kept_30_days_then_deleted_while_notes_and_outcome_remain(workspace, clock):
+    """D7, R10.5: transcript text stays on this computer for 30 days, replacing the old 5-minute lifetime."""
     ws = workspace
     call_id = start(ws)["id"]
     lead_id = get(ws, f"/v1/calls/{call_id}")["lead_id"]
     answered_by_human(ws, call_id)
     chunk(ws, call_id, "r1", "Hi, this is Example Seller calling about a brief introduction.", side="rep")
     chunk(ws, call_id, "s1", MARKER)
-    assert helper_tip(ws, clock, call_id) is not None
     call(
         ws,
         "PATCH",
@@ -185,19 +188,31 @@ def test_raw_speech_expires_at_five_minutes_while_notes_and_outcome_remain(works
     call(ws, "POST", f"/v1/calls/{call_id}/hangup")
     wrap_up(ws, call_id, outcome="not_interested", contact_role="right_party")
     run_jobs(ws)
-    clock.now += timedelta(seconds=299)
-    assert MARKER in json.dumps(get(ws, f"/v1/calls/{call_id}"))
+    clock.now += timedelta(minutes=10)
+    ws["client"].app.state.service.raw.clear()  # a restart empties memory; the saved text remains
     assert MARKER in json.dumps(get(ws, f"/v1/calls/{call_id}/analysis"))
-    clock.now += timedelta(seconds=1)
-    live = get(ws, f"/v1/calls/{call_id}")
-    assert live["coach"] is None and live["transcript"] == [] and live["raw_evidence_status"] == "expired"
-    assert MARKER not in json.dumps(live)
+    clock.now += timedelta(days=30)
+    token = ws["client"].post("/v1/local/session", headers={"X-Local-Token": "test-local-secret"}, json={})
+    ws["headers"] = {"Authorization": f"Bearer {token.json()['access_token']}"}
+    ws["client"].app.state.service.purge_transcripts()
     analysis = get(ws, f"/v1/calls/{call_id}/analysis")
     assert MARKER not in json.dumps(analysis) and analysis["transcript"] == []
     assert analysis["human_notes"] == "Wants a pricing sheet." and analysis["status"] == "human_confirmed"
     assert analysis["call"]["outcome"] == "not_interested"
     for path in ("/v1/events", "/v1/workspace", f"/v1/leads/{lead_id}/packet"):
         assert MARKER not in json.dumps(get(ws, path)), path
+
+
+def test_the_rep_can_delete_a_transcript_at_once(workspace):
+    ws = workspace
+    call_id = start(ws)["id"]
+    answered_by_human(ws, call_id)
+    chunk(ws, call_id, "s1", MARKER)
+    call(ws, "POST", f"/v1/calls/{call_id}/hangup")
+    ws["client"].app.state.service.raw.clear()
+    assert MARKER in json.dumps(get(ws, f"/v1/calls/{call_id}/analysis"))
+    assert call(ws, "DELETE", f"/v1/calls/{call_id}/transcript") == {"deleted": True}
+    assert MARKER not in json.dumps(get(ws, f"/v1/calls/{call_id}/analysis"))
 
 
 def test_helper_route_is_reported_as_simulation_only_on_the_pinned_cerebras_route(workspace):
