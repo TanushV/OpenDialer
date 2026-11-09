@@ -115,8 +115,11 @@ test("a background script adoption cannot silently replace open edits", async ({
   await page.getByRole("button", { name: "Script", exact: true }).click();
   const editor = page.getByLabel("Script Markdown");
   await expect(editor).toHaveValue(/# Opening/);
-  const previewRequest = page.waitForRequest((r) =>
-    r.url().endsWith("/v1/admin/script/import"),
+  // Save is enabled once the script check answers, not when it is sent (a slow CI runner showed the gap).
+  const previewResponse = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/v1/admin/script/import") &&
+      r.request().postDataJSON()?.markdown?.includes("My original draft"),
   );
   await editor.fill(
     "# Opening\nHi {first_name}, this is {rep} from {seller}.\n\n# Screening\n{rep} from {seller}, about your process.\n\n# Discovery\n- How do you handle this today?\n\n# Objections\n## Busy\nWhen would be better?\n\n# Close\nWould a short call help?".replace(
@@ -124,7 +127,7 @@ test("a background script adoption cannot silently replace open edits", async ({
       "My original draft, {first_name}",
     ),
   );
-  const sent = await previewRequest;
+  const sent = (await previewResponse).request();
   await expect(
     page.getByRole("button", { name: "Save script", exact: true }),
   ).toBeEnabled();
