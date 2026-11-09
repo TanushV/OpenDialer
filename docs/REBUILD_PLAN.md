@@ -1523,7 +1523,8 @@ Pages:
 
 Docs and release:
 
-- [ ] R10.11 Rewrite README, GETTING_STARTED and ARCHITECTURE; move finished plans to `docs/history/`; simplify `AGENTS.md`.
+- [x] R10.11 Rewrite README, GETTING_STARTED and ARCHITECTURE; move finished plans to `docs/history/`; simplify `AGENTS.md`.
+      Done November 9: README, GETTING_STARTED and ARCHITECTURE rewritten; 16 finished plans moved to `docs/history/`; AGENTS.md simplified.
 - [ ] R10.12 Full live matrix L1 to L19 and L21 to L24 on Mac, L25 to L27 on Windows, plus L20 if Nooks is in use.
 - [ ] R10.13 Signed 2.0 through the gated release, on the owner's OK; verify installed data, version, signatures and rollback.
 - [ ] R10.14 Confirm CI matches the "after the rebuild" table in section 12A and tag `v2.0.0`.
@@ -1688,3 +1689,8 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   Script save state) and built 1.0.8 (after-call summary, 30-day transcripts, steady Leads). R10.2, R10.3, R10.5, R10.8 and
   R10.10 done. Next: R10.1 (retire the old finalize, review and interpretation path now that the summary replaces it),
   R10.4, R7.2, R9E.7, R10.11 docs, then 2.0.
+- November 9, 2026 (night): R10.11 done; Settings edit cards start folded. Open and not started by the builder:
+  R10.1 and R10.4 (retire the old finalize, review and interpretation path; the new summary already replaces what the
+  rep sees), R9E.7 (relay as a plain module; its exits are now tested and watched), R9E.8 beyond Start and Pause, and the
+  structural steps R3.2, R3.4 to R3.6 and R4.5. Owner-gated as before: live checks (L1 to L27), the lawyer check, a
+  Windows PC and signing, a second phone, the relay pool migration and pool numbers, the RealValidito key.
