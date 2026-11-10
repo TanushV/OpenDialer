@@ -299,3 +299,19 @@ for (const integrity of [null, false]) {
     else await expect(indicator).not.toHaveClass(/danger/);
   });
 }
+
+test("each page opens at its top, whatever the last page's scroll", async ({
+  page,
+}) => {
+  await enter(page);
+  await goTo(page, "Settings");
+  await page.mouse.wheel(0, 1500);
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY))
+    .toBeGreaterThan(0);
+  await goTo(page, "Dialer");
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect(
+    page.getByRole("status", { name: "Call status" }),
+  ).toBeInViewport();
+});

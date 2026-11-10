@@ -123,6 +123,11 @@ export function App() {
   }, [ready]);
   const [view, setView] = useState<View>("Dialer");
   const [focusTask, setFocusTask] = useState<string | null>(null);
+  // Each page opens at its top: a scroll left on another page could hide the Dialer's status bar.
+  // A focused follow-up scrolls itself into view instead.
+  useEffect(() => {
+    if (!focusTask) window.scrollTo({ top: 0 });
+  }, [view, focusTask]);
   const openTask = useCallback((id: string) => {
     setFocusTask(id);
     setView("Review");
