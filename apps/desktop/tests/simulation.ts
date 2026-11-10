@@ -155,25 +155,21 @@ export async function finishCall(page: Page) {
   if ((await dialer.isVisible()) && (await dialer.isEnabled()))
     await dialer.click();
   if (!(await callStatus(page).isVisible())) return;
-  if (await pauseCalling(page).isVisible()) await pauseCalling(page).click();
   const end = page.getByRole("button", { name: /^(Hang up|Skip now|Skip)\b/ });
   const keys = page.getByRole("group", { name: "Save outcome" });
-  // A call placed just before the pause may only start ringing now: end it whenever it shows.
-  // A skipped call is saved by the loop itself; otherwise save one outcome, as a rep would.
+  const tryClick = (target: ReturnType<Page["getByRole"]>) =>
+    target.click({ timeout: 2_000 }).catch(() => undefined);
+  // Repeat until calling is paused with nothing owed: a click WebKit drops under load, or a call that starts
+  // ringing just as Pause lands, only costs another round. A skipped call is saved by the loop itself; an
+  // answered one gets one outcome, as a rep would save it.
   await expect(async () => {
-    if (await end.first().isVisible())
-      await end
-        .first()
-        .click({ timeout: 2_000 })
-        .catch(() => undefined);
-    await expect(keys.or(startCalling(page))).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
-  if (await keys.isVisible())
-    await keys
-      .getByRole("button", { name: /Not interested$/ })
-      .click({ timeout: 5_000 })
-      .catch(() => undefined);
-  await expect(startCalling(page)).toBeVisible({ timeout: 15_000 });
+    if (await pauseCalling(page).isVisible())
+      await tryClick(pauseCalling(page));
+    if (await end.first().isVisible()) await tryClick(end.first());
+    if (await keys.isVisible())
+      await tryClick(keys.getByRole("button", { name: /Not interested$/ }));
+    await expect(startCalling(page)).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 60_000 });
 }
 
 /** After a test, reopen the workspace and end any call it left behind. */
