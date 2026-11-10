@@ -4,7 +4,7 @@ Records this package owns forbid unknown fields. Records another package still o
 `View` that names only the fields used here; each view becomes that package's own model when its phase rewrites it.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -57,11 +57,58 @@ def presence_of(user_data):
 
 
 class CallView(View):
-    """The fields recovery reads from a call; the full `Call` record arrives with the dial rewrite (R4.5)."""
+    """The call fields dialing, hang-up and recovery read (R3.5, R4.5)."""
 
     state: str
     state_at: str | None = None
     submitted_at: str | None = None
     started_at: str | None = None
+    answered_at: str | None = None
+    ended_at: str | None = None
     provider_id: str | None = None
     max_call_seconds: int | None = None
+    rep_id: str | None = None
+    attempt_ordinal: int | None = None
+    dial_scope: dict[str, Any] = {}
+
+
+class ReservationView(View):
+    """What a reservation carries into the dial it becomes."""
+
+    dial_scope: dict[str, Any] = {}
+    treatment_variant_id: str | None = None
+    feature_snapshot_id: str | None = None
+    policy_decision_id: str | None = None
+    coaching_comparison: Any = None
+    script_comparison: Any = None
+
+
+class LeadAttempts(View):
+    """A lead's attempt counters, read before a dial and restored when nothing reached the prospect."""
+
+    attempt_count: int | None = None
+    attempt_allowance: int | None = None
+    last_attempt_at: str | None = None
+    next_attempt_at: str | None = None
+    pair_until: str | None = None
+    pair_of: str | None = None
+
+
+class CommandView(View):
+    """A carrier command in the outbox: the durable intent behind every dial and hang-up."""
+
+    kind: str | None = None
+    call_id: str | None = None
+    status: str | None = None
+    prior_attempt: dict[str, Any] = {}
+    lease_until: str | None = None
+    sent_at: str | None = None
+
+
+class PolicyLimits(View):
+    max_attempts: int = 4
+
+
+class LegView(View):
+    kind: str | None = None
+    call_id: str | None = None

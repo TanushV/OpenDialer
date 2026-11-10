@@ -1,18 +1,13 @@
 from uuid import uuid4
 
-
-class UncertainCarrierResult(TimeoutError):
-    """Submission may have succeeded. Reconcile; never automatically redial."""
-
-
-class CarrierNotSubmitted(RuntimeError):
-    """The request provably never reached the carrier, so failing it cannot hide a live call."""
+from app.providers.errors import CarrierNotSubmitted, UncertainCarrierResult  # noqa: F401 (older imports)
 
 
 class SimulatedCarrier:
     simulated = True
     # Answers the rep's audio leg at once, with no credential or WebRTC client behind it.
     instant_agent_legs = True
+    replay = True  # Calls through it are synthetic and end themselves.
 
     def __init__(self):
         self.actions = []

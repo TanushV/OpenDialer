@@ -6,7 +6,7 @@ import httpx
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from .simulated import CarrierNotSubmitted, UncertainCarrierResult
+from .errors import CarrierNotSubmitted, UncertainCarrierResult
 
 
 class CarrierConfigurationError(ValueError):
@@ -37,6 +37,7 @@ def _errors(response):
 class TelnyxCarrier:
     simulated = False
     instant_agent_legs = False
+    replay = False  # A real carrier: its calls are real and end through its events.
 
     def __init__(self, api_key, connection_id, *, http=None, webhook_url=""):
         self.api_key, self.connection_id = api_key, connection_id

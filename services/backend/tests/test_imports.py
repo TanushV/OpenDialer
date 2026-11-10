@@ -26,7 +26,6 @@ KNOWN = {
     ("platform/db.py", "app.operational_schema"): "R3.7 folds the schema into platform",
     ("platform/db.py", "app.privacy"): "R10.5 replaces the privacy module",
     ("platform/jobs.py", "app.privacy"): "R10.5 replaces the privacy module",
-    ("providers/telnyx.py", "app.optimization.geography"): "R4.4 moves number geography",
     ("providers/inference.py", "app.model_tokens"): "R9.10 builds the chat agent",
 }
 
@@ -42,6 +41,15 @@ def imports(path):
             yield from (alias.name for alias in node.names)
 
 
+def bridge(target):
+    """`app.ops` imports nothing when loaded, and a leaf module imports nothing from the app: neither reaches back
+    into legacy code at import time."""
+    if target == "app.ops":
+        return True
+    path = APP.joinpath(*target.split(".")[1:]).with_suffix(".py")
+    return path.is_file() and not any(t.startswith("app") for t in imports(path))
+
+
 def violations():
     found = []
     for package, rank in RANK.items():
@@ -53,7 +61,8 @@ def violations():
                 other = parts[1]
                 where = f"{path.relative_to(APP).as_posix()} imports {target}"
                 if other not in RANK:
-                    found.append(f"{where}: legacy module")
+                    if not bridge(target):
+                        found.append(f"{where}: legacy module")
                 elif other != package and RANK[other] >= rank:
                     found.append(f"{where}: upward or sideways")
     return found

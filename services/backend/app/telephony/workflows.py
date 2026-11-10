@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app import ops
 from app import service as base
-from app.calling import events
+from app.calling import dial, events
 from app.calling.state import TERMINAL
 from app.compliance.policy import authorize
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
@@ -272,7 +272,7 @@ def stop_agent_transcription_in(service, s, p, call):
 
 
 def finish_call(service, s, p, call, reason=None):
-    base.finish_call(service, s, p, call, reason)
+    dial.finish_call(service, s, p, call, reason)
     ops.stop_agent_transcription_in(service, s, p, call)
     for lease in ops.scoped(service, s, "number_leases", p):
         if lease.data.get("call_id") == call.id and lease.data.get("active"):
