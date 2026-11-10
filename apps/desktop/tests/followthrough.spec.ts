@@ -627,11 +627,12 @@ test("outcome conflict reload and late save preserve the selected review", async
     const reserved = page.waitForResponse((r) =>
       r.url().endsWith("/v1/queue/next"),
     );
-    await startCalling(page).click();
-    const name = (await (await reserved).json()).lead.name;
+    // Listen for the dial before Start: it can follow the reservation before a later listener exists.
     const started = page.waitForResponse((r) =>
       r.url().endsWith("/v1/calls/start"),
     );
+    await startCalling(page).click();
+    const name = (await (await reserved).json()).lead.name;
     await answer(page);
     await pauseCalling(page).click();
     const call = await (await started).json();
