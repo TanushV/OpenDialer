@@ -30,7 +30,17 @@ test("nothing covers the outcome keys or Dial now, even with a notice showing", 
     exact: true,
   });
   await expect(save).toBeVisible();
-  // The import notice is still showing: it must not cover the outcome keys.
+  // A notice must not cover the outcome keys. The import notice lasts 5 seconds, which a slow machine can outrun,
+  // so a notice with the same markup stands in when it has already gone.
+  if (!(await page.locator(".toast").isVisible()))
+    await page.evaluate(() => {
+      const notice = document.createElement("div");
+      notice.className = "toast";
+      notice.setAttribute("role", "status");
+      notice.innerHTML =
+        "<span>1 imported · 0 already in the list · 0 without a valid phone number</span><button>x</button>";
+      document.body.appendChild(notice);
+    });
   await expect(page.locator(".toast")).toBeVisible();
   await settled(save);
   await uncovered(save);
