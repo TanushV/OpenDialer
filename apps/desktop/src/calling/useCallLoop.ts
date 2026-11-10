@@ -654,6 +654,16 @@ export function useCallLoop(visible: boolean) {
       return;
     }
     if ((phase.kind === "saved" || phase.kind === "skipped") && !editing) {
+      if (call?.is_test) {
+        // A test call is one call: stop here rather than count down to a prospect (live check, November 10).
+        void run(async () => {
+          await pauseCalling();
+          notice(
+            "Test call saved. Calling is paused; Start calling uses your lead lists.",
+          );
+        });
+        return;
+      }
       const timer = setTimeout(() => void advance(), phase.countdown_ms);
       return () => clearTimeout(timer);
     }

@@ -992,7 +992,10 @@ def _apply_outcome(service, s, p, call, lead, canonical, source, edit_version):
         **moved(call.data, "outcome.saved", service.clock()),
         callback_at=canonical["callback_at"],
         disposition_input=canonical,
-        is_test=lead.data["phone"] in TEST_LINES or bool(canonical.get("delivery_test")),
+        # A call placed as a test (the owner's line, or the rep's own test phone in a test session) stays one.
+        is_test=bool(call.data.get("is_test"))
+        or lead.data["phone"] in TEST_LINES
+        or bool(canonical.get("delivery_test")),
         edit_version=edit_version + 1,
         outcome_available_at=service.clock().isoformat(),
         outcome_source=source,

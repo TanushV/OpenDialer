@@ -158,6 +158,8 @@ export interface Coach {
   remaining_ms?: number;
 }
 export interface Call {
+  /** A call to the rep's own test phone: excluded from learning, and calling pauses after it. */
+  is_test?: boolean;
   /** R10.2: the one-request after-call summary, once written. */
   aftercall?: {
     status: "ready" | "failed" | "no_speech" | "unavailable";

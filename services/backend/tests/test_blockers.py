@@ -248,3 +248,38 @@ def test_a_test_call_reaches_an_old_test_lead_that_still_carries_a_delivery_hold
     answer = client.post("/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]})
     assert answer.status_code == 200, answer.text
     assert answer.json()["lead"]["id"] == first["lead_id"]
+
+
+def test_saving_a_test_calls_outcome_ends_the_session_and_pauses_the_rep(workspace, app):
+    """Live check, November 10: after a test call is saved, nothing may move straight on to a prospect, and a call
+    to the rep's own typed test phone stays a test call (it was relabeled real at wrap-up)."""
+    from conftest import ready
+
+    client, headers = workspace["client"], workspace["headers"]
+    client.put("/v1/admin/settings", headers=headers, json={"test_phone": "+12025550177"})
+    client.post("/v1/settings/test-call", headers=headers)
+    ready(workspace)
+    packet = client.post(
+        "/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]}
+    ).json()
+    call = client.post(
+        "/v1/calls/start",
+        headers=headers,
+        json={"reservation_id": packet["reservation_id"], "idempotency_key": "test-call-pause"},
+    ).json()
+    from uuid import uuid4
+
+    from conftest import disposition_body
+
+    client.post(
+        "/v1/simulation/event",
+        headers=headers,
+        json={"event_id": str(uuid4()), "event_type": "call.hangup", "call_id": call["id"], "payload": {}},
+    )
+    body = disposition_body(client, headers, call["id"], outcome="not_interested")
+    saved = client.post(f"/v1/calls/{call['id']}/disposition", headers=headers, json=body)
+    assert saved.status_code == 200, saved.text
+    snapshot = client.get("/v1/workspace", headers=headers).json()
+    assert snapshot["user"]["presence"]["status"] == "paused"
+    assert saved.json()["is_test"] is True
+    assert client.get("/v1/admin/settings", headers=headers).json().get("test_session") in (False, None)

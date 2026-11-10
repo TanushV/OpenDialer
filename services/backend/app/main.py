@@ -673,8 +673,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def disposition(call_id: str, data: Disposition, p=Depends(principal)):
         saved = ops.save_disposition(service, p, call_id, data.model_dump(mode="json"))
         if saved.get("is_test") and ops.in_test_session(service, p):
-            # A test call is one call: once its outcome is saved, normal calling is back.
+            # A test call is one call: once its outcome is saved the session ends and calling pauses, so the
+            # loop never moves straight on to a prospect (live check, November 10).
             ops.end_test_session(service, p)
+            ops.presence(service, p, {"status": "paused", "telephony_ready": False})
         return saved
 
     @app.post("/v1/leads/{lead_id}/meeting")
