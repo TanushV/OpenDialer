@@ -1,10 +1,14 @@
 # OpenDialer 2.0.0
 
+- **Callbacks ring in the app.** While OpenDialer is open, on any page and paused or not, a call back to one of your numbers rings with a tone, bounces the Dock and shows who it is, with Answer and Decline. When the app is closed or nobody answers, the caller hears your greeting and you get a follow-up. Forwarding to your phone comes later.
+- **A plain calling order.** Callbacks due first, then people never called, then whoever has waited longest, inside calling hours. StatML is archived (tagged `statml-archive`); Review now shows where answered calls end in your script instead.
+- **Numbers finish setting up on their own.** A number still waiting on its order is re-checked with Telnyx every ten minutes until it is ready, so none stays "purchased".
+- **Call screeners.** When a phone's own screener asks who is calling, the helper says to give your name and why you're calling, with no AI call needed.
 - **One user, one computer.** No sign-in, roles, team seats or shared number pool. Every contact on the chosen HubSpot list is synced, whoever owns it in HubSpot.
 - **Calling decides in one place.** Whether the next call is dialed is one rule, checked over every combination of setup, connection, numbers, opt-outs, audio and the call in progress.
 - **Live transcript on every call.** Each call uses audio this run of the app opened. Audio left over from an earlier run is ended and reconnected, and nothing is dialed until your audio is connected, so the prospect hears you and the transcript has sound.
 - **A simpler live helper.** Each tip shows the line to say and the part of your script that fits the moment.
-- **Test calls stay test calls.** A test call dials only your test phone, stays a test call after you save it (so it never reaches learning or HubSpot) and pauses calling afterward instead of moving on to your lists.
+- **Test calls stay test calls.** A test call dials only your test phone, stays a test call after you save it and pauses calling afterward instead of moving on to your lists. When your test phone is on a HubSpot contact, its calls are logged there, so you can check HubSpot with your own line.
 - **The microphone never waits silently.** If macOS asks for the microphone, the Dialer says to click Allow, and after 30 seconds it pauses and says where to turn it on.
 - **Blockers open their fix.** When calling is blocked, the Dialer's message has a button to the page that fixes it. Rows never set say Not set, and each page opens at its top.
 - **Every screen shows the newest answer.** A slow re-read can no longer bring back an old error, check result or list state.

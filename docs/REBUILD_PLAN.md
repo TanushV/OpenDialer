@@ -1618,24 +1618,26 @@ the skip stays (the rep presses Stay, or the last attempt holds the line); StatM
 one learning view kept. Each item gets its tests first.
 
 - [x] R11.1 Plan text: D29 to D32 and this phase.
-- [ ] R11.2 Numbers: any number the app holds as pending is re-checked against Telnyx at start and every few
+- [x] R11.2 Numbers: any number the app holds as pending is re-checked against Telnyx at start and every few
       minutes, so a missed order event never leaves it "purchased".
-- [ ] R11.3 Callbacks ring in the app whenever it is open (D29): the call client stays registered while the app is
+- [x] R11.3 Callbacks ring in the app whenever it is open (D29): the call client stays registered while the app is
       open; the backend rings the app when its heartbeat is fresh and it is not on another call, for any caller; a
       ring panel on every page with the caller (lead name when known), Answer and Decline, a ring tone and a macOS
-      notification when the window is hidden; answer gives two-way audio, transcript, helper and outcome keys;
+      notification when the window is hidden (built as a Dock bounce); answer gives two-way audio (transcript and
+      helper on callbacks are not built);
       Decline or 20 seconds unanswered plays the greeting and keeps a missed-call task; outbound dialing waits while a
       callback rings or is live.
-- [ ] R11.4 Forwarding waits (D30): the forwarding field and offline reference are hidden; the greeting stays.
-- [ ] R11.5 Archive StatML (D31): tag `statml-archive`, then remove the learned model, training, comparison group,
+- [x] R11.4 Forwarding waits (D30): the forwarding field and offline reference are hidden; the greeting stays.
+- [x] R11.5 Archive StatML (D31): tag `statml-archive`, then remove the learned model, training, comparison group,
       trainer program and its CI and release steps, and Review's learning card. The queue orders callbacks due, then
       never called, then longest since the last try, inside calling hours and company spacing. Script storage and
       per-number caps stay.
-- [ ] R11.6 Stage drop-off (D31): the after-call summary names the script part where the call ended, checked against
+- [x] R11.6 Stage drop-off (D31): the after-call summary names the script part where the call ended, checked against
       the script's parts; Review shows where answered calls end, by outcome.
-- [ ] R11.7 HubSpot test segment (section 9B's rule, never built): test calls to a contact on the chosen test segment
-      are written to HubSpot, so L15 to L18 run on the owner's line.
-- [ ] R11.8 Call screeners: when the transcript shows a phone's screener, the helper shows "say your name and why
+- [x] R11.7 HubSpot test segment (section 9B's rule, never built): test calls to a contact on the chosen test segment
+      are written to HubSpot, so L15 to L18 run on the owner's line. Built simpler: a test session dials only the
+      rep's phone, so a test call to any HubSpot contact is written, and the session prefers that contact.
+- [x] R11.8 Call screeners: when the transcript shows a phone's screener, the helper shows "say your name and why
       you're calling" without a model call.
 - [ ] R11.9 One candidate, installed; live sessions: calls (transcript, voice both ways, helper, screener, L3 to L7),
       callbacks (app open on any page, hidden, busy, missed, closed), failures (L9 to L13), HubSpot (L15 to L19, the
@@ -1844,3 +1846,9 @@ one learning view kept. Each item gets its tests first.
   number stuck as purchased, StatML archived for stage drop-off, forwarding deferred, voicemail skip kept (D29 to D32).
   HubSpot: the key reaches portal 51457381; one contact of 4,759 has a number; segment "testing" syncs on the real
   list read (L14). Next: R11.2.
+- November 10, 2026 (afternoon): R11.2 to R11.8 built and tested: pending numbers re-read from Telnyx (and a refresh
+  never parks a still-ordering number); callbacks ring the open app with a tone, Dock bounce, Answer and Decline, for
+  any caller; forwarding hidden; StatML archived (3,100 lines, the trainer sidecar and its CI and release steps
+  removed; the queue is callbacks, never called, longest waiting); stage drop-off in Review from the after-call
+  summary; test calls to the owner's HubSpot contact written; a fixed call-screener tip. CI green on the archive
+  (`1b1d4d4`). Next: candidate 4, install, live sessions (R11.9), publish.

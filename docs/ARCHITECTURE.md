@@ -30,9 +30,11 @@ Everything that decides whether the next call happens is small and checked.
 | Call states | `calling/state.py` | `DIALING` to `RINGING`, `HUMAN` or a mailbox, `ENDED` (waiting for an outcome) and `FINALIZED` (saved). |
 | One decision | `calling/decide.py` | `decide(situation)` says whether the next dial happens, checked over every combination of its inputs. |
 | Dial safety | `calling/dial.py` | A durable dial record and carrier command ID: a lead is never dialed twice, and a call can always be ended. |
+| Callbacks | `telephony/callbacks.py` | While the app is open its call client stays registered and says so every 30 seconds; a callback from anyone rings it (D29). Otherwise, or unanswered, the greeting plays and a follow-up is kept. |
 | Rep's audio | `calling/audio_leg.py` | Each call joins an audio leg this run of the app opened and the carrier reports live; any other is ended and a fresh one dialed. The Dialer dials only once its own audio client holds the leg, so the rep is heard and the transcript has sound. |
 
-The queue (`scheduling/queue.py`) offers callbacks due first, then StatML's order, inside each lead's calling hours
+The queue (`scheduling/queue.py`) offers callbacks due first, then leads never called, then the one waiting longest
+since its last try (D31), inside each lead's calling hours
 (8 AM to 5 PM local), with at least a day between tries and per-company spacing. When no one can be called, it says
 why in plain words. A test call to the rep's own phone skips hours and attempt limits; an opt-out still applies.
 
@@ -82,9 +84,9 @@ hiding a defect.
 
 ## Learning
 
-StatML (`learning/`, `optimization/`) learns from this rep's real calls only; test calls never count. Best hours show
-from 3 calls in an hour; a learned model is tried from 40 calls and used only once it beats the starting estimates on a
-10% comparison group, with automatic rollback.
+StatML is archived (D31, tag `statml-archive`). The one learning view kept is stage drop-off: each after-call summary
+names the script part the call ended in, and Review shows where answered calls end, by outcome
+(`aftercall/dropoff.py`). Number health compares each number's pickups with the pickup rate across all numbers.
 
 ## Releases
 
