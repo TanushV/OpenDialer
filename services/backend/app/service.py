@@ -725,9 +725,12 @@ def start_test_session(service, p):
         fail(409, "Type your phone number in Test phone first")
     with service.db.transaction(False) as s:
         campaign = next(iter(ops.scoped(service, s, "campaigns", p)), None)
-        existing = next(
-            (row for row in ops.scoped(service, s, "leads", p) if row.data.get("phone") == phone), None
+        # R11.7: the owner's HubSpot test contact, when it has this number, is the one dialed, so its calls land there.
+        same = sorted(
+            (row for row in ops.scoped(service, s, "leads", p) if row.data.get("phone") == phone),
+            key=lambda row: row.data.get("source") != "crm",
         )
+        existing = same[0] if same else None
     if not campaign:
         fail(409, "Import a lead list first")
     if existing is None:
@@ -743,7 +746,10 @@ def start_test_session(service, p):
         )
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        lead = next(row for row in ops.scoped(service, s, "leads", p) if row.data.get("phone") == phone)
+        lead = sorted(
+            (row for row in ops.scoped(service, s, "leads", p) if row.data.get("phone") == phone),
+            key=lambda row: row.data.get("source") != "crm",
+        )[0]
         set_memberships(lead, [TEST_LIST, *memberships(lead.data)])
         update(
             lead,

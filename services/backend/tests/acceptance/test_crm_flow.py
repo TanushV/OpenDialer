@@ -59,6 +59,7 @@ class Fakes:
                         {"id": "d-c", "label": "Connected"},
                         {"id": "d-na", "label": "No answer"},
                         {"id": "d-mb", "label": "Meeting booked"},
+                        {"id": "d-wn", "label": "Wrong number"},
                     ],
                 )
             if path == "/crm/v3/objects/calls/search":
@@ -280,3 +281,31 @@ def test_checking_the_hubspot_key_creates_the_apps_fields_once(workspace, monkey
         "opendialer_opt_out_reason",
         "opendialer_call_id",
     }
+
+
+def test_a_test_call_to_the_owners_hubspot_contact_is_written_to_hubspot(workspace, monkeypatch):
+    """R11.7 (section 9B): a test session dials only the rep's own phone, so a test call to a HubSpot contact is the
+    owner's test contact; it is written, which lets L15 to L18 run on the owner's line."""
+    from journey import answered_by_human, hang_up, reserve, wrap_up
+
+    ws = workspace
+    fakes = setup(ws, monkeypatch)
+    post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    run_jobs(ws, rounds=3)
+    response = ws["client"].put("/v1/admin/settings", headers=ws["headers"], json={"test_phone": A})
+    assert response.status_code == 200, response.text
+    post(ws, "/v1/settings/test-call")
+    reservation = reserve(ws)
+    assert reservation.status_code == 200, reservation.text
+    packet = reservation.json()
+    assert packet["lead"]["external_id"] == "1" and packet["lead"]["phone"] == A
+    call = post(
+        ws, "/v1/calls/start", {"reservation_id": packet["reservation_id"], "idempotency_key": "crm-test-1"}
+    )
+    answered_by_human(ws, call["id"])
+    hang_up(ws, call["id"])
+    wrap_up(ws, call["id"], outcome="wrong_party")
+    run_jobs(ws, rounds=3)
+    assert get(ws, f"/v1/calls/{call['id']}")["is_test"] is True
+    assert len(fakes.created_calls) == 1
+    assert ("/crm/v3/objects/contacts/1", {"phone_status": "wrong_number"}) in fakes.writes

@@ -537,7 +537,9 @@ async def log_job(service, p, call_id):
         call = ops.required(service, s, "call_attempts", call_id, p)
         lead = ops.required(service, s, "leads", call.data["lead_id"], p)
         data, lead_data = dict(call.data), dict(lead.data)
-    if lead_data.get("source") != "crm" or not lead_data.get("external_id") or data.get("is_test"):
+    # R11.7: a test call to a HubSpot contact is the owner's own test contact (a test session dials only the
+    # rep's phone), so it is written; that is how L15 to L18 run on the owner's line.
+    if lead_data.get("source") != "crm" or not lead_data.get("external_id"):
         return {"skipped": True}
     hs = hubspot(service, p)
     dispositions = await hs.dispositions()
@@ -658,13 +660,10 @@ def on_outcome(service, s, p, call, lead, outcome):
 
 
 def enqueue_log(service, s, p, call):
-    """Queue the HubSpot record for a saved outcome; never for a CSV lead or a test call."""
+    """Queue the HubSpot record for a saved outcome; never for a CSV lead. A test call to a HubSpot contact is
+    written: it can only be the owner's own test contact (R11.7)."""
     lead = ops.required(service, s, "leads", call.data["lead_id"], p)
-    if (
-        lead.data.get("source") != "crm"
-        or call.data.get("is_test")
-        or not config(service, p).get("hubspot_service_key")
-    ):
+    if lead.data.get("source") != "crm" or not config(service, p).get("hubspot_service_key"):
         return
     service.jobs.enqueue_in(
         s,
