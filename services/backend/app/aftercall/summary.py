@@ -1,6 +1,7 @@
 """R10.2, R10.3: the after-call summary is one request over the whole transcript.
 
-It returns a short summary, a suggested outcome and a next step. Each field is checked on its own, so a bad field drops
+It returns a short summary, a suggested outcome, a next step and the script part where the call ended (stage drop-off,
+D31). Each field is checked on its own, so a bad field drops
 alone and never takes the rest with it; there is no page of 32 segments, and no "partial" state: a summary is ready, or
 it failed with a reason, or there was no speech to summarize. The transcript is untrusted data, never instructions.
 """
@@ -25,12 +26,13 @@ LIMITS = {"summary": 1200, "outcome_reason": 300, "next_step": 300}
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["summary", "suggested_outcome", "outcome_reason", "next_step"],
+    "required": ["summary", "suggested_outcome", "outcome_reason", "next_step", "ended_at_part"],
     "properties": {
         "summary": {"type": "string"},
         "suggested_outcome": {"type": "string", "enum": [*OUTCOMES, "unclear"]},
         "outcome_reason": {"type": "string"},
         "next_step": {"type": "string"},
+        "ended_at_part": {"type": "integer"},
     },
 }
 
@@ -42,7 +44,9 @@ Write:
   meeting_booked only if a specific meeting was agreed. callback_requested only if they asked to be called back.
   wrong_party only if the person said this is the wrong person or number. gatekeeper if someone screened the call.
 - outcome_reason: one short sentence quoting or paraphrasing the line that supports the outcome.
-- next_step: one short sentence on what the rep should do next, or an empty string if nothing follows."""
+- next_step: one short sentence on what the rep should do next, or an empty string if nothing follows.
+- ended_at_part: the number of the last script part the rep had reached when the call ended, from script_parts,
+  or 0 if the transcript does not show one."""
 
 
 def transcript_text(segments):
@@ -70,15 +74,27 @@ def transcript_text(segments):
     )
 
 
-def context(segments, lead, goal):
+def context(segments, lead, goal, parts=()):
     return {
         "lead": {"name": (lead or {}).get("name"), "company": (lead or {}).get("company")},
         "goal": goal or "a booked meeting",
+        "script_parts": [
+            {"number": number, "label": label, "says": " ".join(spoken.split())[:160]}
+            for number, (label, spoken, _) in enumerate(parts, 1)
+        ],
         "transcript": transcript_text(segments),
     }
 
 
-def parse(data):
+def ended_at(value, parts):
+    """The script part a call ended in, only if the number names one of this script's parts."""
+    if type(value) is not int or not 1 <= value <= len(parts):
+        return None
+    label = parts[value - 1][0]
+    return {"number": value, "label": label, "stage": label.split(" · ")[0]}
+
+
+def parse(data, parts=()):
     """Check each field alone (R10.3): a field that fails is left out; the others stand."""
     data = data if isinstance(data, dict) else {}
 
@@ -98,13 +114,15 @@ def parse(data):
         "summary": summary,
         "suggested_outcome": suggestion,
         "next_step": text("next_step"),
+        "ended_at_part": ended_at(data.get("ended_at_part"), parts),
         **({} if summary else {"error": "The model returned no summary"}),
     }
 
 
-async def summarize(client, segments, lead, goal):
+async def summarize(client, segments, lead, goal, parts=()):
     """One request. No speech means nothing to summarize; a failed request says why and can be retried."""
-    request = context(segments, lead, goal)
+    parts = list(parts)
+    request = context(segments, lead, goal, parts)
     if not request["transcript"]:
         return {"status": "no_speech", "summary": None, "suggested_outcome": None, "next_step": None}
     try:
@@ -118,7 +136,7 @@ async def summarize(client, segments, lead, goal):
             "next_step": None,
         }
     data = getattr(result, "data", result)
-    return parse(data)
+    return parse(data, parts)
 
 
 def suggestion(summary):

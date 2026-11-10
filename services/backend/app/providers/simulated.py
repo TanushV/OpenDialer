@@ -112,11 +112,19 @@ class SimulatedSummaryModel:
             if "not interested" in lowered or "no budget" in lowered
             else "unclear"
         )
+        # The part whose words the rep's last line shares most; the first part when none, and 0 with no rep line.
+        rep = next(
+            (line.split(": ", 1)[1].lower() for line in reversed(lines) if line.startswith("Rep: ")), None
+        )
+        parts = context.get("script_parts") or []
+        overlap = [len(set(rep.split()) & set(p["says"].lower().split())) if rep else 0 for p in parts]
+        ended = (overlap.index(max(overlap)) + 1 if max(overlap) else 1) if rep and parts else 0
         data = {
             "summary": f"The prospect said: {said}" if said else "The rep spoke; the prospect said nothing.",
             "suggested_outcome": outcome,
             "outcome_reason": said[:200],
             "next_step": "",
+            "ended_at_part": ended,
         }
         return type("Result", (), {"data": data})()
 

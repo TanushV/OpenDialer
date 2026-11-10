@@ -139,6 +139,7 @@ HOMES = {
     "dial_unconfirmed_in": "app.telephony.recovery",
     "dispatch_call": "app.calling.dial",
     "dispatch_controls": "app.telephony.workflows",
+    "drop_off_report": "app.intelligence",
     "edit_callback_routing": "app.telephony.callbacks",
     "edit_notes": "app.intelligence",
     "edit_number": "app.administration",

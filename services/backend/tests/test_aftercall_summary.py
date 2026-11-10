@@ -78,3 +78,61 @@ def test_no_speech_makes_no_request_and_a_failure_says_why():
     failing = Client(error=InferenceError("Inference HTTP 503"))
     result = asyncio.run(summary.summarize(failing, [seg(1, "remote", "Hello")], {}, None))
     assert result["status"] == "failed" and "503" in result["error"]
+
+
+PARTS = [
+    ("Opening", "Hey Dana, it's Sam from Agite. Can I take 27 seconds?", ""),
+    ("Pitch · Short", "We take CRM work off your reps so they sell more.", ""),
+    ("Objections · Too busy", "Totally fair; when is a better time?", ""),
+]
+
+
+def test_the_summary_names_the_script_part_where_the_call_ended():
+    """D31, R11.6: stage drop-off reads one number from the summary; a number outside the script drops alone."""
+    client = Client(
+        {
+            "summary": "They said they were busy.",
+            "suggested_outcome": "callback_requested",
+            "outcome_reason": "Call me next week.",
+            "next_step": "Call next week.",
+            "ended_at_part": 3,
+        }
+    )
+    result = asyncio.run(
+        summary.summarize(client, [seg(1, "rep", "Can I take 27 seconds?")], {"name": "Dana"}, None, PARTS)
+    )
+    assert [p["number"] for p in client.seen[0]["script_parts"]] == [1, 2, 3]
+    assert client.seen[0]["script_parts"][1]["label"] == "Pitch · Short"
+    assert result["ended_at_part"] == {"number": 3, "label": "Objections · Too busy", "stage": "Objections"}
+    for bad in (0, 4, "2", None, -1, True):
+        parsed = summary.parse({"summary": "Short.", "ended_at_part": bad}, PARTS)
+        assert parsed["ended_at_part"] is None and parsed["status"] == "ready"
+
+
+def test_drop_off_counts_answered_calls_by_the_stage_they_ended_in_script_order():
+    from app.aftercall.dropoff import drop_off
+
+    def call(stage, outcome, human=True):
+        return {
+            "human": human,
+            "outcome": outcome,
+            "ended_at_part": {"number": 1, "label": stage, "stage": stage} if stage else None,
+        }
+
+    calls = [
+        call("Opening", "not_interested"),
+        call("Opening", "not_interested"),
+        call("Pitch", "callback_requested"),
+        call("Close", "meeting_booked"),
+        call(None, "not_interested"),
+        call("Opening", "voicemail", human=False),
+    ]
+    report = drop_off(calls, ["Opening", "Pitch", "Objections", "Close"])
+    assert report["answered"] == 5 and report["placed"] == 4
+    assert [(s["stage"], s["calls"]) for s in report["stages"]] == [
+        ("Opening", 2),
+        ("Pitch", 1),
+        ("Objections", 0),
+        ("Close", 1),
+    ]
+    assert report["stages"][0]["outcomes"] == {"not_interested": 2}

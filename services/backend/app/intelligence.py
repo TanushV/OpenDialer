@@ -455,6 +455,7 @@ def summary_model(service, p):
 
 async def summarize_call(service, p, call_id):
     from app.aftercall.summary import summarize
+    from app.helper.live import script_parts
 
     with service.db.transaction(False) as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
@@ -462,6 +463,7 @@ async def summarize_call(service, p, call_id):
         segments = ops.transcript_rows(service, s, p, call_id)
         version = call.data.get("transcript_version", 0)
         goal = ops.optimization_config(service, s, p).get("conversion_goal")
+        parts = script_parts(call.data.get("script_snapshot") or {})
     model = ops.summary_model(service, p)
     if model is None:
         result = {
@@ -469,7 +471,7 @@ async def summarize_call(service, p, call_id):
             "error": "Add an OpenRouter key in Settings for after-call summaries",
         }
     else:
-        result = await summarize(model, segments, lead.data, goal)
+        result = await summarize(model, segments, lead.data, goal, parts)
     from app.optimization.script_learning import script_trace
 
     with service.db.transaction() as s:
@@ -520,3 +522,35 @@ def host_id(service):
         with os.fdopen(fd, "w") as file:
             file.write("urn:uuid:" + uid())
     return path.read_text().strip()
+
+
+DROP_OFF_DAYS = 30
+
+
+def drop_off_report(service, p):
+    """D31, R11.6: the last 30 days of real (not test) calls with their summaries, in the script's stage order."""
+    from datetime import timedelta
+
+    from app.aftercall.dropoff import drop_off
+    from app.helper.live import script_parts
+
+    since = service.clock() - timedelta(days=DROP_OFF_DAYS)
+    with service.db.transaction(False) as s:
+        calls = []
+        for row in ops.scoped(service, s, "call_attempts", p):
+            started = dt(row.data.get("started_at"))
+            if row.data.get("is_test") or not started or started < since:
+                continue
+            summary = ops._by_key(service, s, p, "call_summaries", row.id)
+            calls.append(
+                {
+                    "human": bool(row.data.get("human_answered_at")),
+                    "outcome": row.data.get("outcome"),
+                    "ended_at_part": (summary.data.get("ended_at_part") if summary else None),
+                }
+            )
+        campaign = ops.selected_campaign(service, s, p)
+        script = ops.script_base(service, s, p, campaign).get("template") or {}
+    # Script order from the adopted script's spoken parts; a stage only older calls used is listed after them.
+    stages = list(dict.fromkeys(label.split(" · ")[0] for label, _, _ in script_parts(script)))
+    return {**drop_off(calls, stages), "window_days": DROP_OFF_DAYS}

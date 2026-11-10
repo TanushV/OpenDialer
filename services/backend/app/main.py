@@ -577,6 +577,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
         """R9E.5: run the checks a dial would, while idle; the Dialer shows the result before Start."""
         return ops.calling_readiness(service, p)
 
+    @app.get("/v1/review/drop-off")
+    def review_drop_off(p=Depends(principal)):
+        """D31, R11.6: where answered real calls of the last 30 days ended in the script, by outcome."""
+        return ops.drop_off_report(service, p)
+
     @app.get("/v1/review/issues")
     def review_issues(p=Depends(principal)):
         """What needs the rep, each with the one thing to do: Review opens with this list."""

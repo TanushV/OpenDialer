@@ -10,6 +10,7 @@ import { WrapUp } from "./WrapUp";
 import { CallTimeline } from "./CallTimeline";
 import { ReviewIssues } from "./ReviewIssues";
 import { SummaryView } from "./SummaryView";
+import { DropOff } from "./DropOff";
 
 export function ReviewPage({
   onNavigate,
@@ -129,6 +130,7 @@ export function ReviewPage({
             <Empty text="Your completed conversations will appear here." />
           )}
         </section>
+        <DropOff />
       </>
     );
   const summary = review.summary;
