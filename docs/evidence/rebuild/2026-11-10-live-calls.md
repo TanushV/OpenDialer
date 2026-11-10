@@ -72,5 +72,12 @@ same workspace.
 | Step | Result |
 |---|---|
 | Reopen with test call 3 still owed an outcome | The Dialer reopened on "They hung up · 0:32" with the outcome keys; nothing dialed (L10's "reopening shows the call owed an outcome; no second dial" holds across an app replacement). |
-| Save it (key 6) | Saved as Voicemail, still marked a test call. The owner has not said whether voicemail took it, so this outcome is a best guess on a test record that reaches neither learning nor HubSpot. |
+| Save it (key 6) | Saved as Voicemail, still marked a test call. The owner then said no voicemail was left, so the saved outcome is wrong; it is a test record that reaches neither learning nor HubSpot. Something answered after 7 seconds, the carrier heard a human, and it hung up after 32 seconds of silence (the rep's audio was the dead leg). The likeliest answerer is the phone's own call screening for unknown numbers, which a carrier cannot tell from a person; L5 (voicemail skipped at detection) is still untested. |
 | After saving | The Dialer showed Start calling, paused; no countdown into the real lists (the candidate 2 defect is fixed live). |
+
+## HubSpot, checked again November 10
+
+The saved Service Key reaches portal 51457381 (the portal the owner's other system writes to) and sees all 4,759
+contacts, including the test contact. The portal has no lists: the list search returns 0 with no filter, with every
+processing type, and with an empty body. The app pulls leads only from a chosen list (section 9B), so until a list
+exists it syncs no one from HubSpot. L14 to L18 wait on a list.
