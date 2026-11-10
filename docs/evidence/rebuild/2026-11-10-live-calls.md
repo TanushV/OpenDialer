@@ -81,3 +81,29 @@ The saved Service Key reaches portal 51457381 (the portal the owner's other syst
 contacts, including the test contact. The portal has no lists: the list search returns 0 with no filter, with every
 processing type, and with an empty body. The app pulls leads only from a chosen list (section 9B), so until a list
 exists it syncs no one from HubSpot. L14 to L18 wait on a list.
+
+## HubSpot segment "testing" and the contact data, November 10 (later)
+
+HubSpot now calls lists "segments"; the API is unchanged. The owner made a manual contact segment "testing" (id 14,
+50 contacts). On a scratch copy of the workspace (relay and session files left out, only the CRM job queue running, no
+spend limit, so nothing bought and no research spend):
+
+| Check | Result |
+|---|---|
+| List read | The app lists the segment (`[{"id": "14", "name": "testing"}]`); the real membership read, untested until now, works |
+| L14 sync | 50 added in 0.6 seconds with names and companies; every lead "needs_number" ("This lead has no number yet."), none callable |
+| L14 sync again | 0 added, 0 updated, 0 removed |
+
+The contacts: 4,759, every one lifecycle "lead" and written by the owner's other system. One has a phone number (the
+test contact). 1,481 carry that system's qualification fields: status `eligible` 996, `irrelevant` 249,
+`account_rejected` 163, `relevant_unreachable` 42, `stale_or_conflicted` 31; eligible bands `a_plus` 240, `a` 258,
+`b` 249. So a segment filtered on a phone number holds one contact; a useful segment filters on qualification, and the
+app must find numbers (the waterfall, which runs only under a spend limit set on that list) before anyone is callable.
+
+Not testable by calling the owner: a call to the owner's line is always a test call, and test calls are never written
+to HubSpot, so L15 to L18 cannot come from a real carrier call without dialing a prospect. The write path itself was
+proven against this portal on November 9.
+
+Test call 3's carrier events: answered 6 seconds after dialing, premium detection `human_residence` 3.3 seconds later,
+hung up by the far end at 32 seconds (`normal_clearing`, SIP 200), no voicemail left. A pickup that fast with no
+message is the pattern of a phone's own screener for unknown numbers, which a carrier hears as a person.
