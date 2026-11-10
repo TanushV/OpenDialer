@@ -12,6 +12,7 @@ import { Check, FileUp, Sparkles } from "lucide-react";
 import { useWorkspace } from "../context";
 import type { ScriptError, ScriptTemplate } from "../types";
 import type { PreparationStatus } from "./PreparationPanel";
+import { readNewest, useNewestAnswer } from "../state/newest";
 
 type Base = { version: number; template: ScriptTemplate | null };
 
@@ -146,18 +147,23 @@ export function ScriptEditor() {
   const [saving, setSaving] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState("");
   const edited = useRef(false);
+  const newest = useNewestAnswer();
   // The version the open edits started from: saving never silently replaces a newer one.
   const [startedFrom, setStartedFrom] = useState<number | null>(null);
   const load = async () => {
     try {
-      const result = (await api<{ base: Base }>("/v1/optimization/script"))
-        .base;
-      setBase(result);
-      setLoadError("");
-      if (!edited.current) {
-        setText(result.template?.markdown ?? STARTER);
-        setStartedFrom(result.version);
-      }
+      await readNewest(
+        newest,
+        () => api<{ base: Base }>("/v1/optimization/script"),
+        ({ base: result }) => {
+          setBase(result);
+          setLoadError("");
+          if (!edited.current) {
+            setText(result.template?.markdown ?? STARTER);
+            setStartedFrom(result.version);
+          }
+        },
+      );
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
     }

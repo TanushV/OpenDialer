@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bot, Pause, Play } from "lucide-react";
 import { date, useWorkspace } from "../context";
+import { readNewest, useNewestAnswer } from "../state/newest";
 
 interface ListProgress {
   list_name: string;
@@ -49,11 +50,19 @@ export function PreparationPanel({
   const [draft, setDraft] = useState<PreparationStatus["settings"] | null>(
     null,
   );
-  const load = useCallback(async () => {
-    const next = await api<PreparationStatus>("/v1/preparation");
-    setStatus(next);
-    setDraft((old) => old ?? next.settings);
-  }, [api]);
+  const newest = useNewestAnswer();
+  const load = useCallback(
+    () =>
+      readNewest(
+        newest,
+        () => api<PreparationStatus>("/v1/preparation"),
+        (next) => {
+          setStatus(next);
+          setDraft((old) => old ?? next.settings);
+        },
+      ),
+    [api, newest],
+  );
   // An import changes the lead count before any agent reports back, which can take minutes.
   const leadCount = snapshot.pages?.leads?.total ?? snapshot.leads.length;
   useEffect(() => {

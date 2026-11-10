@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { date, label, useWorkspace } from "../context";
+import { readNewest, useNewestAnswer } from "../state/newest";
 
 type Section =
   | "opening"
@@ -139,9 +140,11 @@ export function ScriptMemory() {
   const [lab, setLab] = useState<Lab | null>(null);
   const [notes, setNotes] = useState<string | null>(null);
   const [reason, setReason] = useState("");
-  const load = useCallback(async () => {
-    setLab(await api<Lab>("/v1/optimization/script"));
-  }, [api]);
+  const newest = useNewestAnswer();
+  const load = useCallback(
+    () => readNewest(newest, () => api<Lab>("/v1/optimization/script"), setLab),
+    [api, newest],
+  );
   useEffect(() => {
     void run(load);
     return subscribe((events) => {

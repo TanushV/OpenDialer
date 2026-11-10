@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../context";
 import { limits, useDefinitions } from "../state/definitions";
 import type { EstimatePolicy } from "../types";
+import { readNewest, useNewestAnswer } from "../state/newest";
 
 export interface HealthPolicy {
   min_comparable: number;
@@ -28,12 +29,16 @@ export interface OptimizationSettings {
 function useLearningSettings() {
   const { api, subscribe } = useWorkspace();
   const [settings, setSettings] = useState<OptimizationSettings | null>(null);
-  const load = useCallback(async () => {
-    const report = await api<{ settings: OptimizationSettings }>(
-      "/v1/optimization",
-    );
-    setSettings(report.settings);
-  }, [api]);
+  const newest = useNewestAnswer();
+  const load = useCallback(
+    () =>
+      readNewest(
+        newest,
+        () => api<{ settings: OptimizationSettings }>("/v1/optimization"),
+        (report) => setSettings(report.settings),
+      ),
+    [api, newest],
+  );
   useEffect(() => {
     void load().catch(() => {});
     return subscribe((events) => {
