@@ -253,10 +253,9 @@ def test_one_answered_test_call_opens_every_number_immediately_and_never_expires
     assert get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"] is True
 
 
-def test_callers_never_dialed_hear_the_greeting_and_do_not_ring_reps(workspace, clock, carrier):
+def test_any_caller_rings_a_rep_who_can_answer_and_hears_the_greeting_otherwise(workspace, clock, carrier):
+    """D29 (owner, November 10): a callback from a number on no lead rings too; with nobody to ring, the greeting."""
     ws = workspace
-    _, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
-    ready_as(ws, rep)
     telnyx = Telnyx(ws, clock)
     telnyx.deliver("call.initiated", inbound("stranger", "+12025550123"), "evt-stranger")
     run_jobs(ws)
@@ -269,10 +268,11 @@ def test_callers_never_dialed_hear_the_greeting_and_do_not_ring_reps(workspace, 
         "Thanks for calling Example Seller. No one can take your call right now, and we will follow up. Goodbye."
     ]
 
-    lead = get(ws, "/v1/workspace/leads")["items"][0]
-    telnyx.deliver("call.initiated", inbound("known", lead["phone"]), "evt-known")
+    _, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
+    ready_as(ws, rep)
+    telnyx.deliver("call.initiated", inbound("stranger-again", "+12025550123"), "evt-stranger-again")
     run_jobs(ws)
-    assert inbound_task(ws, "known")["routed_rep_id"]
+    assert inbound_task(ws, "stranger-again")["routed_rep_id"]
 
 
 def test_until_the_test_call_passes_any_caller_rings_a_rep(fresh, carrier, clock):

@@ -146,6 +146,30 @@ def _release_inbound_claim(service, s, task):
     s.flush()
 
 
+REACHABLE_SECONDS = 90
+
+
+def _fresh(service, at):
+    at = dt(at)
+    return bool(at) and 0 <= (service.clock() - at).total_seconds() <= REACHABLE_SECONDS
+
+
+def can_ring(service, user):
+    """D29: the rep's app can take a callback when it is open with its call client registered (paused or not), or
+    when it is calling with audio up. Either signal goes stale after 90 seconds, so a closed app is never rung."""
+    if user.data.get("disabled"):
+        return False
+    presence = user.data.get("presence", {})
+    calling = (
+        presence.get("status") == "ready"
+        and presence.get("audio_ready")
+        and presence.get("telephony_ready")
+        and _fresh(service, presence.get("at"))
+    )
+    reach = user.data.get("reachable") or {}
+    return bool(calling or (reach.get("registered") and _fresh(service, reach.get("at"))))
+
+
 def _route_inbound(service, s, p, task, *, after=None):
     attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
     tried = {a.get("rep_id") for a in attempts}
@@ -154,28 +178,21 @@ def _route_inbound(service, s, p, task, *, after=None):
     workspace_sip = service.configs.read(p["tenant_id"]).get("sip_username")
     candidates = []
     for user in ops.scoped(service, s, "users", p):
-        presence = user.data.get("presence", {})
-        at = dt(presence.get("at"))
         sip = user.data.get("sip_username") or workspace_sip
         if (
             user.id not in tried
-            and not user.data.get("disabled")
             and sip
             and re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", sip)
-            and presence.get("status") == "ready"
-            and presence.get("audio_ready")
-            and presence.get("telephony_ready")
-            and at
-            and 0 <= (service.clock() - at).total_seconds() <= 90
+            and can_ring(service, user)
             and not any(
                 c.rep_id == user.id or (lead and c.endpoint_id == lead.data["endpoint_id"]) for c in claims
             )
         ):
             candidates.append((user, sip))
     candidates.sort(key=lambda pair: (pair[0].id != task.data.get("responsible_rep_id"), pair[0].id))
-    # Numbers on no lead hear the greeting; only the first test call can come from anyone.
+    # D29: any caller rings the open app. Forwarding (deferred, D30) still only takes callers on a lead.
     known = bool(lead or task.data.get("ambiguous") or not ops.workspace_test_passed(service, s, p))
-    rep, sip = candidates[0] if known and candidates and len(attempts) < 3 else (None, None)
+    rep, sip = candidates[0] if candidates and len(attempts) < 3 else (None, None)
     config = task.data["routing_config"]
     target = f"sip:{sip}@sip.telnyx.com" if rep else config["destination"] if known else ""
     if not rep and any(a.get("kind") == "business_fallback" for a in attempts):
@@ -697,16 +714,7 @@ def inbound_admit_command(service, s, p, task, command):
             return False
         if attempt.get("rep_id") and attempt["state"] == "prepared":
             user = ops.required(service, s, "users", attempt["rep_id"], p)
-            presence = user.data.get("presence", {})
-            at = dt(presence.get("at"))
-            if (
-                user.data.get("disabled")
-                or presence.get("status") != "ready"
-                or not presence.get("audio_ready")
-                or not presence.get("telephony_ready")
-                or not at
-                or not 0 <= (service.clock() - at).total_seconds() <= 90
-            ):
+            if not can_ring(service, user):
                 attempt["state"] = "cancelled"
                 update(task, routing_attempts=attempts)
                 update(command, status="cancelled", reason="rep_unavailable_before_transfer")

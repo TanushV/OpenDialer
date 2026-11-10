@@ -229,6 +229,7 @@ HOMES = {
     "quiescence_in": "app.workspace",
     "raw_key": "app.privacy",
     "raw_status": "app.privacy",
+    "reachable": "app.service",
     "read_callback_routing": "app.telephony.callbacks",
     "recheck_pending_numbers": "app.number_operations",
     "reconcile_agent": "app.telephony.recovery_actions",

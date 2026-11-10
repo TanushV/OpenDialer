@@ -86,6 +86,10 @@ class Presence(Strict):
     pending_optouts: int = Field(default=0, ge=0)
 
 
+class Reachable(Strict):
+    registered: bool
+
+
 class QueueNext(Strict):
     campaign_id: str
     list_names: list[str] | None = Field(default=None, max_length=200)
@@ -538,6 +542,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/simulation/seed")
     def seed(p=Depends(administrator)):
         return ops.seed(service, p)
+
+    @app.post("/v1/rep/reachable")
+    def rep_reachable(data: Reachable, p=Depends(principal)):
+        """D29: the open app says every 30 seconds whether its call client can ring; callbacks ring it then."""
+        return ops.reachable(service, p, data.registered)
 
     @app.post("/v1/rep/presence")
     def presence(data: Presence, p=Depends(principal)):

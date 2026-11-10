@@ -649,6 +649,13 @@ def presence(service, p, data):
     return presence
 
 
+def reachable(service, p, registered):
+    with service.db.transaction() as s:
+        user = ops.required(service, s, "users", p["user_id"], p)
+        update(user, reachable={"registered": bool(registered), "at": service.clock().isoformat()})
+        return user.data["reachable"]
+
+
 def _expirable(service):
     # Unstarted reservations, and inbound routing claims (keyed by their task) past the
     # carrier call time limit, which no live inbound leg can outlast.
