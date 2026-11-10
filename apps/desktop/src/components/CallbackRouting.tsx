@@ -65,23 +65,10 @@ export function CallbackRouting() {
     <section className="card padded" aria-label="Inbound callbacks">
       <h2>Inbound callbacks</h2>
       <p>
-        Add a phone number here so returned calls reach a person when no rep is
-        ready. Calls try the responsible rep, then a teammate, then this number.
-        If nobody can answer, the caller hears a short greeting and a review
-        task is kept. Callers who are not on a lead hear the greeting and do not
-        ring anyone.
+        While this app is open, a callback rings here on any page, calling or
+        paused. When the app is closed, or nobody answers in time, the caller
+        hears the greeting below and you get a follow-up to call them back.
       </p>
-      <label>
-        Business fallback destination
-        <input
-          value={value.destination}
-          placeholder="+14155550123"
-          onChange={(e) => {
-            setSaved(false);
-            setValue({ ...value, destination: e.target.value });
-          }}
-        />
-      </label>
       <label>
         Ring timeout (seconds)
         <input
@@ -112,33 +99,17 @@ export function CallbackRouting() {
           </small>
         </label>
       )}
-      <p>
-        Carrier-side fallback is required while this computer is offline. This
-        saved destination works while the authority is running; it does not
-        configure a carrier failover service.
-      </p>
-      <label>
-        Carrier-side fallback setup reference
-        <input
-          value={value.offline_reference}
-          onChange={(e) => {
-            setSaved(false);
-            setValue({ ...value, offline_reference: e.target.value });
-          }}
-        />
-      </label>
       <p className="fine">
-        A setup reference is operator-reported, not live verification. Transfer,
-        speech and call-leg charges use carrier PAYG rates. No recording, new
-        number rental or subscription is enabled.
+        Ringing this app and speaking the greeting use carrier pay-as-you-go
+        rates. Nothing is recorded.
       </p>
       {value.costs && (
         <p className="fine">
           Published reference: $
-          {value.costs.transfer_per_invocation_usd.toFixed(2)} per transfer; $
-          {speechRate} per character for the callback greeting, plus call-leg
-          minutes and applicable carrier fees. Final billing follows the account
-          receipt.
+          {value.costs.transfer_per_invocation_usd.toFixed(2)} each time a
+          callback rings this app; ${speechRate} per character for the callback
+          greeting, plus call-leg minutes and applicable carrier fees. Final
+          billing follows the account receipt.
         </p>
       )}
       <button
@@ -170,9 +141,9 @@ export function CallbackRouting() {
           })
         }
       >
-        Save callback routing
+        Save callbacks
       </button>
-      {saved && <p role="status">Callback routing saved</p>}
+      {saved && <p role="status">Callbacks saved</p>}
     </section>
   );
 }

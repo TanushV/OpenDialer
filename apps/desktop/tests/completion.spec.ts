@@ -98,7 +98,7 @@ test("inbound arrival exposes call controls while an admin page is open", async 
     await route.fulfill({ response, json: data });
   });
   const active = page.getByRole("region", {
-    name: "Active return call",
+    name: "Incoming call",
     exact: true,
   });
   // Saving reloads the workspace. A background refresh can deliver the arrival first, which
@@ -111,7 +111,7 @@ test("inbound arrival exposes call controls while an admin page is open", async 
     });
   await expect(active).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "End return call", exact: true }),
+    active.getByRole("button", { name: "Hang up", exact: true }),
   ).toBeInViewport();
 });
 

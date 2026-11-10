@@ -314,6 +314,48 @@ export function useCallLoop(visible: boolean) {
   useEffect(() => {
     if (returnProvider) telephony.current.expectReturnLeg(returnProvider);
   }, [returnProvider]);
+  // D29: while the app is open its call client stays registered and says so every 30 seconds, so a callback rings
+  // here on any page, calling or paused. A failed registration (Telnyx not set up, microphone refused) retries after
+  // five minutes.
+  useEffect(() => {
+    let stopped = false;
+    let retryAt = 0;
+    const tick = async () => {
+      if (
+        !w.simulation &&
+        !telephony.current.registered &&
+        !connectingRef.current &&
+        Date.now() >= retryAt
+      ) {
+        try {
+          const result = await api<{ token: string }>(
+            "/v1/telephony/token",
+            "POST",
+          );
+          if (!stopped)
+            await telephony.current.connect(result.token, audio.current!);
+        } catch (error) {
+          retryAt = Date.now() + 5 * 60_000;
+          console.warn(
+            "The call client could not register for callbacks:",
+            error,
+          );
+        }
+      }
+      if (stopped) return;
+      await api("/v1/rep/reachable", "POST", {
+        registered: w.simulation || telephony.current.registered,
+      }).catch((error: unknown) =>
+        console.warn("Could not say this app can take calls:", error),
+      );
+    };
+    void tick();
+    const timer = setInterval(() => void tick(), 30_000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [api, w.simulation]);
 
   // ---- Direct speech capture on the rep's own leg (unchanged behavior).
   const speechActive = !!call && isActiveCall(call) && call.state !== "ENDING";
