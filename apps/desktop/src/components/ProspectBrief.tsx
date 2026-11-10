@@ -10,36 +10,6 @@ import {
   zonedInstant,
 } from "../state/zones";
 
-type Stats = NonNullable<Packet["statistical_guidance"]>;
-const pct = (value: number) => `${Math.round(value * 100)}%`;
-
-/** Compact stage estimates with their support; never a bare percentage for a prior. */
-function stageEstimates(stats: Stats) {
-  if (stats.prior_only)
-    return "Estimates: prior only · no observed outcomes yet";
-  return (
-    [
-      ["human", "Pickup", stats.human_probability, stats.samples],
-      ["right_party", "Right party", stats.right_party_given_human, undefined],
-      [
-        "conversion",
-        label(stats.conversion_goal),
-        stats.conversion_given_right_party,
-        stats.conversion_samples,
-      ],
-    ] as const
-  )
-    .map(([stage, title, value, samples]) => {
-      const support = stats.stage_support?.[stage];
-      const n = support?.cell_known ?? samples;
-      if (value == null || !Number.isFinite(value)) return `${title}: unknown`;
-      if (support && !support.cell_known && !support.outside_known)
-        return `${title}: prior only`;
-      return `${title} ${pct(value)}${n == null ? "" : ` (n ${n})`}`;
-    })
-    .join(" · ");
-}
-
 export function ProspectBrief({
   packet,
   onChange,
@@ -52,7 +22,6 @@ export function ProspectBrief({
 }) {
   const { api, run, refresh, notice } = useWorkspace();
   const brief = packet.prospect_brief;
-  const stats = packet.statistical_guidance;
   const zone = chooseZone(packet.lead.timezone, brief?.meeting?.timezone);
   const [status, setStatus] = useState(brief?.meeting?.status || "booked");
   const [next, setNext] = useState("");
@@ -72,82 +41,10 @@ export function ProspectBrief({
   const prospectTime = localTime(packet.lead.timezone);
   return (
     <div className="prospect-context">
-      <div data-testid="statistical-guidance" className="small">
+      <div data-testid="calling-context" className="small">
         <strong>Calling context</strong>
-        {stats ? (
-          <>
-            <p>{stageEstimates(stats)}</p>
-            <p className="muted">Why now: {stats.why_now}</p>
-            <details>
-              <summary>Estimates &amp; uncertainty</summary>
-              <p>
-                {stats.source === "frozen_call_decision" ||
-                stats.source === "frozen_reservation_decision"
-                  ? "Estimates frozen at this selection."
-                  : "Current pooled estimate for a future selection."}
-              </p>
-              <p>{stats.uncertainty}</p>
-              {stats.stage_support && (
-                <>
-                  <p>
-                    {stats.estimate_basis === "reviewed_model"
-                      ? "Reviewed model estimate; counts below describe the pooled baseline."
-                      : stats.prior_only
-                        ? "Starting priors; no observed support yet."
-                        : `Estimate level: ${label(stats.estimate_level || "pooled")}.`}
-                  </p>
-                  <table aria-label="Conditional estimate support">
-                    <thead>
-                      <tr>
-                        <th>Stage</th>
-                        <th>Classified / unknown</th>
-                        <th>Pooled support</th>
-                        <th>Observed interval</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(stats.stage_support).map(
-                        ([stage, support]) => (
-                          <tr key={stage}>
-                            <td>{label(stage)}</td>
-                            <td>
-                              {support.cell_known} / {support.cell_unknown}
-                            </td>
-                            <td>{support.outside_known}</td>
-                            <td>
-                              {support.observed_interval.map(pct).join("–")}
-                            </td>
-                          </tr>
-                        ),
-                      )}
-                    </tbody>
-                  </table>
-                  <p>
-                    Observed-rate intervals describe classified history, not
-                    certainty about this prospect.
-                  </p>
-                  {stats.estimate_policy && (
-                    <p>
-                      Prior success/failure weights: pickup{" "}
-                      {stats.estimate_policy.human_prior.join("/")}, right party{" "}
-                      {stats.estimate_policy.right_prior.join("/")}, selected
-                      goal {stats.estimate_policy.goal_prior.join("/")}. Work
-                      assumption {stats.work_assumption_seconds} seconds;{" "}
-                      {stats.estimate_policy.work_prior} prior attempt
-                      equivalents.
-                    </p>
-                  )}
-                </>
-              )}
-              <p>
-                {stats.as_of
-                  ? `Updated ${date(stats.as_of)}`
-                  : "Pooled starting assumptions; no measured outcome estimate yet."}
-              </p>
-            </details>
-          </>
-        ) : (
-          <p className="muted">Estimates: unknown for this lead.</p>
+        {brief?.why_queued && (
+          <p className="muted">Why this lead: {brief.why_queued}</p>
         )}
       </div>
       <WhyNow lead={packet.lead} />

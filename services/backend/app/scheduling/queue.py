@@ -11,17 +11,9 @@ from sqlalchemy.exc import IntegrityError
 from app import ops
 from app.calling.decide import Situation, require
 from app.compliance.policy import authorize
-from app.optimization.learning import (
-    choose_cohort_candidate,
-    cohort_arm,
-    cohort_fraction,
-    conversion_score,
-    freeze_features,
-    stable_control,
-)
 from app.optimization.numbering import select_number, timestamp
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
-from app.scheduling.models import FEATURE_SCHEMA_VERSION, company_group, profile_current, saved_prediction
+from app.scheduling.models import FEATURE_SCHEMA_VERSION, company_group
 from app.scheduling.policy import queue_decision, rank_candidates
 
 # Top K per page: only these leads and their endpoints are decrypted, scored and checked.
@@ -246,10 +238,6 @@ def _selection_page(service, s, p, campaign_id, after):
     campaign = ops.required(service, s, "campaigns", campaign_id, p)
     ops._queue_presence(service, s, p)
     config = ops.optimization_config(service, s, p, campaign_id)
-    # The normal queue reads the latest compact learning projection, never a training corpus.
-    profile = campaign.data.get("selection_profile", {})
-    if not profile_current(profile, config):
-        profile = {}
     # Another rep's selection may be claiming a number right now; count it as load so
     # concurrent reps plan on different numbers (the claim rereads capacity).
     inventory = [
@@ -265,55 +253,19 @@ def _selection_page(service, s, p, campaign_id, after):
     bindings = {
         r.data["lead_id"]: r.data["number_id"] for r in ops.scoped(service, s, "lead_number_bindings", p)
     }
-    allocations, features, predictions, by_model = {}, {}, {}, {}
-    for lead in leads:
-        comparison = ops.comparison_assignment(
-            service, s, p, campaign, lead, "number_allocation", persist=False
+    # D31: StatML is archived. A local number first, and a plain order: callbacks due, never called, longest waiting.
+    allocations = {
+        lead.id: select_number(
+            doc(lead), inventory, bound_id=bindings.get(lead.id), strategy="regional_first"
         )
-        allocation = select_number(
-            doc(lead),
-            inventory,
-            bound_id=bindings.get(lead.id),
-            strategy="general_first" if comparison and comparison["arm"] == "control" else "regional_first",
-        )
-        if comparison:
-            allocation.update(comparison_id=comparison["comparison_id"], comparison_arm=comparison["arm"])
-        allocations[lead.id] = allocation
-        number = next((n for n in inventory if n["id"] == allocation["number_id"]), None)
-        endpoint = ops.required(service, s, "phone_endpoints", lead.data["endpoint_id"], p)
-        values = freeze_features(
-            {
-                **doc(lead),
-                "created_at": lead.created_at.isoformat(),
-                "ownership_status": endpoint.data.get("ownership_status"),
-            },
-            health=number["health"] if number else {"score": None, "samples": 0},
-            now=now,
-        )
-        values["callback_history"] = lead.data.get("callback_history", 0)
-        features[lead.id] = values
-        predictions[lead.id] = saved_prediction(profile, values, config)
-        serving = ops.serving_model(service, s, p, config, lead.id)
-        if serving:
-            by_model.setdefault(serving.id, (serving, []))[1].append(lead.id)
-    for serving, identifiers in by_model.values():
-        from app.ml.training import predict_funnel_batch
-
-        estimates = predict_funnel_batch(
-            serving.data, [features[i] for i in identifiers], service.settings.data_dir / "models"
-        )
-        for identifier, estimate in zip(identifiers, estimates, strict=True):
-            if estimate:
-                predictions[identifier].update(**estimate, model_version=serving.id)
-            else:
-                # Pooled estimates stay in force; the decision records why the model did not.
-                predictions[identifier]["model_fallback"] = {
-                    "model_id": serving.id,
-                    "reason": "model_artifact_unavailable",
-                }
-    candidates = rank_candidates(
-        [{**doc(lead), "propensity": conversion_score(predictions[lead.id])} for lead in leads], now
-    )
+        for lead in leads
+    }
+    candidates = rank_candidates([doc(lead) for lead in leads], now)
+    # Number health compares each number's pickups with this, the pickup rate across every number lately,
+    # so a number that picks up less than the others shows (it was the model's estimate before D31).
+    answers = sum((n.get("health") or {}).get("human_answers", 0) for n in inventory)
+    classified = sum((n.get("health") or {}).get("human_classified_samples", 0) for n in inventory)
+    average_pickup = (answers + 1) / (classified + 2)
     by_id = {lead.id: lead for lead in leads}
     claimed = {c.endpoint_id for c in claims}
     denied = []
@@ -353,41 +305,13 @@ def _selection_page(service, s, p, campaign_id, after):
             ops._release_in_flight(service, p, [held.pop()])
         return decision.allowed
 
-    urgent = next(
-        (
-            c
-            for c in candidates
-            if (
-                c.get("requested_contact")
-                or (timestamp(c.get("pair_until")) and now < timestamp(c["pair_until"]))
-                or (timestamp(c.get("callback_due_at")) and timestamp(c["callback_due_at"]) <= now)
-                or (timestamp(c.get("coverage_due_at")) and timestamp(c["coverage_due_at"]) <= now)
-            )
-            and permitted(c)
-        ),
-        None,
-    )
-    probes = [urgent] if urgent else []
-    if not urgent:
-        for control in (True, False):
-            group = [c for c in candidates if stable_control(c["id"]) == control]
-            if control:
-                group.sort(key=lambda c: -predictions[c["id"]]["p_human"])
-            selected = next((c for c in group if permitted(c)), None)
-            if selected:
-                probes.append(selected)
-    selection = choose_cohort_candidate(
-        [
-            {
-                **c,
-                "arm": "control" if stable_control(c["id"]) else "candidate",
-                "p_human": predictions[c["id"]]["p_human"],
-                "score": conversion_score(predictions[c["id"]]),
-            }
-            for c in probes
-        ],
-        now=now,  # The cohort draw is the candidate's stable hash, not process randomness.
-    )
+    chosen = next((c for c in candidates if permitted(c)), None)
+    selection = chosen and {
+        "lead_id": chosen["id"],
+        "lead_selection_probability": 1.0,
+        "selection_reason": "callbacks_then_never_called_then_longest_waiting",
+        "eligible_lead_ids": [c["id"] for c in candidates],
+    }
     if not selection:
         ops._release_in_flight(service, p, held)
         last = leads[-1] if leads else None
@@ -400,10 +324,10 @@ def _selection_page(service, s, p, campaign_id, after):
     return (
         {
             "selection": selection,
-            "features": features[identifier],
-            "prediction": predictions[identifier],
+            "features": {"decision_at": now.isoformat(), "conversation_sources": {}},
+            "prediction": {"model_version": None, "p_human": average_pickup},
             "allocation": allocations[identifier],
-            "profile": profile,
+            "profile": {},
             "lead_version": by_id[identifier].version,
             "lead_state": decision_state(by_id[identifier]),
             "configuration": {
@@ -564,7 +488,7 @@ def _claim_in(service, s, p, campaign_id, plan):
             "features": plan["features"],
             "predictions": plan["prediction"],
             "propensity": choice["propensity"],
-            "experiment_arm": cohort_arm(lead.id, cohort_fraction(campaign.data, config, now)),
+            "experiment_arm": "none",
         },
         now=now,
     )
@@ -595,7 +519,7 @@ def _claim_in(service, s, p, campaign_id, plan):
             "predictions": plan["prediction"],
             "conversion_goal": config["conversion_goal"],
             **plan["selection"],
-            "experiment_arm": cohort_arm(lead.id, cohort_fraction(campaign.data, config, now)),
+            "experiment_arm": "none",
             "outcome_window_days": config["window_days"],
         },
         now=now,

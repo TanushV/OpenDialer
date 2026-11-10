@@ -186,19 +186,34 @@ def test_an_active_conversation_can_finish_after_the_new_dialing_cutoff(context)
     assert authorize(continuing).allowed
 
 
-def test_a_stronger_trigger_breaks_ties_between_equal_first_calls():
+def test_the_queue_order_is_callbacks_then_never_called_then_longest_waiting():
+    """D31: StatML is archived; no estimate orders the queue. A stronger checked trigger breaks ties (R9.9)."""
     from datetime import UTC, datetime
 
     from app.scheduling.policy import rank_candidates
 
     now = datetime(2026, 11, 8, 17, tzinfo=UTC)
     leads = [
-        {"id": "none", "propensity": 0.2, "attempt_count": 0},
-        {"id": "c", "propensity": 0.2, "attempt_count": 0, "trigger": {"strength": "C"}},
-        {"id": "a", "propensity": 0.2, "attempt_count": 0, "trigger": {"strength": "A"}},
-        {"id": "better", "propensity": 0.3, "attempt_count": 0},
+        {"id": "tried-yesterday", "attempt_count": 1, "last_attempt_at": "2026-11-07T17:00:00+00:00"},
+        {"id": "new", "attempt_count": 0, "propensity": 0.9},
+        {"id": "tried-last-week", "attempt_count": 2, "last_attempt_at": "2026-11-01T17:00:00+00:00"},
+        {"id": "new-strong", "attempt_count": 0, "trigger": {"strength": "A"}},
+        {"id": "callback", "attempt_count": 3, "callback_due_at": "2026-11-08T16:00:00+00:00"},
+        {
+            "id": "high-estimate",
+            "attempt_count": 1,
+            "last_attempt_at": "2026-11-08T09:00:00+00:00",
+            "propensity": 0.99,
+        },
     ]
-    assert [c["id"] for c in rank_candidates(leads, now)] == ["better", "a", "c", "none"]
+    assert [c["id"] for c in rank_candidates(leads, now)] == [
+        "callback",
+        "new-strong",
+        "new",
+        "tried-last-week",
+        "tried-yesterday",
+        "high-estimate",
+    ]
 
 
 def test_mapped_profile_fields_feed_the_learning_features():

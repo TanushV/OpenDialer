@@ -233,27 +233,7 @@ def resolve_goal_review(service, p, lead_id, data):
 
 
 def prospect_context_in(service, s, p, lead, calls, tasks, *, decision=None):
-    from app.optimization.learning import freeze_features
-    from app.scheduling.models import saved_prediction
-
     campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
-    config = ops.optimization_config(service, s, p, campaign.id)
-    features = freeze_features(doc(lead), health={"score": None, "samples": 0}, now=service.clock())
-    profile = campaign.data.get("selection_profile", {})
-    if profile.get("goal") != config["conversion_goal"]:
-        profile = {}
-    prediction = saved_prediction(profile, features, config)
-    if decision:
-        prediction = {
-            **decision["predictions"],
-            "as_of": decision.get("decision_at") or decision.get("as_of"),
-        }
-        config = {
-            **config,
-            "conversion_goal": decision.get("goal", config["conversion_goal"]),
-            "estimate_policy": decision.get("estimate_policy"),
-            "handling_seconds": decision.get("work_assumption_seconds"),
-        }
     recent = sorted(calls, key=lambda c: c.get("started_at", ""))[-10:]
     # Earlier calls as the rep and the next script see them: the after-call summary and the rep's own note.
     earlier = []
@@ -279,10 +259,11 @@ def prospect_context_in(service, s, p, lead, calls, tasks, *, decision=None):
     elif lead.data.get("requested_contact"):
         why = "This prospect requested contact."
     elif dt(lead.data.get("coverage_due_at")) and dt(lead.data["coverage_due_at"]) <= service.clock():
-        why = "This lead is due for coverage; a low prediction does not exclude it."
+        why = "This lead is due for another try."
+    elif not lead.data.get("attempt_count"):
+        why = "Never called; new leads go first."
     else:
-        why = "Eligible work is ranked by pooled outcome estimates within calling windows."
-    samples = int(prediction.get("observations", 0))
+        why = "Waited longest since the last try."
     return {
         "review_token": review_token(lead, campaign),
         "tasks": tasks,
@@ -300,36 +281,10 @@ def prospect_context_in(service, s, p, lead, calls, tasks, *, decision=None):
             "last_outcome": lead.data.get("last_outcome"),
             "last_outcome_at": lead.data.get("last_outcome_at"),
             "meeting": lead.data.get("meeting"),
+            "why_queued": why,
             "next_question": "Confirm the agreed next step."
             if any(t.get("status") in ACTIVE_TASKS for t in tasks)
             else last.get("next_step") or "What would make this conversation useful for you?",
-        },
-        "statistical_guidance": {
-            "human_probability": prediction["p_human"],
-            "right_party_given_human": prediction["p_right_party_given_human"],
-            "conversion_given_right_party": prediction["p_conversion_given_right_party"],
-            "conversion_goal": config["conversion_goal"],
-            "samples": samples,
-            "conversion_samples": prediction.get("conversion_observations", 0),
-            "stage_support": prediction.get("stage_support", {}),
-            "prior_only": prediction.get("prior_only", False),
-            "estimate_level": prediction.get("estimate_level"),
-            "estimate_policy": config["estimate_policy"],
-            "estimate_policy_version": prediction.get("estimate_policy_version"),
-            "work_assumption_seconds": config["handling_seconds"],
-            "estimate_basis": "pooled"
-            if prediction["model_version"].startswith("pooled-")
-            else "reviewed_model",
-            "uncertainty": "Reviewed model estimates; history counts describe the pooled comparison, not confidence about this prospect."
-            if not prediction["model_version"].startswith("pooled-")
-            else "Sparse evidence; pooled starting estimates, not individual guarantees."
-            if samples < 30
-            else "Pooled estimates; conditional outcomes have separate sample support.",
-            "model_version": prediction["model_version"],
-            "as_of": prediction.get("as_of"),
-            "source": decision["source"] if decision else "current_pooled_estimate",
-            "decision_id": decision["id"] if decision else None,
-            "why_now": why,
         },
     }
 

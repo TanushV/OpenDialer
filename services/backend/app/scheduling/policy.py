@@ -26,6 +26,11 @@ def queue_decision(context, lead, *, own_claim=None, endpoint_claimed=False, by_
 
 
 def rank_candidates(candidates, now):
+    """D31 (StatML archived): urgent work first (a due callback, a requested contact, a lapsed coverage promise),
+    then leads never called, then the one waiting longest since its last try. A stronger checked trigger breaks
+    ties among first calls (R9.9). No estimate takes part."""
+    never = datetime.min.replace(tzinfo=now.tzinfo)
+
     def key(c):
         callback, coverage = parsed(c.get("callback_due_at")), parsed(c.get("coverage_due_at"))
         pair = parsed(c.get("pair_until"))
@@ -37,15 +42,9 @@ def rank_candidates(candidates, now):
             priority = 2
         else:
             priority = 3
-        # Among equally urgent work, a lead never called before goes first (the owner's starting
-        # preference); the statistical estimate orders the rest.
-        tried = int(c.get("attempt_count", 0) > 0)
-        # A stronger checked trigger breaks ties between equal estimates (R9.9); untrained, that is most ties.
+        tried = int((c.get("attempt_count") or 0) > 0)
+        last = parsed(c.get("last_attempt_at")) or never
         strength = STRENGTH_ORDER.get(((c.get("trigger") or {}).get("strength")), 3)
-        return (
-            (priority, tried, coverage or now, -c.get("propensity", 0.1))
-            if priority < 3
-            else (priority, -round(c.get("propensity", 0.1), 6), strength, tried, coverage or now)
-        )
+        return (priority, tried, last, strength, coverage or now, str(c.get("id", "")))
 
     return sorted(candidates, key=key)

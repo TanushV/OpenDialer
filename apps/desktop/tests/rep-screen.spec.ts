@@ -125,46 +125,15 @@ test("at 1024x720 the helper, script opener, hang-up and opt-out stay visible an
   for (const item of visible) await expect(item).toBeInViewport();
 });
 
-test("stage estimates say prior only or show their support, never a bare pickup percentage", async ({
+test("the brief says why this lead is next and shows no learned estimates", async ({
   page,
 }) => {
-  let priorOnly = true;
-  await page.route("**/v1/leads/*/packet", async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    const support = (known: number) => ({
-      cell_known: known,
-      cell_successes: 0,
-      cell_unknown: 0,
-      conditioning_excluded: 0,
-      outside_known: 0,
-      observed_interval: [0, 1],
-      interval_kind: "observed_rate_wilson",
-    });
-    body.statistical_guidance = {
-      ...body.statistical_guidance,
-      human_probability: 0.42,
-      right_party_given_human: 0.5,
-      conversion_given_right_party: 0.1,
-      prior_only: priorOnly,
-      stage_support: {
-        human: support(priorOnly ? 0 : 12),
-        right_party: support(0),
-        conversion: support(priorOnly ? 0 : 3),
-      },
-    };
-    await route.fulfill({ response, json: body });
-  });
-  await startCall(page, "Estimate fixture", "+14155550611");
-  const stats = page.getByTestId("statistical-guidance");
-  await expect(stats).toContainText("prior only");
-  await expect(stats).not.toContainText("42%");
-  await expect(stats).not.toContainText("estimated pickup");
-  priorOnly = false;
-  // The live call comes back after a reload and its brief is read again.
-  await page.reload();
-  await expect(stats).toContainText("Pickup 42% (n 12)");
-  await expect(stats).toContainText("Right party: prior only");
+  // D31: StatML is archived; the queue is callbacks due, never called, then longest waiting.
+  await startCall(page, "Order fixture", "+14155550611");
+  const context = page.getByTestId("calling-context");
+  await expect(context).toContainText("Why this lead: Never called");
+  await expect(context).not.toContainText("Pickup");
+  await expect(context).not.toContainText("Estimates");
 });
 
 test("review notes start empty and the AI summary stays read-only", async ({

@@ -317,6 +317,7 @@ export interface Packet {
   preparation?: { status: string; as_of?: string; reason?: string };
   tasks?: FollowupTask[];
   prospect_brief?: {
+    why_queued?: string;
     freshness?: { state: string; preparation_revision: number };
     version: number;
     evidence_status: string;
@@ -342,40 +343,6 @@ export interface Packet {
       held: boolean;
       invitation_sent: false;
     } | null;
-  };
-  statistical_guidance?: {
-    human_probability: number;
-    right_party_given_human: number;
-    conversion_given_right_party: number;
-    conversion_goal: string;
-    samples: number;
-    conversion_samples: number;
-    prior_only?: boolean;
-    estimate_level?: string;
-    estimate_policy?: EstimatePolicy | null;
-    estimate_basis?: "pooled" | "reviewed_model";
-    source?:
-      | "frozen_call_decision"
-      | "frozen_reservation_decision"
-      | "current_pooled_estimate";
-    decision_id?: string | null;
-    estimate_policy_version?: string;
-    work_assumption_seconds?: number | null;
-    stage_support?: Record<
-      string,
-      {
-        cell_known: number;
-        cell_successes: number;
-        cell_unknown: number;
-        conditioning_excluded: number;
-        outside_known: number;
-        observed_interval: [number, number];
-        interval_kind: string;
-      }
-    >;
-    uncertainty: string;
-    why_now: string;
-    as_of: string | null;
   };
   lead: Lead;
   script: Script;

@@ -40,7 +40,7 @@ for (const connected of [false]) {
     );
     await startDialing(page);
     await expect(page.getByTestId("prospect-brief")).toBeVisible();
-    await expect(page.getByTestId("statistical-guidance")).toBeVisible();
+    await expect(page.getByTestId("calling-context")).toBeVisible();
     await expect(page.getByTestId("prepared-script")).toBeVisible();
     await answer(page);
     await page
