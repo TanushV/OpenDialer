@@ -9,6 +9,7 @@ from sqlalchemy import and_, delete, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 
 from app import ops
+from app.calling.decide import Situation, require
 from app.compliance.policy import authorize
 from app.optimization.learning import (
     choose_cohort_candidate,
@@ -171,13 +172,10 @@ def _company_contacted(service, s, p, lead, claims, now):
 
 
 def _queue_presence(service, s, p):
-    from app.calling.blockers import refuse
-
-    refuse(ops.dial_blockers_in(service, s, p, rep=True))
+    require(Situation(blockers=tuple(ops.dial_blockers_in(service, s, p, rep=True))))
 
 
 def _selection(service, s, p, campaign_id):
-    from app.service import fail
 
     # Keyset pages bound each request while preserving progress past denied candidates.
     # This is a ranking hint only; every eventual claim rechecks permission.
@@ -201,16 +199,18 @@ def _selection(service, s, p, campaign_id):
         if plan:
             return plan
         if complete:
-            fail(409, ops.no_lead_detail(service, s, p, reasons))
+            require(Situation(queue="none"), ops.no_lead_detail(service, s, p, reasons))
         after = last
     cursors[key] = (after, frozenset(reasons))
     while len(cursors) > 256:
         cursors.popitem(last=False)
-    fail(409, {"code": "QUEUE_SCAN_CONTINUES", "reasons": sorted(reasons), "retryable": True})
+    require(
+        Situation(queue="scanning"),
+        {"code": "QUEUE_SCAN_CONTINUES", "reasons": sorted(reasons), "retryable": True},
+    )
 
 
 def _selection_page(service, s, p, campaign_id, after):
-    from app.service import fail
 
     now, model = service.clock(), MODELS["leads"]
     # Exactly ix_leads_queue: promised callbacks (2), requested contact (1), then coverage
@@ -256,14 +256,12 @@ def _selection_page(service, s, p, campaign_id, after):
         {**n, "active_obligations": n.get("active_obligations", 0) + ops._number_holds(service, p, n["id"])}
         for n in ops.inventory_evidence(service, s, p, fast=True)
     ]
-    if service.managed.enabled(p["tenant_id"]) and not service.configs.read(p["tenant_id"]).get(
-        "number_pool"
-    ):
+    if service.managed.enabled(p["tenant_id"]):
         inventory = service.managed.assigned(p["tenant_id"], inventory)
     claims = s.info["active_claims"]
     own = next((c for c in claims if c.rep_id == p["user_id"]), None)
     if own:
-        fail(409, "LIVE_OBLIGATION" if own.call_id else "RESERVATION_EXISTS")
+        require(Situation(claim="live_call" if own.call_id else "reservation"))
     bindings = {
         r.data["lead_id"]: r.data["number_id"] for r in ops.scoped(service, s, "lead_number_bindings", p)
     }

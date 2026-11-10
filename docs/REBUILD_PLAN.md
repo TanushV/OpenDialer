@@ -1486,10 +1486,15 @@ software can (owner direction, November 9). Two defects reached the owner on Nov
 a hidden button could clear, and a Pause click lost while the button was swapped by a stale re-read. Both passed every
 existing test, because each test checked one piece and none asked whether every stopped state has a way out.
 
-- [ ] R9E.1 One calling model: a small pure state machine of everything that decides whether the next dial happens:
+- [x] R9E.1 One calling model: a small pure state machine of everything that decides whether the next dial happens:
       setup and keys, relay connection and delivery, numbers and the pool, leads and their holds, the queue, rep
       audio, presence, Pause and Start, the call itself, after-call, opt-outs and recovery. `blockers()`, the Dialer
       loop and the relay loop read it; nothing else decides.
+      Done November 10 as two pure halves that meet at the API: `calling/decide.py` answers "does the next dial
+      happen?" from the blockers, the rep's own claim, the reservation and the queue, and the queue and the dial refuse
+      only with its answer; the Dialer's side (Pause, Start, keys) is `calling/screen.ts`. The relay loop's steps are
+      `calling/relay.py`, whose failures arrive as blockers. `tests/test_calling_model.py` checks the laws over every
+      blocker alone and in pairs and every claim, step, reservation and queue answer.
 - [x] R9E.2 Exhaustive check of the model in CI: every reachable state to a set depth, under every event order. Laws:
       every stopped state has an exit (it clears itself within its stated time, or shows a visible control that clears
       it); Pause is always honored; no lead is dialed twice at once; an opt-out always holds; no state claims to clear
@@ -1763,5 +1768,8 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
 - November 10, 2026: owner direction: finish to 2.0; one user only (D27); test calls to 203-821-1101 are allowed as
   needed; HubSpot test records may be created and deleted. Done and pushed: seats, the pool and "Calls for" removed;
   R3.4 (no roles, passwords, sign-out or sessions table); R3.2 (mixins to module functions behind `app/ops.py`); two
-  stale-answer races in Settings fixed; tests repeat clicks that WebKit drops under load. Next: R4.5, R3.5, R5.2,
-  R9E.1, then the live matrix and 2.0.
+  stale-answer races in Settings fixed; tests repeat clicks that WebKit drops under load. Then R4.5 (dial code in
+  `calling/dial.py` with typed reads), R3.5 (typed views; forbid only where a package owns the record), R5.2 (element
+  rules in `@layer base`, screenshots unchanged) and R9E.1 (`calling/decide.py` with an exhaustive law check). Every
+  software item in the plan is now done. Next: the live matrix on this Mac (needs the screen unlocked and the owner
+  answering 203-821-1101), HubSpot L14 to L19 on a test contact, then signed 2.0.

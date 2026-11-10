@@ -13,9 +13,9 @@ import httpx
 from sqlalchemy import select
 
 from app import ops
-from app.calling.blockers import refuse
 from app.calling.carrier_errors import PAUSE_SECONDS as CHANNEL_PAUSE
 from app.calling.carrier_errors import is_channel_limit
+from app.calling.decide import Situation, require
 from app.calling.records import (
     CallView,
     CommandView,
@@ -54,15 +54,14 @@ def _replay(service, p):
 def _held_reservation(service, s, p, reservation_id, now):
     """The rep's live, claimed reservation, or a refusal."""
     reservation = ops.required(service, s, "reservations", reservation_id, p)
-    if (
-        reservation.data["rep_id"] != p["user_id"]
-        or reservation.data["status"] != "reserved"
-        or dt(reservation.data["expires_at"]) <= now
-    ):
-        fail(409, "Reservation expired or not owned by this rep")
+    live = (
+        reservation.data["rep_id"] == p["user_id"]
+        and reservation.data["status"] == "reserved"
+        and dt(reservation.data["expires_at"]) > now
+    )
+    require(Situation(step="dial", reservation_ok=live), "Reservation expired or not owned by this rep")
     claim = s.scalar(select(ActiveClaim).where(ActiveClaim.reservation_id == reservation.id))
-    if not claim:
-        fail(409, "Reservation claim is no longer valid")
+    require(Situation(step="dial", reservation_ok=claim is not None), "Reservation claim is no longer valid")
     return reservation, claim, ReservationView.model_validate(reservation.data)
 
 
@@ -79,7 +78,13 @@ def _prepare_call(service, p, data):
                 fail(409, "Idempotency key belongs to another intent")
             return doc(previous), False
         reservation, claim, held = _held_reservation(service, s, p, data["reservation_id"], now)
-        refuse(ops.dial_blockers_in(service, s, p, rep=True))
+        require(
+            Situation(
+                blockers=tuple(ops.dial_blockers_in(service, s, p, rep=True)),
+                step="dial",
+                reservation_ok=True,
+            )
+        )
         agent = ops.required(service, s, "users", p["user_id"], p).data["presence"]["agent_call_control_id"]
         lead = ops.required(service, s, "leads", reservation.data["lead_id"], p)
         ops.refuse_outside_test_line(service, p, lead)
@@ -197,7 +202,14 @@ async def start_call(service, p, data):
 def _claim_dial(service, p, call_id, owner):
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        refuse(ops.dial_blockers_in(service, s, p, rep=False))
+        # The call is already prepared: only what stops calling now can refuse it here.
+        require(
+            Situation(
+                blockers=tuple(ops.dial_blockers_in(service, s, p, rep=False)),
+                step="dial",
+                reservation_ok=True,
+            )
+        )
         # Lock call, then lead, as other call writers do: the dial claim updates both.
         call = ops.required(service, s, "call_attempts", call_id, p, lock=True)
         model = MODELS["command_outbox"]
