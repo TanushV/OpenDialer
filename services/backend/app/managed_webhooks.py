@@ -266,7 +266,8 @@ class ManagedConnection:
             if not row.data:
                 fail(403, "Workspace disabled or not provisioned")
             await asyncio.to_thread(require_idle, self.service, {"tenant_id": tenant_id})
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).warning("connect handled a failure: %s", type(exc).__name__)
             await candidate.auth.close()
             await candidate.postgrest.aclose()
             staged.path.unlink(missing_ok=True)

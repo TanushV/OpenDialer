@@ -6,6 +6,7 @@ attached lead has an accepted script or a skip.
 """
 
 import json
+import logging
 import re
 from datetime import date
 from urllib.parse import urlsplit
@@ -326,6 +327,7 @@ class ThreadWork:
             try:
                 page = await self.fetch_page(url)
             except Exception as exc:
+                logging.getLogger(__name__).warning("_page handled a failure: %s", type(exc).__name__)
                 page = {"error": type(exc).__name__}
             self.pages[url] = page
         return page

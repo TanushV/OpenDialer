@@ -198,7 +198,8 @@ async def purchase_number(service, p, quote_id):
         )
         if not same:
             raise ValueError("Availability or price changed; search again before approving")
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).warning("purchase_number handled a failure: %s", type(exc).__name__)
         return await asyncio.to_thread(
             ops._purchase_receipt,
             service,
@@ -212,6 +213,7 @@ async def purchase_number(service, p, quote_id):
         if not isinstance(receipt, dict) or not receipt.get("id"):
             raise ValueError("Missing provider order reference")
     except Exception as exc:
+        logging.getLogger(__name__).warning("purchase_number handled a failure: %s", type(exc).__name__)
         rejected = carrier_rejection(exc)
         return await asyncio.to_thread(
             ops._purchase_receipt,
@@ -232,7 +234,8 @@ async def purchase_number(service, p, quote_id):
     )
     try:
         await ops.sync_numbers(service, p)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).warning("purchase_number handled a failure: %s", type(exc).__name__)
         result["inventory_pending"] = True
     return result
 
@@ -786,6 +789,9 @@ async def configure_owned_number(service, p, number_id, body=None):
         if not ops._configuration_receipt(service, intent, receipt):
             raise ValueError("Carrier configuration did not confirm the requested route")
     except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "configure_owned_number handled a failure: %s", type(exc).__name__
+        )
         rejection = carrier_rejection(exc)
         await asyncio.to_thread(
             ops._finish_number_configuration, service, p, intent, False, rejection=rejection
@@ -861,7 +867,10 @@ async def reconcile_number_configuration(service, p, identity, *, expected_versi
     try:
         receipt = await ops.carrier(service, p["tenant_id"]).get_number(intent["provider_id"])
         confirmed = ops._configuration_receipt(service, intent, receipt)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "reconcile_number_configuration handled a failure: %s", type(exc).__name__
+        )
         confirmed = False
     return await asyncio.to_thread(
         ops._finish_number_configuration, service, p, intent, confirmed, recovery=True

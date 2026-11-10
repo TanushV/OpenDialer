@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import logging
 import re
 from datetime import timedelta
 
@@ -349,7 +350,8 @@ async def reconcile_agent(service, p, identity, expected_version, provider_id=No
     receipt = None
     try:
         receipt = await ops.carrier(service, p["tenant_id"]).reconcile(identity, target)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).warning("reconcile_agent handled a failure: %s", type(exc).__name__)
         receipt = None
     verified = call_receipt(receipt, target, simulation=service.settings.simulation)
     if verified and not known:

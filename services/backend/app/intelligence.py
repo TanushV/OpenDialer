@@ -307,6 +307,7 @@ async def run_jobs(service, tenant_id=None, queues=None):
         except LostJobLease:
             return IDLE
         except Exception as exc:
+            logging.getLogger(__name__).warning("execute handled a failure: %s", type(exc).__name__)
             errors.append(
                 {"kind": "job", "job_id": job["id"], "queue": lane, "error_type": type(exc).__name__}
             )

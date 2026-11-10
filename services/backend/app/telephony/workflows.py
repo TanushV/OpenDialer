@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -436,6 +437,7 @@ async def dispatch_controls(service, p, *, command_id=None):
             else:
                 await provider.action(target, command["action"], command["payload"])
         except Exception as exc:
+            logging.getLogger(__name__).warning("dispatch_controls handled a failure: %s", type(exc).__name__)
             await asyncio.to_thread(ops._control_completed, service, p, claimed, exc)
         else:
             await asyncio.to_thread(ops._control_completed, service, p, claimed)

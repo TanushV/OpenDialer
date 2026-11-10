@@ -2,6 +2,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import re
 import secrets
 import time
@@ -1117,7 +1118,8 @@ async def reconcile_restore(service, p, review_reference, provider_ids=None):
         try:
             provider = await asyncio.to_thread(ops.carrier, service, p["tenant_id"])
             receipt = await provider.reconcile(call_id, target) if target else None
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).warning("reconcile_restore handled a failure: %s", type(exc).__name__)
             receipt = None
         if not await asyncio.to_thread(finish, call_id, version, receipt, target):
             unresolved.append(call_id)

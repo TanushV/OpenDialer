@@ -151,7 +151,10 @@ def strict_hits(hits, sizes):
     for name, places in hits.items():
         for place in places:
             package = place.split("/")[0]
-            if package in STRICT or (package == "platform" and name in PLATFORM_STRICT_BANS):
+            # A failure handled without a log line hides why something stopped (G6): banned everywhere since
+            # November 10, when the last 15 legacy cases gained their log line.
+            everywhere = name == "silent except Exception"
+            if everywhere or package in STRICT or (package == "platform" and name in PLATFORM_STRICT_BANS):
                 found.append(f"{name}: {place}")
     for place, size, cap in sizes:
         if place.split("/")[0] in STRICT and size > cap:

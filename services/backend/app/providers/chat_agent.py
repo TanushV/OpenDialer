@@ -6,6 +6,7 @@ hits its plan limit, has no login or keeps failing; every record it writes says 
 """
 
 import json
+import logging
 
 from app.providers.inference import InferenceClient
 
@@ -55,6 +56,7 @@ class ChatAgent:
             try:
                 page = await self.fetch_page(str(args.get("url") or ""))
             except Exception as exc:
+                logging.getLogger(__name__).warning("_local handled a failure: %s", type(exc).__name__)
                 return json.dumps({"ok": False, "error": f"Could not read the page ({type(exc).__name__})"})
             return json.dumps(
                 {"ok": True, "title": page.get("title", "")[:300], "text": page.get("text", "")[:PAGE_CHARS]}

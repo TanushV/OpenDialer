@@ -208,6 +208,7 @@ async def reconcile_command(service, p, command_id, *, provider_id=None, expecte
     try:
         receipt = await ops.carrier(service, p["tenant_id"]).reconcile(claimed[0]["call_id"], claimed[2])
     except Exception as exc:
+        logging.getLogger(__name__).warning("reconcile_command handled a failure: %s", type(exc).__name__)
         error = type(exc).__name__
     return await asyncio.to_thread(ops._complete_reconciliation, service, p, claimed, receipt, error)
 

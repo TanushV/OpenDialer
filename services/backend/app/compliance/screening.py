@@ -1,6 +1,7 @@
 """One leased prepaid lookup per phone; uncertain effects require an explicit new charge choice."""
 
 import asyncio
+import logging
 from datetime import timedelta
 from decimal import Decimal
 from typing import Literal
@@ -320,7 +321,8 @@ async def execute(service, p, intent, config):
         refusal = exc.reason if exc.definitive else None
         await asyncio.to_thread(finish, service, p, intent, None, refusal)
         fail(409 if refusal else 503, refusal or "DNC_SCREENING_UNAVAILABLE_NO_CLEARANCE")
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).warning("execute handled a failure: %s", type(exc).__name__)
         # A transport/adapter failure is not proof that the provider did not charge.
         # Store only the generic recovery state, never the raw response/exception.
         result = None

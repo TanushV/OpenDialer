@@ -46,7 +46,8 @@ class AuthorityRuntime:
             return fallback
         try:
             due = await asyncio.to_thread(jobs.next_due, queue)
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).warning("_idle_seconds handled a failure: %s", type(exc).__name__)
             return fallback
         # Due-but-unclaimed work waits for capacity; its release commit wakes the lane.
         # The floor bounds passes if a simulated clock stands still before a due time.

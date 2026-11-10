@@ -55,10 +55,13 @@ def test_the_report_warns_on_legacy_code_and_fails_when_strict(capsys):
 def test_a_hit_inside_a_strict_package_fails_but_platform_and_legacy_do_not():
     hits = {
         "tenant_id in core": ["platform/db.py:1"],
-        "silent except Exception": ["service.py:9"],
         ".data.get( in core": ["calling/state.py:3"],
     }
     assert rules.strict_hits(hits, []) == [".data.get( in core: calling/state.py:3"]
+    # A silent except fails anywhere, legacy code included (since November 10).
+    assert rules.strict_hits({"silent except Exception": ["service.py:9"]}, []) == [
+        "silent except Exception: service.py:9"
+    ]
     assert rules.strict_hits({"silent except Exception": ["platform/jobs.py:4"]}, []) == [
         "silent except Exception: platform/jobs.py:4"
     ]
