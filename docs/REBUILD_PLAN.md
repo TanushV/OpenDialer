@@ -1792,3 +1792,13 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   rules in `@layer base`, screenshots unchanged) and R9E.1 (`calling/decide.py` with an exhaustive law check). Every
   software item in the plan is now done. Next: the live matrix on this Mac (needs the screen unlocked and the owner
   answering 203-821-1101), HubSpot L14 to L19 on a test contact, then signed 2.0.
+- November 10, 2026 (night): live checks on two 2.0.0 candidates (`docs/evidence/rebuild/2026-11-10-live-calls.md`):
+  L1 and L2 passed on the owner's line. Found live and fixed with tests: a microphone request with no time limit, a
+  held test lead never offered, a saved test call that counted down into the real lists and lost its test mark, and
+  no transcript on auto-dialed calls. The transcript's cause was a dead audio leg from November 6 reused because the
+  store still called it answered; a leg is now reused only if this run made it and the carrier says it is live, and
+  the Dialer dials only once its own audio client holds the leg. The live helper drops script tracking for a
+  numbered script part named by each tip. Every handled failure now logs a line, and every event-driven re-read
+  shows only the newest answer (CI caught a removed list shown as Paused). Next: candidate 3 from the green head,
+  install, a live call that proves transcript, helper and the rep's voice, then publish 2.0.0. Owner-gated: HubSpot
+  L14 to L18 need a list in the owner's HubSpot (the key cannot create one), Windows L25 to L27 need a PC and signing.

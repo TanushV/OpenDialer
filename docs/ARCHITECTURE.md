@@ -28,7 +28,9 @@ Everything that decides whether the next call happens is small and checked.
 | Screen | `calling/screen.ts` | The Dialer's phase is a pure function of one state; `keys()` says what each key does in it. |
 | Loop | `calling/useCallLoop.ts` | Start, dial, voicemail skip, hang-up, save and the next call. Every key decides the screen at once. |
 | Call states | `calling/state.py` | `DIALING` to `RINGING`, `HUMAN` or a mailbox, `ENDED` (waiting for an outcome) and `FINALIZED` (saved). |
-| Dial safety | `service.py` | A durable dial record and carrier command ID: a lead is never dialed twice, and a call can always be ended. |
+| One decision | `calling/decide.py` | `decide(situation)` says whether the next dial happens, checked over every combination of its inputs. |
+| Dial safety | `calling/dial.py` | A durable dial record and carrier command ID: a lead is never dialed twice, and a call can always be ended. |
+| Rep's audio | `calling/audio_leg.py` | Each call joins an audio leg this run of the app opened and the carrier reports live; any other is ended and a fresh one dialed. The Dialer dials only once its own audio client holds the leg, so the rep is heard and the transcript has sound. |
 
 The queue (`scheduling/queue.py`) offers callbacks due first, then StatML's order, inside each lead's calling hours
 (8 AM to 5 PM local), with at least a day between tries and per-company spacing. When no one can be called, it says
@@ -45,6 +47,9 @@ why in plain words. A test call to the rep's own phone skips hours and attempt l
 | The rep's own key | `apps/desktop/tests/screen-model.test.ts`, `simple-calling.spec.ts` | Hang up, Skip, Stay and the outcome keys show at once over any re-read (`withIntent`); one save at a time; a Pause pressed during any start step wins. |
 | Layout | `apps/desktop/tests/layout-audit.spec.ts` | On every page, at both window sizes, the main control stays uncovered and still. |
 
+Every screen that re-reads on events shows only the newest answer (`state/newest.ts`), so a slow older read never
+undoes a newer one. Every handled failure logs a line; a silent `except Exception` fails the build.
+
 CI runs every browser test once, in WebKit (the Mac app) and Chromium (Windows), so a flaky test fails instead of
 hiding a defect.
 
@@ -56,7 +61,7 @@ hiding a defect.
 - **Number checks** (`leads/waterfall.py`): for HubSpot leads only, through Treg, within a spend limit per list. CSV
   numbers are never checked. A number that may belong to someone else is held and shown in Review.
 - **Do-not-call** (`leads/dnc.py`): RealValidito for HubSpot leads, refreshed every 30 days.
-- **Numbers** (`numbers/`): each rep's own numbers, or a shared pool leased per call for a team (not yet live).
+- **Numbers** (`numbers/`): the rep's own Telnyx numbers, one row each with Pause and Resume.
 
 ## Research, scripts and after the call
 
@@ -64,7 +69,8 @@ hiding a defect.
   OpenRouter's no-retention route takes over when it is unavailable. Each lead gets a trigger ("why now"), checked
   against the page it came from.
 - **Live helper** (`helper/live.py`, wired in `live_help.py`): while the prospect talks, one short line the rep could
-  say or ask next; when the rep asks (F1 or a typed question), a private answer. One streamed request per turn on
+  say or ask next, with the part of the script that fits the moment (the script goes to the model as numbered parts and
+  each tip names one); when the rep asks (F1 or a typed question), a private answer. One streamed request per turn on
   OpenRouter, served only by Cerebras with no retention. A tip lives in memory for 30 seconds (an answer for 5 minutes)
   and is never saved. Without an OpenRouter key the helper says so and the script carries the call.
 - **After the call** (`aftercall/summary.py`): one request over the whole transcript returns a summary, a suggested

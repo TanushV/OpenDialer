@@ -2,7 +2,12 @@
 
 - **One user, one computer.** No sign-in, roles, team seats or shared number pool. Every contact on the chosen HubSpot list is synced, whoever owns it in HubSpot.
 - **Calling decides in one place.** Whether the next call is dialed is one rule, checked over every combination of setup, connection, numbers, opt-outs, audio and the call in progress.
-- **Settings never undoes a newer answer.** A slow re-read can no longer bring back an old error or an old check result.
+- **Live transcript on every call.** Each call uses audio this run of the app opened. Audio left over from an earlier run is ended and reconnected, and nothing is dialed until your audio is connected, so the prospect hears you and the transcript has sound.
+- **A simpler live helper.** Each tip shows the line to say and the part of your script that fits the moment.
+- **Test calls stay test calls.** A test call dials only your test phone, stays a test call after you save it (so it never reaches learning or HubSpot) and pauses calling afterward instead of moving on to your lists.
+- **The microphone never waits silently.** If macOS asks for the microphone, the Dialer says to click Allow, and after 30 seconds it pauses and says where to turn it on.
+- **Blockers open their fix.** When calling is blocked, the Dialer's message has a button to the page that fixes it. Rows never set say Not set, and each page opens at its top.
+- **Every screen shows the newest answer.** A slow re-read can no longer bring back an old error, check result or list state.
 - **Steadier screens.** Base styles can no longer override a button, a field or a table, so every page looks the same as before, on purpose.
 
 Updating from 1.0.1 or any 1.0.3 to 1.0.10 keeps your workspace, numbers, script and saved credentials. The team-calling and "Calls for" settings are gone; nothing else you saved changes.
