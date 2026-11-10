@@ -2,7 +2,13 @@
  * The top of Settings (section 7, R7.2, R7.3): one true status from the calling blockers, then one row per thing to
  * set, saying where to get it and what it powers. A row is green only after its real check.
  */
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { openSource } from "../api/client";
 import { useWorkspace } from "../context";
 import { Button, Panel, Status } from "../ui/kit";
@@ -76,11 +82,21 @@ export function SetupRows({
   reload: () => Promise<void>;
 }) {
   const { api, run, notice, refresh } = useWorkspace();
-  const [data, setData] = useState<Rows | null>(null);
-  const load = useCallback(
-    async () => setData(await api<Rows>("/v1/settings/rows")),
+  const [data, setRows] = useState<Rows | null>(null);
+  // An answer shows only if no later request has answered: a slow re-read never undoes a newer check.
+  const started = useRef(0);
+  const shown = useRef(0);
+  const fetchRows = useCallback(
+    async (path: string, method?: "POST") => {
+      const ticket = ++started.current;
+      const rows = await api<Rows>(path, method);
+      if (ticket < shown.current) return;
+      shown.current = ticket;
+      setRows(rows);
+    },
     [api],
   );
+  const load = useCallback(() => fetchRows("/v1/settings/rows"), [fetchRows]);
   useEffect(() => {
     void load().catch(() => {});
   }, [load, version]);
@@ -119,16 +135,10 @@ export function SetupRows({
           extra={extras[row.id]}
           save={async (values) => {
             await api("/v1/admin/settings", "PUT", values);
-            setData(
-              await api<Rows>(`/v1/settings/rows/${row.id}/check`, "POST"),
-            );
+            await fetchRows(`/v1/settings/rows/${row.id}/check`, "POST");
           }}
           check={() =>
-            run(async () =>
-              setData(
-                await api<Rows>(`/v1/settings/rows/${row.id}/check`, "POST"),
-              ),
-            )
+            run(() => fetchRows(`/v1/settings/rows/${row.id}/check`, "POST"))
           }
           testCall={
             row.id === "test_phone" && row.state === "ok"

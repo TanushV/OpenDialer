@@ -499,6 +499,44 @@ test("Test call limits calling to the test phone until the session ends", async 
   ).toBeHidden();
 });
 
+test("a slow re-read of the rows never undoes a check that finished after it", async ({
+  page,
+}) => {
+  await enter(page);
+  const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
+  const token = (await local.json()).access_token;
+  await page.request.put(`${AUTHORITY}/v1/admin/settings`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { openrouter_api_key: "sk-or-saved-earlier" },
+  });
+  // A second read of the rows answers late, so it lands after the rep's check.
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let reads = 0;
+  await page.route("**/v1/settings/rows", async (route) => {
+    reads += 1;
+    if (reads === 1) return route.continue();
+    // The server answers now (not checked yet); the answer reaches the page only after the check.
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  await openSettings(page);
+  const row = page.getByTestId("setup-openrouter");
+  const status = row.getByRole("status", { name: "OpenRouter key status" });
+  await expect(status).toContainText("Not checked");
+  await expect.poll(() => reads).toBeGreaterThan(1);
+  await row.getByRole("button", { name: "Check", exact: true }).click();
+  await expect(status).toContainText("Checked:");
+  release();
+  await page.waitForLoadState("networkidle");
+  await expect(status).toContainText("Checked:");
+  await expect(status).not.toContainText("Not checked");
+});
+
 test("a key saved without a check can be checked in its row without typing it again", async ({
   page,
 }) => {
