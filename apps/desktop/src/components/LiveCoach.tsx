@@ -177,12 +177,23 @@ export function LiveCoach({
         </div>
       </div>
       <div className="helper-primary" aria-live="polite">
-        <p>
-          {advice?.say_or_ask ||
-            (active
-              ? "Listening. Keep following your script."
-              : "Tips appear here during a call.")}
-        </p>
+        <div className="helper-advice">
+          <p>
+            {advice?.say_or_ask ||
+              (active
+                ? "Listening. Keep following your script."
+                : "Tips appear here during a call.")}
+          </p>
+          {advice?.script_part && (
+            <div
+              className="helper-script-part"
+              data-testid="helper-script-part"
+            >
+              <small>From your script · {advice.script_part.label}</small>
+              <p>{advice.script_part.text}</p>
+            </div>
+          )}
+        </div>
         {advice && (
           <div className="helper-actions">
             {advice.private && <small>Private answer</small>}

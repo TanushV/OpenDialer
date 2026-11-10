@@ -33,3 +33,21 @@ Installed 22:06 over candidate 1 the same way (checksum, signature, no live call
 Fixed with tests: a saved or skipped test call pauses calling (the Dialer stops, and the backend pauses the rep when it
 ends the session), and a call to the rep's own typed test phone stays a test call after its outcome is saved (it was
 relabeled real, which would have sent it to learning and HubSpot).
+| Test call 2 (22:29) | **L2 passed**: the owner answered and hung up after 25 seconds; the Dialer showed "They hung up · 0:25" (carrier: hang-up by the callee) with the outcome keys and no false block. Paused first, then saved; nothing else dialed. |
+| Test call 3 (22:30), owner asked not to answer | Answered after 7 seconds; Telnyx premium answering-machine detection reported a human 4 seconds later, so the Dialer stayed on the line until the far end hung up after 32 seconds ("They hung up · 0:32"). If the owner's voicemail took it, detection missed the greeting and L5 (skip at detection) did not happen on this call; the owner's word settles which. The screen then went out of reach (locked), so the outcome was left unsaved; the Dialer waits for it and dials nothing. |
+
+## The missing live transcript (owner report, November 10)
+
+The owner saw no transcript on the test calls, and the Dialer had said "Live transcription stopped for this call".
+Telnyx speech-to-text itself works with the owner's key (a spoken test sentence came back word for word). The cause is
+in the app: auto-dial starts each call from a timer, not a click, and WebKit only starts an audio engine from the rep's
+own click or key, so the engine that streams call audio to the transcriber stayed suspended and capture gave up at once.
+Manual dialing (0.8.x) always had a click, which is why transcripts worked then. The backend also swallowed the
+failure without a log line.
+
+Fixed with tests: Start calling unlocks one audio engine that every call of the session reuses; a capture that still
+stops says why (the Dialer sends the reason and the backend logs it), and the speech socket logs its own failures.
+
+The live helper's script tracking matched the rep's words to script sections, which a paraphrase or a speech-to-text
+error breaks. It is replaced by something simple: the script goes to the model as numbered parts, and each tip starts
+with the number of the part that fits the moment; the Dialer shows the line to say and that script part together.

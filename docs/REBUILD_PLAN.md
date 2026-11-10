@@ -1556,6 +1556,10 @@ Goal: finish the remaining surface and ship.
 Live helper and after-call:
 
 - [x] R10.1 Live helper: streamed tips and private help only; remove interpretation layers that nothing else uses.
+      November 10, after the owner's live calls: each tip now also pulls up the one script part that fits the moment
+      (the model names it from the numbered script), shown under the tip; the word-matching "current stage" is gone
+      from the live path. The live transcript that feeds it failed on every auto-dialed call (a WebKit audio engine
+      started without a click) and is fixed.
       Done November 9: `helper/live.py` and `live_help.py` replace `coaching/` and `postcall/`. One streamed request
       per turn; the tip lives in memory and is never saved. Gone with it: the finalize and review jobs, scorecards,
       rubrics, trackers, commitments, coach feedback, coaching strategies and the playbook (the script's Facts and

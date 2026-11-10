@@ -102,7 +102,7 @@ def request_in(service, s, p, call, question):
             }
         )
     dialogue = [
-        {"side": r.get("side"), "text": r.get("text", ""), "script_section": r.get("script_section")}
+        {"side": r.get("side"), "text": r.get("text", "")}
         for r in ops.transcript_rows(service, s, p, call.id)
         if r.get("is_final") and not r.get("system_audio") and r.get("text")
     ][-live.DIALOGUE :]
@@ -176,10 +176,12 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
         service.tips.status[call_id] = {"status": "paused", "reason": "budget"}
         return {**result, "status": "unavailable"}
 
+    parts = live.script_parts(request.get("script"))
+
     async def progress(text):
-        shown = live.clean(text)
+        part, shown = live.reply(text, parts)
         if shown:
-            tip = live.card(identity, shown, private=private, done=False, now=service.clock())
+            tip = live.card(identity, shown, private=private, done=False, now=service.clock(), part=part)
             await asyncio.to_thread(_publish, service, p, call_id, tip)
 
     async def run():
@@ -211,11 +213,11 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
         await asyncio.to_thread(_withdraw, service, p, call_id, identity)
         return {**result, "status": status}
     service.tips.status[call_id] = {"status": "available"}
-    shown = live.clean(text)
+    part, shown = live.reply(text, parts)
     if shown is None:
         await asyncio.to_thread(_withdraw, service, p, call_id, identity)
         return {**result, "status": "quiet"}
-    tip = live.card(identity, shown, private=private, done=True, now=service.clock())
+    tip = live.card(identity, shown, private=private, done=True, now=service.clock(), part=part)
     published = await asyncio.to_thread(_publish, service, p, call_id, tip)
     return {**result, "status": "shown" if published else "ended"}
 

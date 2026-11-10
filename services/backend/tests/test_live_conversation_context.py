@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from app.helper.live import INSTRUCTIONS, QUIET, Tips, card, clean, messages
+from app.helper.live import INSTRUCTIONS, QUIET, Tips, card, clean, messages, reply, script_parts
 
 NOW = datetime(2026, 11, 9, 15, tzinfo=UTC)
 
@@ -68,22 +68,33 @@ def test_the_helper_is_told_how_to_handle_an_objection_and_when_to_stay_quiet():
     assert "untrusted speech" in INSTRUCTIONS
 
 
-@pytest.mark.parametrize(
-    ("dialogue", "stage"),
-    [
-        ([{"side": "remote", "text": "Hello?"}], "opening"),
-        (
-            [
-                {"side": "rep", "text": "How do you track it?", "script_section": "discovery:0"},
-                {"side": "remote", "text": "Spreadsheets."},
-            ],
-            "Discovery",
-        ),
-    ],
-)
-def test_the_current_script_section_reaches_the_helper(dialogue, stage):
-    prompt = messages(request_with(["Bad timing"], dialogue=dialogue))[1]["content"]
-    assert f"Current stage: {stage}" in prompt
+def test_the_script_reaches_the_helper_as_numbered_parts_and_no_stage_is_guessed():
+    request = request_with(["Bad timing"], dialogue=[{"side": "remote", "text": "Hello?"}])
+    prompt = messages(request)[1]["content"]
+    parts = script_parts(request["script"])
+    assert parts and "Current stage" not in prompt
+    for number, (label, spoken, _) in enumerate(parts, 1):
+        assert f"{number}. {label}: {spoken}" in prompt
+
+
+def test_a_reply_names_its_script_part_on_the_first_line_and_the_rest_is_what_to_say():
+    parts = [
+        ("Opening", "Hi, it's Tanush.", ""),
+        ("Objections · Send me an email", "Happy to. What should it cover?", ""),
+    ]
+    assert reply("Part: 2\nAsk what the email should cover.", parts) == (
+        {"label": "Objections · Send me an email", "text": "Happy to. What should it cover?"},
+        "Ask what the email should cover.",
+    )
+    assert reply("Part: none\nAsk how they track it today.", parts) == (None, "Ask how they track it today.")
+    assert reply("Part: 9\nAsk one question.", parts) == (None, "Ask one question."), (
+        "an unknown number shows no part"
+    )
+    assert reply("Part: 2", parts) == (None, None), "nothing shows until the first line is complete"
+    assert reply("Ask about timing.", parts) == (None, "Ask about timing."), (
+        "a reply without a part is all advice"
+    )
+    assert reply(QUIET, parts) == (None, None)
 
 
 def test_a_private_question_is_sent_as_the_reps_and_never_as_the_prospects():

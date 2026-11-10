@@ -8,7 +8,11 @@ import { useWorkspace } from "../context";
 import { OptOutJournal } from "../state/optouts";
 import { nextLeadWithRetry } from "../state/queue";
 import { afterAudioStatus, Telephony } from "../telephony/client";
-import { captureSpeech } from "../telephony/speech";
+import {
+  captureSpeech,
+  unlockSpeechAudio,
+  type SpeechStop,
+} from "../telephony/speech";
 import type { Call, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
 import {
@@ -325,7 +329,7 @@ export function useCallLoop(visible: boolean) {
     let failed = false;
     let grace: ReturnType<typeof setTimeout> | undefined;
     const began = Date.now();
-    const report = () => {
+    const report = (reason: SpeechStop | "no_streams") => {
       if (failed) return;
       failed = true;
       capture?.stop();
@@ -336,9 +340,11 @@ export function useCallLoop(visible: boolean) {
           .then((latest) => {
             if (!isActiveCall(latest) || latest.state === "ENDING") return;
             notice(
-              "Live transcription stopped for this call. Calling continues; this call is marked as missing speech.",
+              reason === "audio_suspended"
+                ? "Live transcription needs one click: press Pause, then Start calling. This call continues without it."
+                : "Live transcription stopped for this call. Calling continues; this call is marked as missing speech.",
             );
-            return api(`/v1/calls/${call.id}/audio-gap`, "POST", {});
+            return api(`/v1/calls/${call.id}/audio-gap`, "POST", { reason });
           })
           .catch(() => {});
       }, GAP_GRACE_MS);
@@ -355,7 +361,7 @@ export function useCallLoop(visible: boolean) {
         tracks?.length !== 2 ||
         tracks.some((t) => t.readyState === "ended")
       ) {
-        if (capture || Date.now() - began > 15000) report();
+        if (capture || Date.now() - began > 15000) report("no_streams");
         return;
       }
       if (next === signature) return;
@@ -446,6 +452,8 @@ export function useCallLoop(visible: boolean) {
   const listsKey = `dial-lists:${session.tenant_id}:${session.seller_id}:${session.user_id}`;
 
   async function startCalling() {
+    // First, while the rep's click or key is still current: WebKit starts audio only from one (live transcript).
+    unlockSpeechAudio();
     if (local.length) throw new Error(local[0].message);
     await syncOptouts();
     if (journal.current.blocksCalling)

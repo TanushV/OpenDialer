@@ -1,16 +1,19 @@
 """Authenticated loopback audio for a current call; the carrier key stays in the backend."""
 
 import asyncio
+import logging
 from time import monotonic
 from uuid import uuid4
 
-from fastapi import Depends, WebSocket, WebSocketDisconnect
+from fastapi import Body, Depends, WebSocket, WebSocketDisconnect
 
 from app import ops
 from app.calling.state import TERMINAL
 from app.platform.db import emit, update
 from app.providers import telnyx_stt
 from app.service import fail
+
+log = logging.getLogger(__name__)
 
 
 def admission(service, p, call_id, *, finishing=False):
@@ -57,9 +60,14 @@ def bind_api(app, service, principal):
     active = set()
 
     @app.post("/v1/calls/{call_id}/audio-gap")
-    def report_gap(call_id: str, p=Depends(principal)):
+    def report_gap(call_id: str, body: dict | None = Body(default=None), p=Depends(principal)):
         admission(service, p, call_id, finishing=True)
-        return {"status": "recorded" if gap(service, p, call_id) else "ignored"}
+        reason = str((body or {}).get("reason") or "unknown")[:40]
+        recorded = gap(service, p, call_id)
+        # Live check, November 10: a stopped transcript left no trace. Say why, once per call.
+        if recorded:
+            log.warning("Live transcription stopped on call %s: %s (reported by the Dialer)", call_id, reason)
+        return {"status": "recorded" if recorded else "ignored"}
 
     @app.websocket("/v1/calls/{call_id}/audio/{side}")
     async def audio(ws: WebSocket, call_id: str, side: str):
@@ -131,7 +139,14 @@ def bind_api(app, service, principal):
             await ws.close()
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            log.warning(
+                "Live transcription socket for call %s (%s) stopped: %s %s",
+                call_id,
+                side,
+                type(exc).__name__,
+                str(getattr(exc, "detail", "") or exc)[:200],
+            )
             if identity and p and not clean:
                 await asyncio.to_thread(gap, service, p, call_id)
             try:

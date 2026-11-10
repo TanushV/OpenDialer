@@ -151,6 +151,8 @@ export interface Coach {
   id: string;
   kind: "TIP" | "ANSWER";
   say_or_ask: string;
+  /** The one part of the script that fits this moment, chosen with the tip. */
+  script_part?: { label: string; text: string } | null;
   private: boolean;
   status: "streaming" | "ready";
   at?: string;

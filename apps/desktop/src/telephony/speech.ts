@@ -1,12 +1,56 @@
 import processorURL from "./pcm-worklet.ts?worker&url";
 
+/** Why live speech capture stopped, sent to the backend's log with the gap report. */
+export type SpeechStop =
+  | "audio_suspended"
+  | "no_audio_engine"
+  | "worklet_failed"
+  | "socket_error"
+  | "socket_closed"
+  | "no_ready"
+  | "provider_unavailable"
+  | "backpressure"
+  | "bad_message";
+
+/**
+ * One audio engine for the whole calling session. WebKit starts an AudioContext only from the rep's own click or
+ * key, and auto-dialed calls start from a timer, so Start calling unlocks it once and every call reuses it
+ * (live check, November 10: with a new engine per call, no transcript ever started).
+ */
+let shared: AudioContext | null = null;
+let worklet: Promise<void> | null = null;
+
+function engine() {
+  if (!shared || shared.state === "closed") {
+    shared = new AudioContext();
+    worklet = null;
+  }
+  return shared;
+}
+
+/** Call synchronously inside the rep's click or key press (Start calling). */
+export function unlockSpeechAudio() {
+  try {
+    void engine()
+      .resume()
+      .catch(() => undefined);
+  } catch {
+    /* No audio engine here: capture reports it when a call starts. */
+  }
+}
+
+function loadWorklet(context: AudioContext) {
+  worklet ??= context.audioWorklet.addModule(processorURL);
+  return worklet;
+}
+
 /** Uses only the SDK's existing call tracks. Never opens another microphone. */
 export function captureSpeech(
   base: string,
   token: string,
   call: string,
   streams: { rep: MediaStream; remote: MediaStream },
-  failed: () => void,
+  failed: (reason: SpeechStop) => void,
 ) {
   let stopped = false,
     reported = false;
@@ -22,20 +66,20 @@ export function captureSpeech(
     if (stopped) return;
     stopped = true;
     for (const r of resources) {
+      // The engine is shared by the session's calls: disconnect this call's nodes, never close it.
       r.source?.disconnect();
       r.node?.disconnect();
       r.gain?.disconnect();
-      void r.context.close();
       if (r.socket.readyState === WebSocket.OPEN) {
         r.socket.send(JSON.stringify({ stop: true }));
         setTimeout(() => r.socket.close(), 2500);
       } else r.socket.close();
     }
   };
-  const fail = () => {
+  const fail = (reason: SpeechStop) => {
     if (!stopped && !reported) {
       reported = true;
-      failed();
+      failed(reason);
       stop();
     }
   };
@@ -47,27 +91,27 @@ export function captureSpeech(
       );
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       const socket = new WebSocket(url);
-      const context = new AudioContext();
+      const context = engine();
       const r: (typeof resources)[number] = { side, socket, context };
       resources.push(r);
-      const timer = setTimeout(fail, 15000);
+      const timer = setTimeout(() => fail("no_ready"), 15000);
       socket.onopen = () => {
         if (!stopped) socket.send(JSON.stringify({ token }));
       };
-      socket.onerror = fail;
+      socket.onerror = () => fail("socket_error");
       socket.onclose = () => {
         clearTimeout(timer);
-        if (!stopped) fail();
+        if (!stopped) fail("socket_closed");
       };
       socket.onmessage = (event) => {
         let status: string;
         try {
           status = JSON.parse(event.data).status;
         } catch {
-          fail();
+          fail("bad_message");
           return;
         }
-        if (status === "unavailable") fail();
+        if (status === "unavailable") fail("provider_unavailable");
         if (status === "stopped") {
           socket.close();
           return;
@@ -75,7 +119,10 @@ export function captureSpeech(
         if (status !== "ready" || stopped || r.node) return;
         clearTimeout(timer);
         void (async () => {
-          await context.audioWorklet.addModule(processorURL);
+          await loadWorklet(context).catch((error: unknown) => {
+            fail("worklet_failed");
+            throw error;
+          });
           if (stopped) return;
           r.source = context.createMediaStreamSource(streams[side]);
           r.node = new AudioWorkletNode(context, "speech-pcm");
@@ -87,19 +134,19 @@ export function captureSpeech(
               socket.readyState !== WebSocket.OPEN ||
               socket.bufferedAmount > 64000
             ) {
-              fail();
+              fail("backpressure");
               return;
             }
             socket.send(message.data);
           };
           r.source.connect(r.node).connect(r.gain).connect(context.destination);
           await context.resume();
-          if (context.state !== "running") fail();
-        })().catch(fail);
+          if (context.state !== "running") fail("audio_suspended");
+        })().catch(() => fail("worklet_failed"));
       };
     }
   } catch {
-    fail();
+    fail("no_audio_engine");
   }
   return {
     stop,

@@ -132,10 +132,25 @@ class SimulatedCoach:
         lines = messages[-1]["content"].splitlines()
         question = next((line.split(": ", 1)[1] for line in lines if line.startswith("Private question")), "")
         said = next((line.split(": ", 1)[1] for line in reversed(lines) if line.startswith("Prospect: ")), "")
+        # Pull up the first script part that shares a word with what was just said, else the first part.
+        parts = [line for line in lines if line[:1].isdigit() and ". " in line]
+        heard = {w.strip(".,?!").lower() for w in (question or said).split() if len(w) > 3}
+        chosen = next(
+            (
+                i
+                for i, line in enumerate(parts, 1)
+                if heard & {w.strip(".,?!:").lower() for w in line.split()}
+            ),
+            1 if parts else None,
+        )
+        head = f"Part: {chosen}\n" if chosen else ""
         if question:
-            text = f"Privately: {question.rstrip('?')}? Answer briefly, then ask how they handle it today."
+            text = (
+                head
+                + f"Privately: {question.rstrip('?')}? Answer briefly, then ask how they handle it today."
+            )
         elif said:
-            text = f"They said “{said[:80]}”. Acknowledge it, then ask one question about it."
+            text = head + f"They said “{said[:80]}”. Acknowledge it, then ask one question about it."
         else:
             text = quiet
         if on_progress is not None and text != quiet:

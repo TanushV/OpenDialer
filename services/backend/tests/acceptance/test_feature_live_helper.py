@@ -162,20 +162,13 @@ def test_the_rep_can_delete_a_transcript_at_once(workspace):
     assert MARKER not in json.dumps(get(ws, f"/v1/calls/{call_id}/review"))
 
 
-def test_the_helper_knows_which_script_section_the_rep_is_on_during_the_call(workspace, app):
-    """While the call is live the transcript comes from memory; the section the rep read from still reaches the helper."""
-    from app import live_help
-    from app.helper.live import messages
-
+def test_a_tip_pulls_up_the_script_part_that_fits_what_the_prospect_said(workspace, clock):
+    """Owner direction, November 10: the helper shows what to say and the most relevant part of the script."""
     ws = workspace
+    with_helper(ws)
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
-    script = get(ws, f"/v1/calls/{call_id}")["script_snapshot"]
-    chunk(ws, call_id, "r1", script["discovery_questions"][0], side="rep")
-    chunk(ws, call_id, "s1", "We use spreadsheets.")
-    service = app.state.service
-    p = {k: ws[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
-    with service.db.transaction(False) as s:
-        call = ops.required(service, s, "call_attempts", call_id, p)
-        prompt = messages(live_help.request_in(service, s, p, call, None))[1]["content"]
-    assert "Current stage: opening" not in prompt and "Current stage: " in prompt
+    chunk(ws, call_id, "s1", "Can you just send me an email about the pricing?")
+    coach = tip_after_speech(ws, clock, call_id)["coach"]
+    assert coach["say_or_ask"].startswith("They said")
+    assert coach["script_part"]["label"] and coach["script_part"]["text"]

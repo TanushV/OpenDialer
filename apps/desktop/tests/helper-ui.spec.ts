@@ -372,3 +372,40 @@ test("a same-version stale help read cannot restore withdrawn guidance", async (
     await finishCall(page);
   }
 });
+
+test("a tip shows the script part it pulled up, and the call view keeps its keys in sight", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 720 });
+  await enter(page);
+  await prepareSimulationCall(page, "Script part fixture", "+14155550885");
+  const original = await firstCall(page);
+  await answer(page);
+  await page.route(`**/v1/calls/${original.id}`, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.coach = {
+      id: "with-part",
+      kind: "TIP",
+      private: false,
+      status: "ready",
+      say_or_ask: "Ask what the email should cover, then offer two times.",
+      script_part: {
+        label: "Objections · Send me an email",
+        text: "Happy to send it. So it's useful, what should it cover: the time your team spends or the cost? ".repeat(
+          4,
+        ),
+      },
+      remaining_ms: 60000,
+    };
+    await route.fulfill({ response, json: body });
+  });
+  // Asking for help re-reads the call, which now carries the tip with its script part.
+  await page.keyboard.press("F1");
+  const part = page.getByTestId("helper-script-part");
+  await expect(part).toContainText(
+    "From your script · Objections · Send me an email",
+  );
+  await expect(page.getByText("Ask what the email should cover")).toBeVisible();
+  await expect(hangUp(page)).toBeInViewport();
+});
