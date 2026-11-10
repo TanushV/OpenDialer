@@ -56,8 +56,9 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D18 | Build the number check with Trestle through Treg. No paid live-line check and no paid namesake lookups. See section 9A. | Owner decision, November 6; this replaces the earlier test-rule result that kept the live-line check |
 | D19 | The number waterfall is LeadOcean, AI Ark, Tomba, then Wiza, with Trestle on every number. For leads pulled from the CRM it runs inside the app. Leads that come from outside the app (CSV) are taken as they are: no Trestle, no finder and no other check. The outside runner stays for building CSV lists. Blitz joins first after its reset. | Owner decision, November 7; replaces "runs outside the app" |
 | D23 | Leads pulled from the CRM get a RealValidito do-not-call check (federal, state and TCPA litigator) before they can be dialed. Any hit is suppressed. CSV leads are not checked. | Owner decision, November 7; replaces the DoNotCallDNC key |
-| D25 | Several reps call at once as seats. Each seat is one rep on one Mac with its own app, SQLite file, relay workspace, Telnyx Call Control application, telephony credential and API key, on the one Telnyx account. HubSpot's contact owner decides which seat calls a contact; a seat syncs only its owner's contacts, so no live lock is needed. One HubSpot Service Key, one Treg token and one RealValidito key serve every seat. A CSV file belongs to one seat. No app login: the Mac's own login protects a seat. See section 9C. | Owner decision, November 8; the Telnyx account is Verified (checked in the portal November 8) |
-| D26 | One shared number pool. Any seat can call from any pool number. The relay picks the number for each call (local area code first, then least used today) and counts daily use across all seats, so the per-number cap holds for the team. Pool numbers sit on one shared incoming route, and a callback rings the seat that last called that prospect, or goes to voicemail and a task on that seat. | Owner decision, November 8; that a Call Control dial may present any number on the account is confirmed in L23 |
+| D25 | Withdrawn by D27. Several reps call at once as seats. Each seat is one rep on one Mac with its own app, SQLite file, relay workspace, Telnyx Call Control application, telephony credential and API key, on the one Telnyx account. HubSpot's contact owner decides which seat calls a contact; a seat syncs only its owner's contacts, so no live lock is needed. One HubSpot Service Key, one Treg token and one RealValidito key serve every seat. A CSV file belongs to one seat. No app login: the Mac's own login protects a seat. See section 9C. | Owner decision, November 8; the Telnyx account is Verified (checked in the portal November 8) |
+| D27 | One user only. Seats (D25), the shared number pool (D26), "Calls for", team calling, roles, passwords and sign-out are gone; every member of the chosen HubSpot list is synced whoever owns it. Section 9C and L21 to L24 are withdrawn. | Owner decision, November 10 ("We don't need this multi user") |
+| D26 | Withdrawn by D27. One shared number pool. Any seat can call from any pool number. The relay picks the number for each call (local area code first, then least used today) and counts daily use across all seats, so the per-number cap holds for the team. Pool numbers sit on one shared incoming route, and a callback rings the seat that last called that prospect, or goes to voicemail and a task on that seat. | Owner decision, November 8; that a Call Control dial may present any number on the account is confirmed in L23 |
 
 Open owner inputs:
 
@@ -562,6 +563,9 @@ Nooks is in use).
 
 ## 9C. Seats and the shared number pool
 
+**Withdrawn November 10 (D27): one user only.** The seat setup, pool, relay migration and "Calls for" code were removed
+before the relay migration was ever applied. The text below is history.
+
 How several reps call at once (D25, D26). There is no shared server and no in-app login.
 
 **What is shared and what is per seat**
@@ -1032,11 +1036,17 @@ each area, and `Dialer`, `Application` and `Service` are gone by the end of Phas
       Done November 7: `platform/` holds db, config, jobs, secrets, security, the log file and `Ctx`; the other section 4
       packages exist and fill as their phases rewrite each area (D24). `Service` builds the `Ctx` and its carrier comes
       from `providers/carrier.py`.
-- [ ] R3.2 Replace mixins with module functions. `Dialer`, `Application` and `Service` go.
+- [x] R3.2 Replace mixins with module functions. `Dialer`, `Application` and `Service` go.
+      Done November 10: the 19 mixin classes became 324 module functions that take the backend state first;
+      `app/ops.py` finds each by name and loads its module on first use, so modules never import each other in a
+      cycle. `AppState` keeps only state. A test checks every home module is named for the frozen sidecar.
 - [x] R3.3 Add an import-direction test. Done November 7: `tests/test_imports.py` ranks the packages, bans any import
       from a new package into legacy code, and lists the 9 existing edges with the step that removes each; the list can
       only shrink.
-- [ ] R3.4 Remove `p`, tenant and seller scoping, roles, password login and sessions; keep the local token.
+- [x] R3.4 Remove `p`, tenant and seller scoping, roles, password login and sessions; keep the local token.
+      Done November 10 for roles, password login, sign-out, teammates and the sessions table: the launch token buys a
+      session held in memory. `p` stays as the workspace's three IDs because every stored row carries them; dropping the
+      columns would rewrite the owner's data for no behavior change.
       Seats (D25) do not bring any of these back: a seat's identity is its HubSpot owner, its Telnyx credential and its
       relay workspace.
 - [ ] R3.5 Add Pydantic models for Call, Lead, Number, Task, Reservation, Command and Script with `extra="forbid"`.
@@ -1427,7 +1437,7 @@ phone.
       Done November 8.
 - [x] R9C.11 Layout audit covers the new rows and blockers.
       Done November 8: the Settings page stays under 30 visible controls (optional keys open with Add; Team calling is folded).
-- [ ] R9C.12 Live L21 to L24 with the owner's test contact, 203-821-1101 and a second approved phone.
+- [x] R9C.12 Withdrawn by D27 (one user). Live L21 to L24 with the owner's test contact, 203-821-1101 and a second approved phone.
 
 Done when: the tests pass, L21 to L24 pass, and a forced relay outage stops dialing on every seat with a named blocker
 and never lets two seats call one contact. **Owner sitting 5.**
@@ -1739,3 +1749,8 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   and sessions; a same-workspace teammate is still a code path, though the UI no longer creates one), R3.5 (typed core
   records), R4.5 (dial code into `calling/dial.py`), R5.2 (global element CSS) and R9E.1 (one calling model; its laws
   are checked piecewise today). These change structure, not behavior; each is a multi-day rewrite.
+- November 10, 2026: owner direction: finish to 2.0; one user only (D27); test calls to 203-821-1101 are allowed as
+  needed; HubSpot test records may be created and deleted. Done and pushed: seats, the pool and "Calls for" removed;
+  R3.4 (no roles, passwords, sign-out or sessions table); R3.2 (mixins to module functions behind `app/ops.py`); two
+  stale-answer races in Settings fixed; tests repeat clicks that WebKit drops under load. Next: R4.5, R3.5, R5.2,
+  R9E.1, then the live matrix and 2.0.
