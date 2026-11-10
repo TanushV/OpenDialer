@@ -20,6 +20,38 @@ describe("the UI kit (R5.1, rule 9)", () => {
     for (const selector of selectors)
       expect(selector).toMatch(/^(:root|\.[a-z-]+)/);
   });
+  it("keeps every bare element rule in the base layer, so no element rule overrides a component (R5.2)", () => {
+    const css = readFileSync(
+      new URL("../src/styles.css", import.meta.url),
+      "utf8",
+    )
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .trimStart();
+    const start = css.indexOf("@layer base {");
+    expect(start).toBe(0);
+    // Drop the base layer itself (its braces nest), then read every remaining selector, inside @media too.
+    let depth = 0;
+    let end = start;
+    for (let i = css.indexOf("{", start); i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}" && --depth === 0) {
+        end = i + 1;
+        break;
+      }
+    }
+    const rest = css
+      .slice(end)
+      .replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "")
+      .replace(/@media[^{]*\{/g, "")
+      .replace(/\{[^{}]*\}/g, "{}");
+    const bare = rest
+      .split(/[{}]/)
+      .flatMap((block) => block.split(","))
+      .map((s) => s.trim())
+      .filter((s) => s && !s.startsWith("@"))
+      .filter((s) => !/[.#]/.test(s.replace(/\[[^\]]*\]/g, "")));
+    expect(bare).toEqual([]);
+  });
   it("renders a button with its key, a one-line checkbox, a status, a panel and a table", () => {
     const html = renderToStaticMarkup(
       createElement("div", null, [

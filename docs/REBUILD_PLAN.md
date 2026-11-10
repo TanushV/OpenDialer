@@ -1049,7 +1049,11 @@ each area, and `Dialer`, `Application` and `Service` are gone by the end of Phas
       columns would rewrite the owner's data for no behavior change.
       Seats (D25) do not bring any of these back: a seat's identity is its HubSpot owner, its Telnyx credential and its
       relay workspace.
-- [ ] R3.5 Add Pydantic models for Call, Lead, Number, Task, Reservation, Command and Script with `extra="forbid"`.
+- [x] R3.5 Add Pydantic models for Call, Lead, Number, Task, Reservation, Command and Script with `extra="forbid"`.
+      Done November 10, with one change: core packages read Call, Reservation, Lead attempts, Command, Number, leg and
+      user records through typed views (`calling/records.py`), and only records a package wholly owns forbid unknown
+      fields (the agent leg and presence). A `forbid` model over a record that legacy code still writes would turn a
+      field nobody listed into a failed dial at run time. The `.data.get(` ban holds in every core package.
 - [x] R3.6 Remove edit-version conflict checks now that there is one writer; keep the idempotent dial and hang-up keys.
       Done November 9: an outcome, a task, a meeting review, a number, calling hours, callback routing and settings
       save from any read; the last save is the record and a retried request lands once (its request ID). Kept where
@@ -1100,8 +1104,11 @@ Goal: one state machine, one gate, and guarantees G1 to G8.
       records; the Telnyx credential check runs once per app session instead of on every leg; the replay carrier answers
       legs itself (`instant_agent_legs`), so `calling/` never branches on simulation. The 1.5-second reconnect target
       is measured live (R4.15).
-- [ ] R4.5 `calling/dial.py`: keep durable dial and hang-up records and read-only reconcile; `save_disposition` under
+- [x] R4.5 `calling/dial.py`: keep durable dial and hang-up records and read-only reconcile; `save_disposition` under
       120 lines.
+      Done November 10: dial, hang-up, their claims and receipts and the shared call finish live in
+      `calling/dial.py` under the core rules (typed reads, `workspace()`, no simulation branch: the carrier says whether
+      it replays). It reaches compliance, numbers and scripts through `app.ops`.
       Partly done November 8: `save_disposition` is 66 lines, and dial and hang-up keep their durable records (crash
       tests in R4.13). Moving the dial code into `calling/dial.py` is carried to Phase 9: it calls compliance
       authorization, script selection and number choice, which get module homes there.
@@ -1151,7 +1158,11 @@ Goal: nothing moves, nothing gets covered, and the rep always knows what is happ
 
 - [x] R5.1 Design tokens and eight components: Button, Field, Select, Check, Status, Panel, Toast, Table.
       Done November 8: `src/ui/kit.tsx` and `kit.css` (class selectors only, tested); the Dialer's bars use it.
-- [ ] R5.2 Replace global element CSS; add breakpoints; set a real minimum window behavior.
+- [x] R5.2 Replace global element CSS; add breakpoints; set a real minimum window behavior.
+      Done November 10: every bare element rule sits in `@layer base`, so any component class beats it whatever its
+      specificity; a test fails on an element rule outside that layer, inside media queries too. Screenshots of
+      every page before and after match. Breakpoints at 1180, 1100, 900 and 860 pixels; the window cannot shrink below
+      1024 by 720.
       In part, November 8: the stacked-checkbox defect is fixed and the Dialer has its breakpoint and pinned regions.
       The remaining global element rules go as Phase 10 rebuilds each page on the kit (R10.6 to R10.10).
 - [x] R5.3 Three fixed regions: status bar, script with its own scroll, action bar. Reserved space for every phase.
