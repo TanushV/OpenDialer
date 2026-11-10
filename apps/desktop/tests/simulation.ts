@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { goTo } from "./navigation";
 
 /**
  * A configuration journey must not revoke evidence used by unrelated call tests. Every test
@@ -27,7 +28,7 @@ export async function waitForPreparation(page: Page) {
  */
 /** Open Leads and wait until its table has loaded, so nothing below it moves under the next click. */
 export async function openLeads(page: Page) {
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await goTo(page, "Leads");
   await expect(page.getByRole("region", { name: "Leads" })).toHaveAttribute(
     "aria-busy",
     "false",
@@ -44,7 +45,7 @@ export async function importLead(page: Page, name: string, phone: string) {
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
   await expect(page.getByText(/^1 imported/)).toBeVisible({ timeout: 30_000 });
   await waitForPreparation(page);
-  await page.getByRole("button", { name: "Dialer", exact: true }).click();
+  await goTo(page, "Dialer");
 }
 
 /** Give a calling journey its own fictional work without resetting shared state. */
@@ -74,7 +75,7 @@ export async function prepareSimulationCall(
     page.getByText(new RegExp(`^${1 + more.length} imported`)),
   ).toBeVisible({ timeout: 30_000 });
   await waitForPreparation(page);
-  await page.getByRole("button", { name: "Dialer", exact: true }).click();
+  await goTo(page, "Dialer");
   await expect(callStatus(page)).toBeVisible();
 }
 

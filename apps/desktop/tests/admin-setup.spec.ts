@@ -1,5 +1,5 @@
 import { AUTHORITY, expect, test, type Page, setUpAuthority } from "./fixtures";
-import { openScreening } from "./navigation";
+import { openScreening, clickUntil } from "./navigation";
 
 test("the Telnyx key is saved and checked in its own row", async ({ page }) => {
   await enter(page);
@@ -359,6 +359,38 @@ test("an imported list is researched and scripted before it can be called", asyn
   await expect(packet.getByText("What the agent found")).toBeVisible();
 });
 
+test("a slow failed settings read never brings the error back after Try again worked", async ({
+  page,
+}) => {
+  // Reads fail at first; the read from the first Try again fails late, after the second Try again worked.
+  let phase: "failing" | "hold" | "working" = "failing";
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let holding = false;
+  await page.route("**/v1/admin/settings", async (route) => {
+    if (route.request().method() !== "GET" || phase === "working")
+      return route.continue();
+    if (phase === "hold" && !holding) {
+      holding = true;
+      await held;
+    }
+    return route.fulfill({ status: 503, json: { detail: "Unavailable" } });
+  });
+  await enter(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const failed = page.getByText(/Settings could not be loaded/);
+  await expect(failed).toBeVisible();
+  phase = "hold";
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect.poll(() => holding).toBe(true);
+  phase = "working";
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(failed).toHaveCount(0);
+  release();
+  await page.waitForTimeout(500);
+  await expect(failed).toHaveCount(0);
+});
+
 test("settings failures stay recoverable", async ({ page }) => {
   let failSettings = true;
   await page.route("**/v1/admin/settings", async (route) => {
@@ -375,8 +407,11 @@ test("settings failures stay recoverable", async ({ page }) => {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByText(/Settings could not be loaded/)).toBeVisible();
   failSettings = false;
-  await page.getByRole("button", { name: "Try again" }).click();
-  await expect(page.getByText(/Settings could not be loaded/)).toHaveCount(0);
+  await clickUntil(page.getByRole("button", { name: "Try again" }), () =>
+    expect(page.getByText(/Settings could not be loaded/)).toHaveCount(0, {
+      timeout: 3_000,
+    }),
+  );
   await openMore(page, "App updates");
   await openScreening(page);
 });

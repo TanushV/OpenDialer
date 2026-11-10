@@ -24,6 +24,7 @@ import {
   assertNoPendingOptouts,
 } from "../api/client";
 import { label, useWorkspace } from "../context";
+import { useNewestAnswer } from "../state/newest";
 import { limits, options, useDefinitions } from "../state/definitions";
 import type { Policy } from "../types";
 import { SetupRows } from "../settings/SetupRows";
@@ -58,15 +59,20 @@ function useAdminSettings() {
   const { api, subscribe } = useWorkspace();
   const [data, setData] = useState<SettingsData | null>(null);
   const [error, setError] = useState("");
+  // A slow older read (failed or not) never undoes a newer answer, e.g. after Try again.
+  const newest = useNewestAnswer();
   const load = useCallback(async () => {
+    const ticket = newest.begin();
     try {
-      setData(await api<SettingsData>("/v1/admin/settings"));
+      const found = await api<SettingsData>("/v1/admin/settings");
+      if (!newest.accept(ticket)) return;
+      setData(found);
       setError("");
     } catch (reason) {
-      setError(message(reason));
+      if (newest.accept(ticket)) setError(message(reason));
       throw reason;
     }
-  }, [api]);
+  }, [api, newest]);
   useEffect(() => {
     void load().catch(() => {});
     return subscribe((events) => {

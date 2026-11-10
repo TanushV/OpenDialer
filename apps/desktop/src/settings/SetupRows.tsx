@@ -2,15 +2,10 @@
  * The top of Settings (section 7, R7.2, R7.3): one true status from the calling blockers, then one row per thing to
  * set, saying where to get it and what it powers. A row is green only after its real check.
  */
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { openSource } from "../api/client";
 import { useWorkspace } from "../context";
+import { useNewestAnswer } from "../state/newest";
 import { Button, Panel, Status } from "../ui/kit";
 
 interface Row {
@@ -84,17 +79,14 @@ export function SetupRows({
   const { api, run, notice, refresh } = useWorkspace();
   const [data, setRows] = useState<Rows | null>(null);
   // An answer shows only if no later request has answered: a slow re-read never undoes a newer check.
-  const started = useRef(0);
-  const shown = useRef(0);
+  const newest = useNewestAnswer();
   const fetchRows = useCallback(
     async (path: string, method?: "POST") => {
-      const ticket = ++started.current;
+      const ticket = newest.begin();
       const rows = await api<Rows>(path, method);
-      if (ticket < shown.current) return;
-      shown.current = ticket;
-      setRows(rows);
+      if (newest.accept(ticket)) setRows(rows);
     },
-    [api],
+    [api, newest],
   );
   const load = useCallback(() => fetchRows("/v1/settings/rows"), [fetchRows]);
   useEffect(() => {

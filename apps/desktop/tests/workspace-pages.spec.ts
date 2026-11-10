@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { openMoreSettings } from "./navigation";
+import { openMoreSettings, clickUntil, goTo } from "./navigation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -207,11 +207,12 @@ test("editing an older follow-up keeps the returned version beyond the preview",
     }),
   );
   await enter(page);
-  await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Load more follow-ups", exact: true })
-    .click();
+  await goTo(page, "Review");
   const row = page.locator('[data-call-id="old-edit-call"]');
+  await clickUntil(
+    page.getByRole("button", { name: "Load more follow-ups", exact: true }),
+    () => expect(row).toBeVisible({ timeout: 3_000 }),
+  );
   await row.getByRole("button", { name: "Complete", exact: true }).click();
   await expect(row.getByText("Completed", { exact: true })).toBeVisible();
   await expect(

@@ -67,3 +67,30 @@ export async function openScriptSection(page: Page, summary: string) {
   await openDetails(section);
   return section;
 }
+
+/**
+ * Click until `done` holds. Under load on CI, WebKit can drop a click whose target moved or re-rendered between press
+ * and release (Playwright checks stability before the press, not between press and release). Use only for clicks that
+ * are safe to repeat: navigation, Try again, Load more.
+ */
+export async function clickUntil(
+  target: Locator,
+  done: () => Promise<void>,
+  timeout = 30_000,
+) {
+  await expect(async () => {
+    await target.click({ timeout: 5_000 });
+    await done();
+  }).toPass({ timeout, intervals: [250, 1_000, 2_000] });
+}
+
+/** Open a page from the sidebar and wait until it is the one shown. */
+export async function goTo(page: Page, title: string) {
+  await clickUntil(
+    page.getByRole("button", { name: title, exact: true }),
+    async () =>
+      expect(page.locator(".breadcrumb strong")).toHaveText(title, {
+        timeout: 3_000,
+      }),
+  );
+}
