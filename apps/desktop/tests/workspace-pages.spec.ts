@@ -303,11 +303,18 @@ for (const integrity of [null, false]) {
 test("each page opens at its top, whatever the last page's scroll", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1024, height: 720 });
   await enter(page);
   await goTo(page, "Settings");
-  await page.evaluate(() => window.scrollTo(0, 600));
+  await expect(page.getByTestId("setup-telnyx")).toBeVisible();
+  // Settings may still be growing as its rows load: scroll until the page has moved.
   await expect
-    .poll(() => page.evaluate(() => window.scrollY))
+    .poll(() =>
+      page.evaluate(() => {
+        window.scrollTo(0, 600);
+        return window.scrollY;
+      }),
+    )
     .toBeGreaterThan(0);
   await goTo(page, "Dialer");
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
