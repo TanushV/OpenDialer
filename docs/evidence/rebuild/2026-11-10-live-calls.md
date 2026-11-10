@@ -107,3 +107,14 @@ proven against this portal on November 9.
 Test call 3's carrier events: answered 6 seconds after dialing, premium detection `human_residence` 3.3 seconds later,
 hung up by the far end at 32 seconds (`normal_clearing`, SIP 200), no voicemail left. A pickup that fast with no
 message is the pattern of a phone's own screener for unknown numbers, which a carrier hears as a person.
+
+## Candidate 4 (draft built from `6b437f3`, Phase 11)
+
+Installed 03:36 (November 10) over candidate 3: archive SHA-256 matched, signature verified, the installed binary
+matches the archive, no call was live, and the bundle carries no trainer (StatML archived). The backend came up
+healthy on the same workspace.
+
+| Check | Result |
+|---|---|
+| R11.2 live | Within a second of starting, the app re-read Telnyx and finished setting up the number ending 158 (bought November 6, stuck as "purchased"): now `limited_real_use`, `active`, route confirmed. All six numbers are ready. |
+| R11.3 live | Not yet: the Mac's screen was locked, so the app's window never loaded, its call client did not register and it did not report itself reachable. A callback now would get the greeting and a follow-up, as designed for a closed app. Needs the owner at the Mac (microphone Allow for the new build). |
