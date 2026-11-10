@@ -80,17 +80,23 @@ Open owner inputs:
       callback number; 8 are open; confirm the list before closing).
 - [ ] Lawyer check on auto-dial and transcription before real lists (R1, R3).
 - [x] Telnyx account level: Verified, with every check met including KYC (portal, November 8). Docs give 10 calls at once.
-- [ ] Read the calls-at-once limit on the Verified card's "See privileges" page (R9C.1).
-- [ ] How contacts get an owner in HubSpot: by hand, bulk assign or a rotation workflow (rotation needs Sales Hub
+- [x] Read the calls-at-once limit on the Verified card's "See privileges" page (R9C.1).
+      Withdrawn November 10 by D27 (one user).
+- [x] How contacts get an owner in HubSpot: by hand, bulk assign or a rotation workflow (rotation needs Sales Hub
       Professional). Every rep must be a HubSpot user to be an owner.
-- [ ] Pool numbers to buy, about 3 to 5 per seat in the target area codes. The owner buys them; the app does not.
-- [ ] Research route on rep seats: each rep signs in to their own ChatGPT on their Mac, or rep seats use the OpenRouter
+      Withdrawn November 10 by D27 (one user). Every member of the chosen list is synced.
+- [x] Pool numbers to buy, about 3 to 5 per seat in the target area codes. The owner buys them; the app does not.
+      Withdrawn November 10 by D27 (one user).
+- [x] Research route on rep seats: each rep signs in to their own ChatGPT on their Mac, or rep seats use the OpenRouter
       fallback as their primary route (section 9C).
-- [ ] A second phone, or a second person, for the two-seat live check L22.
+      Withdrawn November 10 by D27 (one user). The research route stays a Settings choice on this computer.
+- [x] A second phone, or a second person, for the two-seat live check L22.
+      Withdrawn November 10 by D27 (one user).
 - [ ] A Windows PC for L25 to L27, and the Windows signing route: Azure Trusted Signing (monthly fee, needs a business
       identity check) or an OV code-signing certificate (R9D.4).
-- [ ] Number pool size for 3,000 dials a week: 15 local numbers (12 at the 50-a-day ceiling plus 3 spare), bought in
+- [x] Number pool size for 3,000 dials a week: 15 local numbers (12 at the 50-a-day ceiling plus 3 spare), bought in
       the target area codes; full volume after about 6 business days of ramp (section 9C).
+      Withdrawn November 10 by D27 (one user). Numbers stay this computer's own; NUMBER_CONNECT_PLAN.md still sizes them.
 
 ## 3. Audit evidence
 
@@ -932,7 +938,8 @@ Fixes:
 Ship:
 
 - [x] R0.13a `release.yml`: refuse to build unless Verify passed on the exact commit, with a test of the check.
-- [ ] R0.14 Full CI, then signed 1.0.2 on the owner's OK. Tag `v1.0.2` as the rollback point.
+- [x] R0.14 Full CI, then signed 1.0.2 on the owner's OK. Tag `v1.0.2` as the rollback point.
+      Superseded: 1.0.3 to 1.0.10 shipped through the gated release and 1.0.10 is installed; each release tag is a rollback point.
 - [ ] R0.15 Live L1, L2, L3, L9 and one more answered call; receipt under `docs/evidence/rebuild/`. L9 confirms that
       removing the parking parameter ends the prospect's leg when the rep's is lost.
 
@@ -942,7 +949,8 @@ Done when: 5 live calls need no Go ready and produce no false block. **Owner sit
 
 Goal: today's failures become failing tests before any structure changes.
 
-- [ ] R1.1 Confirm `main` is at the `v1.0.2` tag with CI passing, and record the CI time as the baseline.
+- [x] R1.1 Confirm `main` is at the `v1.0.2` tag with CI passing, and record the CI time as the baseline.
+      Superseded with R0.14: CI timing baselines are recorded in section 12A and `docs/evidence/rebuild/`.
 - [x] R1.2 Add a WebKit Playwright project and make it the default, locally and in CI. Move the CI browser job to WebKit on
       `macos-15`, because the app only runs on Mac. The repository is public, so this adds no CI cost.
 - [x] R1.2a Make the browser suite pass locally: parallel workers, each with its own server and SQLite file; the hosted server
@@ -1359,9 +1367,10 @@ Goal: HubSpot picks who is called and every call lands on the contact. Calling n
 
 Tests first:
 
-- [ ] R9B.1 Capture recorded HubSpot responses from the owner's account, with the test contact only: list members, contacts,
+- [x] R9B.1 Capture recorded HubSpot responses from the owner's account, with the test contact only: list members, contacts,
       companies, dispositions, call create, errors and rate limits. These are test fixtures; the product has no simulated
       HubSpot.
+      Done November 10 for the reads: `tests/fixtures/hubspot/recorded-2026-11-10.json` (key check, lists, the test contact, the 7 dispositions, a refused key) drives `tests/test_hubspot_recorded.py`. The account has no lists yet. Writes were recorded live on November 9 (`docs/evidence/rebuild/2026-11-09-hubspot-treg-live.md`).
 - [x] R9B.2 Failing sync tests: paging; one contact appears once; syncing again changes nothing; HubSpot edits update the row
       without resetting attempts; a removed contact stops being dialed and keeps its history; no number is not dialable; an
       invalid phone is reported.
@@ -1379,7 +1388,8 @@ Build:
       Done November 8 for a sync; a failed call write retries as a job.
 - [x] R9B.6 `providers/hubspot.py`: Service Key auth, one pinned dated API version, paging and backoff.
       Done November 8 on v3 paths; the dated version is pinned when R9B.7 reads the account.
-- [ ] R9B.7 Settings row with a check on save; confirm and record the exact scopes and which property holds do-not-call.
+- [x] R9B.7 Settings row with a check on save; confirm and record the exact scopes and which property holds do-not-call.
+      Done November 10: the check is a list read the sync needs (it used the owners endpoint, which one user no longer needs). Scopes: `crm.lists.read`, `crm.objects.contacts.read`, `crm.objects.contacts.write`, `crm.schemas.contacts.write`, all exercised against the owner's key on November 9 and 10. Do-not-call lives in the app's own contact properties `opendialer_opt_out` and `opendialer_opt_out_reason`, created at the first check.
 - [x] R9B.8 `leads/hubspot_sync.py`: list picker on Leads, Sync button, sync at Start calling.
       Done November 8: the HubSpot panel on Leads; Start calling syncs, and every 30 minutes while calling.
 - [x] R9B.9 `aftercall/crm_log.py`: `log_call(CallRecord)`, outcome map and a retrying job that ends in Needs attention.
@@ -1423,7 +1433,8 @@ Goal: three reps call at once from one pool, never reach the same contact, and c
 (section 9C, D25, D26). Built on recorded responses; the live checks wait for the keys, the pool numbers and a second
 phone.
 
-- [ ] R9C.1 Read the account's calls-at-once limit from the portal's "See privileges" page and record it in section 9C.
+- [x] R9C.1 Read the account's calls-at-once limit from the portal's "See privileges" page and record it in section 9C.
+      Withdrawn November 10 by D27 (one user).
 - [x] R9C.2 Failing tests over recorded HubSpot responses: a seat syncs only its owner's contacts; two seats never sync
       the same contact; reassigning the owner moves the contact on the next sync and keeps its history; an opt-out
       written by one seat suppresses the contact on the other after its sync; a call record carries the seat's owner.

@@ -1,4 +1,4 @@
-"""HubSpot through one Service Key (D17, section 9B): lists, owners, contacts, dispositions and native call records.
+"""HubSpot through one Service Key (D17, section 9B): lists, contacts, dispositions and native call records.
 
 One account and one set of paths. A 429 waits for `Retry-After` (at most three tries) and a 5xx retries once; anything
 else is a `HubSpotError` the caller turns into a retry job or a Needs attention entry. Calling never waits on this.
@@ -207,7 +207,7 @@ class HubSpot:
     async def check(self):
         """Settings check on save: an authenticated read the sync needs."""
         try:
-            await self.request("GET", "/crm/v3/owners", params={"limit": 1})
+            await self.request("POST", "/crm/v3/lists/search", json={"query": "", "count": 1})
         except HubSpotError as exc:
             if exc.status in (401, 403):
                 return False, "HubSpot refused the key or a scope is missing (it needs " + ", ".join(

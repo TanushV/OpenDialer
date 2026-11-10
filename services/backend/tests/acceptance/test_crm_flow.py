@@ -259,6 +259,8 @@ def test_checking_the_hubspot_key_creates_the_apps_fields_once(workspace, monkey
     made = []
 
     def respond(request):
+        if request.url.path == "/crm/v3/lists/search":
+            return httpx.Response(200, json={"lists": []})
         if request.method == "GET":
             return httpx.Response(404)
         made.append(json.loads(request.content)["name"])

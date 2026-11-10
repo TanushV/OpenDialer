@@ -1,0 +1,163 @@
+[
+ {
+  "body": {
+   "count": 1,
+   "query": ""
+  },
+  "method": "POST",
+  "params": {},
+  "path": "/crm/v3/lists/search",
+  "response": {
+   "hasMore": false,
+   "lists": [],
+   "offset": 0,
+   "total": 0
+  },
+  "status": 200
+ },
+ {
+  "body": {
+   "count": 500,
+   "query": ""
+  },
+  "method": "POST",
+  "params": {},
+  "path": "/crm/v3/lists/search",
+  "response": {
+   "hasMore": false,
+   "lists": [],
+   "offset": 0,
+   "total": 0
+  },
+  "status": 200
+ },
+ {
+  "body": {
+   "inputs": [
+    {
+     "id": "261425233976"
+    }
+   ],
+   "properties": [
+    "city",
+    "company",
+    "firstname",
+    "hs_linkedin_url",
+    "jobtitle",
+    "lastname",
+    "mobilephone",
+    "notes_last_contacted",
+    "opendialer_opt_out",
+    "opendialer_opt_out_reason",
+    "phone",
+    "phone_status",
+    "state",
+    "website"
+   ]
+  },
+  "method": "POST",
+  "params": {},
+  "path": "/crm/v3/objects/contacts/batch/read",
+  "response": {
+   "completedAt": "2026-11-10T03:44:55.576Z",
+   "results": [
+    {
+     "archived": false,
+     "createdAt": "2026-11-09T11:48:46.060Z",
+     "id": "261425233976",
+     "properties": {
+      "city": null,
+      "company": "OpenDialer test",
+      "createdate": "2026-11-09T11:48:46.060Z",
+      "firstname": "OpenDialer",
+      "hs_linkedin_url": null,
+      "hs_object_id": "261425233976",
+      "jobtitle": null,
+      "lastmodifieddate": "2026-11-09T19:39:18.726Z",
+      "lastname": "Test",
+      "mobilephone": null,
+      "notes_last_contacted": "2026-11-09T11:55:00Z",
+      "opendialer_opt_out": "false",
+      "opendialer_opt_out_reason": "",
+      "phone": "+12038211101",
+      "phone_status": "conflict",
+      "state": null,
+      "website": null
+     },
+     "updatedAt": "2026-11-09T19:39:18.726Z",
+     "url": "https://app.hubspot.com/contacts/51457381/record/0-1/261425233976"
+    }
+   ],
+   "startedAt": "2026-11-10T03:44:55.529Z",
+   "status": "COMPLETE"
+  },
+  "status": 200
+ },
+ {
+  "body": null,
+  "method": "GET",
+  "params": {},
+  "path": "/calling/v1/dispositions",
+  "response": [
+   {
+    "custom": false,
+    "deleted": false,
+    "id": "9d9162e7-6cf3-4944-bf63-4dff82258764",
+    "label": "Busy"
+   },
+   {
+    "custom": false,
+    "deleted": false,
+    "id": "f240bbac-87c9-4f6e-bf70-924b57d47db7",
+    "label": "Connected"
+   },
+   {
+    "custom": false,
+    "deleted": false,
+    "id": "a4c4c377-d246-4b32-a13b-75a56a4cd0ff",
+    "label": "Left live message"
+   },
+   {
+    "custom": false,
+    "deleted": false,
+    "id": "b2cf5968-551e-4856-9783-52b3da59a7d0",
+    "label": "Left voicemail"
+   },
+   {
+    "custom": false,
+    "deleted": false,
+    "id": "2e7360c1-6b71-40e9-ab2b-30ae98a4678c",
+    "label": "Meeting booked"
+   },
+   {
+    "custom": false,
+    "deleted": false,
+    "id": "73a0d17f-1163-4015-bdd5-ec830791da20",
+    "label": "No answer"
+   },
+   {
+    "custom": false,
+    "deleted": false,
+    "id": "17b47fee-58de-441e-a44c-c6300d46f273",
+    "label": "Wrong number"
+   }
+  ],
+  "status": 200
+ },
+ {
+  "body": {
+   "count": 1,
+   "query": ""
+  },
+  "method": "POST",
+  "params": {},
+  "path": "/crm/v3/lists/search",
+  "response": {
+   "category": "INVALID_AUTHENTICATION",
+   "correlationId": "01a1c38f-1345-7273-b786-1905a30d2f88",
+   "message": "Authentication credentials not found. This API supports OAuth 2.0 authentication and you can find more details at https://developers.hubspot.com/docs/methods/auth/oauth-overview",
+   "status": "error"
+  },
+  "status": 401
+ }
+]
