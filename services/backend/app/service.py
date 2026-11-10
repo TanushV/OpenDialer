@@ -742,7 +742,9 @@ def start_test_session(service, p):
             lead,
             archived=False,
             dial_paused=False,
-            # The rep's own phone is always callable in a test session; only an opt-out still stops it.
+            # An older copy may still be held (a delivery test, a goal review): the rep's own phone is always
+            # callable in a test session; only an opt-out still stops it.
+            outreach_hold=None,
             status="eligible",
             next_attempt_at=None,
             pair_opened_at=None,

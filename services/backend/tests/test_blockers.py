@@ -207,3 +207,44 @@ def test_every_combination_of_facts_names_blockers_that_each_have_a_way_out():
             assert b.message and b.fix
         checked += 1
     assert checked > 9_000
+
+
+def test_a_test_call_to_the_owners_line_goes_ahead_at_night(workspace, app, clock):
+    """Live check, November 10: at 11 PM Eastern the test call was refused as outside calling hours. Calling
+    hours protect prospects; the owner's own test line in a test session ignores them (an opt-out still stops it)."""
+    from datetime import UTC, datetime
+
+    from conftest import ready
+
+    client = workspace["client"]
+    clock.now = datetime(2026, 11, 10, 4, 40, tzinfo=UTC)  # 11:40 PM in New York, 8:40 PM in California.
+    token = client.post("/v1/local/session", headers={"X-Local-Token": "test-local-secret"}).json()
+    headers = workspace["headers"] = {"Authorization": f"Bearer {token['access_token']}"}
+    client.put("/v1/admin/settings", headers=headers, json={"test_phone": "+12038211101"})
+    started = client.post("/v1/settings/test-call", headers=headers).json()
+    ready(workspace)
+    answer = client.post("/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]})
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["lead"]["id"] == started["lead_id"]
+
+
+def test_a_test_call_reaches_an_old_test_lead_that_still_carries_a_delivery_hold(workspace, app):
+    """Live check, November 10: the owner's test phone was an older lead held as `delivery_test`, so the queue never
+    offered it and the Dialer said no one was left. Starting a test session clears holds on that one lead."""
+    from app.platform.db import MODELS, update
+    from conftest import ready
+    from sqlalchemy import select
+
+    client, headers = workspace["client"], workspace["headers"]
+    client.put("/v1/admin/settings", headers=headers, json={"test_phone": "+12038211101"})
+    first = client.post("/v1/settings/test-call", headers=headers).json()
+    with app.state.db.transaction() as s:
+        lead = s.scalars(select(MODELS["leads"]).where(MODELS["leads"].id == first["lead_id"])).one()
+        update(lead, outreach_hold="delivery_test", attempt_count=3)
+    client.delete("/v1/settings/test-call", headers=headers)
+    again = client.post("/v1/settings/test-call", headers=headers).json()
+    assert again["lead_id"] == first["lead_id"]
+    ready(workspace)
+    answer = client.post("/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]})
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["lead"]["id"] == first["lead_id"]

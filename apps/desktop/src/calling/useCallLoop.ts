@@ -229,11 +229,23 @@ export function useCallLoop(visible: boolean) {
     if (!w.simulation) {
       if (!telephony.current.registered) {
         setAudioStatus("Checking microphone and registering…");
-        const result = await api<{ token: string }>(
-          "/v1/telephony/token",
-          "POST",
+        // macOS may be asking for the microphone; say so instead of waiting silently.
+        const waiting = setTimeout(
+          () =>
+            setAudioStatus(
+              "Waiting for the microphone. If macOS asks, click Allow.",
+            ),
+          4_000,
         );
-        await telephony.current.connect(result.token, audio.current!);
+        try {
+          const result = await api<{ token: string }>(
+            "/v1/telephony/token",
+            "POST",
+          );
+          await telephony.current.connect(result.token, audio.current!);
+        } finally {
+          clearTimeout(waiting);
+        }
       }
       const leg = await api<{ agent_call_control_id: string }>(
         "/v1/telephony/agent",

@@ -4,6 +4,35 @@ import type { Call } from "@telnyx/webrtc/lib/src/Modules/Verto/webrtc/Call";
 const providerId = (call: Call | null) => call?.telnyxIDs?.telnyxCallControlId;
 const ended = (call: Call) => ["hangup", "destroy"].includes(call.state);
 
+/** How long macOS may hold the microphone request (its permission prompt) before calling stops and says why. */
+export const MICROPHONE_WAIT_MS = 30_000;
+export const MICROPHONE_BLOCKED =
+  "OpenDialer cannot use the microphone. Click Allow if macOS is asking, or turn OpenDialer on in System Settings > Privacy & Security > Microphone, then press Start calling.";
+
+/** The microphone, or a plain refusal: never an endless wait on a permission prompt nobody answers (G10). */
+export async function microphone(waitMs: number): Promise<MediaStream> {
+  const asked = navigator.mediaDevices.getUserMedia({ audio: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(MICROPHONE_BLOCKED)), waitMs);
+  });
+  try {
+    return await Promise.race([asked, late]);
+  } catch (error) {
+    // A prompt answered after the wait still hands over a stream: release it.
+    void asked
+      .then((stream) => stream.getTracks().forEach((track) => track.stop()))
+      .catch(() => undefined);
+    if (error instanceof Error && error.message === MICROPHONE_BLOCKED)
+      throw error;
+    if (error instanceof DOMException && error.name === "NotAllowedError")
+      throw new Error(MICROPHONE_BLOCKED);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Whether a telephony status should take the rep out of ready presence. */
 export function pausesPresence(status: string, inCall: boolean) {
   // The SDK keeps media through a transient socket reconnect; pausing a live
@@ -93,9 +122,7 @@ export class Telephony {
       throw new Error(
         "This webview does not expose microphone/WebRTC support.",
       );
-    const permission = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-    });
+    const permission = await microphone(MICROPHONE_WAIT_MS);
     permission.getTracks().forEach((track) => track.stop());
     if (session !== this.session)
       throw new Error("Telephony connection cancelled.");
