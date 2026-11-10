@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -24,7 +24,6 @@ from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.lead_lists import memberships
 from app.platform.config import Settings
 from app.platform.db import Database, Event, audit, doc, put, rows, update
-from app.platform.security import PASSWORDS, admin, decode_session, issue_session
 from app.preparation.templates import PreparationPolicy
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.scheduling.models import ContactRole, OutcomeCode
@@ -61,8 +60,6 @@ class IngressCheck(Strict):
 class Setup(Strict):
     seller_name: str = Field(min_length=1, max_length=200)
     campaign_name: str = Field(default="My campaign", max_length=200)
-    email: str = Field(min_length=3, max_length=254)
-    password: str = Field(min_length=12, max_length=200)
     name: str = Field(default="Local operator", max_length=120)
 
 
@@ -79,11 +76,6 @@ class CoachQuestion(Strict):
 
 class CoachCancel(Strict):
     request_id: UUID
-
-
-class Login(Strict):
-    email: str
-    password: str
 
 
 class Presence(Strict):
@@ -424,9 +416,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     from fastapi.exceptions import RequestValidationError
 
     from app.platform.secret_files import SecretStorageError
-    from app.platform.security import LoginLimiter
-
-    login_limiter = LoginLimiter()
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, error):
@@ -477,11 +466,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def principal(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]):
         if not credentials:
             fail(401, "Authentication required")
-        return decode_session(db, settings, credentials.credentials, clock())
+        return service.sessions.check(db, credentials.credentials, clock())
 
-    def administrator(p=Depends(principal)):
-        admin(p)
-        return p
+    # One user (R3.4): every signed-in request may change settings.
+    administrator = principal
 
     bind_operating_api(app, service, administrator)
 
@@ -519,50 +507,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/local/session")
     def local_session(x_local_token: str | None = Header(default=None)):
         local_nonce(x_local_token)
-        with db.transaction() as s:
+        with db.transaction(False) as s:
             users = rows(s, "users")
             if not users:
                 fail(409, "Workspace setup required")
-            user = next(u for u in users if u.data["role"] == "owner")
-            return issue_session(s, settings, user, clock())
+            # One user (R3.4); an older store may still hold a teammate row, so take the first owner.
+            user = min(users, key=lambda u: (u.data.get("role", "owner") != "owner", u.created_at))
+            return service.sessions.issue(user, clock())
 
-    @app.post("/v1/auth/session")
-    def login(data: Login, request: Request):
-        source = (request.client.host if request.client else "unknown", data.email.casefold())
-        login_limiter.check(source)
-        with db.transaction() as s:
-            user = next((u for u in rows(s, "users") if u.data["email"] == data.email.casefold()), None)
-            if (
-                not user
-                or user.data.get("disabled")
-                or not PASSWORDS.verify(data.password, user.data["password_hash"])
-            ):
-                fail(401, "Email or password is invalid")
-            result = issue_session(s, settings, user, clock())
-        login_limiter.succeeded(source)
-        return result
-
-    def logout_principal(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]):
-        if not credentials:
-            fail(401, "Authentication required")
-        # This dependency is exclusive to logout, never a general authentication
-        # bypass. The signed original session must own a committed logout receipt.
-        return decode_session(db, settings, credentials.credentials, clock(), logout_receipt_only=True)
-
-    @app.post("/v1/auth/logout")
-    def logout(p=Depends(logout_principal)):
-        with db.transaction() as s:
-            db.authorize_stream(s, p)
-            status = service.quiescence_in(s, p)
-            if not status["can_disconnect"]:
-                fail(409, {"code": "AUTHORITY_HAS_OBLIGATIONS", "reasons": status["reasons"]})
-            service.release_unused_reservation_in(s, p)
-            session = service.required(s, "sessions", p["session_id"], p)
-            if not session.data.get("logout_completed_at"):
-                update(session, revoked=True, logout_completed_at=clock().isoformat())
-        return {"logged_out": True}
-
-    @app.get("/v1/auth/quiescence")
+    @app.get("/v1/quiescence")
     def quiescence(p=Depends(principal)):
         with db.transaction(False) as s:
             return service.quiescence_in(s, p)
@@ -620,14 +573,13 @@ def create_app(settings=None, *, clock=None, carrier=None):
         """What needs the rep, each with the one thing to do: Review opens with this list."""
         from app.review_issues import issues
 
-        mine = (lambda m: m.op_owner_id == p["user_id"]) if p["role"] == "rep" else (lambda m: True)
         with db.transaction(False) as s:
             return {
                 "issues": issues(
                     blockers=[b.detail() for b in service.dial_blockers_in(s, p, rep=False)],
                     leads=[m.data for m in service.scoped(s, "leads", p)],
-                    calls=[m.data for m in service.scoped(s, "call_attempts", p) if mine(m)],
-                    tasks=[m.data for m in service.scoped(s, "followup_tasks", p) if mine(m)],
+                    calls=[m.data for m in service.scoped(s, "call_attempts", p)],
+                    tasks=[m.data for m in service.scoped(s, "followup_tasks", p)],
                     now=service.clock(),
                 )
             }
@@ -688,8 +640,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
         with db.transaction(False) as s:
             call = service.required(s, "call_attempts", call_id, p)
-            if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
-                fail(404, "Object not found")
             tip, helper = live_help.view(service, call)
             segments = service.transcript_rows(s, p, call_id)
             summary = service.call_summary(s, p, call_id)
@@ -853,8 +803,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/calls/{call_id}/transcript")
     async def transcript(call_id: str, data: Transcript, p=Depends(principal)):
         # Synthetic/manual corrections only. Live machine ingestion is signature-verified via webhooks.
-        if not settings.simulation and p["role"] not in {"owner", "admin"}:
-            fail(403, "Transcript correction requires administrator review")
         return await service.transcript(p, call_id, data.model_dump())
 
     @app.patch("/v1/calls/{call_id}/coach")
@@ -923,15 +871,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 from app.platform.db import MODELS
 
                 seller = e.payload.get("_seller_id")
-                rep = e.payload.get("_rep_id")
                 if seller is None:
                     # Old release events lack scope metadata. Resolve their entity, otherwise fail closed.
                     for model in MODELS.values():
                         target = s.get(model, e.entity_id)
                         if target and target.tenant_id == p["tenant_id"]:
-                            seller, rep = target.seller_id, target.data.get("rep_id")
+                            seller = target.seller_id
                             break
-                return seller == p["seller_id"] and (p["role"] != "rep" or not rep or rep == p["user_id"])
+                return seller == p["seller_id"]
 
             result = [
                 {
@@ -962,10 +909,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
         incoming = None
         try:
             auth = await asyncio.wait_for(ws.receive_json(), 10)
-            p = decode_session(db, settings, auth.get("token", ""), clock())
+            p = service.sessions.check(db, auth.get("token", ""), clock())
             cursor = int(auth.get("after", 0))
             while True:
-                await asyncio.to_thread(decode_session, db, settings, auth["token"], clock())
+                await asyncio.to_thread(service.sessions.check, db, auth["token"], clock())
                 batch = await asyncio.to_thread(events, cursor, p)
                 if batch["events"] or batch["cursor"] != cursor:
                     await ws.send_json(batch)
@@ -1004,13 +951,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
         def context():
             provider = service.carrier(p["tenant_id"])
             conf = service.configs.read(p["tenant_id"])
-            admin = p["role"] in {"owner", "admin"}
             with db.transaction(False) as s:
                 user = service.required(s, "users", p["user_id"], p)
-                credential = user.data.get("telephony_credential_id") or (
-                    conf.get("telephony_credential_id") if admin else None
-                )
-                sip = user.data.get("sip_username") or (conf.get("sip_username") if admin else None)
+                credential = user.data.get("telephony_credential_id") or conf.get("telephony_credential_id")
+                sip = user.data.get("sip_username") or conf.get("sip_username")
             return provider, credential, sip
 
         provider, credential, sip = await asyncio.to_thread(context)
@@ -1445,37 +1389,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/admin/restore")
     def restore(data: dict, p=Depends(administrator)):
         return service.restore(p, data.get("backup_id", ""))
-
-    @app.post("/v1/admin/users")
-    def create_user(data: dict, p=Depends(administrator)):
-        if data.get("role") not in {"rep", "admin"} or len(data.get("password", "")) < 12:
-            fail(422, "Role rep/admin and a password of at least 12 characters are required")
-        with db.transaction() as s:
-            if any(u.data["email"] == data["email"].casefold() for u in rows(s, "users")):
-                fail(409, "Email already registered")
-            user = put(
-                s,
-                "users",
-                p["tenant_id"],
-                p["seller_id"],
-                {
-                    "email": data["email"].casefold(),
-                    "name": data.get("name", "Rep"),
-                    "role": data["role"],
-                    "password_hash": PASSWORDS.hash(data["password"]),
-                    "disabled": False,
-                    "presence": {"status": "paused"},
-                    "telephony_credential_id": data.get("telephony_credential_id"),
-                    "sip_username": data.get("sip_username"),
-                },
-                now=clock(),
-            )
-            return {
-                "id": user.id,
-                "name": user.data["name"],
-                "role": user.data["role"],
-                "email": user.data["email"],
-            }
 
     @app.patch("/v1/leads/{lead_id}/endpoint")
     def correct_endpoint(lead_id: str, data: dict, p=Depends(administrator)):

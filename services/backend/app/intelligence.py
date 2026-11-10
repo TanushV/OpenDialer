@@ -355,9 +355,7 @@ class Application(Preparation, SpeechPrivacy, RequestAccounting, Service):
         so the write transaction neither decrypts nor rehashes the snapshot."""
         from app.optimization.workflows import dataset_checksum
 
-        user = self.required(s, "users", p["user_id"], p)
-        if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
-            fail(403, "Current administrator authority is required for training")
+        self.required(s, "users", p["user_id"], p)
         config = self.optimization_config(s, p)
         changed = config["conversion_goal"] != payload.get("goal") or (
             payload.get("window_days") is not None and config["window_days"] != payload["window_days"]
@@ -496,21 +494,11 @@ class Application(Preparation, SpeechPrivacy, RequestAccounting, Service):
             A seller without one keeps the per-user passes, because a rep's own
             authority only covers that rep's calls.
             """
-            sellers = {}
             with self.db.transaction(False) as session:
-                for r in rows(session, "users"):
-                    if not r.data.get("disabled"):
-                        sellers.setdefault((r.tenant_id, r.seller_id), []).append(
-                            {
-                                "tenant_id": r.tenant_id,
-                                "seller_id": r.seller_id,
-                                "user_id": r.id,
-                                "role": r.data["role"],
-                            }
-                        )
-            for users in sellers.values():
-                administrator = next((u for u in users if u["role"] in {"owner", "admin"}), None)
-                yield from [administrator] if administrator else users
+                users = sorted(rows(session, "users"), key=lambda u: u.created_at)
+            # One user (R3.4); an older store may hold a teammate row, which acts for nobody.
+            for user in users[:1]:
+                yield {"tenant_id": user.tenant_id, "seller_id": user.seller_id, "user_id": user.id}
 
         for p in await asyncio.to_thread(lambda: list(principals())):
             try:

@@ -675,7 +675,7 @@ def register_script_lab(app, service, principal, administrator):
             latest = service.latest_memory(s, p, campaign)
             if (latest.data["version"] if latest else 0) != body.expected_version:
                 fail(409, "The script memory changed; reload before editing the team notes")
-            author = service.required(s, "users", p["user_id"], p).data.get("email", p["user_id"])
+            author = service.required(s, "users", p["user_id"], p).data.get("name") or p["user_id"]
             row = service.write_memory_in(s, p, campaign, notes=body.team_notes, author=author)
             return {k: row.data[k] for k in ("version", "markdown", "team_notes", "written_by", "written_at")}
 

@@ -7,8 +7,6 @@ import pytest
 from app.platform.db import MODELS, update
 from sqlalchemy import select
 
-PASSWORD = "a-test-only-password-123"
-
 
 def call(ws, method, path, json=None, status=200):
     response = ws["client"].request(method, path, headers=ws["headers"], json=json)
@@ -82,23 +80,9 @@ def test_an_unanswered_next_to_last_attempt_offers_the_same_rep_one_immediate_fi
     assert next_lead(workspace, 409)["detail"]["code"] == "NO_ELIGIBLE_LEADS"
 
 
-def test_the_offer_closes_after_five_minutes_and_belongs_to_the_rep_who_dialed(workspace, app, clock):
+def test_the_offer_closes_after_five_minutes(workspace, app, clock):
     one_lead_in_final_stage(app, workspace)
-    post(
-        workspace,
-        "/v1/admin/users",
-        {"email": "b@example.test", "name": "B", "role": "rep", "password": PASSWORD},
-    )
-    token = workspace["client"].post(
-        "/v1/auth/session", json={"email": "b@example.test", "password": PASSWORD}
-    )
-    other = {
-        **workspace,
-        "headers": {"Authorization": f"Bearer {token.json()['access_token']}"},
-        "agent": "b",
-    }
     unanswered(workspace)
-    assert next_lead(other, 409)["detail"]["code"] == "NO_ELIGIBLE_LEADS"
     post(workspace, "/v1/rep/presence", {"status": "paused"})
     clock.now += timedelta(minutes=5, seconds=1)
     assert next_lead(workspace, 409)["detail"]["code"] == "NO_ELIGIBLE_LEADS"
@@ -120,9 +104,7 @@ def test_no_second_attempt_after_a_conversation_or_outside_the_final_stage(works
 
 
 def sign_in(ws):
-    token = ws["client"].post(
-        "/v1/auth/session", json={"email": "operator@example.test", "password": PASSWORD}
-    )
+    token = ws["client"].post("/v1/local/session", headers={"X-Local-Token": "test-local-secret"}, json={})
     ws["headers"] = {"Authorization": f"Bearer {token.json()['access_token']}"}
 
 

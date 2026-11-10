@@ -992,7 +992,7 @@ class Dialer(
             self._restore_operator(s, p)
             recovered = 0
             for kind, model in MODELS.items():
-                if kind in {"tenants", "users", "sessions"}:
+                if kind in {"tenants", "users"}:
                     continue  # Business state only, never old access grants, passwords or sessions.
                 values = payload["tables"].get(kind, [])
                 for offset in range(0, len(values), 250):
@@ -1057,9 +1057,7 @@ class Dialer(
         }
 
     def _restore_operator(self, session, p):
-        user = self.required(session, "users", p["user_id"], p)
-        if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
-            fail(403, "Current administrator authority is required for restore")
+        self.required(session, "users", p["user_id"], p)
 
     async def reconcile_restore(self, p, review_reference, provider_ids=None):
         """Resume outbound only once every restored live call is proven ended at the carrier."""

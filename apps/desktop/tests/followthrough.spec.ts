@@ -1,4 +1,4 @@
-import { expect, test, hosted, HOSTED_ONLY } from "./fixtures";
+import { expect, test } from "./fixtures";
 import {
   addDetail,
   answer,
@@ -30,17 +30,6 @@ for (const connected of [false]) {
     await expect(
       page.getByRole("status", { name: "Call status" }),
     ).toBeVisible();
-    if (connected) {
-      await page.getByTitle("Sign out").click();
-      await page.getByRole("button", { name: "Connect to a server" }).click();
-      test.skip(!hosted, HOSTED_ONLY);
-      await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
-      await page.getByLabel("Email").fill("team@example.test");
-      await page
-        .getByLabel("Password", { exact: true })
-        .fill("Connected-test-password-123");
-      await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    }
     await prepareSimulationCall(
       page,
       "Meeting correction fixture",
@@ -296,17 +285,6 @@ for (const connected of [false]) {
     await expect(
       page.getByRole("status", { name: "Call status" }),
     ).toBeVisible();
-    if (connected) {
-      await page.getByTitle("Sign out").click();
-      await page.getByRole("button", { name: "Connect to a server" }).click();
-      test.skip(!hosted, HOSTED_ONLY);
-      await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
-      await page.getByLabel("Email").fill("team@example.test");
-      await page
-        .getByLabel("Password", { exact: true })
-        .fill("Connected-test-password-123");
-      await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    }
     await prepareSimulationCall(
       page,
       "Follow-up retry fixture",

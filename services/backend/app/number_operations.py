@@ -331,9 +331,7 @@ class NumberOperations:
         return config["daily_capacity_per_number"]
 
     def _configuration_actor(self, s, p):
-        user = self.required(s, "users", p["user_id"], p)
-        if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
-            fail(403, "An active administrator must reconcile number configuration")
+        self.required(s, "users", p["user_id"], p)
 
     def _voice_connection(self, p):
         connection = self.configs.read(p["tenant_id"]).get("telnyx_connection_id")

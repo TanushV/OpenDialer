@@ -19,7 +19,7 @@ async function enter(page: import("@playwright/test").Page) {
 
 test("app updates explain the 0.4.0 fresh workspace", async ({ page }) => {
   await enter(page);
-  await openMoreSettings(page, "Workspace and app updates");
+  await openMoreSettings(page, "App updates");
   await expect(page.getByText(/0.4.0 starts a fresh workspace/)).toBeVisible();
   await expect(page.getByText(/old data stays untouched/)).toBeVisible();
 });

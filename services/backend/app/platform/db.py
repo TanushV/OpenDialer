@@ -94,6 +94,8 @@ RETIRED_TABLES = frozenset(
         "snippets",
         "comments",
         "coaching_feedback",
+        # R3.4: one user; a session lives in memory, so the sessions table is gone.
+        "sessions",
     }
 )
 
@@ -101,7 +103,6 @@ TABLES = [
     "tenants",
     "sellers",
     "users",
-    "sessions",
     "campaigns",
     "policy_versions",
     "leads",

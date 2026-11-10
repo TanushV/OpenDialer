@@ -1,4 +1,4 @@
-import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
+import { expect, test, type Page } from "./fixtures";
 import { openMoreSettings } from "./navigation";
 import {
   answer,
@@ -12,24 +12,10 @@ import {
   waitForPreparation,
 } from "./simulation";
 
-async function enter(page: Page, connected = false) {
+async function enter(page: Page) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
-  if (connected) {
-    // The previous journey may leave a workspace open; wait for either screen before choosing.
-    const signOut = page.getByTitle("Sign out");
-    const connect = page.getByRole("button", { name: "Connect to a server" });
-    await expect(signOut.or(connect).first()).toBeVisible();
-    if (await signOut.isVisible()) await signOut.click();
-    await connect.click();
-    test.skip(!hosted, HOSTED_ONLY);
-    await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
-    await page.getByLabel("Email").fill("team@example.test");
-    await page
-      .getByLabel("Password", { exact: true })
-      .fill("Connected-test-password-123");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  } else if (
+  if (
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .isVisible()
@@ -46,7 +32,7 @@ for (const connected of [false]) {
     page,
   }) => {
     await page.setViewportSize({ width: 1028, height: 749 });
-    await enter(page, connected);
+    await enter(page);
     await importLead(
       page,
       `Proactive coaching fixture ${connected ? "connected" : "local"}`,

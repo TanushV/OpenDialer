@@ -1,4 +1,4 @@
-import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
+import { expect, test, type Page } from "./fixtures";
 import { openMoreSettings, openSettingRow } from "./navigation";
 import {
   answer,
@@ -11,7 +11,7 @@ import {
 } from "./simulation";
 
 test("setup saves a write-only live help key", async ({ page }) => {
-  await enter(page, false);
+  await enter(page);
   const requests: string[] = [];
   page.on("request", (r) => {
     if (r.method() === "PUT" && r.url().endsWith("/admin/settings"))
@@ -43,7 +43,7 @@ test("setup saves a write-only live help key", async ({ page }) => {
 test("settings show the per-list budget and expose only supported treatments", async ({
   page,
 }) => {
-  await enter(page, false);
+  await enter(page);
   await page.route("**/v1/admin/settings", async (route) => {
     const response = await route.fetch();
     const data = await response.json();
@@ -77,7 +77,7 @@ test("settings show the per-list budget and expose only supported treatments", a
 test("inbound arrival exposes call controls while an admin page is open", async ({
   page,
 }) => {
-  await enter(page, false);
+  await enter(page);
   // Open Settings before the arrival can replace this page with the call controls.
   await openSettingRow(page, "hours");
   await page.route("**/v1/workspace", async (route) => {
@@ -115,26 +115,15 @@ test("inbound arrival exposes call controls while an admin page is open", async 
   ).toBeInViewport();
 });
 
-async function enter(page: Page, connected: boolean) {
+async function enter(page: Page) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
   await expect(
     page
-      .getByTitle("Sign out")
+      .getByRole("button", { name: "Dialer", exact: true })
       .or(page.getByRole("button", { name: "Try a simulated workspace" })),
   ).toBeVisible();
-  if (connected) {
-    if (await page.getByTitle("Sign out").isVisible())
-      await page.getByTitle("Sign out").click();
-    await page.getByRole("button", { name: "Connect to a server" }).click();
-    test.skip(!hosted, HOSTED_ONLY);
-    await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
-    await page.getByLabel("Email").fill("team@example.test");
-    await page
-      .getByLabel("Password", { exact: true })
-      .fill("Connected-test-password-123");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  } else if (
+  if (
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .isVisible()
@@ -150,7 +139,7 @@ for (const connected of [false]) {
   test(`authority_switch_scope ${connected ? "postgres" : "local"}`, async ({
     page,
   }) => {
-    await enter(page, connected);
+    await enter(page);
     await openLeads(page);
     await page
       .getByLabel("CSV lead data")
@@ -166,7 +155,6 @@ for (const connected of [false]) {
     await startDialing(page);
     try {
       await expect(page.getByRole("button", { name: /^Skip/ })).toBeEnabled();
-      await expect(page.getByTitle("Sign out")).toBeDisabled();
       await expect(
         page.getByRole("button", { name: "Settings", exact: true }),
       ).toBeDisabled();
@@ -176,14 +164,13 @@ for (const connected of [false]) {
     } finally {
       await finishCall(page);
     }
-    await expect(page.getByTitle("Sign out")).toBeEnabled();
   });
   for (const width of [1024, 1280]) {
     test(`small_window_keyboard_journey ${connected ? "postgres" : "local"} ${width}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 720 });
-      await enter(page, connected);
+      await enter(page);
       await openLeads(page);
       await page
         .getByLabel("CSV lead data")
@@ -312,7 +299,7 @@ for (const connected of [false]) {
 test("seller DNC authorization saves with its loaded version and stable request identity", async ({
   page,
 }) => {
-  await enter(page, false);
+  await enter(page);
   let saved: Record<string, unknown> | null = null;
   await page.route("**/v1/admin/settings", async (route) => {
     if (route.request().method() === "PUT") {

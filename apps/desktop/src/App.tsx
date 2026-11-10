@@ -10,7 +10,6 @@ import {
   Headphones,
   LayoutDashboard,
   LoaderCircle,
-  LogOut,
   Phone,
   Radio,
   Settings,
@@ -24,7 +23,6 @@ import { version as desktopVersion } from "../package.json";
 import {
   ApiError,
   canUseOfflineCache,
-  clearSession,
   loadSession,
   localRuntime,
   native,
@@ -33,7 +31,6 @@ import {
   saveSession,
   waitForRuntime,
   writeCache,
-  assertNoPendingOptouts,
   type RequestOptions,
 } from "./api/client";
 import { invoke } from "@tauri-apps/api/core";
@@ -43,7 +40,7 @@ import { LiveConnection, type LiveEvent } from "./api/live";
 import { ScriptPage, LeadsPage, NumbersPage } from "./components/Operations";
 import { ReviewPage } from "./components/ReviewPage";
 import { SettingsPage } from "./components/SettingsPage";
-import { Context, isAdmin, type WorkspaceContext } from "./context";
+import { Context, type WorkspaceContext } from "./context";
 import {
   isActiveCall,
   type Runtime,
@@ -63,12 +60,12 @@ type View =
 const EVENT_REFRESH_MS = 500;
 
 const navigation = [
-  { title: "Dialer", icon: Phone, admin: false },
-  { title: "Leads", icon: Users, admin: false },
-  { title: "Review", icon: BookOpen, admin: false },
-  { title: "Numbers", icon: Radio, admin: true },
-  { title: "Script", icon: FileText, admin: false },
-  { title: "Settings", icon: Settings, admin: false },
+  { title: "Dialer", icon: Phone },
+  { title: "Leads", icon: Users },
+  { title: "Review", icon: BookOpen },
+  { title: "Numbers", icon: Radio },
+  { title: "Script", icon: FileText },
+  { title: "Settings", icon: Settings },
 ] as const;
 export function Brand() {
   return (
@@ -417,8 +414,6 @@ export function App() {
               ? "A better next conversation"
               : "My first campaign",
             name: simulation ? "Alex Morgan" : form.name || "Local operator",
-            email: `local-${crypto.randomUUID()}@opendialer.local`,
-            password: crypto.randomUUID() + crypto.randomUUID(),
           },
           { "X-Local-Token": local.local_token },
         );
@@ -442,17 +437,6 @@ export function App() {
       setSnapshot(first);
     });
     setWorking(false);
-  }
-  async function disconnect() {
-    if (!runtime || !session) return;
-    assertNoPendingOptouts(session.tenant_id);
-    await request(runtime.url, session.access_token, "/v1/auth/logout", "POST");
-    clearSession();
-    setSession(null);
-    setRuntime(null);
-    setSnapshot(null);
-    setWelcomeMode("choose");
-    setToast(null);
   }
   /** The authority rejected this session; sign in again to the same server. */
   async function signInAgain() {
@@ -682,28 +666,26 @@ export function App() {
           </div>
           <div className="nav-caption">WORKSPACE</div>
           <nav>
-            {navigation
-              .filter((item) => !item.admin || isAdmin(snapshot.user.role))
-              .map(({ title, icon: Icon }) => (
-                <button
-                  key={title}
-                  aria-label={title}
-                  className={view === title ? "active" : ""}
-                  disabled={title !== "Dialer" && activeConversation}
-                  onClick={() => setView(title)}
-                >
-                  <Icon size={18} />
-                  {title}
-                  {title === "Leads" && (
-                    <span className="nav-count">
-                      {countLabel(
-                        snapshot.pages?.leads?.total ?? snapshot.leads.length,
-                        snapshot.pages?.leads?.total_capped,
-                      )}
-                    </span>
-                  )}
-                </button>
-              ))}
+            {navigation.map(({ title, icon: Icon }) => (
+              <button
+                key={title}
+                aria-label={title}
+                className={view === title ? "active" : ""}
+                disabled={title !== "Dialer" && activeConversation}
+                onClick={() => setView(title)}
+              >
+                <Icon size={18} />
+                {title}
+                {title === "Leads" && (
+                  <span className="nav-count">
+                    {countLabel(
+                      snapshot.pages?.leads?.total ?? snapshot.leads.length,
+                      snapshot.pages?.leads?.total_capped,
+                    )}
+                  </span>
+                )}
+              </button>
+            ))}
           </nav>
           <div className="sidebar-bottom">
             <div className="safety-note">
@@ -717,21 +699,15 @@ export function App() {
                 </p>
               </div>
             </div>
-            <button
-              className="profile"
-              onClick={() => void run(disconnect)}
-              disabled={snapshot.quiescence?.can_disconnect === false}
-              title="Sign out"
-            >
+            <div className="profile">
               <span className="avatar small-avatar">
                 {snapshot.user.name.slice(0, 1)}
               </span>
               <span>
                 <strong>{snapshot.user.name}</strong>
-                <small>{snapshot.user.role}</small>
+                <small>On this computer</small>
               </span>
-              <LogOut size={15} />
-            </button>
+            </div>
           </div>
         </aside>
         <main className="app-main">
@@ -799,15 +775,12 @@ export function App() {
               <LeadsPage onNavigate={setView} />
             ) : view === "Review" ? (
               <ReviewPage onNavigate={(page) => setView(page as View)} />
-            ) : view === "Numbers" && isAdmin(snapshot.user.role) ? (
+            ) : view === "Numbers" ? (
               <NumbersPage />
             ) : view === "Script" ? (
               <ScriptPage onNavigate={setView} />
             ) : (
-              <SettingsPage
-                onDisconnect={() => void run(disconnect)}
-                onNavigate={setView}
-              />
+              <SettingsPage onNavigate={setView} />
             )}
           </div>
         </main>

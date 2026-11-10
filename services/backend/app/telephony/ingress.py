@@ -264,7 +264,6 @@ class WebhookIngress:
             # The agent leg outlives the call; later speech belongs to no prospect conversation.
             return {"received": True, "ignored": "speech_after_call"}
         p = {"tenant_id": call.tenant_id, "seller_id": call.seller_id, "user_id": call.data["rep_id"]}
-        p["role"] = "rep"
         leg = "agent" if call.data.get("transcription_layout") == "leg_inbound" else None
         for segment in normalize_transcription(payload, call.id, receipt["event_id"], leg=leg):
             segment.pop("content_hash", None)
@@ -297,7 +296,6 @@ class WebhookIngress:
             "tenant_id": call.tenant_id,
             "seller_id": call.seller_id,
             "user_id": call.data["rep_id"],
-            "role": "rep",
         }
         call_id = call.id
         normalized_type = (

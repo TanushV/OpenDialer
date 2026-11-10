@@ -29,7 +29,7 @@ from app.platform.ctx import Ctx
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.platform.jobs import JobQueue
 from app.platform.leases import owns_effect
-from app.platform.security import PASSWORDS, ConfigStore, issue_session
+from app.platform.security import ConfigStore, Sessions
 from app.privacy import event_metadata
 from app.providers.carrier import carrier_factory
 from app.providers.simulated import CarrierNotSubmitted, SimulatedCarrier
@@ -59,6 +59,7 @@ class Service(LeadLists, ReservationPlanner):
         self.injected_carrier = carrier
         self.simulated_carrier = carrier or SimulatedCarrier()
         self.configs = ConfigStore(settings.data_dir)
+        self.sessions = Sessions(settings.session_seconds)
         self.carriers = carrier_factory(settings, self.configs, self.simulated_carrier)
         self.ctx = Ctx(db, settings, clock, self.configs, lambda workspace: self.carrier(workspace))
         from app.managed_webhooks import ManagedConnection
@@ -92,12 +93,6 @@ class Service(LeadLists, ReservationPlanner):
         obj = get(s, kind, object_id, p["tenant_id"], lock=lock)
         if not obj or (obj.seller_id and obj.seller_id != p["seller_id"]):
             fail(404, "Object not found")
-        if p.get("role") == "rep" and kind == "call_attempts" and obj.data.get("rep_id") != p["user_id"]:
-            fail(404, "Object not found")
-        if p.get("role") == "rep" and kind == "notes":
-            call = get(s, "call_attempts", obj.data.get("call_id"), p["tenant_id"])
-            if not call or call.data["rep_id"] != p["user_id"]:
-                fail(404, "Object not found")
         return obj
 
     def scoped(self, s, kind, p):
@@ -136,13 +131,11 @@ class Service(LeadLists, ReservationPlanner):
     def carrier(self, tenant_id):
         return self.carriers(tenant_id, http=getattr(self, "http", None))
 
-    def setup(self, data, *, first=True):
+    def setup(self, data):
         now = self.clock()
         with self.db.transaction() as s:
-            if first and rows(s, "tenants"):
+            if rows(s, "tenants"):
                 fail(409, "Workspace already initialized")
-            if any(u.data["email"].casefold() == data["email"].casefold() for u in rows(s, "users")):
-                fail(409, "Email already belongs to a workspace")
             tenant_id, seller_id, campaign_id, policy_id = uid(), uid(), uid(), uid()
             put(s, "tenants", tenant_id, "", {"name": data["seller_name"]}, object_id=tenant_id, now=now)
             put(
@@ -161,11 +154,6 @@ class Service(LeadLists, ReservationPlanner):
                 seller_id,
                 {
                     "name": data.get("name", "Local operator"),
-                    "email": data["email"].casefold(),
-                    "password_hash": PASSWORDS.hash(data["password"]),
-                    "role": "owner",
-                    "platform_admin": first,
-                    "disabled": False,
                     "presence": {"status": "paused", "audio_ready": False},
                 },
                 now=now,
@@ -217,7 +205,7 @@ class Service(LeadLists, ReservationPlanner):
             )
             audit(s, tenant_id, seller_id, user.id, "workspace.created", tenant_id, now)
             return {
-                **issue_session(s, self.settings, user, now),
+                **self.sessions.issue(user, now),
                 "campaign_id": campaign_id,
                 "policy_id": policy_id,
             }
@@ -1118,8 +1106,6 @@ class Service(LeadLists, ReservationPlanner):
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
             s.refresh(call, with_for_update=True)
-            if p["role"] == "rep" and call.data["rep_id"] != p["user_id"]:
-                fail(403, "Call belongs to another rep")
             if call.data["state"] in TERMINAL:
                 return doc(call), None
             # A recovery hang-up goes ahead only if the pass's decision still holds for the call as it is now.

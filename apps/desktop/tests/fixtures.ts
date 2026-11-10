@@ -20,9 +20,6 @@ const BACKEND_PORT = 18765 + slot;
 const FRONTEND_PORT = 11420 + slot;
 /** This worker's local authority. */
 export const AUTHORITY = `http://127.0.0.1:${BACKEND_PORT}`;
-/** Hosted mode is gone (R2.1); the remaining local/hosted spec loops keep their local variant. */
-export const hosted = false;
-export const HOSTED_ONLY = "Hosted mode was removed in R2.1";
 
 async function ready(url: string, child: ChildProcess, ms: number) {
   const deadline = Date.now() + ms;
@@ -60,8 +57,6 @@ export async function setUpAuthority(page: import("@playwright/test").Page) {
       seller_name: "Example Seller",
       campaign_name: "A better next conversation",
       name: "Alex Morgan",
-      email: "local-returning@opendialer.local",
-      password: "Returning-local-password-123",
     },
   });
   expect(setup.ok()).toBeTruthy();

@@ -42,8 +42,6 @@ def fresh(client):
         json={
             "seller_name": "Example Seller",
             "campaign_name": "Acceptance campaign",
-            "email": "operator@example.test",
-            "password": "a-test-only-password-123",
         },
     )
     assert r.status_code == 200, r.text
@@ -55,10 +53,7 @@ def fresh(client):
 
 
 def sign_in_again(ws):
-    token = ws["client"].post(
-        "/v1/auth/session",
-        json={"email": "operator@example.test", "password": "a-test-only-password-123"},
-    )
+    token = ws["client"].post("/v1/local/session", headers={"X-Local-Token": "test-local-secret"}, json={})
     ws["headers"] = {"Authorization": "Bearer " + token.json()["access_token"]}
 
 
@@ -299,21 +294,6 @@ def test_first_inbound_call_uses_the_ready_owners_workspace_sip(fresh, carrier, 
     transfers = [action["payload"]["to"] for action in carrier.actions if action["action"] == "transfer"]
     assert transfers == ["sip:workspace-audio@sip.telnyx.com"]
     assert get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"]
-
-
-def test_rep_without_sip_does_not_inherit_the_workspace_sip(fresh, carrier, clock):
-    ws = fresh
-    connect(ws, sip_username="workspace-audio")
-    own_numbers(carrier)
-    post(ws, "/v1/admin/numbers/add", {"phone": SF})
-    _, rep = add_user(ws, "rep@example.test")
-    ready_as(ws, rep)
-    Telnyx(ws, clock).deliver("call.initiated", inbound("first", "+12025550123", to=SF), "evt-first")
-    run_jobs(ws)
-    call(ws, "POST", "/v1/admin/control/run")
-
-    assert inbound_task(ws, "first")["route"] == "callback_queue"
-    assert not [action for action in carrier.actions if action["action"] == "transfer"]
 
 
 @pytest.mark.slow

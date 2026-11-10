@@ -2,66 +2,13 @@ import hashlib
 import json
 import secrets
 import threading
-from collections import deque
 from datetime import timedelta
 from pathlib import Path
-from time import monotonic
 
 from fastapi import HTTPException
-from sqlalchemy import select
 
-from app.platform.db import MODELS, put, uid
+from app.platform.db import MODELS
 from app.platform.secret_files import file_lock, protect_existing, read_private, write_private
-
-
-class LazyPasswordHash:
-    """Argon2 loads on first use: its native libraries are not part of authority startup."""
-
-    def __init__(self):
-        self._hasher, self._lock = None, threading.Lock()
-
-    def _get(self):
-        with self._lock:
-            if self._hasher is None:
-                from pwdlib import PasswordHash
-
-                self._hasher = PasswordHash.recommended()
-            return self._hasher
-
-    def hash(self, password):
-        return self._get().hash(password)
-
-    def verify(self, password, hashed):
-        return self._get().verify(password, hashed)
-
-
-PASSWORDS = LazyPasswordHash()
-
-
-class LoginLimiter:
-    """Limit failures per source/account and total hash work per authority."""
-
-    def __init__(self):
-        self.sources, self.total, self.lock = {}, deque(), threading.Lock()
-
-    def check(self, source):
-        now = monotonic()
-        with self.lock:
-            self.sources = {k: v for k, v in self.sources.items() if v and v[-1] > now - 60}
-            entries = self.sources.setdefault(source, deque())
-            for queue in (entries, self.total):
-                while queue and queue[0] <= now - 60:
-                    queue.popleft()
-            if len(entries) >= 10 or len(self.total) >= 100:
-                raise HTTPException(
-                    429, "Too many sign-in attempts. Try again in a minute.", headers={"Retry-After": "60"}
-                )
-            entries.append(now)
-            self.total.append(now)
-
-    def succeeded(self, source):
-        with self.lock:
-            self.sources.pop(source, None)
 
 
 class ConfigStore:
@@ -112,78 +59,44 @@ def _token_hash(secret):
     return hashlib.sha256(secret.encode()).hexdigest()
 
 
-def issue_session(s, settings, user, now):
-    """An opaque bearer token: the session row's ID plus a random secret stored only as a hash."""
-    session_id, secret = uid(), secrets.token_urlsafe(32)
-    expires = now + timedelta(seconds=settings.session_seconds)
-    put(
-        s,
-        "sessions",
-        user.tenant_id,
-        user.seller_id,
-        {
-            "user_id": user.id,
-            "expires_at": expires.isoformat(),
-            "revoked": False,
-            "token_hash": _token_hash(secret),
-        },
-        object_id=session_id,
-        now=now,
-    )
-    return {
-        "access_token": f"{session_id}.{secret}",
-        "token_type": "bearer",
-        "user_id": user.id,
-        "tenant_id": user.tenant_id,
-        "seller_id": user.seller_id,
-        "role": user.data["role"],
-        "name": user.data.get("name", "Operator"),
-    }
+class Sessions:
+    """R3.4: one user, no passwords or roles. The desktop trades its launch token for a session, held only in this
+    process's memory; after a backend restart it asks again with the same launch token."""
 
+    def __init__(self, seconds):
+        self.seconds, self.tokens, self.lock = seconds, {}, threading.Lock()
 
-def decode_session(db, settings, token, now, *, logout_receipt_only=False):
-    from datetime import datetime
-
-    session_id, _, secret = (token or "").partition(".")
-    sessions, users = MODELS["sessions"], MODELS["users"]
-    with db.transaction(False) as s:
-        found = (
-            s.execute(
-                select(sessions, users)
-                .join(users, users.id == sessions.data["user_id"].as_string())
-                .where(sessions.id == session_id, users.tenant_id == sessions.tenant_id)
-            ).first()
-            if session_id and secret
-            else None
-        )
-        session, user = found if found else (None, None)
-        valid = bool(
-            session
-            and user
-            and secrets.compare_digest(session.data.get("token_hash", ""), _token_hash(secret))
-            and session.seller_id == user.seller_id
-        )
-        completed_logout = bool(valid and logout_receipt_only and session.data.get("logout_completed_at"))
-        if not valid or (
-            not completed_logout
-            and (
-                session.data["revoked"]
-                or datetime.fromisoformat(session.data["expires_at"]) <= now
-                or user.data.get("disabled")
-            )
-        ):
-            raise HTTPException(401, "Session expired or invalid")
+    def issue(self, user, now):
+        secret = secrets.token_urlsafe(32)
+        with self.lock:
+            self.tokens = {k: v for k, v in self.tokens.items() if v[1] > now}
+            self.tokens[_token_hash(secret)] = (user.id, now + timedelta(seconds=self.seconds))
         return {
+            "access_token": secret,
+            "token_type": "bearer",
             "user_id": user.id,
             "tenant_id": user.tenant_id,
             "seller_id": user.seller_id,
-            "role": user.data["role"],
-            "name": user.data.get("name"),
-            "session_id": session.id,
-            "platform_admin": user.data.get("platform_admin", False),
+            "name": user.data.get("name", "Operator"),
         }
 
+    def check(self, db, token, now):
+        with self.lock:
+            found = self.tokens.get(_token_hash(token or ""))
+        if not found or found[1] <= now:
+            raise HTTPException(401, "Session expired or invalid")
+        with db.transaction(False) as s:
+            user = s.get(MODELS["users"], found[0])
+            if user is None:
+                raise HTTPException(401, "Session expired or invalid")
+            return principal_of(user)
 
-def admin(principal):
-    if principal["role"] not in {"owner", "admin"}:
-        raise HTTPException(403, "Administrator role required")
+
+def principal_of(user):
+    """Who is acting: the one user, in the workspace's one tenant and seller."""
+    return {
+        "user_id": user.id,
+        "tenant_id": user.tenant_id,
+        "seller_id": user.seller_id,
+        "name": user.data.get("name"),
+    }

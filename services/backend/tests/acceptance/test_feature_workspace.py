@@ -1,16 +1,10 @@
-"""Workspace access (local, simulation, roles), definitions, event feed and leads over HTTP only."""
+"""Workspace access (local, simulation, one user), definitions, event feed and leads over HTTP only."""
 
 from datetime import timedelta
 
 from journey import call, get, hang_up, import_leads, post, start, wrap_up
 
-OWNER = {
-    "seller_name": "Example Seller",
-    "campaign_name": "Acceptance campaign",
-    "email": "operator@example.test",
-    "password": "a-test-only-password-123",
-}
-REP_PASSWORD = "rep-test-password-123"
+OWNER = {"seller_name": "Example Seller", "campaign_name": "Acceptance campaign"}
 LOCAL = {"X-Local-Token": "test-local-secret"}
 
 
@@ -18,22 +12,12 @@ def bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def add_user(ws, email, role="rep", **extra):
-    made = post(
-        ws,
-        "/v1/admin/users",
-        {"email": email, "name": role.title(), "role": role, "password": REP_PASSWORD, **extra},
-    )
-    response = ws["client"].post("/v1/auth/session", json={"email": email, "password": REP_PASSWORD})
-    assert response.status_code == 200, response.text
-    return made, bearer(response.json()["access_token"])
-
-
 def lead_row(ws, lead_id):
     return next(item for item in get(ws, "/v1/workspace/leads")["items"] if item["id"] == lead_id)
 
 
-def test_setup_session_and_login_lifecycle(client):
+def test_setup_and_the_local_session(client):
+    """R3.4: one user, no passwords or roles. The launch token is the only way in; a session lives in memory."""
     assert client.get("/health").json()["initialized"] is False
     assert client.post("/v1/local/session", headers=LOCAL).status_code == 409
     assert client.post("/v1/setup", headers={"X-Local-Token": "wrong"}, json=OWNER).status_code == 401
@@ -41,23 +25,19 @@ def test_setup_session_and_login_lifecycle(client):
     assert client.post("/v1/setup", headers=LOCAL, json=OWNER).status_code == 409
     health = client.get("/health").json()
     assert (health["initialized"], health["mode"], health["simulation"]) == (True, "local", True)
+    assert client.post("/v1/local/session", headers={"X-Local-Token": "wrong"}).status_code == 401
     session = client.post("/v1/local/session", headers=LOCAL)
-    assert session.status_code == 200 and session.json()["role"] == "owner"
+    assert session.status_code == 200 and "role" not in session.json()
     token = bearer(session.json()["access_token"])
     assert client.get("/v1/workspace").status_code == 401
-    assert client.get("/v1/workspace", headers=token).json()["user"]["role"] == "owner"
-    assert client.get("/v1/auth/quiescence", headers=token).json() == {"can_disconnect": True, "reasons": []}
+    assert client.get("/v1/workspace", headers=bearer("not-a-session")).status_code == 401
+    assert "role" not in client.get("/v1/workspace", headers=token).json()["user"]
+    assert client.get("/v1/quiescence", headers=token).json() == {"can_disconnect": True, "reasons": []}
     bounds = client.get("/v1/definitions", headers=token).json()["bounds"]
     assert bounds["policy"]["max_attempts"]["max"] == 20
     assert client.get("/v1/definitions").status_code == 401
-    wrong = {"email": OWNER["email"], "password": "wrong-password-123"}
-    assert client.post("/v1/auth/session", json=wrong).status_code == 401
-    login = client.post("/v1/auth/session", json={"email": OWNER["email"], "password": OWNER["password"]})
-    assert login.status_code == 200
-    login_headers = bearer(login.json()["access_token"])
-    assert client.get("/v1/workspace", headers=login_headers).status_code == 200
-    assert client.post("/v1/auth/logout", headers=login_headers).json() == {"logged_out": True}
-    assert client.get("/v1/workspace", headers=login_headers).status_code == 401
+    for gone in ("/v1/auth/session", "/v1/auth/logout", "/v1/admin/users"):
+        assert client.post(gone, headers=token, json={}).status_code in {404, 405}
 
 
 def test_workspace_snapshot_sections_search_and_event_feed(workspace):
@@ -95,13 +75,10 @@ def test_lead_rows_import_reports_invalid_and_duplicate_rows(workspace):
     assert result["errors"] == [{"row": 2, "reason": "INVALID_PHONE"}]
     found = get(ws, "/v1/workspace/leads", params={"q": "Ada"})["items"]
     assert [(lead["name"], lead["status"]) for lead in found] == [("Ada Lovelace", "eligible")]
-    _, rep = add_user(ws, "rep@example.test")
-    post(ws, "/v1/leads/import", {"campaign_id": ws["campaign_id"], "rows": []}, headers=rep, status=403)
 
 
 def test_wrong_party_holds_the_lead_until_its_endpoint_is_corrected(workspace):
     ws = workspace
-    _, rep = add_user(ws, "rep@example.test")
     started = start(ws)
     hang_up(ws, started["id"])
     wrap_up(ws, started["id"], outcome="wrong_party")
@@ -111,7 +88,6 @@ def test_wrong_party_holds_the_lead_until_its_endpoint_is_corrected(workspace):
     fix = {"phone": "+12025550199", "evidence": "CRM ticket 42"}
     call(ws, "PATCH", f"/v1/leads/{lead_id}/endpoint", json={"phone": "bad", "evidence": "x"}, status=422)
     call(ws, "PATCH", f"/v1/leads/{lead_id}/endpoint", json={"phone": fix["phone"]}, status=422)
-    call(ws, "PATCH", f"/v1/leads/{lead_id}/endpoint", json=fix, headers=rep, status=403)
     call(ws, "PATCH", f"/v1/leads/{lead_id}/endpoint", json=fix, status=200)
     fixed = lead_row(ws, lead_id)
     assert fixed["phone"] == "+12025550199" and fixed["status"] == "eligible"
@@ -144,17 +120,14 @@ def test_conversions_record_list_retract_and_move_goal_status(workspace, clock):
     assert get(ws, f"/v1/leads/{lead_id}/conversions")[0]["retracted"] is True
 
 
-def test_active_call_blocks_logout_until_it_is_wrapped_up(workspace):
+def test_an_active_call_holds_updates_until_it_is_wrapped_up(workspace):
     ws = workspace
     started = start(ws)
-    quiet = get(ws, "/v1/auth/quiescence")
+    quiet = get(ws, "/v1/quiescence")
     assert quiet["can_disconnect"] is False and "ACTIVE_CALL" in quiet["reasons"]
-    blocked = post(ws, "/v1/auth/logout", status=409)
-    assert blocked["detail"]["code"] == "AUTHORITY_HAS_OBLIGATIONS"
     hang_up(ws, started["id"])
     wrap_up(ws, started["id"], outcome="not_interested")
-    assert get(ws, "/v1/auth/quiescence")["can_disconnect"] is True
-    assert post(ws, "/v1/auth/logout") == {"logged_out": True}
+    assert get(ws, "/v1/quiescence")["can_disconnect"] is True
 
 
 def start_as(ws, headers, key):

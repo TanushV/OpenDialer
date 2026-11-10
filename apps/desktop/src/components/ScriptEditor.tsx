@@ -9,7 +9,7 @@ export const TRIGGERS = `# Triggers
 - expansion: Expansion or new market (180 days, B)
 - leaner_team: Layoffs or a leaner team (180 days, B)`;
 import { Check, FileUp, Sparkles } from "lucide-react";
-import { isAdmin, useWorkspace } from "../context";
+import { useWorkspace } from "../context";
 import type { ScriptError, ScriptTemplate } from "../types";
 import type { PreparationStatus } from "./PreparationPanel";
 
@@ -136,8 +136,7 @@ export function ScriptOutline({ template }: { template: ScriptTemplate }) {
 
 /** One place for the script: paste Markdown, see it parsed as you type, save. */
 export function ScriptEditor() {
-  const { api, run, notice, snapshot, subscribe } = useWorkspace();
-  const admin = isAdmin(snapshot.user.role);
+  const { api, run, notice, subscribe } = useWorkspace();
   const [base, setBase] = useState<Base | null>(null);
   const [loadError, setLoadError] = useState("");
   const [text, setText] = useState("");
@@ -170,7 +169,7 @@ export function ScriptEditor() {
     });
   }, [api, subscribe]);
   useEffect(() => {
-    if (!admin || !base || !text.trim()) return;
+    if (!base || !text.trim()) return;
     let live = true;
     setChecking(true);
     const timer = window.setTimeout(() => {
@@ -199,7 +198,7 @@ export function ScriptEditor() {
       live = false;
       window.clearTimeout(timer);
     };
-  }, [text, base?.version, admin]);
+  }, [text, base?.version]);
   const saved = base?.template?.markdown ?? "";
   const unchanged = text === saved;
   const overtaken =
@@ -249,17 +248,6 @@ export function ScriptEditor() {
           <button className="secondary" onClick={() => void load()}>
             Try again
           </button>
-        )}
-      </section>
-    );
-  if (!admin)
-    return (
-      <section className="card padded" aria-label="Your script">
-        <h2>Your script</h2>
-        {base.template ? (
-          <ScriptOutline template={base.template} />
-        ) : (
-          <p className="muted">An admin has not added the script yet.</p>
         )}
       </section>
     );

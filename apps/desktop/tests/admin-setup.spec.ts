@@ -359,9 +359,7 @@ test("an imported list is researched and scripted before it can be called", asyn
   await expect(packet.getByText("What the agent found")).toBeVisible();
 });
 
-test("disabled actions say why and settings failures stay recoverable", async ({
-  page,
-}) => {
+test("settings failures stay recoverable", async ({ page }) => {
   let failSettings = true;
   await page.route("**/v1/admin/settings", async (route) => {
     if (failSettings && route.request().method() === "GET") {
@@ -373,20 +371,13 @@ test("disabled actions say why and settings failures stay recoverable", async ({
     }
     await route.continue();
   });
-  await page.route("**/v1/workspace", async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.quiescence = { can_disconnect: false, reasons: ["active_call"] };
-    await route.fulfill({ response, json: body });
-  });
   await enter(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByText(/Settings could not be loaded/)).toBeVisible();
   failSettings = false;
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByText(/Settings could not be loaded/)).toHaveCount(0);
-  await openMore(page, "Workspace and app updates");
-  await expect(page.getByText("Finish first: Active call.")).toBeVisible();
+  await openMore(page, "App updates");
   await openScreening(page);
 });
 

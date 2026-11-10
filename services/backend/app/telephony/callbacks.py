@@ -151,9 +151,7 @@ class InboundCallbacks:
         for user in self.scoped(s, "users", p):
             presence = user.data.get("presence", {})
             at = dt(presence.get("at"))
-            sip = user.data.get("sip_username") or (
-                workspace_sip if user.data.get("role") in {"owner", "admin"} else None
-            )
+            sip = user.data.get("sip_username") or workspace_sip
             if (
                 user.id not in tried
                 and not user.data.get("disabled")
@@ -180,15 +178,7 @@ class InboundCallbacks:
             target = ""
         if target in {task.data.get("callback_phone"), task.data.get("called_phone")}:
             target = ""  # never bounce the caller back to themselves or recurse through this DID
-        route = (
-            "responsible_rep"
-            if rep and rep.id == task.data.get("responsible_rep_id")
-            else "teammate"
-            if rep
-            else "business_fallback"
-            if target
-            else "callback_queue"
-        )
+        route = "rep" if rep else "business_fallback" if target else "callback_queue"
         update(task, route=route, routed_rep_id=rep.id if rep else None)
         if target:
             identity = uid()
@@ -555,8 +545,6 @@ class InboundCallbacks:
             task = self.required(s, "followup_tasks", task_id, p)
             if not task.data.get("inbound"):
                 fail(404, "Inbound call not found")
-            if p.get("role") == "rep" and p["user_id"] != task.data.get("routed_rep_id"):
-                fail(403, "This return call belongs to another rep")
             if task.data["inbound_state"] != "ended":
                 update(task, inbound_state="ending")
                 self._inbound_command(s, p, task, "hangup", suffix="inbound-requested-end")

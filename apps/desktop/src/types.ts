@@ -5,7 +5,6 @@ export interface Session {
   tenant_id: string;
   seller_id: string;
   user_id: string;
-  role: string;
   name: string;
 }
 export interface Runtime {
@@ -486,7 +485,6 @@ export interface Workspace {
   user: {
     id: string;
     name: string;
-    role: string;
     presence: {
       status: string;
       audio_ready?: boolean;

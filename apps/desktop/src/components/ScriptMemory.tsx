@@ -135,11 +135,10 @@ export function Markdown({ text }: { text: string }) {
 }
 
 export function ScriptMemory() {
-  const { api, run, subscribe, snapshot, notice } = useWorkspace();
+  const { api, run, subscribe, notice } = useWorkspace();
   const [lab, setLab] = useState<Lab | null>(null);
   const [notes, setNotes] = useState<string | null>(null);
   const [reason, setReason] = useState("");
-  const admin = ["owner", "admin"].includes(snapshot.user.role);
   const load = useCallback(async () => {
     setLab(await api<Lab>("/v1/optimization/script"));
   }, [api]);
@@ -192,50 +191,48 @@ export function ScriptMemory() {
           : label((lab.base.source ?? "not saved yet").split(":")[0])}
         {lab.base.adopted_at ? ` · adopted ${date(lab.base.adopted_at)}` : ""}
       </p>
-      {admin && (
-        <div
-          className="optimization-fields"
-          aria-label="Script learning settings"
-        >
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={lab.settings.auto_propose}
-              onChange={(e) =>
-                void act(
-                  () =>
-                    api("/v1/admin/script/settings", "PUT", {
-                      ...lab.settings,
-                      auto_propose: e.target.checked,
-                    }),
-                  "Script learning settings saved",
-                )
-              }
-            />
-            Propose and test changes from the memory
-          </label>
-          <label>
-            When a change wins its test
-            <select
-              aria-label="When a change wins its test"
-              value={lab.settings.promotion}
-              onChange={(e) =>
-                void act(
-                  () =>
-                    api("/v1/admin/script/settings", "PUT", {
-                      ...lab.settings,
-                      promotion: e.target.value,
-                    }),
-                  "Script learning settings saved",
-                )
-              }
-            >
-              <option value="automatic">Replace the base automatically</option>
-              <option value="approval">Wait for my approval</option>
-            </select>
-          </label>
-        </div>
-      )}
+      <div
+        className="optimization-fields"
+        aria-label="Script learning settings"
+      >
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={lab.settings.auto_propose}
+            onChange={(e) =>
+              void act(
+                () =>
+                  api("/v1/admin/script/settings", "PUT", {
+                    ...lab.settings,
+                    auto_propose: e.target.checked,
+                  }),
+                "Script learning settings saved",
+              )
+            }
+          />
+          Propose and test changes from the memory
+        </label>
+        <label>
+          When a change wins its test
+          <select
+            aria-label="When a change wins its test"
+            value={lab.settings.promotion}
+            onChange={(e) =>
+              void act(
+                () =>
+                  api("/v1/admin/script/settings", "PUT", {
+                    ...lab.settings,
+                    promotion: e.target.value,
+                  }),
+                "Script learning settings saved",
+              )
+            }
+          >
+            <option value="automatic">Replace the base automatically</option>
+            <option value="approval">Wait for my approval</option>
+          </select>
+        </label>
+      </div>
       {lab.memory ? (
         <>
           <div className="memory-document" aria-label="Script memory document">
@@ -252,34 +249,30 @@ export function ScriptMemory() {
       ) : (
         <p>No memory yet. It is written after the first learning refresh.</p>
       )}
-      {admin && (
-        <label>
-          Team notes (never overwritten by learning)
-          <textarea
-            aria-label="Team notes"
-            rows={4}
-            value={notes ?? lab.memory?.team_notes ?? ""}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-          <button
-            className="secondary"
-            disabled={
-              notes === null || notes === (lab.memory?.team_notes ?? "")
-            }
-            onClick={() =>
-              void act(async () => {
-                await api("/v1/admin/script/memory", "PUT", {
-                  expected_version: lab.memory?.version ?? 0,
-                  team_notes: notes,
-                });
-                setNotes(null);
-              }, "Team notes saved")
-            }
-          >
-            Save team notes
-          </button>
-        </label>
-      )}
+      <label>
+        Team notes (never overwritten by learning)
+        <textarea
+          aria-label="Team notes"
+          rows={4}
+          value={notes ?? lab.memory?.team_notes ?? ""}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+        <button
+          className="secondary"
+          disabled={notes === null || notes === (lab.memory?.team_notes ?? "")}
+          onClick={() =>
+            void act(async () => {
+              await api("/v1/admin/script/memory", "PUT", {
+                expected_version: lab.memory?.version ?? 0,
+                team_notes: notes,
+              });
+              setNotes(null);
+            }, "Team notes saved")
+          }
+        >
+          Save team notes
+        </button>
+      </label>
       <h3>Script tests</h3>
       {!lab.tests.length && <p className="muted small">No script test yet.</p>}
       <ul>
@@ -303,16 +296,14 @@ export function ScriptMemory() {
           );
         })}
       </ul>
-      {admin && (
-        <label>
-          Decision reason
-          <input
-            aria-label="Script decision reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-          />
-        </label>
-      )}
+      <label>
+        Decision reason
+        <input
+          aria-label="Script decision reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </label>
       <h3>Script versions</h3>
       <ul>
         {lab.history.map((version) => (
@@ -322,7 +313,7 @@ export function ScriptMemory() {
               ? "seller template"
               : label((version.source ?? "not saved yet").split(":")[0])}
             {version.adopted_at ? ` · ${date(version.adopted_at)}` : ""}
-            {admin && version.version !== lab.base.version && (
+            {version.version !== lab.base.version && (
               <button
                 className="text-button"
                 disabled={Boolean(running) || reason.trim().length < 3}

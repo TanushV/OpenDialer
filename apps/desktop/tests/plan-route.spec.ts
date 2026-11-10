@@ -1,4 +1,4 @@
-import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
+import { expect, test, type Page } from "./fixtures";
 
 for (const connected of [false]) {
   test(`Codex file import and disconnect (${connected ? "hosted" : "local"})`, async ({
@@ -28,7 +28,7 @@ for (const connected of [false]) {
         },
       });
     });
-    await enter(page, connected);
+    await enter(page);
     await page.getByLabel("Import Codex login").setInputFiles({
       name: "invalid.json",
       mimeType: "application/json",
@@ -84,7 +84,7 @@ test("a late status read cannot erase a successful Codex import", async ({
   const pending = page.waitForRequest((request) =>
     request.url().endsWith("/v1/inference/codex"),
   );
-  await enter(page, false);
+  await enter(page);
   await pending;
   await page.getByLabel("Import Codex login").setInputFiles({
     name: "auth.json",
@@ -107,7 +107,7 @@ test("a late status read cannot erase a successful Codex import", async ({
 });
 
 /** Local workspace, or the connected PostgreSQL authority of the e2e harness. */
-async function enter(page: Page, connected: boolean) {
+async function enter(page: Page) {
   // The sign-in page would be a real OpenAI page: record it instead of opening it.
   await page.addInitScript(() => {
     window.open = ((url?: string | URL) => {
@@ -119,21 +119,10 @@ async function enter(page: Page, connected: boolean) {
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
   await expect(
     page
-      .getByTitle("Sign out")
+      .getByRole("button", { name: "Dialer", exact: true })
       .or(page.getByRole("button", { name: "Try a simulated workspace" })),
   ).toBeVisible();
-  if (connected) {
-    if (await page.getByTitle("Sign out").isVisible())
-      await page.getByTitle("Sign out").click();
-    await page.getByRole("button", { name: "Connect to a server" }).click();
-    test.skip(!hosted, HOSTED_ONLY);
-    await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
-    await page.getByLabel("Email").fill("team@example.test");
-    await page
-      .getByLabel("Password", { exact: true })
-      .fill("Connected-test-password-123");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  } else if (
+  if (
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .isVisible()

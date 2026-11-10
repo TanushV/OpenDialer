@@ -107,9 +107,7 @@ def release_hold(service, p, phone, reason):
         fail(422, "A valid endpoint and the review reason are required")
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        user = service.required(s, "users", p["user_id"], p)
-        if user.data.get("disabled") or user.data.get("role") not in {"owner", "admin"}:
-            fail(403, "Current administrator authority is required")
+        service.required(s, "users", p["user_id"], p)
         key = normalized.e164
         row = service._by_key(s, p, "suppressions", key)
         if not row or not row.data.get("active", True) or row.data.get("phone") != normalized.e164:

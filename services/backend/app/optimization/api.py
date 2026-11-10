@@ -170,7 +170,6 @@ def register_optimization(app, service, principal, administrator):
                             users.id.in_(roster),
                         )
                     )
-                    if not u.data.get("disabled") and u.data.get("role") in {"owner", "admin", "rep"}
                 }
                 if available != roster:
                     fail(422, "Named staffing requires current active reps in this workspace")
@@ -241,17 +240,7 @@ def register_optimization(app, service, principal, administrator):
     def list_conversions(lead_id: str, p=Depends(principal)):
         with service.db.transaction(False) as s:
             service.required(s, "leads", lead_id, p)
-            allowed_calls = {
-                r.id
-                for r in service.scoped(s, "call_attempts", p)
-                if p["role"] != "rep" or r.data.get("rep_id") == p["user_id"]
-            }
-            return [
-                doc(r)
-                for r in service.scoped(s, "conversion_events", p)
-                if r.data["lead_id"] == lead_id
-                and (p["role"] != "rep" or r.data.get("call_id") in allowed_calls)
-            ]
+            return [doc(r) for r in service.scoped(s, "conversion_events", p) if r.data["lead_id"] == lead_id]
 
     @app.post("/v1/leads/{lead_id}/conversions")
     def conversion(lead_id: str, body: Conversion, p=Depends(principal)):
@@ -260,8 +249,6 @@ def register_optimization(app, service, principal, administrator):
             fail(422, "A real observed UTC/timezone-aware conversion time no later than now is required")
         with service.db.transaction() as s:
             lead = service.required(s, "leads", lead_id, p)
-            if p["role"] == "rep" and not body.call_id:
-                fail(403, "A rep must attach the conversion to their own call")
             if body.call_id:
                 call = service.required(s, "call_attempts", body.call_id, p)
                 if call.data["lead_id"] != lead.id or body.occurred_at < timestamp(call.data["started_at"]):
@@ -304,8 +291,6 @@ def register_optimization(app, service, principal, administrator):
             result = service.required(s, "conversion_events", event_id, p)
             if result.data["lead_id"] != lead.id:
                 fail(404, "Conversion not found")
-            if p["role"] == "rep":
-                service.required(s, "call_attempts", result.data.get("call_id"), p)
             if result.data.get("retracted"):
                 return doc(result)
             update(

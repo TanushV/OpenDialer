@@ -9,19 +9,21 @@ from uuid import uuid4
 import pytest
 from journey import answered_by_human, call, event, get, hang_up, post, run_jobs, start, wrap_up
 
-REP_PASSWORD = "rep-test-password-123"
-
 
 def bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def add_user(ws, email, sip=None):
-    body = {"email": email, "name": "Rep", "role": "rep", "password": REP_PASSWORD, "sip_username": sip}
-    made = post(ws, "/v1/admin/users", body)
-    response = ws["client"].post("/v1/auth/session", json={"email": email, "password": REP_PASSWORD})
-    assert response.status_code == 200, response.text
-    return made["id"], bearer(response.json()["access_token"])
+def add_user(ws, email=None, sip=None):
+    """One user (R3.4): the rep is always the workspace's own user; `sip` gives it its own audio line."""
+    if sip:
+        from app.platform.db import get as fetch
+        from app.platform.db import update
+
+        service = ws["client"].app.state.service
+        with service.db.transaction() as s:
+            update(fetch(s, "users", ws["user_id"]), sip_username=sip)
+    return ws["user_id"], ws["headers"]
 
 
 def ready_as(ws, headers=None, agent="agent-test-id"):
@@ -46,8 +48,6 @@ def test_workspace_restores_only_the_reps_current_reservation(workspace, clock):
     assert restored["reservation_id"] == selected["reservation_id"]
     assert restored["lead"]["id"] == selected["lead"]["id"]
     assert restored["number"]["id"] == selected["number"]["id"]
-    _, other = add_user(workspace, "reservation-reader@example.test")
-    assert call(workspace, "GET", "/v1/workspace", headers=other)["reservation"] is None
     pause(workspace)
     assert get(workspace, "/v1/workspace")["reservation"] is None
     ready_as(workspace)
@@ -73,9 +73,7 @@ def offer(ws, headers=None):
 
 
 def sign_in(ws):
-    response = ws["client"].post(
-        "/v1/auth/session", json={"email": "operator@example.test", "password": "a-test-only-password-123"}
-    )
+    response = ws["client"].post("/v1/local/session", headers={"X-Local-Token": "test-local-secret"}, json={})
     assert response.status_code == 200, response.text
     ws["headers"] = bearer(response.json()["access_token"])
 
@@ -408,7 +406,7 @@ def test_return_call_routes_to_the_rep_who_called_and_completes_the_callback(wor
     telnyx.deliver("call.initiated", inbound("in-1", lead_row(ws, started["lead_id"])["phone"]), "evt-in-1")
     run_jobs(ws)
     task = inbound_task(ws, "in-1")
-    assert (task["route"], task["routed_rep_id"]) == ("responsible_rep", rep_id)
+    assert (task["route"], task["routed_rep_id"]) == ("rep", rep_id)
     call(ws, "POST", "/v1/admin/control/run")
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com"]
     attempt = task["routing_attempts"][0]
@@ -429,9 +427,7 @@ def test_return_call_routes_to_the_rep_who_called_and_completes_the_callback(wor
     assert "in-1" in [h["provider_id"] for h in carrier.hangups]
 
 
-def test_return_calls_reach_a_teammate_then_the_fallback_line_then_a_spoken_message(
-    workspace, clock, carrier
-):
+def test_return_calls_reach_the_rep_then_the_fallback_line_then_a_spoken_message(workspace, clock, carrier):
     ws = workspace
     known_callers(ws, "+12025550177", "+12025550188", "+12025550199")
     rep_id, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
@@ -469,7 +465,7 @@ def test_return_calls_reach_a_teammate_then_the_fallback_line_then_a_spoken_mess
     run_jobs(ws)
     call(ws, "POST", "/v1/admin/control/run")
     task = inbound_task(ws, "in-1")
-    assert (task["route"], task["routed_rep_id"], task["status"]) == ("teammate", rep_id, "open")
+    assert (task["route"], task["routed_rep_id"], task["status"]) == ("rep", rep_id, "open")
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com"]
     assert [a["payload"]["timeout_secs"] for a in carrier.actions if a["action"] == "transfer"] == [15]
     pause(ws, rep)
@@ -570,16 +566,8 @@ def test_dead_webhook_job_is_listed_and_retried(workspace, clock):
     post(ws, f"/v1/admin/recovery/jobs/{job['id']}/retry", {"expected_attempts": job["attempts"]}, status=409)
 
 
-def test_recovery_routes_refuse_reps_stale_items_and_unknown_identities(workspace):
+def test_recovery_routes_refuse_stale_items_and_unknown_identities(workspace):
     ws = workspace
-    _, rep = add_user(ws, "rep@example.test")
-    for method, path in [
-        ("GET", "/v1/admin/recovery"),
-        ("POST", "/v1/admin/recovery"),
-        ("POST", "/v1/admin/jobs/run"),
-        ("POST", "/v1/admin/control/run"),
-    ]:
-        call(ws, method, path, headers=rep, status=403)
     body = {"expected_version": 1, "action": "cancel_unsent"}
     call(ws, "POST", "/v1/admin/recovery/agents/unknown", json=body, status=422)
     call(ws, "POST", "/v1/admin/recovery/commands/unknown", json=body, status=404)
@@ -643,7 +631,7 @@ def test_caller_hanging_up_before_a_rep_answers_ends_the_return_call_and_frees_t
     telnyx = Telnyx(ws, clock)
     telnyx.deliver("call.initiated", inbound("in-1", "+12025550177"), "evt-in-1")
     run_jobs(ws)
-    assert inbound_task(ws, "in-1")["route"] == "teammate"
+    assert inbound_task(ws, "in-1")["route"] == "rep"
     telnyx.deliver("call.hangup", {"call_control_id": "in-1"}, "evt-in-1-end")
     run_jobs(ws)
     task = inbound_task(ws, "in-1")
@@ -655,7 +643,7 @@ def test_caller_hanging_up_before_a_rep_answers_ends_the_return_call_and_frees_t
     telnyx.deliver("call.initiated", inbound("in-2", "+12025550188"), "evt-in-2")
     run_jobs(ws)
     call(ws, "POST", "/v1/admin/control/run")
-    assert inbound_task(ws, "in-2")["route"] == "teammate"
+    assert inbound_task(ws, "in-2")["route"] == "rep"
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com"]
 
 

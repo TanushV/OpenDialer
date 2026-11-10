@@ -517,7 +517,7 @@ async def test_cancelling_during_publication_does_not_delete_committed_artifact(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("changed", ["role", "goal", "source", "baseline"])
+@pytest.mark.parametrize("changed", ["goal", "source", "baseline"])
 async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
     workspace, app, monkeypatch, changed
 ):
@@ -535,9 +535,7 @@ async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
         artifact = output_dir / "challenger.json"
         artifact.write_bytes(b"fixture internal artifact")
         with service.db.transaction() as s:
-            if changed == "role":
-                update(get(s, "users", p["user_id"]), disabled=True)
-            elif changed == "source":
+            if changed == "source":
                 update(get(s, "learning_datasets", payload["source_dataset_id"]), rows=[])
             elif changed == "baseline":
                 campaign = service.scoped(s, "campaigns", p)[0]

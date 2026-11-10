@@ -15,7 +15,6 @@ import {
   Download,
   LoaderCircle,
   RefreshCw,
-  Wifi,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -24,7 +23,7 @@ import {
   native,
   assertNoPendingOptouts,
 } from "../api/client";
-import { isAdmin, label, useWorkspace } from "../context";
+import { label, useWorkspace } from "../context";
 import { limits, options, useDefinitions } from "../state/definitions";
 import type { Policy } from "../types";
 import { SetupRows } from "../settings/SetupRows";
@@ -47,27 +46,11 @@ const message = (reason: unknown) =>
   reason instanceof Error ? reason.message : String(reason);
 
 export function SettingsPage({
-  onDisconnect,
   onNavigate,
 }: {
-  onDisconnect: () => void;
   onNavigate: (view: View) => void;
 }) {
-  const { snapshot: w } = useWorkspace();
-  if (!isAdmin(w.user.role))
-    return (
-      <>
-        <div className="page-heading">
-          <div>
-            <h1>Settings</h1>
-            <p>Your workspace and app updates.</p>
-          </div>
-        </div>
-        <WorkspaceConnection onDisconnect={onDisconnect} />
-        <UpdateSettings />
-      </>
-    );
-  return <AdminSettings onDisconnect={onDisconnect} onNavigate={onNavigate} />;
+  return <AdminSettings onNavigate={onNavigate} />;
 }
 
 /** One settings read for the admin page; failures stay visible and retryable. */
@@ -95,13 +78,7 @@ function useAdminSettings() {
 }
 type AdminSettingsState = ReturnType<typeof useAdminSettings>;
 
-function AdminSettings({
-  onDisconnect,
-  onNavigate,
-}: {
-  onDisconnect: () => void;
-  onNavigate: (view: View) => void;
-}) {
+function AdminSettings({ onNavigate }: { onNavigate: (view: View) => void }) {
   const settings = useAdminSettings();
   return (
     <>
@@ -139,7 +116,7 @@ function AdminSettings({
           )}
         </section>
       )}
-      <MoreSettings settings={settings} onDisconnect={onDisconnect} />
+      <MoreSettings settings={settings} />
     </>
   );
 }
@@ -634,13 +611,7 @@ function CallingPolicySettings() {
     </section>
   );
 }
-function MoreSettings({
-  settings,
-  onDisconnect,
-}: {
-  settings: AdminSettingsState;
-  onDisconnect: () => void;
-}) {
+function MoreSettings({ settings }: { settings: AdminSettingsState }) {
   const { api, run, refresh, notice } = useWorkspace();
   const [backupId, setBackupId] = useState("");
   const [restoreId, setRestoreId] = useState("");
@@ -766,8 +737,7 @@ function MoreSettings({
             <AccessAndRecovery />
           </details>
           <details>
-            <summary>Workspace and app updates</summary>
-            <WorkspaceConnection onDisconnect={onDisconnect} />
+            <summary>App updates</summary>
             <UpdateSettings />
           </details>
         </div>
@@ -775,34 +745,6 @@ function MoreSettings({
     </details>
   );
 }
-function WorkspaceConnection({ onDisconnect }: { onDisconnect: () => void }) {
-  const { snapshot: w } = useWorkspace();
-  const reasons = w.quiescence?.reasons ?? [];
-  return (
-    <section className="card padded">
-      <h2>Workspace connection</h2>
-      <p className="muted">Current authority: private, on this computer.</p>
-      <button
-        className="secondary"
-        disabled={w.quiescence?.can_disconnect === false}
-        onClick={onDisconnect}
-      >
-        <Wifi size={15} />
-        Switch workspace
-      </button>
-      {w.quiescence?.can_disconnect === false && (
-        <p className="fine" role="status">
-          Finish first:{" "}
-          {reasons.length
-            ? reasons.map(label).join(" · ")
-            : "pending work on this authority"}
-          .
-        </p>
-      )}
-    </section>
-  );
-}
-
 function UpdateSettings() {
   const { snapshot: w, session, api, run, notice } = useWorkspace();
   const [updateInfo, setUpdateInfo] = useState<{
@@ -882,7 +824,7 @@ function UpdateSettings() {
                 const status = await api<{
                   can_disconnect: boolean;
                   reasons: string[];
-                }>("/v1/auth/quiescence");
+                }>("/v1/quiescence");
                 if (!status.can_disconnect)
                   throw new Error(
                     `Finish pending work before updating: ${status.reasons.join(", ")}`,

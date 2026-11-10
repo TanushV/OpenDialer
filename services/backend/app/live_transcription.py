@@ -8,7 +8,6 @@ from fastapi import Depends, WebSocket, WebSocketDisconnect
 
 from app.calling.state import TERMINAL
 from app.platform.db import emit, update
-from app.platform.security import decode_session
 from app.providers import telnyx_stt
 from app.service import fail
 
@@ -73,7 +72,7 @@ def bind_api(app, service, principal):
         try:
             auth = await asyncio.wait_for(ws.receive_json(), 10)
             p = await asyncio.to_thread(
-                decode_session, service.db, service.settings, auth.get("token", ""), service.clock()
+                service.sessions.check, service.db, auth.get("token", ""), service.clock()
             )
             if not await asyncio.to_thread(admission, service, p, call_id):
                 fail(409, "Call has ended")
@@ -100,7 +99,7 @@ def bind_api(app, service, principal):
                         clean = True
                         return
                     await asyncio.to_thread(
-                        decode_session, service.db, service.settings, auth["token"], service.clock()
+                        service.sessions.check, service.db, auth["token"], service.clock()
                     )
                     try:
                         message = await asyncio.wait_for(ws.receive(), 2)

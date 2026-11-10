@@ -208,8 +208,6 @@ def workspace(client):
         json={
             "seller_name": "Example Seller",
             "campaign_name": "Acceptance campaign",
-            "email": "operator@example.test",
-            "password": "a-test-only-password-123",
         },
     )
     assert r.status_code == 200, r.text

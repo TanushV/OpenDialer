@@ -87,11 +87,7 @@ class WorkspaceReads:
         if filter not in valid:
             fail(422, "Invalid history filter")
         with self.db.transaction(False, session=session) as s:
-            # Recheck a changed role even for internal callers holding an old principal.
-            user = self.required(s, "users", p["user_id"], p)
-            if user.data.get("disabled"):
-                fail(403, "Account is disabled")
-            p = {**p, "role": "rep" if "rep" in {p["role"], user.data["role"]} else "admin"}
+            self.required(s, "users", p["user_id"], p)
             if section == "jobs":
                 return self._job_page(s, p, cursor, limit)
             model = MODELS[PAGE_TABLES[section]]
@@ -117,8 +113,6 @@ class WorkspaceReads:
                     or_(*memberships),
                 )
                 query = query.where(active if filter == "active" else ~active)
-            if section in {"calls", "tasks"} and p["role"] == "rep":
-                query = query.where(model.op_owner_id == p["user_id"])
             if section == "tasks":
                 query = query.where(or_(model.op_status != "aliased", model.op_status.is_(None)))
             if section == "registries":
@@ -161,8 +155,6 @@ class WorkspaceReads:
                     ):
                         continue
                 if section == "task_owners":
-                    if value.get("disabled"):
-                        continue
                     value = {"id": row.id, "name": value.get("name") or value.get("email", "")}
                 if section == "numbers":
                     value.update(self.number_readiness_in(s, p, row))
@@ -239,8 +231,6 @@ class WorkspaceReads:
     def _job_page(self, s, p, cursor, limit):
         fields = [Job.id, Job.queue, Job.status, Job.attempts, Job.error]
         query = select(*fields).where(Job.tenant_id == p["tenant_id"], Job.seller_id == p["seller_id"])
-        if p["role"] == "rep":
-            query = query.where(Job.owner_id == p["user_id"])
         if cursor:
             if not s.execute(query.where(Job.id == cursor)).first():
                 fail(404, "Job cursor unavailable; reload")
@@ -297,8 +287,6 @@ class WorkspaceReads:
                     task_model.op_status.is_(None),
                 )
             )
-            if p["role"] == "rep":
-                open_tasks = open_tasks.where(task_model.op_owner_id == p["user_id"])
             owed_tasks = list(
                 s.scalars(
                     open_tasks.order_by(task_model.op_due_at.asc().nullsfirst(), task_model.id).limit(25)
@@ -346,7 +334,6 @@ class WorkspaceReads:
                 "user": {
                     "id": user.id,
                     "name": user.data["name"],
-                    "role": user.data["role"],
                     "presence": user.data.get("presence", {}),
                 },
                 "quiescence": self.quiescence_in(s, p),

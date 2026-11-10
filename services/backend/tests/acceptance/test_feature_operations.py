@@ -19,7 +19,6 @@ from journey import (
 )
 
 PT, ET, CT = "+14155550101", "+12125550102", "+15125550103"
-PASSWORD = "a-test-only-password-456"
 
 
 def queue(ws):

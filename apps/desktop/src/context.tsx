@@ -64,4 +64,3 @@ export function percent(
   return value == null ? missing : `${(100 * value).toFixed(digits)}%`;
 }
 /** Owners and administrators manage inventory, providers and policy; reps do not. */
-export const isAdmin = (role: string) => ["owner", "admin"].includes(role);

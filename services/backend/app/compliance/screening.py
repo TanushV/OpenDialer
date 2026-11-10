@@ -38,8 +38,8 @@ class ScreeningRetry(BaseModel):
 
 
 def active_admin(service, s, p):
-    user = service.required(s, "users", p["user_id"], p)
-    return not user.data.get("disabled") and user.data.get("role") in {"owner", "admin"}
+    """One user (R3.4): the signed-in user may always act."""
+    return service.required(s, "users", p["user_id"], p) is not None
 
 
 def lease_active(service, data):

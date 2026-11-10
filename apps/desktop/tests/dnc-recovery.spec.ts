@@ -1,26 +1,15 @@
-import { expect, test, type Page, hosted, HOSTED_ONLY } from "./fixtures";
+import { expect, test, type Page } from "./fixtures";
 import { openMoreSettings } from "./navigation";
 
-async function enter(page: Page, connected: boolean) {
+async function enter(page: Page) {
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
   await expect(
     page
-      .getByTitle("Sign out")
+      .getByRole("button", { name: "Dialer", exact: true })
       .or(page.getByRole("button", { name: "Try a simulated workspace" })),
   ).toBeVisible();
-  if (connected) {
-    if (await page.getByTitle("Sign out").isVisible())
-      await page.getByTitle("Sign out").click();
-    await page.getByRole("button", { name: "Connect to a server" }).click();
-    test.skip(!hosted, HOSTED_ONLY);
-    await page.getByLabel("Server URL").fill("http://127.0.0.1:8766");
-    await page.getByLabel("Email").fill("team@example.test");
-    await page
-      .getByLabel("Password", { exact: true })
-      .fill("Connected-test-password-123");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  } else if (
+  if (
     await page
       .getByRole("button", { name: "Try a simulated workspace" })
       .isVisible()
@@ -39,7 +28,7 @@ for (const connected of [false]) {
       test("account DNC rates preserve provenance and show the dated reference separately", async ({
         page,
       }) => {
-        await enter(page, connected);
+        await enter(page);
         await openMoreSettings(page, "Privacy and spending rules");
         await page.getByText("Account rate estimates", { exact: true }).click();
         await page.getByLabel("Rate component").selectOption("dnc");
@@ -115,7 +104,7 @@ for (const connected of [false]) {
             }
           },
         );
-        await enter(page, connected);
+        await enter(page);
         await openMoreSettings(page, "Privacy and spending rules");
         const panel = page.getByRole("region", {
           name: "Prepaid screening results",

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bot, Pause, Play } from "lucide-react";
-import { date, isAdmin, useWorkspace } from "../context";
+import { date, useWorkspace } from "../context";
 
 interface ListProgress {
   list_name: string;
@@ -45,7 +45,6 @@ export function PreparationPanel({
   compact?: boolean;
 }) {
   const { api, run, notice, subscribe, snapshot } = useWorkspace();
-  const admin = isAdmin(snapshot.user.role);
   const [status, setStatus] = useState<PreparationStatus | null>(null);
   const [draft, setDraft] = useState<PreparationStatus["settings"] | null>(
     null,
@@ -144,20 +143,18 @@ export function PreparationPanel({
           <span>
             Paused: {status.pause_reason} Resumes {date(status.paused_until)}.
           </span>
-          {admin && (
-            <button
-              className="secondary"
-              onClick={() =>
-                void run(async () => {
-                  await api("/v1/preparation/resume", "POST");
-                  await load();
-                  notice("Preparation resumed.");
-                })
-              }
-            >
-              <Play size={14} /> Resume now
-            </button>
-          )}
+          <button
+            className="secondary"
+            onClick={() =>
+              void run(async () => {
+                await api("/v1/preparation/resume", "POST");
+                await load();
+                notice("Preparation resumed.");
+              })
+            }
+          >
+            <Play size={14} /> Resume now
+          </button>
         </div>
       )}
       {!compact &&
@@ -226,7 +223,7 @@ export function PreparationPanel({
                       </ul>
                     </details>
                   )}
-                  {admin && list.waiting > 0 && (
+                  {list.waiting > 0 && (
                     <button
                       className="text-button"
                       onClick={() =>
@@ -251,7 +248,7 @@ export function PreparationPanel({
             })}
           </ul>
         ))}
-      {!compact && admin && draft && (
+      {!compact && draft && (
         <details className="prep-settings">
           <summary>Agent settings</summary>
           <div className="two-fields">

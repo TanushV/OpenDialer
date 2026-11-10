@@ -57,11 +57,10 @@ def find(s, p, *, provider_id=None, leg_id=None, rep_id=None, active=False):
 def setup(ctx, p):
     """(SIP name, credential, caller number) for the rep's leg, or the blocker that is missing."""
     conf = ctx.configs.read(workspace(p))
-    admin = p["role"] in {"owner", "admin"}
     with ctx.db.transaction(False) as s:
         user = UserView.model_validate(scoped_get(s, p, "users", p["user_id"]).data)
-        sip = user.sip_username or (conf.get("sip_username") if admin else None)
-        credential = user.telephony_credential_id or (conf.get("telephony_credential_id") if admin else None)
+        sip = user.sip_username or conf.get("sip_username")
+        credential = user.telephony_credential_id or conf.get("telephony_credential_id")
         if not sip or not SIP_NAME.fullmatch(sip) or not credential:
             refuse([blocked("AUDIO_SETUP_MISSING")])
         model = MODELS["number_inventory"]

@@ -41,7 +41,6 @@ ALLOWED = {
     "call_summaries",
     "script_versions",
     "sellers",
-    "sessions",
     "suppressions",
     "tenants",
     "transcript_segments",

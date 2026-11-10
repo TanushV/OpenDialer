@@ -13,7 +13,7 @@ import { CallbackRouting } from "./CallbackRouting";
 import { useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { LONG_REQUEST_MS, native, openSource } from "../api/client";
-import { date, isAdmin, label, useWorkspace } from "../context";
+import { date, label, useWorkspace } from "../context";
 import { parseCSV } from "../state/csv";
 import { ColumnMap, type ColumnMapping } from "./ColumnMap";
 import { HubSpotLists } from "./HubSpotLists";
@@ -38,7 +38,6 @@ export function LeadsPage({
   onNavigate: (view: "Script" | "Settings") => void;
 }) {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
-  const admin = isAdmin(w.user.role);
   const [csv, setCSV] = useState("");
   const [columnMap, setColumnMap] = useState<ColumnMapping | null>(null);
   const [listName, setListName] = useState("");
@@ -152,7 +151,7 @@ export function LeadsPage({
             </button>
           </div>
         </div>
-        {admin && selected.length > 0 && (
+        {selected.length > 0 && (
           <BulkLeadActions
             selected={selected}
             memberships={[
@@ -177,23 +176,21 @@ export function LeadsPage({
         <table>
           <thead>
             <tr>
-              {admin && (
-                <th>
-                  <input
-                    type="checkbox"
-                    aria-label="Select all visible leads"
-                    checked={
-                      leads.length > 0 &&
-                      leads.every((lead) => selected.includes(lead.id))
-                    }
-                    onChange={(e) =>
-                      setSelected(
-                        e.target.checked ? leads.map((lead) => lead.id) : [],
-                      )
-                    }
-                  />
-                </th>
-              )}
+              <th>
+                <input
+                  type="checkbox"
+                  aria-label="Select all visible leads"
+                  checked={
+                    leads.length > 0 &&
+                    leads.every((lead) => selected.includes(lead.id))
+                  }
+                  onChange={(e) =>
+                    setSelected(
+                      e.target.checked ? leads.map((lead) => lead.id) : [],
+                    )
+                  }
+                />
+              </th>
               <th>PERSON / COMPANY</th>
               <th>PHONE</th>
               <th>STATUS</th>
@@ -205,22 +202,20 @@ export function LeadsPage({
           <tbody>
             {leads.map((lead) => (
               <tr key={lead.id}>
-                {admin && (
-                  <td>
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${lead.name}`}
-                      checked={selected.includes(lead.id)}
-                      onChange={(e) =>
-                        setSelected(
-                          e.target.checked
-                            ? [...selected, lead.id]
-                            : selected.filter((id) => id !== lead.id),
-                        )
-                      }
-                    />
-                  </td>
-                )}
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${lead.name}`}
+                    checked={selected.includes(lead.id)}
+                    onChange={(e) =>
+                      setSelected(
+                        e.target.checked
+                          ? [...selected, lead.id]
+                          : selected.filter((id) => id !== lead.id),
+                      )
+                    }
+                  />
+                </td>
                 <td>
                   <strong>{lead.name}</strong>
                   <small>{lead.company || "Company not provided"}</small>
@@ -301,130 +296,122 @@ export function LeadsPage({
         />
       </section>
       {/* Below the leads: it loads after them, so it never pushes the leads toolbar down (R10.10). */}
-      {admin && (
-        <ListsPage
-          embedded
-          onChanged={async () => {
-            await reloadLeads();
-            await lists.reload();
-          }}
-        />
-      )}
-      {admin && (
-        <HubSpotLists
-          onSynced={async () => {
-            await refresh();
-            await reloadLeads();
-            await lists.reload();
-          }}
-        />
-      )}
-      {admin && (
-        <section className="card import-card">
-          <div>
-            <h2>Import a list</h2>
-            <p className="muted">
-              A CSV with <code>name</code> and <code>phone</code> columns.{" "}
-              <code>company</code>, <code>domain</code>, <code>timezone</code>{" "}
-              and <code>state</code> help, and every other column is used as
-              research context. Opted-out numbers stay blocked.
-            </p>
-          </div>
-          <div>
-            <label>
-              List name
-              <input
-                value={listName}
-                maxLength={120}
-                onChange={(e) => setListName(e.target.value)}
-                placeholder="e.g. California agencies"
-              />
-            </label>
-            <label>
-              CSV lead data
-              <textarea
-                rows={5}
-                value={csv}
-                onChange={(e) => setCSV(e.target.value)}
-                placeholder={
-                  "name,phone,company,timezone\nJordan Example,+14155550101,Example Co,America/Los_Angeles"
-                }
-              />
-            </label>
-            <div className="button-row">
-              <label className="secondary file-button">
-                <Upload size={15} />
-                Choose CSV file
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      setListName(
-                        file.name.replace(/\.csv$/i, "").slice(0, 120),
-                      );
-                      void file.text().then(setCSV);
-                    }
-                  }}
-                />
-              </label>
-              <button
-                className="primary"
-                disabled={!csv.trim()}
-                onClick={() =>
-                  void run(async () => {
-                    const report = await api<{
-                      imported: number;
-                      duplicates: number;
-                      invalid: number;
-                      preparing: number;
-                    }>(
-                      "/v1/leads/import",
-                      "POST",
-                      {
-                        campaign_id: w.campaign.id,
-                        list_name: listName.trim(),
-                        rows: parseCSV(csv),
-                        prepare: true,
-                        ...(columnMap ? { column_map: columnMap } : {}),
-                      },
-                      { timeoutMs: LONG_REQUEST_MS },
-                    );
-                    setReport(report);
-                    setCSV("");
-                    setColumnMap(null);
-                    await refresh();
-                    await reloadLeads();
-                    await lists.reload();
-                    const count = `${report.imported} lead${report.imported === 1 ? "" : "s"} imported.`;
-                    notice(
-                      report.preparing
-                        ? `${count} Agents are researching them now.`
-                        : count,
-                    );
-                  })
-                }
-              >
-                Import leads
-                <ArrowRight size={15} />
-              </button>
-            </div>
-            {report && (
-              <p className="small">
-                {report.imported} imported · {report.duplicates} already in the
-                list · {report.invalid} without a valid phone number
-              </p>
-            )}
-            {/* Below the buttons: the guessed map arrives after the CSV is read and must not move Import leads. */}
-            <ColumnMap
-              headers={csvHeaders(csv)}
-              value={columnMap}
-              onChange={setColumnMap}
+      <ListsPage
+        embedded
+        onChanged={async () => {
+          await reloadLeads();
+          await lists.reload();
+        }}
+      />
+      <HubSpotLists
+        onSynced={async () => {
+          await refresh();
+          await reloadLeads();
+          await lists.reload();
+        }}
+      />
+      <section className="card import-card">
+        <div>
+          <h2>Import a list</h2>
+          <p className="muted">
+            A CSV with <code>name</code> and <code>phone</code> columns.{" "}
+            <code>company</code>, <code>domain</code>, <code>timezone</code> and{" "}
+            <code>state</code> help, and every other column is used as research
+            context. Opted-out numbers stay blocked.
+          </p>
+        </div>
+        <div>
+          <label>
+            List name
+            <input
+              value={listName}
+              maxLength={120}
+              onChange={(e) => setListName(e.target.value)}
+              placeholder="e.g. California agencies"
             />
+          </label>
+          <label>
+            CSV lead data
+            <textarea
+              rows={5}
+              value={csv}
+              onChange={(e) => setCSV(e.target.value)}
+              placeholder={
+                "name,phone,company,timezone\nJordan Example,+14155550101,Example Co,America/Los_Angeles"
+              }
+            />
+          </label>
+          <div className="button-row">
+            <label className="secondary file-button">
+              <Upload size={15} />
+              Choose CSV file
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setListName(file.name.replace(/\.csv$/i, "").slice(0, 120));
+                    void file.text().then(setCSV);
+                  }
+                }}
+              />
+            </label>
+            <button
+              className="primary"
+              disabled={!csv.trim()}
+              onClick={() =>
+                void run(async () => {
+                  const report = await api<{
+                    imported: number;
+                    duplicates: number;
+                    invalid: number;
+                    preparing: number;
+                  }>(
+                    "/v1/leads/import",
+                    "POST",
+                    {
+                      campaign_id: w.campaign.id,
+                      list_name: listName.trim(),
+                      rows: parseCSV(csv),
+                      prepare: true,
+                      ...(columnMap ? { column_map: columnMap } : {}),
+                    },
+                    { timeoutMs: LONG_REQUEST_MS },
+                  );
+                  setReport(report);
+                  setCSV("");
+                  setColumnMap(null);
+                  await refresh();
+                  await reloadLeads();
+                  await lists.reload();
+                  const count = `${report.imported} lead${report.imported === 1 ? "" : "s"} imported.`;
+                  notice(
+                    report.preparing
+                      ? `${count} Agents are researching them now.`
+                      : count,
+                  );
+                })
+              }
+            >
+              Import leads
+              <ArrowRight size={15} />
+            </button>
           </div>
-        </section>
-      )}
+          {report && (
+            <p className="small">
+              {report.imported} imported · {report.duplicates} already in the
+              list · {report.invalid} without a valid phone number
+            </p>
+          )}
+          {/* Below the buttons: the guessed map arrives after the CSV is read and must not move Import leads. */}
+          <ColumnMap
+            headers={csvHeaders(csv)}
+            value={columnMap}
+            onChange={setColumnMap}
+          />
+        </div>
+      </section>
       {packet && (
         <div className="modal-shade">
           <section
@@ -441,49 +428,47 @@ export function LeadsPage({
               {packet.lead.company} · {packet.lead.phone}
             </p>
             <div className="section-rule" />
-            {admin && (
-              <div>
-                {lookupStatus[packet.lead.id] && (
-                  <p role="status">{lookupStatus[packet.lead.id]}</p>
-                )}
-                {lookupLead === packet.lead.id ? (
-                  <div className="button-row">
-                    <button
-                      onClick={() => {
-                        const id = packet.lead.id;
-                        setLookupLead("");
-                        void run(async () => {
-                          const result = await api<{
-                            status: string;
-                            carrier?: string;
-                            line_type?: string;
-                          }>(`/v1/admin/leads/${id}/carrier-lookup`, "POST", {
-                            approve_charge: true,
-                          });
-                          const status =
-                            result.status === "completed"
-                              ? `${result.carrier || "Unknown carrier"} · ${result.line_type || "Unknown line type"}`
-                              : "No confirmed carrier receipt. The original lookup will not be charged again by this action.";
-                          setLookupStatus((previous) => ({
-                            ...previous,
-                            [id]: status,
-                          }));
+            <div>
+              {lookupStatus[packet.lead.id] && (
+                <p role="status">{lookupStatus[packet.lead.id]}</p>
+              )}
+              {lookupLead === packet.lead.id ? (
+                <div className="button-row">
+                  <button
+                    onClick={() => {
+                      const id = packet.lead.id;
+                      setLookupLead("");
+                      void run(async () => {
+                        const result = await api<{
+                          status: string;
+                          carrier?: string;
+                          line_type?: string;
+                        }>(`/v1/admin/leads/${id}/carrier-lookup`, "POST", {
+                          approve_charge: true,
                         });
-                      }}
-                    >
-                      Approve one metered Telnyx lookup
-                    </button>
-                    <button onClick={() => setLookupLead("")}>
-                      Cancel lookup
-                    </button>
-                  </div>
-                ) : (
-                  <button onClick={() => setLookupLead(packet.lead.id)}>
-                    Check carrier and line type
+                        const status =
+                          result.status === "completed"
+                            ? `${result.carrier || "Unknown carrier"} · ${result.line_type || "Unknown line type"}`
+                            : "No confirmed carrier receipt. The original lookup will not be charged again by this action.";
+                        setLookupStatus((previous) => ({
+                          ...previous,
+                          [id]: status,
+                        }));
+                      });
+                    }}
+                  >
+                    Approve one metered Telnyx lookup
                   </button>
-                )}
-              </div>
-            )}
+                  <button onClick={() => setLookupLead("")}>
+                    Cancel lookup
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setLookupLead(packet.lead.id)}>
+                  Check carrier and line type
+                </button>
+              )}
+            </div>
             <h3>Script for this lead</h3>
             <p className="fine">
               {packet.script.fallback
@@ -517,25 +502,23 @@ export function LeadsPage({
                 {date(c.started_at)} · {c.outcome || c.state}
               </p>
             ))}
-            {admin && (
-              <>
-                <h3>Endpoint correction</h3>
-                <p className="muted small">
-                  Wrong-party endpoints stay suppressed. Attach a verified
-                  replacement endpoint to continue this lead.
-                </p>
-                <EndpointCorrection
+            <>
+              <h3>Endpoint correction</h3>
+              <p className="muted small">
+                Wrong-party endpoints stay suppressed. Attach a verified
+                replacement endpoint to continue this lead.
+              </p>
+              <EndpointCorrection
+                lead={packet.lead}
+                onDone={() => setPacket(null)}
+              />
+              {packet.lead.suppressed && (
+                <HoldRelease
                   lead={packet.lead}
                   onDone={() => setPacket(null)}
                 />
-                {packet.lead.suppressed && (
-                  <HoldRelease
-                    lead={packet.lead}
-                    onDone={() => setPacket(null)}
-                  />
-                )}
-              </>
-            )}
+              )}
+            </>
           </section>
         </div>
       )}

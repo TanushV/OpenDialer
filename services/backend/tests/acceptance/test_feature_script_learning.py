@@ -16,7 +16,6 @@ SECTIONS = {
 }
 OPEN, ASK, CLOSE = "opening:opening-1", "discovery:discovery-1", "close:close-1"
 PROSPECT = "Honestly we chase every invoice by hand in spreadsheets and it eats two days each month."
-LOGIN = {"email": "operator@example.test", "password": "a-test-only-password-123"}
 
 
 def use_template(ws, **changes):
@@ -72,7 +71,9 @@ def leads(prefix, count, area="415"):
 
 
 def relogin(ws):
-    token = call(ws, "POST", "/v1/auth/session", json=LOGIN)["access_token"]
+    token = call(ws, "POST", "/v1/local/session", headers={"X-Local-Token": "test-local-secret"}, json={})[
+        "access_token"
+    ]
     return {**ws, "headers": {"Authorization": f"Bearer {token}"}}
 
 
@@ -203,7 +204,7 @@ def test_team_notes_survive_every_rewrite_with_versions(workspace, clock):
     assert "Not enough calls yet" in first["markdown"]
     body = {"expected_version": first["version"], "team_notes": "Prospects in logistics prefer email first."}
     saved = post_put(ws, "/v1/admin/script/memory", body)
-    assert saved["version"] == first["version"] + 1 and saved["written_by"] == "operator@example.test"
+    assert saved["version"] == first["version"] + 1 and saved["written_by"] == "Local operator"
     stale = ws["client"].put("/v1/admin/script/memory", headers=ws["headers"], json=body)
     assert stale.status_code == 409
     call_id = good_call(ws, "notes-call")

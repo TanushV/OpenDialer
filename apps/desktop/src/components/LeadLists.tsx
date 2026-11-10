@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { isAdmin, date, useWorkspace } from "../context";
+import { date, useWorkspace } from "../context";
 import { useLoad } from "../state/useLoad";
 import type { Lead } from "../types";
 
@@ -126,7 +126,7 @@ export function ListsPage({
                 <th>HELD</th>
                 <th>COMPLETED</th>
                 <th>DUE CALLBACKS</th>
-                {isAdmin(w.user.role) && <th>ACTIONS</th>}
+                <th>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
@@ -150,57 +150,52 @@ export function ListsPage({
                   <td>{list.held}</td>
                   <td>{list.completed}</td>
                   <td>{list.callbacks_due}</td>
-                  {isAdmin(w.user.role) && (
-                    <td>
-                      <div className="button-row">
-                        {!list.archived && (
-                          <button
-                            onClick={() =>
-                              void run(() =>
-                                edit(
-                                  list.name,
-                                  list.paused ? "resume" : "pause",
-                                ),
-                              )
-                            }
-                          >
-                            {list.paused ? "Resume" : "Pause"}
-                          </button>
-                        )}
+                  <td>
+                    <div className="button-row">
+                      {!list.archived && (
                         <button
                           onClick={() =>
                             void run(() =>
-                              edit(
-                                list.name,
-                                list.archived ? "restore" : "archive",
-                              ),
+                              edit(list.name, list.paused ? "resume" : "pause"),
                             )
                           }
                         >
-                          {list.archived ? "Restore list" : "Remove list"}
+                          {list.paused ? "Resume" : "Pause"}
                         </button>
-                      </div>
-                      <details>
-                        <summary>Rename list</summary>
-                        <input
-                          aria-label={`New name for ${listLabel(list.name)}`}
-                          value={names[list.name] ?? list.name}
-                          onChange={(e) =>
-                            setNames({ ...names, [list.name]: e.target.value })
-                          }
-                          maxLength={120}
-                        />
-                        <button
-                          disabled={!names[list.name]?.trim()}
-                          onClick={() =>
-                            void run(() => edit(list.name, "rename"))
-                          }
-                        >
-                          Save name
-                        </button>
-                      </details>
-                    </td>
-                  )}
+                      )}
+                      <button
+                        onClick={() =>
+                          void run(() =>
+                            edit(
+                              list.name,
+                              list.archived ? "restore" : "archive",
+                            ),
+                          )
+                        }
+                      >
+                        {list.archived ? "Restore list" : "Remove list"}
+                      </button>
+                    </div>
+                    <details>
+                      <summary>Rename list</summary>
+                      <input
+                        aria-label={`New name for ${listLabel(list.name)}`}
+                        value={names[list.name] ?? list.name}
+                        onChange={(e) =>
+                          setNames({ ...names, [list.name]: e.target.value })
+                        }
+                        maxLength={120}
+                      />
+                      <button
+                        disabled={!names[list.name]?.trim()}
+                        onClick={() =>
+                          void run(() => edit(list.name, "rename"))
+                        }
+                      >
+                        Save name
+                      </button>
+                    </details>
+                  </td>
                 </tr>
               ))}
             </tbody>

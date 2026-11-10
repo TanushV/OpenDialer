@@ -323,8 +323,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         with self.db.transaction(False) as s:
             users = [
                 doc(user) | {"tenant_id": user.tenant_id, "seller_id": user.seller_id}
-                for user in rows(s, "users", tenant_id)
-                if user.data.get("role") in {"owner", "admin"} and not user.data.get("disabled")
+                for user in sorted(rows(s, "users", tenant_id), key=lambda u: u.created_at)[:1]
             ]
         seen = set()
         for user in users:
@@ -359,13 +358,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
                 )
 
     def learning_owner(self, s, p):
-        """The caller, with an admin role unless either the token or the user is a rep."""
-        from app.service import fail
-
-        user = self.required(s, "users", p["user_id"], p)
-        if user.data.get("disabled"):
-            fail(403, "Account is disabled")
-        return {**p, "role": "rep" if "rep" in (p["role"], user.data["role"]) else "admin"}
+        """The one user (R3.4)."""
+        self.required(s, "users", p["user_id"], p)
+        return p
 
     def request_optimization_refresh(self, p):
         """One refresh job per campaign; asking again requeues it once it has finished."""
@@ -389,11 +384,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
         return {"status": job["status"], "job_id": job["id"]}
 
     def refresh_optimization_job(self, p, *, lease=None):
-        from app.service import fail
 
         with self.db.transaction(False) as s:
-            if self.learning_owner(s, p)["role"] != "admin":
-                fail(403, "Administrator access is required to refresh optimization")
+            self.learning_owner(s, p)
         return self.refresh_optimization(p, lease=lease)
 
     def optimization_config(self, s, p, campaign_id=None, *, campaign=None):
@@ -772,11 +765,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         the next dataset. Nothing here fences on, or locks, the seller revision."""
         as_of = self.clock()
         with self.db.snapshot() as s:
-            user = self.learning_owner(s, p)
-            if user["role"] != "admin":
-                from app.service import fail
-
-                fail(403, "Administrator access required for a learning snapshot")
+            self.learning_owner(s, p)
             watermark = self.finalized_calls(s, p["tenant_id"], p["seller_id"])
             config = self.optimization_config(s, p)
             campaign = self.selected_campaign(s, p)
@@ -795,11 +784,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             # Campaign row first, then job rows: every campaign publisher takes them in this order.
             campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
             self.jobs.require_owned_in(s, lease)
-            user = self.learning_owner(s, p)
-            if user["role"] != "admin":
-                from app.service import fail
-
-                fail(403, "Learning owner no longer has administrator access")
+            self.learning_owner(s, p)
             previous = self._by_key(s, p, "learning_datasets", key)
             result = previous or put(
                 s,
@@ -886,12 +871,9 @@ class OptimizationWorkflows(ComparisonWorkflows):
         return {"status": job["status"], "rows": len(data), "job_id": job["id"], "dataset_id": dataset["id"]}
 
     def refresh_observed_health(self, p, *, lease=None):
-        from app.service import fail
 
         with self.db.transaction(False) as s:
-            user = self.learning_owner(s, p)
-            if user["role"] != "admin":
-                fail(403, "Administrator access required for health refresh")
+            self.learning_owner(s, p)
             numbers = self.inventory_evidence(s, p)
         # Health is a derived as-of view: each page publishes what was computed, and
         # a later source change is repaired by the next scheduled refresh.
@@ -899,9 +881,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         for offset in range(0, len(numbers), 100):
             with self.db.transaction() as s:
                 self.jobs.require_owned_in(s, lease)
-                user = self.learning_owner(s, p)
-                if user["role"] != "admin":
-                    fail(403, "Health owner no longer has administrator access")
+                self.learning_owner(s, p)
                 for number in numbers[offset : offset + 100]:
                     existing = self._by_key(s, p, "number_health", number["id"])
                     value = {**number["health"], "number_id": number["id"]}
@@ -952,11 +932,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
 
         dataset = self.save_operational_dataset(p, lease=lease)
         with self.db.transaction(False) as s:
-            user = self.learning_owner(s, p)
-            if user["role"] != "admin":
-                from app.service import fail
-
-                fail(403, "Administrator access required for learning refresh")
+            self.learning_owner(s, p)
             campaign = self.selected_campaign(s, p)
             campaign_id = campaign.id
             vocabulary = dict(campaign.data.get("conversation_vocabulary", {"version": 1, "aliases": []}))
@@ -976,11 +952,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
             # Campaign row first, then job rows: every campaign publisher takes them in this order.
             campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
             self.jobs.require_owned_in(s, lease)
-            owner = self.learning_owner(s, p)
-            if owner["role"] != "admin":
-                from app.service import fail
-
-                fail(403, "Learning owner no longer has administrator access")
+            self.learning_owner(s, p)
             config = self.optimization_config(s, p, campaign_id)
             if not (
                 dataset.get("conversation_revision") == campaign.data.get("conversation_revision", 0)
@@ -1017,11 +989,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         from app.optimization.projections import campaign_records, estimate_statistics
 
         with self.db.transaction(False) as s:
-            user = self.learning_owner(s, p)
-            if user["role"] != "admin":
-                from app.service import fail
-
-                fail(403, "Administrator access required for optimization refresh")
+            self.learning_owner(s, p)
             generation = self.finalized_calls(s, p["tenant_id"], p["seller_id"])
             campaign = self.selected_campaign(s, p)
             campaign_id = campaign.id
@@ -1051,11 +1019,7 @@ class OptimizationWorkflows(ComparisonWorkflows):
         with self.db.transaction() as s:
             # Campaign row first, then job rows: every campaign publisher takes them in this order.
             campaign = self.required(s, "campaigns", campaign_id, p, lock=True)
-            user = self.learning_owner(s, p)
-            if user["role"] != "admin":
-                from app.service import fail
-
-                fail(403, "Optimization owner no longer has administrator access")
+            self.learning_owner(s, p)
             self.jobs.require_owned_in(s, lease)
             previous = {
                 k: v for k, v in (campaign.data.get("selection_profile") or {}).items() if k != "as_of"

@@ -26,8 +26,6 @@ class TelephonyWorkflows:
         with self.db.transaction() as s:
             self.db.authorize_stream(s, p)
             call = self.required(s, "call_attempts", call_id, p)
-            if call.data["rep_id"] != p["user_id"] and p["role"] == "rep":
-                fail(403, "Call belongs to another rep")
             prior = self._by_key(s, p, "command_outbox", f"{call_id}:dtmf:{request_id}")
             if prior:
                 if prior.data["payload"]["digits"] != digits:
@@ -55,9 +53,7 @@ class TelephonyWorkflows:
 
     def keypad_status(self, p, call_id, request_id):
         with self.db.transaction(False) as s:
-            call = self.required(s, "call_attempts", call_id, p)
-            if call.data["rep_id"] != p["user_id"] and p["role"] == "rep":
-                fail(403, "Call belongs to another rep")
+            self.required(s, "call_attempts", call_id, p)
             command = self._by_key(s, p, "command_outbox", f"{call_id}:dtmf:{request_id}")
             if not command or command.data.get("action") != "send_dtmf":
                 fail(404, "Keypad request not received")
@@ -323,8 +319,6 @@ class TelephonyWorkflows:
                 if (
                     not user
                     or user.seller_id != p["seller_id"]
-                    or user.data.get("disabled")
-                    or (user.id != call.data["rep_id"] and user.data["role"] not in {"owner", "admin"})
                     or call.data["state"] not in KEYPAD_STATES
                     or command.get("target") != call.data.get("provider_id")
                     or not command.get("expires_at")

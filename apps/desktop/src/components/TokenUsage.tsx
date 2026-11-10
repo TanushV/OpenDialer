@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { isAdmin, date, useWorkspace } from "../context";
+import { date, useWorkspace } from "../context";
 import { useLoad } from "../state/useLoad";
 import { listLabel, useLists } from "./LeadLists";
 
@@ -79,13 +79,9 @@ export function TokenUsage() {
   if (version) params.set("base_version", version);
   if (kind) params.set("kind", kind);
   if (lead.trim()) params.set("lead_id", lead.trim());
-  const usage = useLoad<Report>(
-    isAdmin(snapshot.user.role) ? `/v1/usage/tokens?${params}` : null,
-  );
+  const usage = useLoad<Report>(`/v1/usage/tokens?${params}`);
   const estimate = useLoad<Estimate>(
-    isAdmin(snapshot.user.role)
-      ? `/v1/preparation/estimate${list === null ? "" : `?${new URLSearchParams({ list_name: list })}`}`
-      : null,
+    `/v1/preparation/estimate${list === null ? "" : `?${new URLSearchParams({ list_name: list })}`}`,
   );
   async function refresh() {
     await Promise.all([usage.reload(), estimate.reload()]);
@@ -116,7 +112,6 @@ export function TokenUsage() {
     const timer = setInterval(() => void refresh().catch(() => {}), 8000);
     return () => clearInterval(timer);
   }, [usage.data?.totals.running, usage.reload, estimate.reload]);
-  if (!isAdmin(snapshot.user.role)) return null;
   async function rewrite(sample: boolean, remaining = false) {
     setBusy(true);
     try {

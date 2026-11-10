@@ -139,12 +139,7 @@ class RepWorkflows:
         """Authorize before replay; the receipt is metadata, never a historical object view."""
         self.db.authorize_stream(s, p)
         s.refresh(row, with_for_update=True)
-        owner_id = row.data.get(owner_field)
-        user = self.required(s, "users", p["user_id"], p)
-        if user.data.get("disabled"):
-            fail(403, "Current account or session cannot edit this record")
-        if "rep" in {p["role"], user.data["role"]} and owner_id not in (None, p["user_id"]):
-            fail(403, "This record belongs to another rep")
+        self.required(s, "users", p["user_id"], p)
         # R3.6: one writer, so the last save is the record; the request ID makes a retried save land once.
         if data.get("request_id") is None:
             fail(
@@ -201,8 +196,6 @@ class RepWorkflows:
                 return {**doc(lead), "edit_receipt": identity[2]}
             if lead.data.get("outreach_hold") != "goal_changed":
                 fail(409, "Refresh the prospect; only a goal-change review can be resolved here")
-            if p["role"] == "rep" and lead.data.get("rep_id") not in (None, p["user_id"]):
-                fail(403, "This prospect belongs to another rep")
             if self.suppressed(s, p, lead.data["phone"]):
                 fail(403, "An opt-out cannot be cleared by a next-action review")
             if data["next_action"] == "callback":
@@ -566,9 +559,7 @@ class RepWorkflows:
                 if data["due_offset_minutes"] != int(local.total_seconds() // 60):
                     fail(422, "The time's UTC offset does not match the task timezone; choose the time again")
             if "owner_id" in edits:
-                owner = self.required(s, "users", edits["owner_id"] or "", p)
-                if owner.data.get("disabled"):
-                    fail(422, "Task owner is disabled")
+                self.required(s, "users", edits["owner_id"] or "", p)
             candidate = {**task.data, **edits}
             if candidate["status"] in {"open", "snoozed"} and not candidate.get("due_at"):
                 fail(422, "Confirm a dated time before opening or snoozing this task")
