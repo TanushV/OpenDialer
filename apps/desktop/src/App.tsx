@@ -769,7 +769,10 @@ export function App() {
               </div>
             )}
             <div hidden={view !== "Dialer"}>
-              <Dialer visible={view === "Dialer"} />
+              <Dialer
+                visible={view === "Dialer"}
+                onNavigate={(page) => setView(page as View)}
+              />
             </div>
             {view === "Dialer" ? null : view === "Leads" || view === "Lists" ? (
               <LeadsPage onNavigate={setView} />

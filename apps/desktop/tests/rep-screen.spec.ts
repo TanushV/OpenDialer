@@ -449,3 +449,28 @@ test("a session that cannot renew asks the rep to sign in again", async ({
   await expect(page.getByText("Session expired")).toHaveCount(0);
   await expect(startCalling(page).or(pauseCalling(page))).toBeVisible();
 });
+
+test("a blocker fixed on another page offers a button that opens it", async ({
+  page,
+}) => {
+  await page.route("**/v1/blockers", (route) =>
+    route.fulfill({
+      json: {
+        blockers: [
+          {
+            code: "TELNYX_NOT_CONFIGURED",
+            message: "Add your Telnyx API key in Settings.",
+            fix: "settings",
+          },
+        ],
+      },
+    }),
+  );
+  await enter(page);
+  if (await pauseCalling(page).isVisible()) await pauseCalling(page).click();
+  await expect(callStatus(page)).toContainText("Add your Telnyx API key");
+  await callStatus(page)
+    .getByRole("button", { name: "Open Settings", exact: true })
+    .click();
+  await expect(page.locator(".breadcrumb strong")).toHaveText("Settings");
+});

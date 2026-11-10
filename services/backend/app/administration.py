@@ -281,25 +281,34 @@ def setup_rows(service, p):
     if service.settings.simulation:
         live["connection"] = (True, "Simulated workspace: call events are simulated")
     elif not service.managed.enabled(p["tenant_id"]):
-        live["connection"] = (False, "Import your calling setup file to connect call events")
+        live["connection"] = (False, "Import your calling setup file to connect call events", False)
     else:
         code = service.managed.connection_code(p["tenant_id"])
         live["connection"] = (code is None, "Connected" if code is None else CATALOG[code][0])
     home = profile_home(service.settings.data_dir, p["user_id"])
     signed_in = (home / "auth.json").is_file() and (home / "account.json").is_file()
-    live["chatgpt"] = (signed_in, "Signed in on this Mac" if signed_in else "Not signed in")
+    live["chatgpt"] = (signed_in, "Signed in on this Mac" if signed_in else "Not signed in", signed_in)
     phone = normalize_phone(conf.get("test_phone") or "")
-    live["test_phone"] = (bool(phone.e164), phone.e164 or "Add your own number for test calls")
+    live["test_phone"] = (
+        bool(phone.e164),
+        phone.e164 or "Add your own number for test calls",
+        bool(conf.get("test_phone")),
+    )
     with service.db.transaction(False) as s:
         numbers = ops.scoped(service, s, "number_inventory", p)
         code = ops.number_setup_blocker(service, s, p, numbers)
         ready = sum(1 for n in numbers if n.data.get("lifecycle") in {"healthy", "limited_real_use"})
-        live["numbers"] = (code is None, f"{ready} ready" if code is None else CATALOG[code][0])
+        live["numbers"] = (
+            code is None,
+            f"{ready} ready" if code is None else CATALOG[code][0],
+            bool(numbers),
+        )
         campaign = next(iter(ops.scoped(service, s, "campaigns", p)), None)
         script = (campaign.data.get("script") or {}) if campaign else {}
         live["script"] = (
             bool(script.get("template")),
             f"Version {script.get('version')} saved" if script.get("template") else "No script saved yet",
+            bool(script.get("template")),
         )
         policy = (
             ops.required(service, s, "policy_versions", campaign.data["policy_id"], p).data

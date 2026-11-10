@@ -114,8 +114,11 @@ def row(spec, config, checks, live):
         "optional": spec.optional,
     }
     if spec.id in LIVE:
-        ok, detail = live.get(spec.id, (False, "Not checked yet"))
-        return {**base, "state": OK if ok else (OPTIONAL if spec.optional else FAILED), "detail": detail}
+        # A live answer is (ok, detail) or (ok, detail, is_set): something never set reads "Not set", not "Failed".
+        ok, detail, *rest = live.get(spec.id, (False, "Not checked yet"))
+        unset = bool(rest) and not rest[0]
+        state = OK if ok else OPTIONAL if spec.optional else MISSING if unset else FAILED
+        return {**base, "state": state, "detail": detail}
     if not all(config.get(field) for field in spec.fields):
         return {**base, "state": OPTIONAL if spec.optional else MISSING, "detail": "Not set"}
     check = checks.get(spec.id)

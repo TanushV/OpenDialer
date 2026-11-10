@@ -1247,7 +1247,11 @@ Goal: plainly what to add and where to get it.
 - [x] R7.7 Confirm the Telnyx and OpenRouter links land on the right screens. Done November 8 in the in-app
       browser: signed out, each opens its sign-in page with a redirect back to the API keys page
       (`redirectTo=/api-keys`, `redirect_url=…/keys`). Signed in, the owner lands on the keys page.
-- [ ] R7.8 Fresh-install walkthrough on an empty `local-3` copy.
+- [x] R7.8 Fresh-install walkthrough on an empty `local-3` copy.
+      Done November 10 on the 2.0.0 backend with an empty folder (not simulated): welcome, name, then the Dialer
+      names the first thing to add and Settings lists every row with where to get it. Found and fixed: five rows
+      never set said "Failed" (now "Not set" with the fix), and the Dialer's blocker had no way to the page that fixes
+      it (now an Open Settings, Numbers, Leads or Review button).
 
 Done when: the owner can read the page without explanation.
 

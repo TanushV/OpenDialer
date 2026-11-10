@@ -69,3 +69,14 @@ async def test_key_checks_report_accepted_refused_and_unreachable():
     async with httpx.AsyncClient(transport=httpx.MockTransport(down)) as http:
         ok, detail = await telnyx.check_key("k", http)
         assert not ok and "could not be reached" in detail
+
+
+def test_a_row_never_set_reads_not_set_and_a_broken_one_reads_failed():
+    """A fresh install shows what to add, not a page of failures (R7.8)."""
+    from app.calling.setup import SPECS, row
+
+    connection = next(spec for spec in SPECS if spec.id == "connection")
+    fresh = row(connection, {}, {}, {"connection": (False, "Import your calling setup file", False)})
+    broken = row(connection, {}, {}, {"connection": (False, "Call events are reconnecting", True)})
+    assert (fresh["state"], broken["state"]) == ("missing", "failed")
+    assert fresh["detail"] == "Import your calling setup file"

@@ -21,7 +21,22 @@ import { OUTCOME_KEYS, useCallLoop } from "./useCallLoop";
 
 type Loop = ReturnType<typeof useCallLoop>;
 
-export function Dialer({ visible = true }: { visible?: boolean }) {
+/** The page where the rep fixes a blocker, by the blocker's `fix` place. */
+const FIX_PAGE: Record<string, string> = {
+  settings: "Settings",
+  numbers: "Numbers",
+  leads: "Leads",
+  attention: "Review",
+};
+
+export function Dialer({
+  visible = true,
+  onNavigate,
+}: {
+  visible?: boolean;
+  /** Opens the page that fixes the current blocker. */
+  onNavigate?: (page: string) => void;
+}) {
   const loop = useCallLoop(visible);
   const { phase, act } = loop;
   useKeys(phase, act, visible, loop.call?.suggested_outcome?.code);
@@ -30,7 +45,7 @@ export function Dialer({ visible = true }: { visible?: boolean }) {
     <div className="dialer" data-phase={phase.kind}>
       <audio ref={loop.audio} autoPlay />
       <ErrorBoundary>
-        <StatusBar loop={loop} />
+        <StatusBar loop={loop} onNavigate={onNavigate} />
       </ErrorBoundary>
       <div className="dialer-body">
         <ErrorBoundary>
@@ -44,7 +59,13 @@ export function Dialer({ visible = true }: { visible?: boolean }) {
   );
 }
 
-function StatusBar({ loop }: { loop: Loop }) {
+function StatusBar({
+  loop,
+  onNavigate,
+}: {
+  loop: Loop;
+  onNavigate?: (page: string) => void;
+}) {
   const { phase, packet, act } = loop;
   const lead = packet?.lead;
   const paused = phase.kind === "paused";
@@ -65,7 +86,15 @@ function StatusBar({ loop }: { loop: Loop }) {
         )}
         {paused && phase.blocker && phase.blocker.fix !== "dialer" && (
           <span className="muted">
-            Fix this in {label(phase.blocker.fix)}; calling resumes on Start.
+            Fix this in {label(phase.blocker.fix)}; calling resumes on Start.{" "}
+            {onNavigate && FIX_PAGE[phase.blocker.fix] && (
+              <Button
+                variant="text"
+                onClick={() => onNavigate(FIX_PAGE[phase.blocker!.fix])}
+              >
+                Open {FIX_PAGE[phase.blocker.fix]}
+              </Button>
+            )}
           </span>
         )}
       </div>
