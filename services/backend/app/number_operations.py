@@ -371,6 +371,27 @@ async def sync_numbers(service, p, adopt=()):
     return {**result, "setup_failed": failed, "owned": owned}
 
 
+PENDING_RECHECK = timedelta(minutes=10)
+WAITING_LIFECYCLES = {"purchased", "identity_configured"}
+
+
+async def recheck_pending_numbers(service, p):
+    """R11.2: while any number waits on its order or setup, Telnyx is re-read at start and then every ten minutes,
+    so an order event that came while the app was closed never leaves a number "purchased"."""
+    with service.db.transaction(False) as s:
+        waiting = any(
+            row.data.get("lifecycle") in WAITING_LIFECYCLES and row.data.get("provider_present") is not False
+            for row in ops.scoped(service, s, "number_inventory", p)
+        )
+    checked = getattr(service, "_numbers_rechecked", {})
+    service._numbers_rechecked = checked
+    last = checked.get(p["seller_id"])
+    if not waiting or (last and service.clock() - last < PENDING_RECHECK):
+        return None
+    checked[p["seller_id"]] = service.clock()
+    return await ops.sync_numbers(service, p)
+
+
 def _owned_numbers(service, p, inventory):
     connection = ops._voice_connection(service, p)
     with service.db.transaction(False) as s:
@@ -573,7 +594,10 @@ def _merge_inventory(service, p, inventory, adopt=frozenset()):
                     or row.data.get("provider_id") != item["id"]
                 )
                 unavailable = item.get("status") not in {None, "active"}
-                if (
+                # A number still waiting on its order keeps waiting; parking it would strand it once Telnyx
+                # activates it (R11.2). Only a number already in use is paused for review.
+                still_ordering = unavailable and row.data.get("lifecycle") == "purchased"
+                if not still_ordering and (
                     routing_changed
                     or unavailable
                     or item.get("call_recording_enabled")

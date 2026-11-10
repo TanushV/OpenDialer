@@ -230,6 +230,7 @@ HOMES = {
     "raw_key": "app.privacy",
     "raw_status": "app.privacy",
     "read_callback_routing": "app.telephony.callbacks",
+    "recheck_pending_numbers": "app.number_operations",
     "reconcile_agent": "app.telephony.recovery_actions",
     "reconcile_command": "app.telephony.recovery",
     "reconcile_goal_status": "app.optimization.workflows",

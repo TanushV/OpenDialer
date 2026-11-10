@@ -171,6 +171,58 @@ def test_an_initially_pending_order_reports_current_number_activation(workspace,
     assert len(carrier.purchases) == 1
 
 
+def test_a_number_that_went_active_while_nobody_listened_is_caught_up_without_a_click(
+    workspace, app, carrier, clock, monkeypatch
+):
+    """Live, November 10: a number bought November 6 still read "purchased" because the order's completion was
+    never read back. The maintenance pass re-reads Telnyx while any number waits, and stops once none does."""
+    from app import ops
+
+    ws = workspace
+    connect(ws, maximum_owned_numbers=9, number_initial_limit_usd=9, number_monthly_limit_usd=9)
+    purchase = carrier.purchase_number
+
+    async def pending(phone, reference):
+        receipt = await purchase(phone, reference)
+        number = next(n for n in carrier.numbers.values() if n["phone_number"] == phone)
+        number["status"] = "purchase-pending"
+        return {**receipt, "status": "pending"}
+
+    monkeypatch.setattr(carrier, "purchase_number", pending)
+    quote = post(ws, "/v1/admin/numbers/search", {"region": "929"})["numbers"][0]
+    post(ws, "/v1/admin/numbers/purchase", {"quote_id": quote["id"], "approve_recurring": True})
+    [waiting] = get(ws, "/v1/admin/numbers/orders")
+    assert not waiting["ready"]
+
+    service = app.state.service
+    reads = []
+    listing = carrier.list_numbers
+
+    async def counted():
+        reads.append(clock.now)
+        return await listing()
+
+    monkeypatch.setattr(carrier, "list_numbers", counted)
+    asyncio.run(ops.maintenance_tick(service))
+    assert len(reads) == 1  # read at once, still pending at Telnyx
+    assert numbers(ws)[quote["phone"]]["lifecycle"] == "purchased"  # still waiting, not parked
+    clock.now += timedelta(minutes=5)
+    asyncio.run(ops.maintenance_tick(service))
+    assert len(reads) == 1  # not again before ten minutes
+
+    next(n for n in carrier.numbers.values() if n["phone_number"] == quote["phone"])["status"] = "active"
+    clock.now += timedelta(minutes=6)
+    asyncio.run(ops.maintenance_tick(service))
+    assert len(reads) == 2
+    [active] = get(ws, "/v1/admin/numbers/orders")
+    assert active["ready"] and active["number_status"] == "active"
+    assert numbers(ws)[quote["phone"]]["lifecycle"] == "limited_real_use"
+
+    clock.now += timedelta(hours=1)
+    asyncio.run(ops.maintenance_tick(service))
+    assert len(reads) == 2  # nothing waits, so Telnyx is not read
+
+
 @pytest.mark.slow
 def test_one_answered_test_call_opens_every_number_immediately_and_never_expires(fresh, app, carrier, clock):
     ws = fresh

@@ -521,6 +521,10 @@ async def maintenance_tick(service):
                 from app import crm
 
                 await asyncio.to_thread(crm.schedule_syncs, service, p)
+            try:
+                await ops.recheck_pending_numbers(service, p)
+            except Exception as exc:  # A carrier or relay outage waits for the next pass.
+                logging.getLogger(__name__).warning("Number recheck deferred: %s", type(exc).__name__)
             await ops.watch_calling(service, p)
             # Recovery ends with the seller's control dispatch; one pass per tick.
             await ops.recover(service, p)
