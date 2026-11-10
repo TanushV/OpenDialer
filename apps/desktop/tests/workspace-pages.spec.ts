@@ -305,7 +305,7 @@ test("each page opens at its top, whatever the last page's scroll", async ({
 }) => {
   await enter(page);
   await goTo(page, "Settings");
-  await page.mouse.wheel(0, 1500);
+  await page.evaluate(() => window.scrollTo(0, 600));
   await expect
     .poll(() => page.evaluate(() => window.scrollY))
     .toBeGreaterThan(0);

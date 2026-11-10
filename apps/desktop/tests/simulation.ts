@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { goTo } from "./navigation";
+import { clickUntil, goTo } from "./navigation";
 
 /**
  * A configuration journey must not revoke evidence used by unrelated call tests. Every test
@@ -212,10 +212,11 @@ export const outcomeKeys = (page: Page) =>
 
 /** Open the full wrap-up form under Add detail; returns it. */
 export async function addDetail(page: Page) {
-  await outcomeKeys(page)
-    .getByRole("button", { name: "Add detail", exact: true })
-    .click();
   const wrapUp = page.locator(".wrap-up").last();
-  await expect(wrapUp).toBeVisible();
+  // Opening the detail is safe to repeat; WebKit can drop the click while the call view re-renders.
+  await clickUntil(
+    outcomeKeys(page).getByRole("button", { name: "Add detail", exact: true }),
+    () => expect(wrapUp).toBeVisible({ timeout: 3_000 }),
+  );
   return wrapUp;
 }
