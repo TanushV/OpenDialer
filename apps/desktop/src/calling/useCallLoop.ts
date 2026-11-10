@@ -8,11 +8,7 @@ import { useWorkspace } from "../context";
 import { OptOutJournal } from "../state/optouts";
 import { nextLeadWithRetry } from "../state/queue";
 import { afterAudioStatus, Telephony } from "../telephony/client";
-import {
-  captureSpeech,
-  unlockSpeechAudio,
-  type SpeechStop,
-} from "../telephony/speech";
+import { captureSpeech, unlockSpeechAudio } from "../telephony/speech";
 import type { Call, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
 import {
@@ -329,7 +325,7 @@ export function useCallLoop(visible: boolean) {
     let failed = false;
     let grace: ReturnType<typeof setTimeout> | undefined;
     const began = Date.now();
-    const report = (reason: SpeechStop | "no_streams") => {
+    const report = (reason: string) => {
       if (failed) return;
       failed = true;
       capture?.stop();
@@ -361,7 +357,13 @@ export function useCallLoop(visible: boolean) {
         tracks?.length !== 2 ||
         tracks.some((t) => t.readyState === "ended")
       ) {
-        if (capture || Date.now() - began > 15000) report("no_streams");
+        // Name the failed condition: the backend logs it, so a stopped transcript can be traced.
+        const why = !streams
+          ? `no_streams:${telephony.current.activeIdentity === call.agent_provider_id ? "inactive" : "other_leg"}`
+          : tracks?.length !== 2
+            ? `track_count_${tracks?.length ?? 0}`
+            : "track_ended";
+        if (capture || Date.now() - began > 15000) report(why);
         return;
       }
       if (next === signature) return;

@@ -28,6 +28,11 @@ function engine() {
   return shared;
 }
 
+/** The session's audio engine, for short sounds such as the end-of-call tone. */
+export function sessionAudio() {
+  return engine();
+}
+
 /** Call synchronously inside the rep's click or key press (Start calling). */
 export function unlockSpeechAudio() {
   try {

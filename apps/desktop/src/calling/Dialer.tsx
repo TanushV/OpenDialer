@@ -16,6 +16,7 @@ import { ProspectBrief } from "../components/ProspectBrief";
 import { ScriptReader } from "../components/ScriptReader";
 import { CallbackReviewNotice, WrapUp } from "../components/WrapUp";
 import { Button } from "../ui/kit";
+import { sessionAudio } from "../telephony/speech";
 import { headline, keys, type Action, type Phase } from "./screen";
 import { OUTCOME_KEYS, useCallLoop } from "./useCallLoop";
 
@@ -580,7 +581,9 @@ function usePhaseSound(phase: Phase) {
 
 function tone() {
   try {
-    const context = new AudioContext();
+    // The session's one engine, which Start calling unlocked; a new one per call could start suspended.
+    const context = sessionAudio();
+    void context.resume().catch(() => undefined);
     const oscillator = context.createOscillator();
     const gain = context.createGain();
     oscillator.frequency.value = 660;
@@ -589,7 +592,6 @@ function tone() {
     oscillator.connect(gain).connect(context.destination);
     oscillator.start();
     oscillator.stop(context.currentTime + 0.25);
-    oscillator.onended = () => void context.close();
   } catch {
     /* No audio output: the status line still says the call ended. */
   }
