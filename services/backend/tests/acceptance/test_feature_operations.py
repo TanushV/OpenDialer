@@ -5,6 +5,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from app import ops
 from journey import (
     answered_by_human,
     call,
@@ -327,7 +328,9 @@ def test_relay_redelivery_of_a_carrier_event_is_idempotent(workspace, clock):
     first = client.portal.call(partial(deliver, service, tenant, [row]))
     again = client.portal.call(partial(deliver, service, tenant, [row]))
     assert first == again == [{"account_id": "acct", "event_id": "evt-acceptance-1"}]
-    receipts = client.portal.call(partial(service.accept_webhook, tenant, event, "hash-1", verified=True))
+    receipts = client.portal.call(
+        partial(ops.accept_webhook, service, tenant, event, "hash-1", verified=True)
+    )
     assert receipts["received"] is True
 
 

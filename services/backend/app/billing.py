@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
+from app import ops
 from app.compliance.operating import COSTS
 from app.platform.db import MODELS, update
 from app.service import dt
@@ -29,7 +30,7 @@ NOT_PLACED = {
 
 def account_rate(service, s, p, component, field):
     """The seller's invoiced account rate when saved, else the dated reference rate."""
-    seller = service.required(s, "sellers", p["seller_id"], p)
+    seller = ops.required(service, s, "sellers", p["seller_id"], p)
     saved = seller.data.get("operating_policy", {}).get("account_rates", {}).get(component)
     value = (saved or {}).get("values", {}).get(field)
     return Decimal(str(value if value is not None else COSTS[component][field]))

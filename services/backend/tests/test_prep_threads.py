@@ -3,8 +3,10 @@
 import json
 
 import pytest
+from app import ops
 from app.preparation.agent import SimulatedAgent, ThreadWork
 from app.preparation.templates import parse_markdown
+from helpers import bound
 
 SCRIPT = """# Opening
 Hi {first_name}, this is {rep} with {seller}. {{ why now, from research }}
@@ -251,12 +253,14 @@ def prepared_workspace(workspace, app, monkeypatch, agent):
     )
     service, who = app.state.service, principal(workspace)
     monkeypatch.setattr(service.settings, "simulation", False)
-    monkeypatch.setattr(service, "agent_route", lambda p: agent)
-    monkeypatch.setattr(service, "inference", lambda *args, **kwargs: None)
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: agent))
+    monkeypatch.setattr(ops, "inference", bound(lambda *args, **kwargs: None))
     ids = [
         lead["id"]
-        for lead in service.import_leads(
-            who, {"campaign_id": workspace["campaign_id"], "rows": ROWS, "list_name": "Real", "prepare": True}
+        for lead in ops.import_leads(
+            service,
+            who,
+            {"campaign_id": workspace["campaign_id"], "rows": ROWS, "list_name": "Real", "prepare": True},
         )["leads"]
     ]
     return service, who, ids
@@ -265,14 +269,14 @@ def prepared_workspace(workspace, app, monkeypatch, agent):
 @pytest.mark.asyncio
 async def test_a_metered_thread_verifies_pages_publishes_and_charges_its_list(workspace, app, monkeypatch):
     service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent())
-    result = await service.run_prep_thread(who, ids)
+    result = await ops.run_prep_thread(service, who, ids)
     assert result["prepared"] == 1 and result["rejections"] == 1
     script, state = service_script(service, who, ids[0])
     assert state["status"] == "ready" and script["written"]["ai-1"]["text"].startswith("You just added")
     assert script["reviewed"] is False and script["fact_ids_used"]  # no reviewer configured here
     _, skipped = service_script(service, who, ids[1])
     assert skipped["status"] == "skipped" and "No public trace" in skipped["reason"]
-    status = service.preparation_status(who)
+    status = ops.preparation_status(service, who)
     entry = next(e for e in status["lists"] if e["list_name"] == "Real")
     # The import also queued a thread job for these leads, which this test ran directly.
     assert entry["total"] == 2 and entry["working"] == 2 and entry["spent_usd"] == pytest.approx(0.5)
@@ -283,11 +287,11 @@ async def test_list_progress_names_each_skipped_lead_and_why(workspace, app, mon
     from app.platform.db import Job
 
     service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent())
-    await service.run_prep_thread(who, ids)
+    await ops.run_prep_thread(service, who, ids)
     with service.db.transaction() as s:
         for job in s.query(Job).filter(Job.queue == "research"):
             job.status = "completed"  # this test ran the queued thread directly
-    entry = next(e for e in service.preparation_status(who)["lists"] if e["list_name"] == "Real")
+    entry = next(e for e in ops.preparation_status(service, who)["lists"] if e["list_name"] == "Real")
     assert entry["ready"] == 1 and entry["skipped"] == 1
     assert entry["skipped_leads"] == [
         {"name": ROWS[1]["name"], "reason": "No public trace of this business."}
@@ -307,36 +311,36 @@ async def test_a_lead_left_open_is_retried_then_released_to_the_base_script(work
     service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent("partial"))
     for _ in range(3):
         with service.db.transaction() as s:
-            lead = service.required(s, "leads", ids[1], who)
+            lead = ops.required(service, s, "leads", ids[1], who)
             state = dict(lead.data["preparation"])
             state["next_attempt_at"] = None
             from app.platform.db import update
 
             update(lead, preparation=state)
-        await service.run_prep_thread(who, ids)
+        await ops.run_prep_thread(service, who, ids)
     _, state = service_script(service, who, ids[1])
     assert state["status"] == "failed" and state["attempts"] == 3
     with service.db.transaction(False) as s:
-        assert service.required(s, "leads", ids[1], who).data["status"] == "eligible"
+        assert ops.required(service, s, "leads", ids[1], who).data["status"] == "eligible"
 
 
 @pytest.mark.asyncio
 async def test_plan_limits_pause_work_and_a_spent_list_budget_stops_it(workspace, app, monkeypatch):
     service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent("limit"))
-    assert (await service.run_prep_thread(who, ids))["paused"] is True
-    status = service.preparation_status(who)
+    assert (await ops.run_prep_thread(service, who, ids))["paused"] is True
+    status = ops.preparation_status(service, who)
     assert status["paused_until"] and "limit" in status["pause_reason"]
     _, state = service_script(service, who, ids[0])
     assert state["status"] == "queued"
-    assert service.prepare_tick(who)["queued"] == 0
-    service.resume_preparation(who)
+    assert ops.prepare_tick(service, who)["queued"] == 0
+    ops.resume_preparation(service, who)
     with service.db.transaction() as s:
         from app.platform.db import update
 
-        update(service.scoped(s, "budgets", who)[0], per_list_usd=0.1)
-    monkeypatch.setattr(service, "agent_route", lambda p: ScriptedAgent())
-    assert (await service.run_prep_thread(who, ids)).get("budget") == "reached"
-    assert service.preparation_status(who)["pause_reason"] == "This list reached its AI budget."
+        update(ops.scoped(service, s, "budgets", who)[0], per_list_usd=0.1)
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: ScriptedAgent()))
+    assert (await ops.run_prep_thread(service, who, ids)).get("budget") == "reached"
+    assert ops.preparation_status(service, who)["pause_reason"] == "This list reached its AI budget."
 
 
 @pytest.mark.asyncio
@@ -352,8 +356,8 @@ async def test_the_meaning_review_drops_unsupported_written_text(workspace, app,
             return InferenceResult({"fingerprint": request["fingerprint"], "verdicts": verdicts}, {}, "r1")
 
     service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent())
-    monkeypatch.setattr(service, "inference", lambda *args, **kwargs: Reviewer())
-    await service.run_prep_thread(who, ids)
+    monkeypatch.setattr(ops, "inference", bound(lambda *args, **kwargs: Reviewer()))
+    await ops.run_prep_thread(service, who, ids)
     script, state = service_script(service, who, ids[0])
     assert state["status"] == "ready" and "ai-1" not in script["written"]
     # The labeled bridge is judged only for contradiction, and a contradicted one is dropped, not the trigger.
@@ -362,9 +366,9 @@ async def test_the_meaning_review_drops_unsupported_written_text(workspace, app,
 
 def service_script(service, who, lead_id):
     with service.db.transaction(False) as s:
-        lead = service.required(s, "leads", lead_id, who)
-        row = service.script_row(s, who, lead)
-        return (dict(row.data) if row else {}), service.preparation_state(s, who, lead)
+        lead = ops.required(service, s, "leads", lead_id, who)
+        row = ops.script_row(service, s, who, lead)
+        return (dict(row.data) if row else {}), ops.preparation_state(service, s, who, lead)
 
 
 def test_finish_research_keeps_only_a_trigger_that_passes_the_code_checks():
@@ -444,21 +448,21 @@ async def test_a_chatgpt_failure_hands_the_thread_to_the_fallback_with_the_same_
         billing, route, model = "openrouter", "fallback", "deepseek/deepseek-v4.1-flash"
 
     service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent("limit"))
-    monkeypatch.setattr(service, "fallback_agent", lambda p, fetch=None: Fallback())
-    monkeypatch.setattr(service, "reserve_optional_budget", lambda *a, **k: True)
-    result = await service.run_prep_thread(who, ids)
+    monkeypatch.setattr(ops, "fallback_agent", bound(lambda p, fetch=None: Fallback()))
+    monkeypatch.setattr(ops, "reserve_optional_budget", bound(lambda *a, **k: True))
+    result = await ops.run_prep_thread(service, who, ids)
     fallback, state = service_script(service, who, ids[0])
     assert result.get("paused") is None and state["status"] == "ready"
     assert fallback["route"] == "fallback" and set(fallback["written"]) == {"ai-1"}
     assert SCRIPT_SHAPE <= set(fallback)
     with service.db.transaction(False) as s:
-        lead = service.required(s, "leads", ids[0], who).data
+        lead = ops.required(service, s, "leads", ids[0], who).data
     assert lead["research_route"] == "fallback" and lead["trigger"]["type"] == "none"
 
 
 async def test_a_primary_script_has_the_same_shape(workspace, app, monkeypatch):
     service, who, ids = prepared_workspace(workspace, app, monkeypatch, ScriptedAgent())
-    await service.run_prep_thread(who, ids)
+    await ops.run_prep_thread(service, who, ids)
     primary, _ = service_script(service, who, ids[0])
     assert primary["route"] == "chatgpt" and SCRIPT_SHAPE <= set(primary)
 
@@ -552,11 +556,11 @@ def test_research_set_to_the_fallback_uses_openrouter_even_when_chatgpt_is_signe
 
     service, who = app.state.service, principal(workspace)
     monkeypatch.setattr(service.settings, "simulation", False)
-    monkeypatch.setattr(service, "inference", lambda *a, **k: ScriptedAgent())
+    monkeypatch.setattr(ops, "inference", bound(lambda *a, **k: ScriptedAgent()))
     service.configs.write(who["tenant_id"], {"openrouter_api_key": "or-test"})
-    assert isinstance(service.agent_route(who), ScriptedAgent)
+    assert isinstance(ops.agent_route(service, who), ScriptedAgent)
     service.configs.write(who["tenant_id"], {"research_route": "fallback"})
-    assert isinstance(service.agent_route(who), ChatAgent)
-    monkeypatch.setattr(service, "inference", lambda *a, **k: None)
+    assert isinstance(ops.agent_route(service, who), ChatAgent)
+    monkeypatch.setattr(ops, "inference", bound(lambda *a, **k: None))
     service.configs.write(who["tenant_id"], {"research_route": "chatgpt"})
-    assert isinstance(service.agent_route(who), ChatAgent), "no ChatGPT login: the fallback takes over"
+    assert isinstance(ops.agent_route(service, who), ChatAgent), "no ChatGPT login: the fallback takes over"

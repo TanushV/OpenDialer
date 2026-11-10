@@ -3,6 +3,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 
+from app import ops
 from app.calling.recovery import POLL_SECONDS, due_at, next_step
 from app.calling.state import TIMEOUTS
 from conftest import start
@@ -58,7 +59,7 @@ def test_a_call_whose_leg_is_gone_is_finished_by_a_status_read(workspace, app, c
     for leg in carrier.calls.values():
         leg["state"] = "hangup"
     clock.now += timedelta(seconds=POLL_SECONDS + 1)
-    asyncio.run(service.recover(principal(workspace)))
+    asyncio.run(ops.recover(service, principal(workspace)))
     assert stored(service, call["id"])["state"] in {"ENDED", "FINALIZED"}
 
 
@@ -67,6 +68,6 @@ def test_a_call_ringing_past_its_limit_is_hung_up(workspace, app, carrier, clock
     service = app.state.service
     call = start(workspace, key="g3-stuck-ringing")
     clock.now += timedelta(seconds=TIMEOUTS["RINGING"][0] + 1)
-    asyncio.run(service.recover(principal(workspace)))
+    asyncio.run(ops.recover(service, principal(workspace)))
     assert stored(service, call["id"])["state"] in {"ENDING", "ENDED", "FINALIZED"}
     assert carrier.hangups

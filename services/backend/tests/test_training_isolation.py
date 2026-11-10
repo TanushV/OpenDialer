@@ -3,6 +3,7 @@
 import asyncio
 import builtins
 import contextlib
+import functools
 import hashlib
 import os
 import runpy
@@ -13,8 +14,9 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from app import ops
 from app.platform.db import get, put, update
-from helpers import async_sql, principal
+from helpers import async_sql, bound, principal
 
 
 def training_rows():
@@ -57,14 +59,16 @@ def source(service, p, **fields):
 def test_operational_training_admission_keeps_unclassified_outcomes_unknown(workspace, app, monkeypatch):
     service, p = app.state.service, principal(workspace)
     monkeypatch.setattr(
-        service,
+        ops,
         "save_operational_dataset",
-        lambda p: {
-            "id": "unclassified-dataset",
-            "rows": [{"human": None}] * 120,
-        },
+        bound(
+            lambda p: {
+                "id": "unclassified-dataset",
+                "rows": [{"human": None}] * 120,
+            }
+        ),
     )
-    result = service.train_operational(p)
+    result = ops.train_operational(service, p)
     assert result["status"] == "insufficient_data" and result["rows"] == 120
     assert result["classified_rows"] == 0
 
@@ -80,14 +84,14 @@ async def test_training_freezes_and_uses_the_actual_configured_baseline(workspac
         "handling_seconds": 300,
     }
     with service.db.transaction() as s:
-        campaign = service.required(s, "campaigns", workspace["campaign_id"], p)
-        update(campaign, optimization={**service.optimization_config(s, p), **baseline})
-    snapshot = service.save_operational_dataset(p)
+        campaign = ops.required(service, s, "campaigns", workspace["campaign_id"], p)
+        update(campaign, optimization={**ops.optimization_config(service, s, p), **baseline})
+    snapshot = ops.save_operational_dataset(service, p)
     assert snapshot.get("baseline") == baseline
     payload = source(service, p, baseline=baseline, window_days=14)
-    await service.train_model_job(p, payload)
+    await ops.train_model_job(service, p, payload)
     with service.db.transaction(False) as s:
-        model = service._by_key(s, p, "model_versions", "training:" + payload["source_dataset_id"])
+        model = ops._by_key(service, s, p, "model_versions", "training:" + payload["source_dataset_id"])
         assert model.data.get("baseline") == baseline
         assert model.data.get("window_days") == 14
 
@@ -98,7 +102,7 @@ def test_training_source_rejects_changed_window_before_publication(workspace, ap
     service, p = app.state.service, principal(workspace)
     payload = source(service, p, window_days=7)
     with service.db.transaction(False) as s, pytest.raises(HTTPException) as failure:
-        service._training_source(s, p, payload)
+        ops._training_source(service, s, p, payload)
     assert failure.value.status_code == 409
 
 
@@ -115,7 +119,7 @@ async def test_training_cannot_substitute_an_easier_baseline(workspace, app, mon
 
     monkeypatch.setattr("app.ml.worker.train_isolated", forbidden)
     with pytest.raises(HTTPException) as failure:
-        await service.train_model_job(p, payload)
+        await ops.train_model_job(service, p, payload)
     assert failure.value.status_code == 409
 
 
@@ -142,10 +146,10 @@ async def test_training_uses_a_real_child_and_publishes_off_loop_without_inherit
     service, p = app.state.service, principal(workspace)
     payload = source(service, p)
     with async_sql(app) as queries:
-        await service.train_model_job(p, payload)
+        await ops.train_model_job(service, p, payload)
     assert not queries, queries
     with service.db.transaction(False) as s:
-        models = list(service.scoped(s, "model_versions", p))
+        models = list(ops.scoped(service, s, "model_versions", p))
         assert len(models) == 1
         model = models[0].data
         assert model["source_dataset_id"] == payload["source_dataset_id"]
@@ -158,7 +162,7 @@ async def test_training_uses_a_real_child_and_publishes_off_loop_without_inherit
     assert "OPENDIALER_SECRET_KEY" not in environments[0]
     assert "OPENROUTER_API_KEY" not in environments[0]
     assert environments[0]["OPENBLAS_NUM_THREADS"] == "1"
-    await service.train_model_job(p, payload)
+    await ops.train_model_job(service, p, payload)
     assert len(environments) == 1, "A replayed completed dataset cannot fit another candidate"
 
 
@@ -187,7 +191,7 @@ async def test_training_requires_the_exact_owned_dataset_before_spawning(workspa
     from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as error:
-        await service.train_model_job(p, payload)
+        await ops.train_model_job(service, p, payload)
     assert error.value.status_code in {403, 404, 409}
 
 
@@ -261,16 +265,16 @@ def test_missing_trainer_is_a_clear_error_that_never_queues_training(workspace, 
     service, p = app.state.service, principal(workspace)
     monkeypatch.setattr(training, "training_support", lambda rows: None)
     monkeypatch.setattr(
-        service,
+        ops,
         "save_operational_dataset",
-        lambda p: {"id": "dataset", "rows": [{"human": i % 2} for i in range(200)]},
+        bound(lambda p: {"id": "dataset", "rows": [{"human": i % 2} for i in range(200)]}),
     )
 
     def forbidden(*args, **kwargs):
         raise AssertionError("Training was queued without a trainer")
 
     monkeypatch.setattr(service.jobs, "enqueue", forbidden)
-    result = service.train_operational(p)
+    result = ops.train_operational(service, p)
     assert result["status"] == "trainer_unavailable"
     assert "opendialer-trainer" in result["reason"]
 
@@ -493,15 +497,19 @@ async def test_cancelling_during_publication_does_not_delete_committed_artifact(
         return fit_result(output_dir)
 
     monkeypatch.setattr(worker, "train_isolated", fitted)
-    original, entered, release = service._training_publish, threading.Event(), threading.Event()
+    original, entered, release = (
+        functools.partial(ops._training_publish, service),
+        threading.Event(),
+        threading.Event(),
+    )
 
     def delayed(*args):
         entered.set()
         assert release.wait(5)
         return original(*args)
 
-    monkeypatch.setattr(service, "_training_publish", delayed)
-    task = asyncio.create_task(service.train_model_job(p, payload))
+    monkeypatch.setattr(ops, "_training_publish", bound(delayed))
+    task = asyncio.create_task(ops.train_model_job(service, p, payload))
     try:
         assert await asyncio.to_thread(entered.wait, 3)
         task.cancel()
@@ -510,7 +518,7 @@ async def test_cancelling_during_publication_does_not_delete_committed_artifact(
         with pytest.raises(asyncio.CancelledError):
             await task
         with service.db.transaction(False) as s:
-            models = service.scoped(s, "model_versions", p)
+            models = ops.scoped(service, s, "model_versions", p)
             assert len(models) == 1 and Path(models[0].data["artifact"]).exists()
     finally:
         release.set()
@@ -527,7 +535,7 @@ async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
     payload = source(service, p)
     if changed == "baseline":
         with service.db.transaction(False) as s:
-            config = service.optimization_config(s, p)
+            config = ops.optimization_config(service, s, p)
         payload = source(service, p, baseline={k: config[k] for k in ("estimate_policy", "handling_seconds")})
 
     async def fitted(rows, output_dir, **kwargs):
@@ -538,12 +546,12 @@ async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
             if changed == "source":
                 update(get(s, "learning_datasets", payload["source_dataset_id"]), rows=[])
             elif changed == "baseline":
-                campaign = service.scoped(s, "campaigns", p)[0]
+                campaign = ops.scoped(service, s, "campaigns", p)[0]
                 update(
                     campaign, optimization={**campaign.data.get("optimization", {}), "handling_seconds": 300}
                 )
             else:
-                campaign = service.scoped(s, "campaigns", p)[0]
+                campaign = ops.scoped(service, s, "campaigns", p)[0]
                 update(
                     campaign,
                     optimization={**campaign.data.get("optimization", {}), "conversion_goal": "sale_won"},
@@ -554,10 +562,10 @@ async def test_changed_authority_or_dataset_cannot_publish_trained_candidate(
     from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as error:
-        await service.train_model_job(p, payload)
+        await ops.train_model_job(service, p, payload)
     assert error.value.status_code in {403, 409}
     with service.db.transaction(False) as s:
-        assert not service.scoped(s, "model_versions", p)
+        assert not ops.scoped(service, s, "model_versions", p)
     assert not list((service.settings.data_dir / "models").glob("*/challenger.json"))
 
 

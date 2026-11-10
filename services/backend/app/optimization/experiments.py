@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from sqlalchemy import func, select
 
+from app import ops
 from app.optimization.learning import (
     conversion_at,
     derive_labels,
@@ -273,122 +274,119 @@ def comparison_from_counts(study, values, grouped, *, now):
     return result
 
 
-class ComparisonWorkflows:
-    def comparison_assignment(self, s, p, campaign, lead, family, *, rep_id=None, persist=True):
-        from app.optimization.geography import coverage_region
+def comparison_assignment(service, s, p, campaign, lead, family, *, rep_id=None, persist=True):
+    from app.optimization.geography import coverage_region
 
-        studies = campaign.data.get("controlled_comparisons", [])
-        study = next(
-            (
-                r
-                for r in reversed(studies)
-                if r["family"] == family
-                and not r.get("stopped_at")
-                and timestamp(r["ends_at"]) > self.clock()
-            ),
-            None,
-        )
-        if not study or lead.id not in study["population"]:
+    studies = campaign.data.get("controlled_comparisons", [])
+    study = next(
+        (
+            r
+            for r in reversed(studies)
+            if r["family"] == family and not r.get("stopped_at") and timestamp(r["ends_at"]) > service.clock()
+        ),
+        None,
+    )
+    if not study or lead.id not in study["population"]:
+        return None
+    if family == "number_allocation" and study.get("allocation_basis") != "state":
+        # Do not mix a previous area-code protocol with state-wide treatment.
+        return None
+    key = study["id"] + ":" + lead.id
+    existing = ops._by_key(service, s, p, "experiment_assignments", key)
+    if existing:
+        return doc(existing)
+    if study.get("strategy_ids"):
+        if not rep_id:
             return None
-        if family == "number_allocation" and study.get("allocation_basis") != "state":
-            # Do not mix a previous area-code protocol with state-wide treatment.
-            return None
-        key = study["id"] + ":" + lead.id
-        existing = self._by_key(s, p, "experiment_assignments", key)
-        if existing:
-            return doc(existing)
-        if study.get("strategy_ids"):
-            if not rep_id:
-                return None
-            choice = strategy_choice(study, lead.id, rep_id)
-            if study["strategy_policy"] == "adaptive":
-                # Saved reward reports went with R8.4; the approved initial policy holds.
-                report, fresh = None, False
-                # Stale rewards hold the last policy actually in force (else the approved initial
-                # one) with its true mixture probabilities; never a deterministic control arm.
-                choice = {
-                    **strategy_choice(
-                        study,
-                        lead.id,
-                        rep_id,
-                        report["strategy_policy_snapshot"] if report else study["initial_strategy_policy"],
-                    ),
-                    "policy_reason": "fresh_reward_projection"
-                    if report and fresh
-                    else "held_last_policy"
-                    if report
-                    else "approved_initial_policy",
-                }
-            values = {
-                "family": family,
-                "comparison_id": study["id"],
-                "lead_id": lead.id,
-                "rep_id": rep_id,
-                "segment": lead.data.get("segment"),
-                **choice,
-                "assigned_at": self.clock().isoformat(),
-                "coverage_due_at": lead.data.get("coverage_due_at"),
-                "originally_eligible": True,
-                "goal": study["goal"],
-                "outcome_window_days": study["window_days"],
+        choice = strategy_choice(study, lead.id, rep_id)
+        if study["strategy_policy"] == "adaptive":
+            # Saved reward reports went with R8.4; the approved initial policy holds.
+            report, fresh = None, False
+            # Stale rewards hold the last policy actually in force (else the approved initial
+            # one) with its true mixture probabilities; never a deterministic control arm.
+            choice = {
+                **strategy_choice(
+                    study,
+                    lead.id,
+                    rep_id,
+                    report["strategy_policy_snapshot"] if report else study["initial_strategy_policy"],
+                ),
+                "policy_reason": "fresh_reward_projection"
+                if report and fresh
+                else "held_last_policy"
+                if report
+                else "approved_initial_policy",
             }
-            return (
-                doc(
-                    put(
-                        s,
-                        "experiment_assignments",
-                        p["tenant_id"],
-                        p["seller_id"],
-                        values,
-                        key=key,
-                        now=self.clock(),
-                    )
-                )
-                if persist
-                else values
-            )
-        if family in {"coaching", "script"} and not rep_id:
-            return None
-        stratum = coverage_region(lead.data) if family == "number_allocation" else rep_id
-        rep_count = 0
-        if family in {"coaching", "script"}:
-            model = MODELS["experiment_assignments"]
-            rep_count = s.scalar(
-                select(func.count())
-                .select_from(model)
-                .where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.external_key.startswith(study["id"] + ":", autoescape=True),
-                    model.op_owner_id == rep_id,
+        values = {
+            "family": family,
+            "comparison_id": study["id"],
+            "lead_id": lead.id,
+            "rep_id": rep_id,
+            "segment": lead.data.get("segment"),
+            **choice,
+            "assigned_at": service.clock().isoformat(),
+            "coverage_due_at": lead.data.get("coverage_due_at"),
+            "originally_eligible": True,
+            "goal": study["goal"],
+            "outcome_window_days": study["window_days"],
+        }
+        return (
+            doc(
+                put(
+                    s,
+                    "experiment_assignments",
+                    p["tenant_id"],
+                    p["seller_id"],
+                    values,
+                    key=key,
+                    now=service.clock(),
                 )
             )
-        arm = assign_arm(family, study["id"], lead.id, stratum, prior_count=rep_count)
-        if not persist:
-            return {"comparison_id": study["id"], "arm": arm, "family": family}
-        result = put(
-            s,
-            "experiment_assignments",
-            p["tenant_id"],
-            p["seller_id"],
-            {
-                "family": family,
-                "comparison_id": study["id"],
-                "lead_id": lead.id,
-                "arm": arm,
-                "assigned_at": self.clock().isoformat(),
-                "cluster": stratum if family == "number_allocation" else None,
-                "rep_id": rep_id,
-                "coverage_due_at": lead.data.get("coverage_due_at"),
-                # Both block positions are marginally randomized at one half; the second is only
-                # conditionally determined, which the block position records.
-                "propensity": 0.5,
-                "block_position": rep_count % 2 if family == "coaching" else None,
-                "originally_eligible": True,
-                "goal": study["goal"],
-                "outcome_window_days": study["window_days"],
-            },
-            key=key,
-            now=self.clock(),
+            if persist
+            else values
         )
-        return doc(result)
+    if family in {"coaching", "script"} and not rep_id:
+        return None
+    stratum = coverage_region(lead.data) if family == "number_allocation" else rep_id
+    rep_count = 0
+    if family in {"coaching", "script"}:
+        model = MODELS["experiment_assignments"]
+        rep_count = s.scalar(
+            select(func.count())
+            .select_from(model)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.external_key.startswith(study["id"] + ":", autoescape=True),
+                model.op_owner_id == rep_id,
+            )
+        )
+    arm = assign_arm(family, study["id"], lead.id, stratum, prior_count=rep_count)
+    if not persist:
+        return {"comparison_id": study["id"], "arm": arm, "family": family}
+    result = put(
+        s,
+        "experiment_assignments",
+        p["tenant_id"],
+        p["seller_id"],
+        {
+            "family": family,
+            "comparison_id": study["id"],
+            "lead_id": lead.id,
+            "arm": arm,
+            "assigned_at": service.clock().isoformat(),
+            "cluster": stratum if family == "number_allocation" else None,
+            "rep_id": rep_id,
+            "coverage_due_at": lead.data.get("coverage_due_at"),
+            # Both block positions are marginally randomized at one half; the second is only
+            # conditionally determined, which the block position records.
+            "propensity": 0.5,
+            "block_position": rep_count % 2 if family == "coaching" else None,
+            "originally_eligible": True,
+            "goal": study["goal"],
+            "outcome_window_days": study["window_days"],
+        },
+        key=key,
+        now=service.clock(),
+    )
+    return doc(result)

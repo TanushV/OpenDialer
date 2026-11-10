@@ -5,6 +5,7 @@ import json
 
 from sqlalchemy import delete, select
 
+from app import ops
 from app.compliance.phone import normalize_phone
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, put, uid, update
 from app.service import dt, fail
@@ -22,14 +23,14 @@ def apply_in(service, s, entry):
     p = {k: entry[k] for k in ("tenant_id", "seller_id")}
     p.update(user_id=entry["user_id"], role="admin")
     key = entry["phone"]
-    receipt = service._by_key(s, p, "audit_events", identity(entry))
+    receipt = ops._by_key(service, s, p, "audit_events", identity(entry))
     if receipt and receipt.data.get("detail", {}).get("request_hash") != fingerprint(entry):
         fail(409, "Opt-out request identity already describes another endpoint or reason")
-    endpoint = service._by_key(s, p, "phone_endpoints", key)
+    endpoint = ops._by_key(service, s, p, "phone_endpoints", key)
     if endpoint:
         # Lock affected calls before any denial dirties shared report state.
         revoke_effects(service, s, p, endpoint.id, ["live", "transcription", "recording", "prerecorded"])
-    row = service._by_key(s, p, "suppressions", key)
+    row = ops._by_key(service, s, p, "suppressions", key)
     hold = entry["reason"] == "temporary_hold"
     if not row:
         row = put(
@@ -107,9 +108,9 @@ def release_hold(service, p, phone, reason):
         fail(422, "A valid endpoint and the review reason are required")
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        service.required(s, "users", p["user_id"], p)
+        ops.required(service, s, "users", p["user_id"], p)
         key = normalized.e164
-        row = service._by_key(s, p, "suppressions", key)
+        row = ops._by_key(service, s, p, "suppressions", key)
         if not row or not row.data.get("active", True) or row.data.get("phone") != normalized.e164:
             fail(404, "No active hold for this endpoint")
         if row.data.get("permanent") or row.data.get("reason") != "temporary_hold":
@@ -150,7 +151,7 @@ def record(service, p, phone, reason, *, event_id=None, session=None):
     }
     with service.db.transaction(session=session) as s:
         service.db.authorize_stream(s, p)
-        service.required(s, "sellers", p["seller_id"], p)
+        ops.required(service, s, "sellers", p["seller_id"], p)
         return apply_in(service, s, entry)
 
 
@@ -187,18 +188,18 @@ def revoke_effects(service, s, p, endpoint_id, permissions):
             # Also fences a raw publication already committed before this revocation.
             service.raw.revoke_scope(p["tenant_id"] + ":" + call.id)
             service.tips.end(call.id)
-            service.control_intent(
-                s, p, call.id, "transcription_stop", {}, target=call.data.get("provider_id")
+            ops.control_intent(
+                service, s, p, call.id, "transcription_stop", {}, target=call.data.get("provider_id")
             )
-            service.stop_agent_transcription_in(s, p, call)
+            ops.stop_agent_transcription_in(service, s, p, call)
         if "live" in permissions:
-            command = service._by_key(s, p, "command_outbox", call.id)
+            command = ops._by_key(service, s, p, "command_outbox", call.id)
             if command and command.data["status"] == "pending" and not command.data.get("sent_at"):
                 update(command, status="cancelled", reason="CONSENT_REVOKED")
-                service.finish_call(s, p, call, "consent_revoked_before_submission")
+                ops.finish_call(service, s, p, call, "consent_revoked_before_submission")
             else:
                 if call.data["state"] != "ENDING":
                     update(call, **moved(call.data, "hangup.requested", service.clock()))
-                service.control_intent(s, p, call.id, "hangup", {}, target=call.data.get("provider_id"))
+                ops.control_intent(service, s, p, call.id, "hangup", {}, target=call.data.get("provider_id"))
         if call.version != version:
             emit(s, p["tenant_id"], "call.updated", call, service.clock(), {"permission_changed": True})

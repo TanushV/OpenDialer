@@ -1,9 +1,11 @@
 """Shared fixtures for the unit tests that drive service internals directly."""
 
 import asyncio
+import inspect
 import json
 from contextlib import contextmanager
 
+from app import ops
 from app.platform.db import update
 from conftest import disposition_body, start
 from sqlalchemy import event
@@ -90,7 +92,7 @@ def frame(content="", **fields):
 def voicemail_policy(app, w, maximum):
     with app.state.db.transaction() as s:
         update(
-            app.state.service.required(s, "policy_versions", w["policy_id"], p(w)),
+            ops.required(app.state.service, s, "policy_versions", w["policy_id"], p(w)),
             max_attempts=maximum,
             permissions=["live", "prerecorded"],
             voicemail_enabled=True,
@@ -295,3 +297,18 @@ p = principal
 
 def screen(w):
     return w["client"].post("/v1/admin/dnc/screen", headers=w["headers"], json={"phones": [PHONE]})
+
+
+def bound(fake):
+    """A fake for an `app.ops` operation: an operation takes the backend state first, which the fake ignores."""
+    if inspect.iscoroutinefunction(fake):
+
+        async def wrapper(_service, *args, **kwargs):
+            return await fake(*args, **kwargs)
+
+    else:
+
+        def wrapper(_service, *args, **kwargs):
+            return fake(*args, **kwargs)
+
+    return wrapper

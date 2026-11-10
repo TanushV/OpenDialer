@@ -4,233 +4,235 @@ import math
 
 from sqlalchemy import select
 
+from app import ops
 from app.operational_schema import receipt_key
 from app.platform.db import MODELS, put, update
 
 
-class RequestAccounting:
-    def _request_hold(self, s, p, request_key):
-        model = MODELS["usage_ledger"]
-        return s.scalar(
-            select(model).where(
-                model.tenant_id == p["tenant_id"],
-                model.seller_id == p["seller_id"],
-                model.external_key == "optional:" + request_key,
-            )
+def _request_hold(service, s, p, request_key):
+    model = MODELS["usage_ledger"]
+    return s.scalar(
+        select(model).where(
+            model.tenant_id == p["tenant_id"],
+            model.seller_id == p["seller_id"],
+            model.external_key == "optional:" + request_key,
+        )
+    )
+
+
+def reserve_optional_budget(
+    service, p, request_key, estimate_usd, *, object_id=None, work_kind=None, scope=None
+):
+    with service.db.transaction() as s:
+        return ops.reserve_budget_in(
+            service, s, p, request_key, estimate_usd, object_id=object_id, work_kind=work_kind, scope=scope
         )
 
-    def reserve_optional_budget(
-        self, p, request_key, estimate_usd, *, object_id=None, work_kind=None, scope=None
+
+def budget_scope(service, s, p, object_id):
+    """The lead list an AI request is for: its lead's list, or `other` for work without one."""
+    from app.platform.db import get
+
+    for kind in ("leads", "call_attempts"):
+        row = get(s, kind, object_id, p["tenant_id"]) if object_id else None
+        if row and row.seller_id == p["seller_id"]:
+            lead = row if kind == "leads" else get(s, "leads", row.data.get("lead_id"), p["tenant_id"])
+            if lead:
+                return "list:" + (lead.data.get("list_name") or "")
+    return "other"
+
+
+def reserve_budget_in(
+    service, s, p, request_key, estimate_usd, *, object_id=None, work_kind=None, scope=None
+):
+    if (
+        not isinstance(request_key, str)
+        or not request_key
+        or isinstance(estimate_usd, bool)
+        or not isinstance(estimate_usd, (int, float))
+        or not math.isfinite(estimate_usd)
+        or estimate_usd <= 0
     ):
-        with self.db.transaction() as s:
-            return self.reserve_budget_in(
-                s, p, request_key, estimate_usd, object_id=object_id, work_kind=work_kind, scope=scope
-            )
-
-    def budget_scope(self, s, p, object_id):
-        """The lead list an AI request is for: its lead's list, or `other` for work without one."""
-        from app.platform.db import get
-
-        for kind in ("leads", "call_attempts"):
-            row = get(s, kind, object_id, p["tenant_id"]) if object_id else None
-            if row and row.seller_id == p["seller_id"]:
-                lead = row if kind == "leads" else get(s, "leads", row.data.get("lead_id"), p["tenant_id"])
-                if lead:
-                    return "list:" + (lead.data.get("list_name") or "")
-        return "other"
-
-    def reserve_budget_in(
-        self, s, p, request_key, estimate_usd, *, object_id=None, work_kind=None, scope=None
-    ):
-        if (
-            not isinstance(request_key, str)
-            or not request_key
-            or isinstance(estimate_usd, bool)
-            or not isinstance(estimate_usd, (int, float))
-            or not math.isfinite(estimate_usd)
-            or estimate_usd <= 0
-        ):
-            raise ValueError("Optional work requires a request identity and positive reserved estimate")
-        # Serialize only this seller's budget/authorization stream, never provider I/O.
-        self.db.authorize_stream(s, p)
-        prior = self._request_hold(s, p, request_key)
-        if prior:
-            data = prior.data
-            if data.get("object_id") != object_id or data.get("work_kind") != work_kind:
-                raise ValueError("Request identity belongs to different work")
-            if data.get("status") != "reserved":
-                return False
-            if data.get("estimate_usd", data.get("reserved_usd")) != estimate_usd:
-                raise ValueError("Request identity already has a different budget")
-            return True
-        scope = scope or self.budget_scope(s, p, object_id)
-        if not self.budget_ok(s, p, estimate_usd, scope):
+        raise ValueError("Optional work requires a request identity and positive reserved estimate")
+    # Serialize only this seller's budget/authorization stream, never provider I/O.
+    service.db.authorize_stream(s, p)
+    prior = ops._request_hold(service, s, p, request_key)
+    if prior:
+        data = prior.data
+        if data.get("object_id") != object_id or data.get("work_kind") != work_kind:
+            raise ValueError("Request identity belongs to different work")
+        if data.get("status") != "reserved":
             return False
-        put(
-            s,
-            "usage_ledger",
-            p["tenant_id"],
-            p["seller_id"],
-            {
-                "kind": "optional_work_reservation",
-                "object_id": object_id,
-                "work_kind": work_kind,
-                "budget_scope": scope,
-                "user_id": p.get("user_id"),
-                "request_key": request_key,
-                "estimate_usd": estimate_usd,
-                "reserved_usd": estimate_usd,
-                "at": self.clock().isoformat(),
-                "cost_usd": None,
-                "billing_verified": False,
-                "status": "reserved",
-            },
-            key="optional:" + request_key,
-            now=self.clock(),
-        )
-        # Admission precedes every possible submission; a crash may happen on either side
-        # of the network write. Only release_unsubmitted_budget proves it stayed unsent.
+        if data.get("estimate_usd", data.get("reserved_usd")) != estimate_usd:
+            raise ValueError("Request identity already has a different budget")
         return True
+    scope = scope or ops.budget_scope(service, s, p, object_id)
+    if not ops.budget_ok(service, s, p, estimate_usd, scope):
+        return False
+    put(
+        s,
+        "usage_ledger",
+        p["tenant_id"],
+        p["seller_id"],
+        {
+            "kind": "optional_work_reservation",
+            "object_id": object_id,
+            "work_kind": work_kind,
+            "budget_scope": scope,
+            "user_id": p.get("user_id"),
+            "request_key": request_key,
+            "estimate_usd": estimate_usd,
+            "reserved_usd": estimate_usd,
+            "at": service.clock().isoformat(),
+            "cost_usd": None,
+            "billing_verified": False,
+            "status": "reserved",
+        },
+        key="optional:" + request_key,
+        now=service.clock(),
+    )
+    # Admission precedes every possible submission; a crash may happen on either side
+    # of the network write. Only release_unsubmitted_budget proves it stayed unsent.
+    return True
 
-    def usage(self, p, provider, kind, result, *, object_id, request_key, reserved=0.01, session=None):
-        from app.privacy import usage_metadata
 
-        if not isinstance(request_key, str) or not request_key:
-            raise ValueError("Usage must identify its original local request")
-        usage = usage_metadata(result.usage)
-        cost = usage.get("cost", usage.get("cost_usd"))
-        if (
-            isinstance(cost, bool)
-            or not isinstance(cost, (int, float))
-            or not math.isfinite(cost)
-            or cost < 0
-        ):
-            cost = None
-        # A request included in the user's own ChatGPT plan has no marginal charge; the plan's
-        # subscription is the owner's existing cost, so this is a labeled estimate, not a bill.
-        plan = provider in {"chatgpt_plan", "codex"}
-        if plan:
-            cost = 0.0
-        if (
-            isinstance(reserved, bool)
-            or not isinstance(reserved, (int, float))
-            or not math.isfinite(reserved)
-            or reserved < 0
-        ):
-            raise ValueError("A finite nonnegative liability is required")
-        with self.db.transaction(session=session) as s:
-            self.db.authorize_stream(s, p)
-            model = MODELS["usage_ledger"]
-            receipts = (
-                list(
-                    s.scalars(
-                        select(model)
-                        .where(
-                            model.tenant_id == p["tenant_id"],
-                            model.seller_id == p["seller_id"],
-                            model.op_provider_id == receipt_key(provider, result.request_id),
-                        )
-                        .limit(2)
+def usage(service, p, provider, kind, result, *, object_id, request_key, reserved=0.01, session=None):
+    from app.privacy import usage_metadata
+
+    if not isinstance(request_key, str) or not request_key:
+        raise ValueError("Usage must identify its original local request")
+    usage = usage_metadata(result.usage)
+    cost = usage.get("cost", usage.get("cost_usd"))
+    if isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(cost) or cost < 0:
+        cost = None
+    # A request included in the user's own ChatGPT plan has no marginal charge; the plan's
+    # subscription is the owner's existing cost, so this is a labeled estimate, not a bill.
+    plan = provider in {"chatgpt_plan", "codex"}
+    if plan:
+        cost = 0.0
+    if (
+        isinstance(reserved, bool)
+        or not isinstance(reserved, (int, float))
+        or not math.isfinite(reserved)
+        or reserved < 0
+    ):
+        raise ValueError("A finite nonnegative liability is required")
+    with service.db.transaction(session=session) as s:
+        service.db.authorize_stream(s, p)
+        model = MODELS["usage_ledger"]
+        receipts = (
+            list(
+                s.scalars(
+                    select(model)
+                    .where(
+                        model.tenant_id == p["tenant_id"],
+                        model.seller_id == p["seller_id"],
+                        model.op_provider_id == receipt_key(provider, result.request_id),
                     )
+                    .limit(2)
                 )
-                if result.request_id
-                else []
             )
-            if len(receipts) > 1:
-                raise ValueError("Duplicate historical provider receipts require reconciliation")
-            receipt = receipts[0] if receipts else None
-            hold = self._request_hold(s, p, request_key)
-            if receipt and (not hold or receipt.id != hold.id):
-                raise ValueError("Provider receipt belongs to a different request")
-            target = receipt or hold
-            if target:
-                data = target.data
-                if (
-                    data.get("object_id") != object_id
-                    or data.get("work_kind", data.get("kind")) != kind
-                    or data.get("provider")
-                    and data["provider"] != provider
-                    or data.get("request_id")
-                    and result.request_id
-                    and data["request_id"] != result.request_id
-                ):
-                    raise ValueError("Provider receipt attribution conflict")
-                if data.get("estimate_source") and cost is None:
-                    return target.id  # An unpriced receipt cannot erase the standing estimate.
-                if data.get("cost_usd") is not None and not data.get("estimate_source"):
-                    if cost is not None and cost != data["cost_usd"]:
-                        raise ValueError("Conflicting cost receipt requires reconciliation")
-                    return target.id
-            values = {
-                "provider": provider,
-                "kind": kind,
-                "work_kind": kind,
-                "object_id": object_id,
-                "request_id": result.request_id or (target.data if target else {}).get("request_id"),
-                "usage": usage,
-                "received_at": self.clock().isoformat(),
-                "reserved_usd": 0
-                if cost is not None
-                else max(reserved, (target.data if target else {}).get("reserved_usd", 0)),
-                "cost_usd": cost,
-                "billing_verified": cost is not None and not plan,
-                "status": "settled" if cost is not None else "uncertain",
-                "estimate_source": "chatgpt_plan_included" if plan else None,
-            }
-            if target:
-                update(target, **values)
-            else:
-                target = put(
-                    s,
-                    "usage_ledger",
-                    p["tenant_id"],
-                    p["seller_id"],
-                    {**values, "request_key": request_key, "at": self.clock().isoformat()},
-                    key="optional:" + request_key,
-                    now=self.clock(),
-                )
-            return target.id
-
-    def settle_estimate_in(self, s, p, request_key, cost, source):
-        """A definitive answer without a priced receipt: the hold becomes a labeled estimate.
-
-        It counts against budgets at the estimate instead of holding forever; a later provider
-        receipt replaces it through `usage` or billing reconciliation.
-        """
-        self.db.authorize_stream(s, p)
-        hold = self._request_hold(s, p, request_key)
-        if not hold or hold.data.get("cost_usd") is not None or hold.data.get("status") == "released":
-            return hold
-        update(
-            hold,
-            cost_usd=cost,
-            reserved_usd=0,
-            status="estimated",
-            billing_verified=False,
-            estimate_source=source,
-            received_at=self.clock().isoformat(),
+            if result.request_id
+            else []
         )
+        if len(receipts) > 1:
+            raise ValueError("Duplicate historical provider receipts require reconciliation")
+        receipt = receipts[0] if receipts else None
+        hold = ops._request_hold(service, s, p, request_key)
+        if receipt and (not hold or receipt.id != hold.id):
+            raise ValueError("Provider receipt belongs to a different request")
+        target = receipt or hold
+        if target:
+            data = target.data
+            if (
+                data.get("object_id") != object_id
+                or data.get("work_kind", data.get("kind")) != kind
+                or data.get("provider")
+                and data["provider"] != provider
+                or data.get("request_id")
+                and result.request_id
+                and data["request_id"] != result.request_id
+            ):
+                raise ValueError("Provider receipt attribution conflict")
+            if data.get("estimate_source") and cost is None:
+                return target.id  # An unpriced receipt cannot erase the standing estimate.
+            if data.get("cost_usd") is not None and not data.get("estimate_source"):
+                if cost is not None and cost != data["cost_usd"]:
+                    raise ValueError("Conflicting cost receipt requires reconciliation")
+                return target.id
+        values = {
+            "provider": provider,
+            "kind": kind,
+            "work_kind": kind,
+            "object_id": object_id,
+            "request_id": result.request_id or (target.data if target else {}).get("request_id"),
+            "usage": usage,
+            "received_at": service.clock().isoformat(),
+            "reserved_usd": 0
+            if cost is not None
+            else max(reserved, (target.data if target else {}).get("reserved_usd", 0)),
+            "cost_usd": cost,
+            "billing_verified": cost is not None and not plan,
+            "status": "settled" if cost is not None else "uncertain",
+            "estimate_source": "chatgpt_plan_included" if plan else None,
+        }
+        if target:
+            update(target, **values)
+        else:
+            target = put(
+                s,
+                "usage_ledger",
+                p["tenant_id"],
+                p["seller_id"],
+                {**values, "request_key": request_key, "at": service.clock().isoformat()},
+                key="optional:" + request_key,
+                now=service.clock(),
+            )
+        return target.id
+
+
+def settle_estimate_in(service, s, p, request_key, cost, source):
+    """A definitive answer without a priced receipt: the hold becomes a labeled estimate.
+
+    It counts against budgets at the estimate instead of holding forever; a later provider
+    receipt replaces it through `usage` or billing reconciliation.
+    """
+    service.db.authorize_stream(s, p)
+    hold = ops._request_hold(service, s, p, request_key)
+    if not hold or hold.data.get("cost_usd") is not None or hold.data.get("status") == "released":
         return hold
+    update(
+        hold,
+        cost_usd=cost,
+        reserved_usd=0,
+        status="estimated",
+        billing_verified=False,
+        estimate_source=source,
+        received_at=service.clock().isoformat(),
+    )
+    return hold
 
-    def release_refused_budget(self, p, request_key, reason):
-        """The provider refused before doing any work, so the request carries no charge."""
-        with self.db.transaction() as s:
-            self.db.authorize_stream(s, p)
-            hold = self._request_hold(s, p, request_key)
-            if hold and hold.data.get("cost_usd") is None and hold.data.get("status") != "released":
-                update(
-                    hold,
-                    status="released",
-                    cost_usd=0,
-                    reserved_usd=0,
-                    billing_verified=False,
-                    review_reason=reason,
-                )
 
-    def release_unsubmitted_budget(self, p, request_key):
-        """Use only when no provider request was submitted; timeouts remain liabilities."""
-        with self.db.transaction() as s:
-            self.db.authorize_stream(s, p)
-            target = self._request_hold(s, p, request_key)
-            if target and target.data.get("status") == "reserved" and not target.data.get("request_id"):
-                update(target, status="released", cost_usd=0, reserved_usd=0, billing_verified=False)
+def release_refused_budget(service, p, request_key, reason):
+    """The provider refused before doing any work, so the request carries no charge."""
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        hold = ops._request_hold(service, s, p, request_key)
+        if hold and hold.data.get("cost_usd") is None and hold.data.get("status") != "released":
+            update(
+                hold,
+                status="released",
+                cost_usd=0,
+                reserved_usd=0,
+                billing_verified=False,
+                review_reason=reason,
+            )
+
+
+def release_unsubmitted_budget(service, p, request_key):
+    """Use only when no provider request was submitted; timeouts remain liabilities."""
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        target = ops._request_hold(service, s, p, request_key)
+        if target and target.data.get("status") == "reserved" and not target.data.get("request_id"):
+            update(target, status="released", cost_usd=0, reserved_usd=0, billing_verified=False)

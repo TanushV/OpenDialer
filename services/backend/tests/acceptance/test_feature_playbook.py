@@ -1,7 +1,9 @@
 """HTTP acceptance for fresh generations and subscription token receipts."""
 
 import pytest
+from app import ops
 from app.preparation.agent import SimulatedAgent
+from helpers import bound
 from journey import (
     answered_by_human,
     call,
@@ -75,7 +77,7 @@ def test_script_save_reports_refresh_and_unique_progress(workspace):
     assert get(ws, f"/v1/leads/{identity}/packet")["script"]["script_version"] == script["script_version"]
 
 
-def test_subscription_usage_is_persisted_once_and_scoped_to_generation(workspace, app):
+def test_subscription_usage_is_persisted_once_and_scoped_to_generation(workspace, app, monkeypatch):
     class Agent(SimulatedAgent):
         billing = "chatgpt_plan"
         model = "test-model"
@@ -90,7 +92,7 @@ def test_subscription_usage_is_persisted_once_and_scoped_to_generation(workspace
             await super().run(instructions, tools, handler, first, follow_up, **kwargs)
             return {"input_tokens": 100, "output_tokens": 20, "cached_tokens": 40, "reasoning_tokens": 8}
 
-    app.state.service.agent_route = lambda p: Agent()
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: Agent()))
     save_script(workspace)
     add(workspace)
     run_jobs(workspace, 3)
@@ -126,7 +128,7 @@ def test_rewrite_and_research_refresh_are_separate_explicit_actions(workspace):
     assert get(workspace, f"/v1/leads/{identity}/packet")["script"]["preparation_status"] == "ready"
 
 
-def test_missing_provider_counters_are_unknown_not_zero(workspace, app):
+def test_missing_provider_counters_are_unknown_not_zero(workspace, app, monkeypatch):
     class Agent(SimulatedAgent):
         billing = "chatgpt_plan"
 
@@ -134,7 +136,7 @@ def test_missing_provider_counters_are_unknown_not_zero(workspace, app):
             await super().run(*args, **kwargs)
             return {}
 
-    app.state.service.agent_route = lambda p: Agent()
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: Agent()))
     save_script(workspace)
     add(workspace)
     run_jobs(workspace, 3)
@@ -145,7 +147,7 @@ def test_missing_provider_counters_are_unknown_not_zero(workspace, app):
     assert report["records"][0]["token_status"] == "unknown"
 
 
-def test_failed_work_retains_the_last_reported_cumulative_usage(workspace, app):
+def test_failed_work_retains_the_last_reported_cumulative_usage(workspace, app, monkeypatch):
     class Agent(SimulatedAgent):
         billing = "chatgpt_plan"
 
@@ -153,7 +155,7 @@ def test_failed_work_retains_the_last_reported_cumulative_usage(workspace, app):
             await on_usage({"input_tokens": 7, "output_tokens": 3})
             raise RuntimeError("Provider failed after reporting consumption")
 
-    app.state.service.agent_route = lambda p: Agent()
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: Agent()))
     save_script(workspace)
     add(workspace)
     run_jobs(workspace, 2)
@@ -212,7 +214,9 @@ def test_rewrite_remaining_skips_completed_sample_and_paused_lists(workspace):
     assert post(ws, "/v1/preparation/rewrite", {"list_name": "Playbook rewrites"})["marked"] == 0
 
 
-def test_rewrite_passes_current_facts_without_old_scripts_and_refresh_requests_search(workspace, app):
+def test_rewrite_passes_current_facts_without_old_scripts_and_refresh_requests_search(
+    workspace, app, monkeypatch
+):
     import json
 
     seen = []
@@ -222,7 +226,7 @@ def test_rewrite_passes_current_facts_without_old_scripts_and_refresh_requests_s
             seen.append((json.loads(first), kwargs["web_search"]))
             return await super().run(instructions, tools, handler, first, follow_up, **kwargs)
 
-    app.state.service.agent_route = lambda p: Agent()
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: Agent()))
     save_script(workspace)
     add(workspace)
     run_jobs(workspace, 3)
@@ -237,7 +241,7 @@ def test_rewrite_passes_current_facts_without_old_scripts_and_refresh_requests_s
     assert seen[-1][1] and not seen[-1][0].get("known_facts")
 
 
-def test_cumulative_metered_cost_settles_once_at_the_final_receipt(workspace, app):
+def test_cumulative_metered_cost_settles_once_at_the_final_receipt(workspace, app, monkeypatch):
     class Agent(SimulatedAgent):
         billing = "openai"
 
@@ -247,7 +251,7 @@ def test_cumulative_metered_cost_settles_once_at_the_final_receipt(workspace, ap
             await super().run(*args, **kwargs)
             return {"input_tokens": 20, "output_tokens": 4, "cost_usd": 0.02}
 
-    app.state.service.agent_route = lambda p: Agent()
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: Agent()))
     save_script(workspace)
     identity = add(workspace)
     run_jobs(workspace, 3)
@@ -296,7 +300,7 @@ def test_rewrite_after_a_call_accepts_an_ai_note_with_no_human_edit(workspace):
 
 
 @pytest.mark.parametrize("action", ["pause", "archive", "suppress"])
-def test_master_edit_does_not_research_inactive_contacts(workspace, app, action):
+def test_master_edit_does_not_research_inactive_contacts(workspace, app, action, monkeypatch):
     ws = workspace
     seen = []
 
@@ -305,7 +309,7 @@ def test_master_edit_does_not_research_inactive_contacts(workspace, app, action)
             seen.append(True)
             return await super().run(*args, **kwargs)
 
-    app.state.service.agent_route = lambda p: Agent()
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: Agent()))
     save_script(ws)
     identity = add(ws)
     run_jobs(ws, 3)

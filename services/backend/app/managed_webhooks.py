@@ -11,6 +11,7 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 
+from app import ops
 from app.calling.blockers import CATALOG, blocked, refuse
 from app.calling.relay import after_exchange, after_failure
 from app.calling.state import TERMINAL
@@ -85,8 +86,8 @@ async def deliver(service, tenant_id, events):
     """A crash before remote ack causes safe local deduplication on the next fetch."""
     acknowledgements = []
     for row in events:
-        await service.accept_webhook(
-            tenant_id, row["event"], row["hash"], verified=True, received_at=dt(row["received_at"])
+        await ops.accept_webhook(
+            service, tenant_id, row["event"], row["hash"], verified=True, received_at=dt(row["received_at"])
         )
         acknowledgements.append({"account_id": row["account_id"], "event_id": row["event_id"]})
     return acknowledgements
@@ -293,7 +294,7 @@ class ManagedConnection:
         previous = self.service.configs.read(tenant_id).get("telnyx_connection_id")
         self.service.configs.write(tenant_id, configured, advance_version=True)
         if previous and configured.get("telnyx_connection_id") not in {None, previous}:
-            self.service.forget_workspace_test(tenant_id)
+            ops.forget_workspace_test(self.service, tenant_id)
         self.speech_failed = False
         await self.start()
         return self.status()

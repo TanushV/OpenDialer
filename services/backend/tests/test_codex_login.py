@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from app import ops
 from app.platform.secret_files import read_private
 
 
@@ -137,10 +138,10 @@ def test_failed_import_preserves_login_and_personal_route(workspace, app, monkey
     assert read_private(home / "auth.json") == login()
     service.configs.write(workspace["tenant_id"], {"inference_mode": "codex"})
     assert isinstance(
-        service.inference(workspace["tenant_id"], "script_write", workspace["user_id"]), CodexClient
+        ops.inference(service, workspace["tenant_id"], "script_write", workspace["user_id"]), CodexClient
     )
-    assert service.inference(workspace["tenant_id"], "script_write", "another-user") is None
-    assert service.inference(workspace["tenant_id"], "script_write") is None
+    assert ops.inference(service, workspace["tenant_id"], "script_write", "another-user") is None
+    assert ops.inference(service, workspace["tenant_id"], "script_write") is None
     assert workspace["client"].get("/v1/inference/codex").status_code in (401, 403)
 
 

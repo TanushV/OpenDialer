@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+from app import ops
 from app.optimization.learning import training_rows
 
 NOW = datetime(2026, 11, 8, tzinfo=UTC)
@@ -158,19 +159,20 @@ def test_the_comparison_group_rolls_a_worse_model_back_only_with_enough_calls():
     assert arm_comparison(older, since)["control"] == (0, 0)
 
 
-def test_publishing_a_reviewed_model_makes_it_the_only_live_one(workspace, app):
+def test_publishing_a_reviewed_model_makes_it_the_only_live_one(workspace, app, monkeypatch):
     from app.platform.db import MODELS
-    from helpers import principal
+    from helpers import bound, principal
 
     service, p = app.state.service, principal(workspace)
     reviewed = {"feature_schema_version": 3, "reviewable": True, "coverage_delta": 0, "policy_violations": 0}
     with service.db.transaction() as s:
-        old = service.scoped(s, "model_versions", p)
+        old = ops.scoped(service, s, "model_versions", p)
     assert not [m for m in old if m.data.get("active")]
 
+    monkeypatch.setattr(ops, "_training_source", bound(lambda s, p, payload, rows=False: ("v", None, None)))
+
     def publish(dataset_id, result):
-        service._training_source = lambda s, p, payload, rows=False: ("v", None, None)
-        service._training_publish(p, {"source_dataset_id": dataset_id}, "v", result)
+        ops._training_publish(service, p, {"source_dataset_id": dataset_id}, "v", result)
 
     publish("first", reviewed)
     publish("second", reviewed)

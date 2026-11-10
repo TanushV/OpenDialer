@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
+from app import ops
 from app.calling.blockers import CATALOG
 from app.platform.db import MODELS, update
 from conftest import ready
@@ -122,7 +123,7 @@ def fast_relay(monkeypatch):
 def codes(workspace, app, *, rep=False, integrity=True):
     service = app.state.service
     with service.db.transaction(False) as s:
-        found = service.dial_blockers_in(s, principal(workspace), rep=rep, integrity_ok=integrity)
+        found = ops.dial_blockers_in(service, s, principal(workspace), rep=rep, integrity_ok=integrity)
     return [b.code for b in found]
 
 
@@ -333,12 +334,12 @@ def test_session_test_line_only(workspace, app):
     assert client.put("/v1/admin/settings", headers=headers, json=body).status_code == 200
     service, p = app.state.service, principal(workspace)
     refused = test_line_refusal(
-        "+16175550100", test_session=service.in_test_session(p), test_lines=service.test_lines(p)
+        "+16175550100", test_session=ops.in_test_session(service, p), test_lines=ops.test_lines(service, p)
     )
     assert [b.code for b in refused] == ["TEST_SESSION_TEST_LINE_ONLY"]
     assert client.delete("/v1/settings/test-call", headers=headers).status_code == 200
     refused = test_line_refusal(
-        "+16175550100", test_session=service.in_test_session(p), test_lines=service.test_lines(p)
+        "+16175550100", test_session=ops.in_test_session(service, p), test_lines=ops.test_lines(service, p)
     )
     assert refused == []
 
@@ -424,7 +425,7 @@ def test_a_relay_that_stays_down_is_repaired_then_shown_as_stuck_with_reconnect(
 
     monkeypatch.setattr(service.managed, "start", start)
     for _ in range(3):
-        portal.call(service.watch_calling, p)
+        portal.call(ops.watch_calling, service, p)
         time.sleep(0.25)
     assert restarts, "the watchdog restarted the relay loop"
     detail = workspace["client"].get("/v1/blockers", headers=workspace["headers"]).json()["blockers"]
@@ -432,5 +433,5 @@ def test_a_relay_that_stays_down_is_repaired_then_shown_as_stuck_with_reconnect(
     assert stuck["stuck"] is True and "Reconnect" in stuck["message"]
     fast_relay.script.clear()
     assert eventually(lambda: not codes(workspace, app))
-    portal.call(service.watch_calling, p)
+    portal.call(ops.watch_calling, service, p)
     assert service.watchdog.stuck == set()

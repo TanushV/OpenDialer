@@ -7,6 +7,7 @@ import json
 from datetime import timedelta
 from uuid import uuid4
 
+from app import ops
 from journey import answered_by_human, call, get, post, run_jobs, start, wrap_up
 
 MARKER = "Our budget sentence must stay on this computer"
@@ -140,7 +141,7 @@ def test_the_transcript_is_kept_30_days_then_deleted_while_notes_and_outcome_rem
     clock.now += timedelta(days=30)
     token = ws["client"].post("/v1/local/session", headers={"X-Local-Token": "test-local-secret"}, json={})
     ws["headers"] = {"Authorization": f"Bearer {token.json()['access_token']}"}
-    ws["client"].app.state.service.purge_transcripts()
+    ops.purge_transcripts(ws["client"].app.state.service)
     review = get(ws, f"/v1/calls/{call_id}/review")
     assert MARKER not in json.dumps(review) and review["transcript"] == []
     assert review["human_notes"] == "Wants a pricing sheet."
@@ -175,6 +176,6 @@ def test_the_helper_knows_which_script_section_the_rep_is_on_during_the_call(wor
     service = app.state.service
     p = {k: ws[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
     with service.db.transaction(False) as s:
-        call = service.required(s, "call_attempts", call_id, p)
+        call = ops.required(service, s, "call_attempts", call_id, p)
         prompt = messages(live_help.request_in(service, s, p, call, None))[1]["content"]
     assert "Current stage: opening" not in prompt and "Current stage: " in prompt

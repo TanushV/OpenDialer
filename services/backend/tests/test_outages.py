@@ -10,6 +10,7 @@ from time import monotonic
 
 import httpx
 import pytest
+from app import ops
 from conftest import ready, reserve
 
 
@@ -49,7 +50,7 @@ def test_telnyx_down_at_dial_never_dials_twice_and_the_call_settles(
     monkeypatch.undo()
     for _ in range(8):
         clock.now += timedelta(seconds=61)
-        asyncio.run(service.recover(principal(workspace)))
+        asyncio.run(ops.recover(service, principal(workspace)))
     current = workspace["client"].get(f"/v1/calls/{call['id']}", headers=workspace["headers"]).json()
     assert current["state"] in {"ENDED", "FINALIZED"} and current["review_required"] is True
     assert carrier.dials == []
@@ -61,12 +62,12 @@ def test_telnyx_down_at_hangup_still_ends_the_call_when_it_returns(
     service = app.state.service
     call = start(workspace, "outage-hangup").json()
     monkeypatch.setattr(carrier, "hangup", down_async)
-    asyncio.run(service.hangup(principal(workspace), call["id"]))
+    asyncio.run(ops.hangup(service, principal(workspace), call["id"]))
     assert all(leg["state"] != "hangup" for leg in carrier.calls.values())
     monkeypatch.undo()
     for _ in range(3):
         clock.now += timedelta(seconds=61)
-        asyncio.run(service.recover(principal(workspace)))
+        asyncio.run(ops.recover(service, principal(workspace)))
     assert all(leg["state"] == "hangup" for leg in carrier.calls.values())
 
 
@@ -78,7 +79,7 @@ def test_a_relay_outage_names_itself_and_never_blocks_hanging_up(workspace, app,
     managed.config = {"tenant_id": workspace["tenant_id"]}
     managed.state, managed.caught_up, managed.last_exchange = "reconnecting", False, 0.0
     assert "CONNECTION_RECONNECTING" in blockers(workspace)
-    asyncio.run(service.hangup(principal(workspace), call["id"]))
+    asyncio.run(ops.hangup(service, principal(workspace), call["id"]))
     assert all(leg["state"] == "hangup" for leg in carrier.calls.values())
     managed.config = {}
 
@@ -118,7 +119,7 @@ def test_a_live_helper_outage_never_stops_a_call(workspace, app, clock, monkeypa
         json={"segment_id": "s1", "revision": 1, "side": "remote", "is_final": True, "text": "Who is this?"},
     )
     clock.now += timedelta(seconds=1)
-    asyncio.run(app.state.service.run_jobs(queues=["live_coach"]))
+    asyncio.run(ops.run_jobs(app.state.service, queues=["live_coach"]))
     live = c.get(f"/v1/calls/{call_id}", headers=h).json()
     assert live["coach"] is None
     assert live["helper_status"] == {"status": "paused", "reason": "transport_fault"}

@@ -8,6 +8,7 @@ from datetime import timedelta
 from sqlalchemy import and_, delete, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 
+from app import ops
 from app.compliance.policy import authorize
 from app.optimization.learning import (
     choose_cohort_candidate,
@@ -43,559 +44,575 @@ class SelectionChanged(Exception):
     """A ranked candidate lost eligibility before its atomic claim."""
 
 
-class ReservationPlanner:
-    def _hold_in_flight(self, p, lead_id):
-        """Atomically mark a candidate as being claimed by this rep within this authority.
+def _hold_in_flight(service, p, lead_id):
+    """Atomically mark a candidate as being claimed by this rep within this authority.
 
-        Concurrent reps otherwise rank the same top candidate: one claim wins and the rest
-        re-select repeatedly. This is a ranking hint; the database claim stays authoritative.
-        """
-        held = self.__dict__.setdefault("_in_flight_leads", {})
-        key, now = (p["tenant_id"], p["seller_id"], lead_id), time.monotonic()
-        with _IN_FLIGHT_LOCK:
-            owner = held.get(key)
-            if owner and owner[0] != p["user_id"] and owner[1] > now:
-                return False
-            held[key] = (p["user_id"], now + IN_FLIGHT_SECONDS)
-            return True
-
-    def _number_holds(self, p, number_id, *, hold=None):
-        """Count other reps' in-flight claims on a number; optionally add or drop this rep's."""
-        held = self.__dict__.setdefault("_in_flight_numbers", {})
-        key, now = (p["tenant_id"], p["seller_id"], number_id), time.monotonic()
-        with _IN_FLIGHT_LOCK:
-            owners = {u: t for u, t in held.get(key, {}).items() if t > now}
-            if hold is True:
-                owners[p["user_id"]] = now + IN_FLIGHT_SECONDS
-            elif hold is False:
-                owners.pop(p["user_id"], None)
-            if owners:
-                held[key] = owners
-            else:
-                held.pop(key, None)
-            return sum(user != p["user_id"] for user in owners)
-
-    def _release_in_flight(self, p, lead_ids):
-        held = self.__dict__.setdefault("_in_flight_leads", {})
-        with _IN_FLIGHT_LOCK:
-            for lead_id in lead_ids:
-                key = (p["tenant_id"], p["seller_id"], lead_id)
-                if held.get(key, (None,))[0] == p["user_id"]:
-                    del held[key]
-
-    def _queue_context(self, s, p, campaign_id, leads):
-        ids = [lead.id for lead in leads]
-        endpoints = [lead.data["endpoint_id"] for lead in leads]
-        # Only equality hashes, references and operational columns are indexed. Text stays encrypted.
-
-        keys = [lead.data["phone"] for lead in leads]
-        specifications = {
-            kind: []
-            for kind in (
-                "sellers",
-                "users",
-                "policy_versions",
-                "number_inventory",
-                "number_health",
-                "budgets",
-            )
-        }
-        specifications.update(
-            {
-                "campaigns": [
-                    MODELS["campaigns"].id.in_({campaign_id, *(r.data["campaign_id"] for r in leads)})
-                ],
-                "registry_snapshots": [
-                    (
-                        MODELS["registry_snapshots"].ctx_key.in_(("national", "state"))
-                        & (MODELS["registry_snapshots"].ctx_status == "published")
-                    )
-                    | MODELS["registry_snapshots"].external_key.in_(["prepaid:" + key for key in keys])
-                ],
-                "model_versions": [
-                    (MODELS["model_versions"].ctx_key == "active")
-                    | (
-                        (MODELS["model_versions"].ctx_key == "trial")
-                        & (MODELS["model_versions"].ctx_expires_at > self.clock())
-                    )
-                ],
-                "phone_endpoints": [MODELS["phone_endpoints"].id.in_(endpoints)],
-                "suppressions": [MODELS["suppressions"].external_key.in_(keys)],
-                "lead_number_bindings": [MODELS["lead_number_bindings"].external_key.in_(ids)],
-                "experiment_assignments": [MODELS["experiment_assignments"].op_lead_id.in_(ids)],
-                "number_leases": [MODELS["number_leases"].op_active.is_(True)],
-            }
-        )
-        prefetch(s, p, specifications)
-        s.info["row_cache"][("leads", p["tenant_id"], p["seller_id"])] = leads
-
-    def _company_contacted(self, s, p, lead, claims, now):
-        """Contacts at one company are never called back to back: after any call there, the
-        others wait for the next calling day in the prospect's time zone. A requested callback
-        or contact request is exempt."""
-        from zoneinfo import ZoneInfo
-
-        key = lead.data.get("company_key")
-        if not key or lead.data.get("requested_contact") or lead.data.get("callback_due_at"):
+    Concurrent reps otherwise rank the same top candidate: one claim wins and the rest
+    re-select repeatedly. This is a ranking hint; the database claim stays authoritative.
+    """
+    held = service.__dict__.setdefault("_in_flight_leads", {})
+    key, now = (p["tenant_id"], p["seller_id"], lead_id), time.monotonic()
+    with _IN_FLIGHT_LOCK:
+        owner = held.get(key)
+        if owner and owner[0] != p["user_id"] and owner[1] > now:
             return False
-        model = MODELS["leads"]
-        siblings = s.info.get("list_company_siblings", {}).get(key)
-        if siblings is None:
-            siblings = list(
-                s.scalars(
-                    select(model).where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        model.op_lead_id == key,
-                        model.id != lead.id,
-                    )
-                )
-            )
+        held[key] = (p["user_id"], now + IN_FLIGHT_SECONDS)
+        return True
+
+
+def _number_holds(service, p, number_id, *, hold=None):
+    """Count other reps' in-flight claims on a number; optionally add or drop this rep's."""
+    held = service.__dict__.setdefault("_in_flight_numbers", {})
+    key, now = (p["tenant_id"], p["seller_id"], number_id), time.monotonic()
+    with _IN_FLIGHT_LOCK:
+        owners = {u: t for u, t in held.get(key, {}).items() if t > now}
+        if hold is True:
+            owners[p["user_id"]] = now + IN_FLIGHT_SECONDS
+        elif hold is False:
+            owners.pop(p["user_id"], None)
+        if owners:
+            held[key] = owners
         else:
-            siblings = [sibling for sibling in siblings if sibling.id != lead.id]
-        if not siblings:
-            return False
-        if {c.lead_id for c in claims} & {sibling.id for sibling in siblings}:
-            return True
-        try:
-            zone = ZoneInfo(lead.data.get("timezone") or "UTC")
-        except (ValueError, KeyError):
-            zone = ZoneInfo("UTC")
-        today = now.astimezone(zone).date()
-        return any(
-            (last := timestamp(sibling.data.get("last_attempt_at"))) and last.astimezone(zone).date() == today
-            for sibling in siblings
+            held.pop(key, None)
+        return sum(user != p["user_id"] for user in owners)
+
+
+def _release_in_flight(service, p, lead_ids):
+    held = service.__dict__.setdefault("_in_flight_leads", {})
+    with _IN_FLIGHT_LOCK:
+        for lead_id in lead_ids:
+            key = (p["tenant_id"], p["seller_id"], lead_id)
+            if held.get(key, (None,))[0] == p["user_id"]:
+                del held[key]
+
+
+def _queue_context(service, s, p, campaign_id, leads):
+    ids = [lead.id for lead in leads]
+    endpoints = [lead.data["endpoint_id"] for lead in leads]
+    # Only equality hashes, references and operational columns are indexed. Text stays encrypted.
+
+    keys = [lead.data["phone"] for lead in leads]
+    specifications = {
+        kind: []
+        for kind in (
+            "sellers",
+            "users",
+            "policy_versions",
+            "number_inventory",
+            "number_health",
+            "budgets",
         )
-
-    def _queue_presence(self, s, p):
-        from app.calling.blockers import refuse
-
-        refuse(self.dial_blockers_in(s, p, rep=True))
-
-    def _selection(self, s, p, campaign_id):
-        from app.service import fail
-
-        # Keyset pages bound each request while preserving progress past denied candidates.
-        # This is a ranking hint only; every eventual claim rechecks permission.
-        # A pass starts at the head and may continue over several requests; reaching its end
-        # reports exhaustion, and the next request starts a fresh pass at the head, so newly due
-        # or changed work there is never skipped.
-        cursors = self.__dict__.setdefault("_queue_cursors", OrderedDict())
-        key = (
-            p["tenant_id"],
-            p["seller_id"],
-            p["user_id"],
-            campaign_id,
-            tuple(p.get("dial_lists") or ()),
-            p.get("callback_lead_id"),
-        )
-        after, reasons = cursors.pop(key, (None, frozenset()))
-        reasons = set(reasons)
-        for _ in range(PAGES):
-            plan, last, denied, complete = self._selection_page(s, p, campaign_id, after)
-            reasons.update(denied)
-            if plan:
-                return plan
-            if complete:
-                fail(409, self.no_lead_detail(s, p, reasons))
-            after = last
-        cursors[key] = (after, frozenset(reasons))
-        while len(cursors) > 256:
-            cursors.popitem(last=False)
-        fail(409, {"code": "QUEUE_SCAN_CONTINUES", "reasons": sorted(reasons), "retryable": True})
-
-    def _selection_page(self, s, p, campaign_id, after):
-        from app.service import fail
-
-        now, model = self.clock(), MODELS["leads"]
-        # Exactly ix_leads_queue: promised callbacks (2), requested contact (1), then coverage
-        # deadline order (overdue first). Only these top K rows are read and decrypted.
-        page = []
-        if after is not None:
-            priority, coverage, identity = after
-            page.append(
-                or_(
-                    model.op_priority < priority,
-                    and_(
-                        model.op_priority == priority,
-                        tuple_(model.op_coverage_at, model.id) > tuple_(coverage, identity),
-                    ),
+    }
+    specifications.update(
+        {
+            "campaigns": [MODELS["campaigns"].id.in_({campaign_id, *(r.data["campaign_id"] for r in leads)})],
+            "registry_snapshots": [
+                (
+                    MODELS["registry_snapshots"].ctx_key.in_(("national", "state"))
+                    & (MODELS["registry_snapshots"].ctx_status == "published")
                 )
-            )
-        leads = list(
+                | MODELS["registry_snapshots"].external_key.in_(["prepaid:" + key for key in keys])
+            ],
+            "model_versions": [
+                (MODELS["model_versions"].ctx_key == "active")
+                | (
+                    (MODELS["model_versions"].ctx_key == "trial")
+                    & (MODELS["model_versions"].ctx_expires_at > service.clock())
+                )
+            ],
+            "phone_endpoints": [MODELS["phone_endpoints"].id.in_(endpoints)],
+            "suppressions": [MODELS["suppressions"].external_key.in_(keys)],
+            "lead_number_bindings": [MODELS["lead_number_bindings"].external_key.in_(ids)],
+            "experiment_assignments": [MODELS["experiment_assignments"].op_lead_id.in_(ids)],
+            "number_leases": [MODELS["number_leases"].op_active.is_(True)],
+        }
+    )
+    prefetch(s, p, specifications)
+    s.info["row_cache"][("leads", p["tenant_id"], p["seller_id"])] = leads
+
+
+def _company_contacted(service, s, p, lead, claims, now):
+    """Contacts at one company are never called back to back: after any call there, the
+    others wait for the next calling day in the prospect's time zone. A requested callback
+    or contact request is exempt."""
+    from zoneinfo import ZoneInfo
+
+    key = lead.data.get("company_key")
+    if not key or lead.data.get("requested_contact") or lead.data.get("callback_due_at"):
+        return False
+    model = MODELS["leads"]
+    siblings = s.info.get("list_company_siblings", {}).get(key)
+    if siblings is None:
+        siblings = list(
             s.scalars(
-                select(model)
-                .where(
+                select(model).where(
                     model.tenant_id == p["tenant_id"],
                     model.seller_id == p["seller_id"],
-                    model.op_campaign_id == campaign_id,
-                    model.op_status == "eligible",
-                    or_(model.op_due_at <= now, model.op_due_at.is_(None)),
-                    *page,
+                    model.op_lead_id == key,
+                    model.id != lead.id,
                 )
-                .order_by(model.op_priority.desc(), model.op_coverage_at, model.id)
-                .limit(PAGE_SIZE)
             )
         )
-        self._queue_context(s, p, campaign_id, leads)
-        campaign = self.required(s, "campaigns", campaign_id, p)
-        self._queue_presence(s, p)
-        config = self.optimization_config(s, p, campaign_id)
-        # The normal queue reads the latest compact learning projection, never a training corpus.
-        profile = campaign.data.get("selection_profile", {})
-        if not profile_current(profile, config):
-            profile = {}
-        # Another rep's selection may be claiming a number right now; count it as load so
-        # concurrent reps plan on different numbers (the claim rereads capacity).
-        inventory = [
-            {**n, "active_obligations": n.get("active_obligations", 0) + self._number_holds(p, n["id"])}
-            for n in self.inventory_evidence(s, p, fast=True)
-        ]
-        if self.managed.enabled(p["tenant_id"]) and not self.configs.read(p["tenant_id"]).get("number_pool"):
-            inventory = self.managed.assigned(p["tenant_id"], inventory)
-        claims = s.info["active_claims"]
-        own = next((c for c in claims if c.rep_id == p["user_id"]), None)
-        if own:
-            fail(409, "LIVE_OBLIGATION" if own.call_id else "RESERVATION_EXISTS")
-        bindings = {r.data["lead_id"]: r.data["number_id"] for r in self.scoped(s, "lead_number_bindings", p)}
-        allocations, features, predictions, by_model = {}, {}, {}, {}
-        for lead in leads:
-            comparison = self.comparison_assignment(s, p, campaign, lead, "number_allocation", persist=False)
-            allocation = select_number(
-                doc(lead),
-                inventory,
-                bound_id=bindings.get(lead.id),
-                strategy="general_first"
-                if comparison and comparison["arm"] == "control"
-                else "regional_first",
-            )
-            if comparison:
-                allocation.update(comparison_id=comparison["comparison_id"], comparison_arm=comparison["arm"])
-            allocations[lead.id] = allocation
-            number = next((n for n in inventory if n["id"] == allocation["number_id"]), None)
-            endpoint = self.required(s, "phone_endpoints", lead.data["endpoint_id"], p)
-            values = freeze_features(
-                {
-                    **doc(lead),
-                    "created_at": lead.created_at.isoformat(),
-                    "ownership_status": endpoint.data.get("ownership_status"),
-                },
-                health=number["health"] if number else {"score": None, "samples": 0},
-                now=now,
-            )
-            values["callback_history"] = lead.data.get("callback_history", 0)
-            features[lead.id] = values
-            predictions[lead.id] = saved_prediction(profile, values, config)
-            serving = self.serving_model(s, p, config, lead.id)
-            if serving:
-                by_model.setdefault(serving.id, (serving, []))[1].append(lead.id)
-        for serving, identifiers in by_model.values():
-            from app.ml.training import predict_funnel_batch
+    else:
+        siblings = [sibling for sibling in siblings if sibling.id != lead.id]
+    if not siblings:
+        return False
+    if {c.lead_id for c in claims} & {sibling.id for sibling in siblings}:
+        return True
+    try:
+        zone = ZoneInfo(lead.data.get("timezone") or "UTC")
+    except (ValueError, KeyError):
+        zone = ZoneInfo("UTC")
+    today = now.astimezone(zone).date()
+    return any(
+        (last := timestamp(sibling.data.get("last_attempt_at"))) and last.astimezone(zone).date() == today
+        for sibling in siblings
+    )
 
-            estimates = predict_funnel_batch(
-                serving.data, [features[i] for i in identifiers], self.settings.data_dir / "models"
-            )
-            for identifier, estimate in zip(identifiers, estimates, strict=True):
-                if estimate:
-                    predictions[identifier].update(**estimate, model_version=serving.id)
-                else:
-                    # Pooled estimates stay in force; the decision records why the model did not.
-                    predictions[identifier]["model_fallback"] = {
-                        "model_id": serving.id,
-                        "reason": "model_artifact_unavailable",
-                    }
-        candidates = rank_candidates(
-            [{**doc(lead), "propensity": conversion_score(predictions[lead.id])} for lead in leads], now
-        )
-        by_id = {lead.id: lead for lead in leads}
-        claimed = {c.endpoint_id for c in claims}
-        denied = []
 
-        held = []
+def _queue_presence(service, s, p):
+    from app.calling.blockers import refuse
 
-        def permitted(candidate):
-            lead = by_id[candidate["id"]]
-            if not self._hold_in_flight(p, lead.id):
-                denied.append("CANDIDATE_IN_FLIGHT")
-                return False
-            if not self.own_test_line(p, lead) and self._company_contacted(s, p, lead, claims, now):
-                denied.append("COMPANY_CONTACTED_TODAY")
-                self._release_in_flight(p, [lead.id])
-                return False
-            held.append(lead.id)
-            number = next(
-                (
-                    n
-                    for n in self.scoped(s, "number_inventory", p)
-                    if n.id == allocations[lead.id]["number_id"]
+    refuse(ops.dial_blockers_in(service, s, p, rep=True))
+
+
+def _selection(service, s, p, campaign_id):
+    from app.service import fail
+
+    # Keyset pages bound each request while preserving progress past denied candidates.
+    # This is a ranking hint only; every eventual claim rechecks permission.
+    # A pass starts at the head and may continue over several requests; reaching its end
+    # reports exhaustion, and the next request starts a fresh pass at the head, so newly due
+    # or changed work there is never skipped.
+    cursors = service.__dict__.setdefault("_queue_cursors", OrderedDict())
+    key = (
+        p["tenant_id"],
+        p["seller_id"],
+        p["user_id"],
+        campaign_id,
+        tuple(p.get("dial_lists") or ()),
+        p.get("callback_lead_id"),
+    )
+    after, reasons = cursors.pop(key, (None, frozenset()))
+    reasons = set(reasons)
+    for _ in range(PAGES):
+        plan, last, denied, complete = ops._selection_page(service, s, p, campaign_id, after)
+        reasons.update(denied)
+        if plan:
+            return plan
+        if complete:
+            fail(409, ops.no_lead_detail(service, s, p, reasons))
+        after = last
+    cursors[key] = (after, frozenset(reasons))
+    while len(cursors) > 256:
+        cursors.popitem(last=False)
+    fail(409, {"code": "QUEUE_SCAN_CONTINUES", "reasons": sorted(reasons), "retryable": True})
+
+
+def _selection_page(service, s, p, campaign_id, after):
+    from app.service import fail
+
+    now, model = service.clock(), MODELS["leads"]
+    # Exactly ix_leads_queue: promised callbacks (2), requested contact (1), then coverage
+    # deadline order (overdue first). Only these top K rows are read and decrypted.
+    page = []
+    if after is not None:
+        priority, coverage, identity = after
+        page.append(
+            or_(
+                model.op_priority < priority,
+                and_(
+                    model.op_priority == priority,
+                    tuple_(model.op_coverage_at, model.id) > tuple_(coverage, identity),
                 ),
-                None,
             )
-            decision = queue_decision(
-                self.context(s, p, lead, number),
-                lead.data,
-                own_claim=own,
-                endpoint_claimed=lead.data["endpoint_id"] in claimed,
-                by_hand=p.get("callback_lead_id") == lead.id,
-                now=now,
+        )
+    leads = list(
+        s.scalars(
+            select(model)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_campaign_id == campaign_id,
+                model.op_status == "eligible",
+                or_(model.op_due_at <= now, model.op_due_at.is_(None)),
+                *page,
             )
-            denied.extend(decision.reasons)
-            if not decision.allowed:
-                self._release_in_flight(p, [held.pop()])
-            return decision.allowed
+            .order_by(model.op_priority.desc(), model.op_coverage_at, model.id)
+            .limit(PAGE_SIZE)
+        )
+    )
+    ops._queue_context(service, s, p, campaign_id, leads)
+    campaign = ops.required(service, s, "campaigns", campaign_id, p)
+    ops._queue_presence(service, s, p)
+    config = ops.optimization_config(service, s, p, campaign_id)
+    # The normal queue reads the latest compact learning projection, never a training corpus.
+    profile = campaign.data.get("selection_profile", {})
+    if not profile_current(profile, config):
+        profile = {}
+    # Another rep's selection may be claiming a number right now; count it as load so
+    # concurrent reps plan on different numbers (the claim rereads capacity).
+    inventory = [
+        {**n, "active_obligations": n.get("active_obligations", 0) + ops._number_holds(service, p, n["id"])}
+        for n in ops.inventory_evidence(service, s, p, fast=True)
+    ]
+    if service.managed.enabled(p["tenant_id"]) and not service.configs.read(p["tenant_id"]).get(
+        "number_pool"
+    ):
+        inventory = service.managed.assigned(p["tenant_id"], inventory)
+    claims = s.info["active_claims"]
+    own = next((c for c in claims if c.rep_id == p["user_id"]), None)
+    if own:
+        fail(409, "LIVE_OBLIGATION" if own.call_id else "RESERVATION_EXISTS")
+    bindings = {
+        r.data["lead_id"]: r.data["number_id"] for r in ops.scoped(service, s, "lead_number_bindings", p)
+    }
+    allocations, features, predictions, by_model = {}, {}, {}, {}
+    for lead in leads:
+        comparison = ops.comparison_assignment(
+            service, s, p, campaign, lead, "number_allocation", persist=False
+        )
+        allocation = select_number(
+            doc(lead),
+            inventory,
+            bound_id=bindings.get(lead.id),
+            strategy="general_first" if comparison and comparison["arm"] == "control" else "regional_first",
+        )
+        if comparison:
+            allocation.update(comparison_id=comparison["comparison_id"], comparison_arm=comparison["arm"])
+        allocations[lead.id] = allocation
+        number = next((n for n in inventory if n["id"] == allocation["number_id"]), None)
+        endpoint = ops.required(service, s, "phone_endpoints", lead.data["endpoint_id"], p)
+        values = freeze_features(
+            {
+                **doc(lead),
+                "created_at": lead.created_at.isoformat(),
+                "ownership_status": endpoint.data.get("ownership_status"),
+            },
+            health=number["health"] if number else {"score": None, "samples": 0},
+            now=now,
+        )
+        values["callback_history"] = lead.data.get("callback_history", 0)
+        features[lead.id] = values
+        predictions[lead.id] = saved_prediction(profile, values, config)
+        serving = ops.serving_model(service, s, p, config, lead.id)
+        if serving:
+            by_model.setdefault(serving.id, (serving, []))[1].append(lead.id)
+    for serving, identifiers in by_model.values():
+        from app.ml.training import predict_funnel_batch
 
-        urgent = next(
+        estimates = predict_funnel_batch(
+            serving.data, [features[i] for i in identifiers], service.settings.data_dir / "models"
+        )
+        for identifier, estimate in zip(identifiers, estimates, strict=True):
+            if estimate:
+                predictions[identifier].update(**estimate, model_version=serving.id)
+            else:
+                # Pooled estimates stay in force; the decision records why the model did not.
+                predictions[identifier]["model_fallback"] = {
+                    "model_id": serving.id,
+                    "reason": "model_artifact_unavailable",
+                }
+    candidates = rank_candidates(
+        [{**doc(lead), "propensity": conversion_score(predictions[lead.id])} for lead in leads], now
+    )
+    by_id = {lead.id: lead for lead in leads}
+    claimed = {c.endpoint_id for c in claims}
+    denied = []
+
+    held = []
+
+    def permitted(candidate):
+        lead = by_id[candidate["id"]]
+        if not ops._hold_in_flight(service, p, lead.id):
+            denied.append("CANDIDATE_IN_FLIGHT")
+            return False
+        if not ops.own_test_line(service, p, lead) and ops._company_contacted(
+            service, s, p, lead, claims, now
+        ):
+            denied.append("COMPANY_CONTACTED_TODAY")
+            ops._release_in_flight(service, p, [lead.id])
+            return False
+        held.append(lead.id)
+        number = next(
             (
-                c
-                for c in candidates
-                if (
-                    c.get("requested_contact")
-                    or (timestamp(c.get("pair_until")) and now < timestamp(c["pair_until"]))
-                    or (timestamp(c.get("callback_due_at")) and timestamp(c["callback_due_at"]) <= now)
-                    or (timestamp(c.get("coverage_due_at")) and timestamp(c["coverage_due_at"]) <= now)
-                )
-                and permitted(c)
+                n
+                for n in ops.scoped(service, s, "number_inventory", p)
+                if n.id == allocations[lead.id]["number_id"]
             ),
             None,
         )
-        probes = [urgent] if urgent else []
-        if not urgent:
-            for control in (True, False):
-                group = [c for c in candidates if stable_control(c["id"]) == control]
-                if control:
-                    group.sort(key=lambda c: -predictions[c["id"]]["p_human"])
-                selected = next((c for c in group if permitted(c)), None)
-                if selected:
-                    probes.append(selected)
-        selection = choose_cohort_candidate(
-            [
-                {
-                    **c,
-                    "arm": "control" if stable_control(c["id"]) else "candidate",
-                    "p_human": predictions[c["id"]]["p_human"],
-                    "score": conversion_score(predictions[c["id"]]),
-                }
-                for c in probes
-            ],
-            now=now,  # The cohort draw is the candidate's stable hash, not process randomness.
+        decision = queue_decision(
+            ops.context(service, s, p, lead, number),
+            lead.data,
+            own_claim=own,
+            endpoint_claimed=lead.data["endpoint_id"] in claimed,
+            by_hand=p.get("callback_lead_id") == lead.id,
+            now=now,
         )
-        if not selection:
-            self._release_in_flight(p, held)
-            last = leads[-1] if leads else None
-            cursor = (last.op_priority, last.op_coverage_at, last.id) if last else None
-            return None, cursor, denied, len(leads) < PAGE_SIZE
-        identifier = selection["lead_id"]
-        self._release_in_flight(p, [lead_id for lead_id in held if lead_id != identifier])
-        if allocations[identifier]["number_id"]:
-            self._number_holds(p, allocations[identifier]["number_id"], hold=True)
-        return (
-            {
-                "selection": selection,
-                "features": features[identifier],
-                "prediction": predictions[identifier],
-                "allocation": allocations[identifier],
-                "profile": profile,
-                "lead_version": by_id[identifier].version,
-                "lead_state": decision_state(by_id[identifier]),
-                "configuration": {
-                    k: config[k] for k in ("conversion_goal", "window_days", "estimate_policy", "exploration")
-                },
-                "policy_id": campaign.data["policy_id"],
-            },
-            None,
-            denied,
-            False,
-        )
-
-    def reserve(self, p, campaign_id, list_names=None, callback_lead_id=None):
-        """Rank and claim in one transaction; a lost uniqueness race ranks again."""
-        from app.service import fail
-
-        p = {**p, "dial_lists": list_names, "callback_lead_id": callback_lead_id}
-        if list_names == [] and not callback_lead_id:
-            fail(409, "Choose at least one list")
-        reasons = set()
-        for _ in range(3):
-            plan = None
-            try:
-                with self.db.transaction() as s, s.no_autoflush:
-                    # Claims run in parallel (shared); opt-outs and other authorization changes
-                    # still order against them. Endpoint, lead and rep uniqueness are constraints.
-                    self.db.authorize_stream(s, p, shared=True)
-                    plan = self._selection(s, p, campaign_id)
-                    return self._claim_in(s, p, campaign_id, plan)
-            except SelectionChanged as changed:
-                reasons.update(*changed.args)
-            except IntegrityError:
-                reasons.add("CONCURRENT_CLAIM")
-            finally:
-                if plan:
-                    self._release_in_flight(p, [plan["selection"]["lead_id"]])
-                    if plan["allocation"]["number_id"]:
-                        self._number_holds(p, plan["allocation"]["number_id"], hold=False)
-        fail(409, {"code": "QUEUE_CHANGED", "retryable": True, "reasons": sorted(reasons)})
-
-    def _claim_in(self, s, p, campaign_id, plan):
-        now = self.clock()
-        s.info["defer_flush"] = True
-        if s.info.get("expired_claims"):
-            # Lapsed reservations seen while ranking; deleted here so the new claim fits.
-            s.execute(
-                delete(ActiveClaim).where(
-                    ActiveClaim.id.in_(s.info["expired_claims"]),
-                    ActiveClaim.call_id.is_(None),
-                    ActiveClaim.expires_at <= now,
-                )
-            )
-        lead = self.required(s, "leads", plan["selection"]["lead_id"], p)
-        number = (
-            self.required(s, "number_inventory", plan["allocation"]["number_id"], p)
-            if plan["allocation"]["number_id"]
-            else None
-        )
-        decision = authorize(self.context(s, p, lead, number))
+        denied.extend(decision.reasons)
         if not decision.allowed:
-            raise SelectionChanged(decision.reasons)
-        campaign = self.required(s, "campaigns", campaign_id, p)
-        config = self.optimization_config(s, p, campaign_id)
-        self.comparison_assignment(s, p, campaign, lead, "number_allocation")
-        coach_comparison = self.comparison_assignment(s, p, campaign, lead, "coaching", rep_id=p["user_id"])
-        script_comparison = self.comparison_assignment(s, p, campaign, lead, "script", rep_id=p["user_id"])
-        reservation = put(
-            s,
-            "reservations",
-            p["tenant_id"],
-            p["seller_id"],
+            ops._release_in_flight(service, p, [held.pop()])
+        return decision.allowed
+
+    urgent = next(
+        (
+            c
+            for c in candidates
+            if (
+                c.get("requested_contact")
+                or (timestamp(c.get("pair_until")) and now < timestamp(c["pair_until"]))
+                or (timestamp(c.get("callback_due_at")) and timestamp(c["callback_due_at"]) <= now)
+                or (timestamp(c.get("coverage_due_at")) and timestamp(c["coverage_due_at"]) <= now)
+            )
+            and permitted(c)
+        ),
+        None,
+    )
+    probes = [urgent] if urgent else []
+    if not urgent:
+        for control in (True, False):
+            group = [c for c in candidates if stable_control(c["id"]) == control]
+            if control:
+                group.sort(key=lambda c: -predictions[c["id"]]["p_human"])
+            selected = next((c for c in group if permitted(c)), None)
+            if selected:
+                probes.append(selected)
+    selection = choose_cohort_candidate(
+        [
             {
-                "rep_id": p["user_id"],
-                "lead_id": lead.id,
-                "endpoint_id": lead.data["endpoint_id"],
-                "number_id": number.id,
-                "expires_at": (now + timedelta(minutes=2)).isoformat(),
-                "status": "reserved",
-                "dial_scope": {
-                    "dial_lists": p.get("dial_lists"),
-                    "callback_lead_id": p.get("callback_lead_id"),
-                },
-                "policy_id": campaign.data["policy_id"],
-                "coaching_comparison": coach_comparison,
-                "script_comparison": script_comparison,
+                **c,
+                "arm": "control" if stable_control(c["id"]) else "candidate",
+                "p_human": predictions[c["id"]]["p_human"],
+                "score": conversion_score(predictions[c["id"]]),
+            }
+            for c in probes
+        ],
+        now=now,  # The cohort draw is the candidate's stable hash, not process randomness.
+    )
+    if not selection:
+        ops._release_in_flight(service, p, held)
+        last = leads[-1] if leads else None
+        cursor = (last.op_priority, last.op_coverage_at, last.id) if last else None
+        return None, cursor, denied, len(leads) < PAGE_SIZE
+    identifier = selection["lead_id"]
+    ops._release_in_flight(service, p, [lead_id for lead_id in held if lead_id != identifier])
+    if allocations[identifier]["number_id"]:
+        ops._number_holds(service, p, allocations[identifier]["number_id"], hold=True)
+    return (
+        {
+            "selection": selection,
+            "features": features[identifier],
+            "prediction": predictions[identifier],
+            "allocation": allocations[identifier],
+            "profile": profile,
+            "lead_version": by_id[identifier].version,
+            "lead_state": decision_state(by_id[identifier]),
+            "configuration": {
+                k: config[k] for k in ("conversion_goal", "window_days", "estimate_policy", "exploration")
             },
-            now=now,
-        )
-        s.add(
-            ActiveClaim(
-                tenant_id=p["tenant_id"],
-                seller_id=p["seller_id"],
-                endpoint_id=lead.data["endpoint_id"],
-                lead_id=lead.id,
-                rep_id=p["user_id"],
-                number_id=number.id,
-                reservation_id=reservation.id,
-                expires_at=now + timedelta(minutes=2),
+            "policy_id": campaign.data["policy_id"],
+        },
+        None,
+        denied,
+        False,
+    )
+
+
+def reserve(service, p, campaign_id, list_names=None, callback_lead_id=None):
+    """Rank and claim in one transaction; a lost uniqueness race ranks again."""
+    from app.service import fail
+
+    p = {**p, "dial_lists": list_names, "callback_lead_id": callback_lead_id}
+    if list_names == [] and not callback_lead_id:
+        fail(409, "Choose at least one list")
+    reasons = set()
+    for _ in range(3):
+        plan = None
+        try:
+            with service.db.transaction() as s, s.no_autoflush:
+                # Claims run in parallel (shared); opt-outs and other authorization changes
+                # still order against them. Endpoint, lead and rep uniqueness are constraints.
+                service.db.authorize_stream(s, p, shared=True)
+                plan = ops._selection(service, s, p, campaign_id)
+                return ops._claim_in(service, s, p, campaign_id, plan)
+        except SelectionChanged as changed:
+            reasons.update(*changed.args)
+        except IntegrityError:
+            reasons.add("CONCURRENT_CLAIM")
+        finally:
+            if plan:
+                ops._release_in_flight(service, p, [plan["selection"]["lead_id"]])
+                if plan["allocation"]["number_id"]:
+                    ops._number_holds(service, p, plan["allocation"]["number_id"], hold=False)
+    fail(409, {"code": "QUEUE_CHANGED", "retryable": True, "reasons": sorted(reasons)})
+
+
+def _claim_in(service, s, p, campaign_id, plan):
+    now = service.clock()
+    s.info["defer_flush"] = True
+    if s.info.get("expired_claims"):
+        # Lapsed reservations seen while ranking; deleted here so the new claim fits.
+        s.execute(
+            delete(ActiveClaim).where(
+                ActiveClaim.id.in_(s.info["expired_claims"]),
+                ActiveClaim.call_id.is_(None),
+                ActiveClaim.expires_at <= now,
             )
         )
-        binding = self._by_key(s, p, "lead_number_bindings", lead.id)
-        if binding:
-            update(binding, number_id=number.id)
-        else:
-            put(
-                s,
-                "lead_number_bindings",
-                p["tenant_id"],
-                p["seller_id"],
-                {"lead_id": lead.id, "number_id": number.id},
-                key=lead.id,
-                now=now,
-            )
-        actions = ["approved-default"]  # Script wording is tested by script comparisons instead.
-        # No treatment may be randomized without a registered comparison (REMEDIATION 9.4);
-        # none exists, so the reviewed default is chosen with certainty and logged as such.
-        choice = {
-            "action": actions[0],
-            "propensity": 1.0,
-            "eligible_actions": actions,
-            "action_distribution": {action: float(action == actions[0]) for action in actions},
-            "treatment_estimates": {},
-            "treatment_reason": "no_registered_treatment_comparison",
-        }
-        snapshot = put(
+    lead = ops.required(service, s, "leads", plan["selection"]["lead_id"], p)
+    number = (
+        ops.required(service, s, "number_inventory", plan["allocation"]["number_id"], p)
+        if plan["allocation"]["number_id"]
+        else None
+    )
+    decision = authorize(ops.context(service, s, p, lead, number))
+    if not decision.allowed:
+        raise SelectionChanged(decision.reasons)
+    campaign = ops.required(service, s, "campaigns", campaign_id, p)
+    config = ops.optimization_config(service, s, p, campaign_id)
+    ops.comparison_assignment(service, s, p, campaign, lead, "number_allocation")
+    coach_comparison = ops.comparison_assignment(
+        service, s, p, campaign, lead, "coaching", rep_id=p["user_id"]
+    )
+    script_comparison = ops.comparison_assignment(
+        service, s, p, campaign, lead, "script", rep_id=p["user_id"]
+    )
+    reservation = put(
+        s,
+        "reservations",
+        p["tenant_id"],
+        p["seller_id"],
+        {
+            "rep_id": p["user_id"],
+            "lead_id": lead.id,
+            "endpoint_id": lead.data["endpoint_id"],
+            "number_id": number.id,
+            "expires_at": (now + timedelta(minutes=2)).isoformat(),
+            "status": "reserved",
+            "dial_scope": {
+                "dial_lists": p.get("dial_lists"),
+                "callback_lead_id": p.get("callback_lead_id"),
+            },
+            "policy_id": campaign.data["policy_id"],
+            "coaching_comparison": coach_comparison,
+            "script_comparison": script_comparison,
+        },
+        now=now,
+    )
+    s.add(
+        ActiveClaim(
+            tenant_id=p["tenant_id"],
+            seller_id=p["seller_id"],
+            endpoint_id=lead.data["endpoint_id"],
+            lead_id=lead.id,
+            rep_id=p["user_id"],
+            number_id=number.id,
+            reservation_id=reservation.id,
+            expires_at=now + timedelta(minutes=2),
+        )
+    )
+    binding = ops._by_key(service, s, p, "lead_number_bindings", lead.id)
+    if binding:
+        update(binding, number_id=number.id)
+    else:
+        put(
             s,
-            "feature_snapshots",
+            "lead_number_bindings",
             p["tenant_id"],
             p["seller_id"],
-            {
-                "lead_id": lead.id,
-                "as_of": plan["features"]["decision_at"],
-                "company_id": company_group(lead.data),
-                "company_group_basis": "supplied_identity_not_verified_business_ownership",
-                "decision_at": plan["features"]["decision_at"],
-                "source_versions": {
-                    "lead": {"id": lead.id, "version": plan["lead_version"]},
-                    "conversation": plan["features"]["conversation_sources"],
-                },
-                "goal": config["conversion_goal"],
-                "goal_version": campaign.data.get("optimization_epoch", "conversion-v2"),
-                "outcome_window_days": config["window_days"],
-                "estimate_policy": config["estimate_policy"],
-                "work_assumption_seconds": config["handling_seconds"],
-                "policy_version": campaign.data["policy_id"],
-                "model_version": plan["prediction"]["model_version"],
-                "allowed_actions": choice["eligible_actions"],
-                "chosen_action": choice["action"],
-                "action_distribution": choice["action_distribution"],
-                "feature_schema_version": FEATURE_SCHEMA_VERSION,
-                "campaign_id": campaign_id,
-                "features": plan["features"],
-                "predictions": plan["prediction"],
-                "propensity": choice["propensity"],
-                "experiment_arm": cohort_arm(lead.id, cohort_fraction(campaign.data, config, now)),
-            },
+            {"lead_id": lead.id, "number_id": number.id},
+            key=lead.id,
             now=now,
         )
-        allocation = plan["allocation"]
-        if allocation.get("reassignment_reason"):
-            audit(
-                s,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "number.binding_changed",
-                lead.id,
-                now,
-                allocation,
-            )
-        policy_decision = put(
-            s,
-            "policy_decisions",
-            p["tenant_id"],
-            p["seller_id"],
-            {
-                "lead_id": lead.id,
-                "feature_snapshot_id": snapshot.id,
-                **choice,
-                "policy_version": "conversion-coverage-v3",
-                "rep_id": p["user_id"],
-                "allocation": allocation,
-                "predictions": plan["prediction"],
-                "conversion_goal": config["conversion_goal"],
-                **plan["selection"],
-                "experiment_arm": cohort_arm(lead.id, cohort_fraction(campaign.data, config, now)),
-                "outcome_window_days": config["window_days"],
+    actions = ["approved-default"]  # Script wording is tested by script comparisons instead.
+    # No treatment may be randomized without a registered comparison (REMEDIATION 9.4);
+    # none exists, so the reviewed default is chosen with certainty and logged as such.
+    choice = {
+        "action": actions[0],
+        "propensity": 1.0,
+        "eligible_actions": actions,
+        "action_distribution": {action: float(action == actions[0]) for action in actions},
+        "treatment_estimates": {},
+        "treatment_reason": "no_registered_treatment_comparison",
+    }
+    snapshot = put(
+        s,
+        "feature_snapshots",
+        p["tenant_id"],
+        p["seller_id"],
+        {
+            "lead_id": lead.id,
+            "as_of": plan["features"]["decision_at"],
+            "company_id": company_group(lead.data),
+            "company_group_basis": "supplied_identity_not_verified_business_ownership",
+            "decision_at": plan["features"]["decision_at"],
+            "source_versions": {
+                "lead": {"id": lead.id, "version": plan["lead_version"]},
+                "conversation": plan["features"]["conversation_sources"],
             },
-            now=now,
-        )
-        update(
-            reservation,
-            feature_snapshot_id=snapshot.id,
-            treatment_variant_id=choice["action"],
-            policy_decision_id=policy_decision.id,
-        )
-        emit(s, p["tenant_id"], "reservation.created", reservation, now)
-        return {
-            "reservation_id": reservation.id,
-            "expires_at": reservation.data["expires_at"],
-            "lead": doc(lead),
-            "number": doc(number),
+            "goal": config["conversion_goal"],
+            "goal_version": campaign.data.get("optimization_epoch", "conversion-v2"),
+            "outcome_window_days": config["window_days"],
+            "estimate_policy": config["estimate_policy"],
+            "work_assumption_seconds": config["handling_seconds"],
             "policy_version": campaign.data["policy_id"],
-        }
+            "model_version": plan["prediction"]["model_version"],
+            "allowed_actions": choice["eligible_actions"],
+            "chosen_action": choice["action"],
+            "action_distribution": choice["action_distribution"],
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
+            "campaign_id": campaign_id,
+            "features": plan["features"],
+            "predictions": plan["prediction"],
+            "propensity": choice["propensity"],
+            "experiment_arm": cohort_arm(lead.id, cohort_fraction(campaign.data, config, now)),
+        },
+        now=now,
+    )
+    allocation = plan["allocation"]
+    if allocation.get("reassignment_reason"):
+        audit(
+            s,
+            p["tenant_id"],
+            p["seller_id"],
+            p["user_id"],
+            "number.binding_changed",
+            lead.id,
+            now,
+            allocation,
+        )
+    policy_decision = put(
+        s,
+        "policy_decisions",
+        p["tenant_id"],
+        p["seller_id"],
+        {
+            "lead_id": lead.id,
+            "feature_snapshot_id": snapshot.id,
+            **choice,
+            "policy_version": "conversion-coverage-v3",
+            "rep_id": p["user_id"],
+            "allocation": allocation,
+            "predictions": plan["prediction"],
+            "conversion_goal": config["conversion_goal"],
+            **plan["selection"],
+            "experiment_arm": cohort_arm(lead.id, cohort_fraction(campaign.data, config, now)),
+            "outcome_window_days": config["window_days"],
+        },
+        now=now,
+    )
+    update(
+        reservation,
+        feature_snapshot_id=snapshot.id,
+        treatment_variant_id=choice["action"],
+        policy_decision_id=policy_decision.id,
+    )
+    emit(s, p["tenant_id"], "reservation.created", reservation, now)
+    return {
+        "reservation_id": reservation.id,
+        "expires_at": reservation.data["expires_at"],
+        "lead": doc(lead),
+        "number": doc(number),
+        "policy_version": campaign.data["policy_id"],
+    }

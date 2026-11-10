@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 import pytest
+from app import ops
 from app.calling.blockers import CATALOG, Facts, blocked, blockers, refuse
 from fastapi import HTTPException
 
@@ -120,7 +121,7 @@ def test_a_test_session_dials_only_the_owners_test_line(workspace, app):
     assert client.put("/v1/admin/settings", headers=headers, json=body).status_code == 200
     # The queue offers nothing outside the Test line list, so no prospect is reserved.
     assert reserve(workspace).status_code == 409
-    assert app.state.service.carrier(workspace["tenant_id"]).dials == []
+    assert ops.carrier(app.state.service, workspace["tenant_id"]).dials == []
 
 
 def test_a_test_call_dials_only_the_typed_test_phone_and_counts_as_a_test(workspace, app):

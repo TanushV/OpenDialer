@@ -5,6 +5,8 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from app import ops
+from helpers import bound
 from journey import answered_by_human, call, get, hang_up, import_leads, post, run_jobs, start, wrap_up
 
 SECTIONS = {
@@ -302,9 +304,8 @@ def test_the_memory_reaches_script_writing_but_call_shape_stays_post_call(worksp
         "/v1/admin/script/memory",
         {"expected_version": memory["version"], "team_notes": "Lead with the time saved."},
     )
-    service = app.state.service
     agent = RecordingAgent()
-    monkeypatch.setattr(service, "agent_route", lambda p: agent)
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: agent))
     lead = import_leads(ws, leads("Write", 1, area="512"))["leads"][0]["id"]
     post(ws, "/v1/research/batches", {"lead_ids": [lead]})
     run_jobs(ws)
@@ -331,7 +332,7 @@ def test_the_memory_proposes_a_change_for_the_weakest_section_and_starts_its_tes
         finish(ws, placed, "not_interested")
         clock.now += timedelta(seconds=60)
     model = ScriptModel()
-    monkeypatch.setattr(app.state.service, "inference", lambda *args, **kwargs: model)
+    monkeypatch.setattr(ops, "inference", bound(lambda *args, **kwargs: model))
     lab = refresh_learning(ws)
     [proposal] = lab["proposals"]
     assert proposal["source"] == "memory" and proposal["section"] == "opening"
@@ -348,7 +349,7 @@ def test_changed_memory_reaches_reprepared_existing_lead(workspace, app, monkeyp
     ws = workspace
     use_template(ws)
     agent = RecordingAgent()
-    monkeypatch.setattr(app.state.service, "agent_route", lambda p: agent)
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: agent))
     lead = import_leads(ws, leads("Cache", 1, area="512"))["leads"][0]["id"]
     post(ws, "/v1/research/batches", {"lead_ids": [lead]})
     run_jobs(ws)

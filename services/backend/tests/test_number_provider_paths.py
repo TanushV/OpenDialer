@@ -4,7 +4,9 @@ import json
 
 import httpx
 import pytest
+from app import ops
 from app.providers.telnyx import TelnyxCarrier
+from helpers import bound
 
 
 @pytest.mark.parametrize("result", ["success", "timeout", "rejected"])
@@ -38,7 +40,7 @@ def test_number_configuration_confirms_reconciles_or_reports_rejection(workspace
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     monkeypatch.setattr(
-        service, "carrier", lambda tenant: TelnyxCarrier("synthetic", "test-route", http=http)
+        ops, "carrier", bound(lambda tenant: TelnyxCarrier("synthetic", "test-route", http=http))
     )
     client, headers = workspace["client"], workspace["headers"]
 
@@ -106,7 +108,7 @@ def test_shared_webhook_sync_lists_every_owned_number_with_its_route(workspace, 
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     monkeypatch.setattr(
-        service, "carrier", lambda tenant: TelnyxCarrier("synthetic", "test-route", http=http)
+        ops, "carrier", bound(lambda tenant: TelnyxCarrier("synthetic", "test-route", http=http))
     )
     try:
         response = workspace["client"].post("/v1/admin/numbers/sync", headers=workspace["headers"])
@@ -136,7 +138,7 @@ def test_caller_name_lists_outbound_cnam_only_and_records_the_read_back(workspac
         return httpx.Response(200, json={"data": {"cnam_listing": stored}})
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    monkeypatch.setattr(service, "carrier", lambda tenant: TelnyxCarrier("synthetic", "route", http=http))
+    monkeypatch.setattr(ops, "carrier", bound(lambda tenant: TelnyxCarrier("synthetic", "route", http=http)))
     client, headers = workspace["client"], workspace["headers"]
     number = next(n for n in client.get("/v1/workspace/numbers", headers=headers).json()["items"])
     from app.platform.db import get as get_row

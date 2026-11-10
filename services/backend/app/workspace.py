@@ -2,6 +2,7 @@
 
 from sqlalchemy import and_, func, literal_column, or_, select
 
+from app import ops
 from app.lead_lists import active_membership, in_list
 from app.operational_schema import PAGE_TABLES
 from app.platform.db import MODELS, ActiveClaim, Event, Job, after_key, doc
@@ -35,314 +36,307 @@ def after(model, anchor, descending):
     return after_key(model.created_at, model.id, anchor.created_at, anchor.id, descending=descending)
 
 
-class WorkspaceReads:
-    def quiescence_in(self, s, p):
-        """Indexed authority obligations; signing out stops the whole local process."""
-        from app.calling.state import TERMINAL
+def quiescence_in(service, s, p):
+    """Indexed authority obligations; signing out stops the whole local process."""
+    from app.calling.state import TERMINAL
 
-        reasons = []
-        for table, condition, reason in (
-            # Recovery metadata is non-null for every nonterminal/unknown call.
-            ("call_attempts", MODELS["call_attempts"].op_due_at.is_not(None), "ACTIVE_CALL"),
-            (
-                "call_legs",
-                MODELS["call_legs"].op_status.not_in([*TERMINAL, "ended", "failed", "cancelled"]),
-                "ACTIVE_LEG",
+    reasons = []
+    for table, condition, reason in (
+        # Recovery metadata is non-null for every nonterminal/unknown call.
+        ("call_attempts", MODELS["call_attempts"].op_due_at.is_not(None), "ACTIVE_CALL"),
+        (
+            "call_legs",
+            MODELS["call_legs"].op_status.not_in([*TERMINAL, "ended", "failed", "cancelled"]),
+            "ACTIVE_LEG",
+        ),
+        ("followup_tasks", MODELS["followup_tasks"].op_active.is_(True), "ACTIVE_INBOUND"),
+        (
+            "command_outbox",
+            MODELS["command_outbox"].op_status.in_(
+                [
+                    "sending",
+                    "uncertain",
+                    "reconciling",
+                    "review_required",
+                    "unconfirmed",
+                ]
             ),
-            ("followup_tasks", MODELS["followup_tasks"].op_active.is_(True), "ACTIVE_INBOUND"),
-            (
-                "command_outbox",
-                MODELS["command_outbox"].op_status.in_(
-                    [
-                        "sending",
-                        "uncertain",
-                        "reconciling",
-                        "review_required",
-                        "unconfirmed",
-                    ]
-                ),
-                "EXTERNAL_OPERATION_UNRESOLVED",
-            ),
-        ):
-            model = MODELS[table]
-            query = select(model.id).where(model.tenant_id == p["tenant_id"], condition)
-            if s.scalar(query.limit(1)):
-                reasons.append(reason)
-        return {"can_disconnect": not reasons, "reasons": reasons}
-
-    def workspace_page(
-        self, p, section, *, cursor=None, q="", filter="all", list_name=None, limit=PAGE_SIZE, session=None
+            "EXTERNAL_OPERATION_UNRESOLVED",
+        ),
     ):
-        if section not in PAGE_TABLES and section != "jobs":
-            fail(404, "Workspace section not found")
-        if len(q) > 200 or len(cursor or "") > 100 or (q and section != "leads"):
-            fail(422, "Invalid history search")
-        valid = {"all"}
-        if section == "calls":
-            valid |= {"unconfirmed", "wrong_party", "callback_requested", "meeting_held"}
-        elif section == "tasks":
-            valid |= {"open", "closed", "overdue"}
-        elif section == "leads":
-            valid |= {"active", "removed"}
-        if filter not in valid:
-            fail(422, "Invalid history filter")
-        with self.db.transaction(False, session=session) as s:
-            self.required(s, "users", p["user_id"], p)
-            if section == "jobs":
-                return self._job_page(s, p, cursor, limit)
-            model = MODELS[PAGE_TABLES[section]]
-            query = scoped_query(model, p)
-            if section == "leads" and list_name is not None:
-                query = query.where(in_list(model, list_name))
-            if section == "leads" and filter != "all":
-                memberships = []
-                for campaign in self.scoped(s, "campaigns", p):
-                    removed = [
-                        name
-                        for name, state in campaign.data.get("lists", {}).items()
-                        if state.get("archived")
-                    ]
-                    memberships.append(
-                        and_(
-                            model.op_campaign_id == campaign.id,
-                            active_membership(model, removed),
-                        )
+        model = MODELS[table]
+        query = select(model.id).where(model.tenant_id == p["tenant_id"], condition)
+        if s.scalar(query.limit(1)):
+            reasons.append(reason)
+    return {"can_disconnect": not reasons, "reasons": reasons}
+
+
+def workspace_page(
+    service, p, section, *, cursor=None, q="", filter="all", list_name=None, limit=PAGE_SIZE, session=None
+):
+    if section not in PAGE_TABLES and section != "jobs":
+        fail(404, "Workspace section not found")
+    if len(q) > 200 or len(cursor or "") > 100 or (q and section != "leads"):
+        fail(422, "Invalid history search")
+    valid = {"all"}
+    if section == "calls":
+        valid |= {"unconfirmed", "wrong_party", "callback_requested", "meeting_held"}
+    elif section == "tasks":
+        valid |= {"open", "closed", "overdue"}
+    elif section == "leads":
+        valid |= {"active", "removed"}
+    if filter not in valid:
+        fail(422, "Invalid history filter")
+    with service.db.transaction(False, session=session) as s:
+        ops.required(service, s, "users", p["user_id"], p)
+        if section == "jobs":
+            return ops._job_page(service, s, p, cursor, limit)
+        model = MODELS[PAGE_TABLES[section]]
+        query = scoped_query(model, p)
+        if section == "leads" and list_name is not None:
+            query = query.where(in_list(model, list_name))
+        if section == "leads" and filter != "all":
+            memberships = []
+            for campaign in ops.scoped(service, s, "campaigns", p):
+                removed = [
+                    name for name, state in campaign.data.get("lists", {}).items() if state.get("archived")
+                ]
+                memberships.append(
+                    and_(
+                        model.op_campaign_id == campaign.id,
+                        active_membership(model, removed),
                     )
-                active = and_(
-                    func.coalesce(model.data["archived"].as_boolean(), False).is_(False),
-                    or_(*memberships),
                 )
-                query = query.where(active if filter == "active" else ~active)
-            if section == "tasks":
-                query = query.where(or_(model.op_status != "aliased", model.op_status.is_(None)))
-            if section == "registries":
-                query = query.where(model.ctx_key.in_(["national", "state"]), model.ctx_status != "staging")
-            if section == "tasks" and filter != "all":
-                closed = model.op_status.in_(["completed", "cancelled"])
-                query = query.where(closed if filter == "closed" else or_(~closed, model.op_status.is_(None)))
-                if filter == "overdue":
-                    query = query.where(model.op_due_at <= self.clock())
-            total = s.scalar(
-                select(func.count()).select_from(
-                    query.with_only_columns(model.id).limit(TOTAL_CAP + 1).subquery()
-                )
+            active = and_(
+                func.coalesce(model.data["archived"].as_boolean(), False).is_(False),
+                or_(*memberships),
             )
-            descending = section not in {"leads", "task_owners"}
-            if cursor:
-                anchor = s.scalar(query.where(model.id == cursor))
-                if not anchor:
-                    fail(404, "History cursor is no longer available; reload this view")
-                query = query.where(after(model, anchor, descending))
-            order = [model.created_at, model.id]
-            query = query.order_by(*(c.desc() for c in order) if descending else order)
-            # Encrypted substring search is deliberately incremental; no plaintext index.
-            scan_limit = SEARCH_SCAN if q or (section == "calls" and filter != "all") else limit
-            records = list(s.scalars(query.limit(scan_limit + 1)))
-            examined, selected = [], []
-            for row in records[:scan_limit]:
-                examined.append(row)
-                value = doc(row)
-                if (
-                    q.casefold()
-                    not in " ".join(str(value.get(k, "")) for k in ("name", "company", "phone")).casefold()
-                ):
-                    continue
-                if section == "calls" and filter != "all":
-                    if (
-                        bool(value.get("outcome"))
-                        if filter == "unconfirmed"
-                        else value.get("outcome") != filter
-                    ):
-                        continue
-                if section == "task_owners":
-                    value = {"id": row.id, "name": value.get("name") or value.get("email", "")}
-                if section == "numbers":
-                    value.update(self.number_readiness_in(s, p, row))
-                if section == "registries":
-                    value = {k: v for k, v in value.items() if k in REGISTRY_FIELDS}
-                selected.append(value)
-                if len(selected) >= limit:
-                    break
-            more = len(records) > len(examined)
-            if section == "numbers" and selected:
-                evidence = {n["id"]: n for n in self.inventory_evidence(s, p, fast=True)}
-                for value in selected:
-                    row = evidence[value["id"]]
-                    value["today_limit"] = (
-                        row["daily_limit"]
-                        if value["outbound_ready"]
-                        else row.get("warmup_allowance", row["approved_daily_limit"])
-                    )
-            if section == "leads":
-                from app.leads.record import number_view
-
-                self._mark_suppressed(s, p, selected)
-                for lead in selected:
-                    lead.update(number_view(lead, self.clock()))
-            elif section in {"calls", "tasks"}:
-                self._label_leads(s, p, selected)
-            return {
-                "items": selected,
-                "total": min(total, TOTAL_CAP),
-                "total_capped": total > TOTAL_CAP,
-                "next_cursor": examined[-1].id if more and examined else None,
-                "scanned": len(examined),
-                "search_complete": not more,
-                "filter": filter,
-                "query": q,
-            }
-
-    def _mark_suppressed(self, s, p, leads):
-        keys = {lead["phone"] for lead in leads if lead.get("phone")}
-        model = MODELS["suppressions"]
-        blocked = (
-            {
-                r.data["phone"]
-                for r in s.scalars(scoped_query(model, p).where(model.external_key.in_(keys)))
-                if r.data.get("active", True)
-            }
-            if keys
-            else set()
+            query = query.where(active if filter == "active" else ~active)
+        if section == "tasks":
+            query = query.where(or_(model.op_status != "aliased", model.op_status.is_(None)))
+        if section == "registries":
+            query = query.where(model.ctx_key.in_(["national", "state"]), model.ctx_status != "staging")
+        if section == "tasks" and filter != "all":
+            closed = model.op_status.in_(["completed", "cancelled"])
+            query = query.where(closed if filter == "closed" else or_(~closed, model.op_status.is_(None)))
+            if filter == "overdue":
+                query = query.where(model.op_due_at <= service.clock())
+        total = s.scalar(
+            select(func.count()).select_from(
+                query.with_only_columns(model.id).limit(TOTAL_CAP + 1).subquery()
+            )
         )
-        for lead in leads:
-            lead["suppressed"] = lead.get("phone") in blocked
-
-    def _label_leads(self, s, p, records):
-        ids = {r["lead_id"] for r in records if r.get("lead_id")}
-        model = MODELS["leads"]
-        known = (
-            {r.id: r.data for r in s.scalars(scoped_query(model, p).where(model.id.in_(ids)))} if ids else {}
-        )
-        for item in records:
-            lead = known.get(item.get("lead_id"), {})
-            item.update(lead_name=lead.get("name"), lead_company=lead.get("company"))
-            status = item.get("status")
-            if (
-                item.get("kind") == "callback"
-                and item.get("source") == "inferred"
-                and not item.get("human_edited")
-                and status in {"open", "snoozed", "needs_confirmation"}
-                and (status == "needs_confirmation" or not item.get("due_at"))
-            ):
-                # Mirrors the lead's callback sync: an unconfirmed AI suggestion holds
-                # outreach only until this bounded deadline, unlike a rep-confirmed callback.
-                item["callback_suggestion_until"] = lead.get("callback_suggestion_until")
-
-    def _job_page(self, s, p, cursor, limit):
-        fields = [Job.id, Job.queue, Job.status, Job.attempts, Job.error]
-        query = select(*fields).where(Job.tenant_id == p["tenant_id"], Job.seller_id == p["seller_id"])
+        descending = section not in {"leads", "task_owners"}
         if cursor:
-            if not s.execute(query.where(Job.id == cursor)).first():
-                fail(404, "Job cursor unavailable; reload")
-            query = query.where(Job.id < cursor)
-        records = list(s.execute(query.order_by(Job.id.desc()).limit(limit + 1)).mappings())
-        items = [
-            {**row, "error": "Job failed; inspect recovery status" if row["error"] else None}
-            for row in records[:limit]
-        ]
+            anchor = s.scalar(query.where(model.id == cursor))
+            if not anchor:
+                fail(404, "History cursor is no longer available; reload this view")
+            query = query.where(after(model, anchor, descending))
+        order = [model.created_at, model.id]
+        query = query.order_by(*(c.desc() for c in order) if descending else order)
+        # Encrypted substring search is deliberately incremental; no plaintext index.
+        scan_limit = SEARCH_SCAN if q or (section == "calls" and filter != "all") else limit
+        records = list(s.scalars(query.limit(scan_limit + 1)))
+        examined, selected = [], []
+        for row in records[:scan_limit]:
+            examined.append(row)
+            value = doc(row)
+            if (
+                q.casefold()
+                not in " ".join(str(value.get(k, "")) for k in ("name", "company", "phone")).casefold()
+            ):
+                continue
+            if section == "calls" and filter != "all":
+                if bool(value.get("outcome")) if filter == "unconfirmed" else value.get("outcome") != filter:
+                    continue
+            if section == "task_owners":
+                value = {"id": row.id, "name": value.get("name") or value.get("email", "")}
+            if section == "numbers":
+                value.update(ops.number_readiness_in(service, s, p, row))
+            if section == "registries":
+                value = {k: v for k, v in value.items() if k in REGISTRY_FIELDS}
+            selected.append(value)
+            if len(selected) >= limit:
+                break
+        more = len(records) > len(examined)
+        if section == "numbers" and selected:
+            evidence = {n["id"]: n for n in ops.inventory_evidence(service, s, p, fast=True)}
+            for value in selected:
+                row = evidence[value["id"]]
+                value["today_limit"] = (
+                    row["daily_limit"]
+                    if value["outbound_ready"]
+                    else row.get("warmup_allowance", row["approved_daily_limit"])
+                )
+        if section == "leads":
+            from app.leads.record import number_view
+
+            ops._mark_suppressed(service, s, p, selected)
+            for lead in selected:
+                lead.update(number_view(lead, service.clock()))
+        elif section in {"calls", "tasks"}:
+            ops._label_leads(service, s, p, selected)
         return {
-            "items": items,
-            "total": None,
-            "next_cursor": records[limit - 1]["id"] if len(records) > limit else None,
+            "items": selected,
+            "total": min(total, TOTAL_CAP),
+            "total_capped": total > TOTAL_CAP,
+            "next_cursor": examined[-1].id if more and examined else None,
+            "scanned": len(examined),
+            "search_complete": not more,
+            "filter": filter,
+            "query": q,
         }
 
-    def snapshot(self, p):
-        with self.db.transaction(False) as s:
-            # Read the live cursor first: a later event may replay harmlessly, none is skipped.
-            event_cursor = (
-                s.scalar(
-                    select(Event.sequence)
-                    .where(Event.tenant_id == p["tenant_id"])
-                    .order_by(Event.sequence.desc())
-                    .limit(1)
-                )
-                or 0
+
+def _mark_suppressed(service, s, p, leads):
+    keys = {lead["phone"] for lead in leads if lead.get("phone")}
+    model = MODELS["suppressions"]
+    blocked = (
+        {
+            r.data["phone"]
+            for r in s.scalars(scoped_query(model, p).where(model.external_key.in_(keys)))
+            if r.data.get("active", True)
+        }
+        if keys
+        else set()
+    )
+    for lead in leads:
+        lead["suppressed"] = lead.get("phone") in blocked
+
+
+def _label_leads(service, s, p, records):
+    ids = {r["lead_id"] for r in records if r.get("lead_id")}
+    model = MODELS["leads"]
+    known = {r.id: r.data for r in s.scalars(scoped_query(model, p).where(model.id.in_(ids)))} if ids else {}
+    for item in records:
+        lead = known.get(item.get("lead_id"), {})
+        item.update(lead_name=lead.get("name"), lead_company=lead.get("company"))
+        status = item.get("status")
+        if (
+            item.get("kind") == "callback"
+            and item.get("source") == "inferred"
+            and not item.get("human_edited")
+            and status in {"open", "snoozed", "needs_confirmation"}
+            and (status == "needs_confirmation" or not item.get("due_at"))
+        ):
+            # Mirrors the lead's callback sync: an unconfirmed AI suggestion holds
+            # outreach only until this bounded deadline, unlike a rep-confirmed callback.
+            item["callback_suggestion_until"] = lead.get("callback_suggestion_until")
+
+
+def _job_page(service, s, p, cursor, limit):
+    fields = [Job.id, Job.queue, Job.status, Job.attempts, Job.error]
+    query = select(*fields).where(Job.tenant_id == p["tenant_id"], Job.seller_id == p["seller_id"])
+    if cursor:
+        if not s.execute(query.where(Job.id == cursor)).first():
+            fail(404, "Job cursor unavailable; reload")
+        query = query.where(Job.id < cursor)
+    records = list(s.execute(query.order_by(Job.id.desc()).limit(limit + 1)).mappings())
+    items = [
+        {**row, "error": "Job failed; inspect recovery status" if row["error"] else None}
+        for row in records[:limit]
+    ]
+    return {
+        "items": items,
+        "total": None,
+        "next_cursor": records[limit - 1]["id"] if len(records) > limit else None,
+    }
+
+
+def snapshot(service, p):
+    with service.db.transaction(False) as s:
+        # Read the live cursor first: a later event may replay harmlessly, none is skipped.
+        event_cursor = (
+            s.scalar(
+                select(Event.sequence)
+                .where(Event.tenant_id == p["tenant_id"])
+                .order_by(Event.sequence.desc())
+                .limit(1)
             )
-            campaign = self.scoped(s, "campaigns", p)[0]
-            policy = self.required(s, "policy_versions", campaign.data["policy_id"], p)
-            user = self.required(s, "users", p["user_id"], p)
-            pages = {
-                section: self.workspace_page(
-                    p, section, session=s, limit=25 if section in {"calls", "tasks"} else PAGE_SIZE
+            or 0
+        )
+        campaign = ops.scoped(service, s, "campaigns", p)[0]
+        policy = ops.required(service, s, "policy_versions", campaign.data["policy_id"], p)
+        user = ops.required(service, s, "users", p["user_id"], p)
+        pages = {
+            section: ops.workspace_page(
+                service, p, section, session=s, limit=25 if section in {"calls", "tasks"} else PAGE_SIZE
+            )
+            for section in (*PAGE_TABLES, "jobs")
+        }
+        # Current responsibilities are independent of arbitrary history page boundaries.
+        call_model = MODELS["call_attempts"]
+        owed = list(
+            s.scalars(
+                scoped_query(call_model, p)
+                .where(
+                    call_model.op_owner_id == p["user_id"],
+                    call_model.op_status != literal_column("'FINALIZED'"),
                 )
-                for section in (*PAGE_TABLES, "jobs")
-            }
-            # Current responsibilities are independent of arbitrary history page boundaries.
-            call_model = MODELS["call_attempts"]
-            owed = list(
-                s.scalars(
-                    scoped_query(call_model, p)
-                    .where(
-                        call_model.op_owner_id == p["user_id"],
-                        call_model.op_status != literal_column("'FINALIZED'"),
+                .order_by(call_model.created_at.desc(), call_model.id.desc())
+                .limit(50)
+            )
+        )
+        task_model = MODELS["followup_tasks"]
+        open_tasks = scoped_query(task_model, p).where(
+            or_(
+                task_model.op_status.not_in(["completed", "cancelled", "aliased"]),
+                task_model.op_status.is_(None),
+            )
+        )
+        owed_tasks = list(
+            s.scalars(open_tasks.order_by(task_model.op_due_at.asc().nullsfirst(), task_model.id).limit(25))
+        )
+        claim = s.scalar(
+            select(ActiveClaim).where(
+                ActiveClaim.tenant_id == p["tenant_id"],
+                ActiveClaim.seller_id == p["seller_id"],
+                ActiveClaim.rep_id == p["user_id"],
+                or_(ActiveClaim.call_id.is_not(None), ActiveClaim.expires_at > service.clock()),
+            )
+        )
+        reservation = None
+        if claim and not claim.call_id:
+            reserved = ops.required(service, s, "reservations", claim.reservation_id, p)
+            if reserved.data["status"] == "reserved":
+                reservation = {
+                    "reservation_id": reserved.id,
+                    "expires_at": reserved.data["expires_at"],
+                    "lead": doc(ops.required(service, s, "leads", claim.lead_id, p)),
+                    "number": doc(ops.required(service, s, "number_inventory", claim.number_id, p)),
+                }
+        for section, extra in (
+            ("calls", [doc(r) for r in owed]),
+            ("tasks", [doc(r) for r in owed_tasks]),
+        ):
+            if claim and claim.call_id:
+                row = s.scalar(
+                    scoped_query(MODELS[PAGE_TABLES[section]], p).where(
+                        MODELS[PAGE_TABLES[section]].id == claim.call_id
                     )
-                    .order_by(call_model.created_at.desc(), call_model.id.desc())
-                    .limit(50)
                 )
-            )
-            task_model = MODELS["followup_tasks"]
-            open_tasks = scoped_query(task_model, p).where(
-                or_(
-                    task_model.op_status.not_in(["completed", "cancelled", "aliased"]),
-                    task_model.op_status.is_(None),
-                )
-            )
-            owed_tasks = list(
-                s.scalars(
-                    open_tasks.order_by(task_model.op_due_at.asc().nullsfirst(), task_model.id).limit(25)
-                )
-            )
-            claim = s.scalar(
-                select(ActiveClaim).where(
-                    ActiveClaim.tenant_id == p["tenant_id"],
-                    ActiveClaim.seller_id == p["seller_id"],
-                    ActiveClaim.rep_id == p["user_id"],
-                    or_(ActiveClaim.call_id.is_not(None), ActiveClaim.expires_at > self.clock()),
-                )
-            )
-            reservation = None
-            if claim and not claim.call_id:
-                reserved = self.required(s, "reservations", claim.reservation_id, p)
-                if reserved.data["status"] == "reserved":
-                    reservation = {
-                        "reservation_id": reserved.id,
-                        "expires_at": reserved.data["expires_at"],
-                        "lead": doc(self.required(s, "leads", claim.lead_id, p)),
-                        "number": doc(self.required(s, "number_inventory", claim.number_id, p)),
-                    }
-            for section, extra in (
-                ("calls", [doc(r) for r in owed]),
-                ("tasks", [doc(r) for r in owed_tasks]),
-            ):
-                if claim and claim.call_id:
-                    row = s.scalar(
-                        scoped_query(MODELS[PAGE_TABLES[section]], p).where(
-                            MODELS[PAGE_TABLES[section]].id == claim.call_id
-                        )
-                    )
-                    if row and all(item["id"] != row.id for item in extra):
-                        extra.append(doc(row))
-                self._label_leads(s, p, extra)
-                present = {item["id"] for item in pages[section]["items"]}
-                pages[section]["items"] += [item for item in extra if item["id"] not in present]
-            current = {
-                "mode": "local",
-                "simulation": self.settings.simulation,
-                "seller": doc(self.required(s, "sellers", p["seller_id"], p)),
-                "campaign": doc(campaign),
-                "policy": {**doc(policy), "local_end_hour": min(17, policy.data.get("local_end_hour", 17))},
-                "user": {
-                    "id": user.id,
-                    "name": user.data["name"],
-                    "presence": user.data.get("presence", {}),
-                },
-                "quiescence": self.quiescence_in(s, p),
-                "reservation": reservation,
-                "event_cursor": event_cursor,
-                **{section: value["items"] for section, value in pages.items()},
-                "pages": {
-                    section: {k: v for k, v in value.items() if k != "items"}
-                    for section, value in pages.items()
-                },
-            }
-        return {**current, "readiness": self.preflight(p, full=False)}
+                if row and all(item["id"] != row.id for item in extra):
+                    extra.append(doc(row))
+            ops._label_leads(service, s, p, extra)
+            present = {item["id"] for item in pages[section]["items"]}
+            pages[section]["items"] += [item for item in extra if item["id"] not in present]
+        current = {
+            "mode": "local",
+            "simulation": service.settings.simulation,
+            "seller": doc(ops.required(service, s, "sellers", p["seller_id"], p)),
+            "campaign": doc(campaign),
+            "policy": {**doc(policy), "local_end_hour": min(17, policy.data.get("local_end_hour", 17))},
+            "user": {
+                "id": user.id,
+                "name": user.data["name"],
+                "presence": user.data.get("presence", {}),
+            },
+            "quiescence": ops.quiescence_in(service, s, p),
+            "reservation": reservation,
+            "event_cursor": event_cursor,
+            **{section: value["items"] for section, value in pages.items()},
+            "pages": {
+                section: {k: v for k, v in value.items() if k != "items"} for section, value in pages.items()
+            },
+        }
+    return {**current, "readiness": ops.preflight(service, p, full=False)}

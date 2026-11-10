@@ -77,7 +77,7 @@ class Sessions:
             "user_id": user.id,
             "tenant_id": user.tenant_id,
             "seller_id": user.seller_id,
-            "name": user.data.get("name", "Operator"),
+            "name": name_of(user),
         }
 
     def check(self, db, token, now):
@@ -98,5 +98,9 @@ def principal_of(user):
         "user_id": user.id,
         "tenant_id": user.tenant_id,
         "seller_id": user.seller_id,
-        "name": user.data.get("name"),
+        "name": name_of(user),
     }
+
+
+def name_of(user):
+    return user.data["name"] if "name" in user.data else "Operator"

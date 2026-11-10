@@ -10,6 +10,7 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import select
 
+from app import ops
 from app.platform.config import PROVIDER_DEFAULTS
 from app.platform.db import MODELS, audit, update
 from app.service import dt, fail
@@ -391,7 +392,7 @@ def screening_capability(snapshot, endpoint=None):
 
 def screening_snapshot(service, s, p, phone=None, *, internal_suppressed=None):
     if internal_suppressed is None:
-        internal_suppressed = bool(phone and service.suppressed(s, p, phone))
+        internal_suppressed = bool(phone and ops.suppressed(service, s, p, phone))
     base = {
         "now": service.clock(),
         "simulation": service.settings.simulation,
@@ -468,7 +469,7 @@ def cached_screen(service, s, p, phone):
 
 
 def screening_max_age(service, s, p):
-    seller = service.required(s, "sellers", p["seller_id"], p)
+    seller = ops.required(service, s, "sellers", p["seller_id"], p)
     return seller.data.get("operating_policy", {}).get("dnc_source_max_age_days", 31)
 
 
@@ -491,7 +492,7 @@ def bind_operating_api(app, service, administrator):
     @app.get("/v1/admin/operating-policy")
     def get_policy(p=Depends(administrator)):
         with service.db.transaction(False) as s:
-            seller = service.required(s, "sellers", p["seller_id"], p)
+            seller = ops.required(service, s, "sellers", p["seller_id"], p)
             policy = OperatingPolicy(**seller.data.get("operating_policy", {})).model_dump(mode="json")
             version = seller.data.get("operating_policy_version", 1)
         return {
@@ -519,10 +520,10 @@ def bind_operating_api(app, service, administrator):
     @app.put("/v1/admin/operating-policy")
     def put_policy(data: OperatingEdit, p=Depends(administrator)):
         with service.db.transaction() as s:
-            seller = service.required(s, "sellers", p["seller_id"], p)
+            seller = ops.required(service, s, "sellers", p["seller_id"], p)
             incoming = data.model_dump(mode="json", exclude_unset=True)
-            identity = service.local_edit_in(
-                s, p, "operating_policy", seller.id, seller, incoming, "owner_id"
+            identity = ops.local_edit_in(
+                service, s, p, "operating_policy", seller.id, seller, incoming, "owner_id"
             )
             version = seller.data.get("operating_policy_version", 1)
             if identity[2]:
@@ -542,7 +543,7 @@ def bind_operating_api(app, service, administrator):
             # Preparation settings live beside the policy and are edited on their own route.
             values = {**merged.model_dump(mode="json"), "preparation": stored.get("preparation", {})}
             update(seller, operating_policy=values, operating_policy_version=version + 1)
-            receipt = service.local_edit_receipt(s, p, identity, seller, object_version=version + 1)
+            receipt = ops.local_edit_receipt(service, s, p, identity, seller, object_version=version + 1)
             audit(
                 s,
                 p["tenant_id"],

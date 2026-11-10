@@ -9,6 +9,7 @@ import asyncio
 import logging
 from datetime import timedelta
 
+from app import ops
 from app.compliance.phone import normalize_phone
 from app.leads import dnc, hubspot_sync, intake
 from app.leads import waterfall as wf
@@ -74,19 +75,19 @@ def set_spend_limit(service, p, list_name, usd):
 
 
 def _campaign(service, s, p):
-    return next(iter(service.scoped(s, "campaigns", p)))
+    return next(iter(ops.scoped(service, s, "campaigns", p)))
 
 
 def crm_leads(service, s, p, list_name):
     return {
         r.data["external_id"]: r
-        for r in service.scoped(s, "leads", p)
+        for r in ops.scoped(service, s, "leads", p)
         if r.data.get("source") == "crm" and list_name in (r.data.get("list_names") or [])
     }
 
 
 def _endpoint(service, s, p, phone, now):
-    endpoint = service._by_key(s, p, "phone_endpoints", phone)
+    endpoint = ops._by_key(service, s, p, "phone_endpoints", phone)
     if endpoint:
         return endpoint
     return put(
@@ -228,9 +229,9 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
                 )
         for entry in planned["opt_outs"]:
             phone = normalize_phone(str(entry["phone"] or "")).e164
-            if phone and not service.suppressed(s, p, phone):
-                service.suppress(
-                    p, phone, "opt_out", event_id=f"hubspot-opt-out:{entry['contact_id']}", session=s
+            if phone and not ops.suppressed(service, s, p, phone):
+                ops.suppress(
+                    service, p, phone, "opt_out", event_id=f"hubspot-opt-out:{entry['contact_id']}", session=s
                 )
         for lead_id in checks:
             service.jobs.enqueue_in(
@@ -276,7 +277,7 @@ def schedule_syncs(service, p, *, starting=False):
         return 0
     now = service.clock()
     with service.db.transaction() as s:
-        user = service.required(s, "users", p["user_id"], p)
+        user = ops.required(service, s, "users", p["user_id"], p)
         if not starting and (user.data.get("presence") or {}).get("status") != "ready":
             return 0
         queued = 0
@@ -369,7 +370,7 @@ async def waterfall_job(service, p, lead_id):
     from app.providers.treg import Treg, TregError
 
     with service.db.transaction(False) as s:
-        lead = service.required(s, "leads", lead_id, p)
+        lead = ops.required(service, s, "leads", lead_id, p)
         if lead.data.get("source") != "crm":
             return {"skipped": "csv"}
         room = _list_room(service, s, p, lead)
@@ -433,14 +434,14 @@ async def waterfall_job(service, p, lead_id):
 
 def _store_ledger(service, p, lead_id, ledger):
     with service.db.transaction() as s:
-        lead = service.required(s, "leads", lead_id, p)
+        lead = ops.required(service, s, "leads", lead_id, p)
         update(lead, waterfall=ledger)
 
 
 def _store_number(service, p, lead_id, changes, result):
     now = service.clock()
     with service.db.transaction() as s:
-        lead = service.required(s, "leads", lead_id, p)
+        lead = ops.required(service, s, "leads", lead_id, p)
         if result and result.get("phone") and result["phone"] != lead.data.get("phone"):
             changes.update(_set_phone(service, s, p, lead.data, result["phone"], now))
             changes["number_status"] = {"provider_error": "needs_number"}.get(
@@ -478,7 +479,7 @@ async def dnc_job(service, p):
 
     now = service.clock()
     with service.db.transaction(False) as s:
-        due = [doc(r) for r in service.scoped(s, "leads", p) if dnc.due(r.data, now)]
+        due = [doc(r) for r in ops.scoped(service, s, "leads", p) if dnc.due(r.data, now)]
     if not due:
         return {"checked": 0}
     conf = config(service, p)
@@ -502,10 +503,11 @@ def _store_dnc(service, p, results):
     now = service.clock()
     with service.db.transaction() as s:
         for lead_id, changes, suppression in results:
-            lead = service.required(s, "leads", lead_id, p)
+            lead = ops.required(service, s, "leads", lead_id, p)
             update(lead, **changes)
-            if suppression and not service.suppressed(s, p, suppression["phone"]):
-                service.suppress(
+            if suppression and not ops.suppressed(service, s, p, suppression["phone"]):
+                ops.suppress(
+                    service,
                     p,
                     suppression["phone"],
                     "opt_out",
@@ -532,8 +534,8 @@ async def log_job(service, p, call_id):
     from app.aftercall import crm_log
 
     with service.db.transaction(False) as s:
-        call = service.required(s, "call_attempts", call_id, p)
-        lead = service.required(s, "leads", call.data["lead_id"], p)
+        call = ops.required(service, s, "call_attempts", call_id, p)
+        lead = ops.required(service, s, "leads", call.data["lead_id"], p)
         data, lead_data = dict(call.data), dict(lead.data)
     if lead_data.get("source") != "crm" or not lead_data.get("external_id") or data.get("is_test"):
         return {"skipped": True}
@@ -558,7 +560,7 @@ async def log_job(service, p, call_id):
     hubspot_id = await crm_log.log_call(hs, record, mapped, uncertain=uncertain)
     await asyncio.to_thread(_mark_logged, service, p, call_id, hubspot_id)
     with service.db.transaction(False) as s:
-        summary = (service.call_summary(s, p, call_id) or {}).get("summary")
+        summary = (ops.call_summary(service, s, p, call_id) or {}).get("summary")
     if summary:
         await crm_log.add_summary(hs, hubspot_id, summary)
     if outcome in {"wrong_party", "invalid_endpoint"}:
@@ -575,9 +577,9 @@ async def summary_job(service, p, call_id):
     from app.aftercall import crm_log
 
     with service.db.transaction(False) as s:
-        call = service.required(s, "call_attempts", call_id, p)
+        call = ops.required(service, s, "call_attempts", call_id, p)
         hubspot_id = call.data.get("crm_logged")
-        summary = (service.call_summary(s, p, call_id) or {}).get("summary")
+        summary = (ops.call_summary(service, s, p, call_id) or {}).get("summary")
     if not hubspot_id or not summary:
         return {"skipped": True}
     await crm_log.add_summary(hubspot(service, p), hubspot_id, summary)
@@ -598,12 +600,12 @@ def enqueue_summary(service, s, p, call):
 
 def _mark_attempt(service, p, call_id):
     with service.db.transaction() as s:
-        update(service.required(s, "call_attempts", call_id, p), crm_log_attempted=True)
+        update(ops.required(service, s, "call_attempts", call_id, p), crm_log_attempted=True)
 
 
 def _mark_logged(service, p, call_id, hubspot_id):
     with service.db.transaction() as s:
-        update(service.required(s, "call_attempts", call_id, p), crm_logged=hubspot_id)
+        update(ops.required(service, s, "call_attempts", call_id, p), crm_logged=hubspot_id)
 
 
 def write_contact(service, s, p, lead, properties, now):
@@ -623,13 +625,13 @@ def write_contact(service, s, p, lead, properties, now):
 
 async def contact_job(service, p, lead_id):
     with service.db.transaction(False) as s:
-        lead = service.required(s, "leads", lead_id, p).data
+        lead = ops.required(service, s, "leads", lead_id, p).data
         pending, contact_id = dict(lead.get("crm_pending") or {}), lead.get("external_id")
     if not pending or not contact_id:
         return {"written": []}
     await hubspot(service, p).update_contact(contact_id, pending)
     with service.db.transaction() as s:
-        row = service.required(s, "leads", lead_id, p)
+        row = ops.required(service, s, "leads", lead_id, p)
         left = {k: v for k, v in (row.data.get("crm_pending") or {}).items() if pending.get(k) != v}
         update(row, crm_pending=left)
     return {"written": sorted(pending)}
@@ -657,7 +659,7 @@ def on_outcome(service, s, p, call, lead, outcome):
 
 def enqueue_log(service, s, p, call):
     """Queue the HubSpot record for a saved outcome; never for a CSV lead or a test call."""
-    lead = service.required(s, "leads", call.data["lead_id"], p)
+    lead = ops.required(service, s, "leads", call.data["lead_id"], p)
     if (
         lead.data.get("source") != "crm"
         or call.data.get("is_test")

@@ -4,6 +4,7 @@ import os
 from datetime import timedelta
 
 import pytest
+from app import ops
 from app.platform.db import MODELS
 from sqlalchemy import select
 
@@ -13,11 +14,11 @@ async def test_original_receipt_time_survives_delivery(app, clock):
     service = app.state.service
     original = clock() - timedelta(minutes=4)
     event = {"id": "relay-event", "event_type": "call.hangup", "payload": {"call_control_id": "absent"}}
-    first = await service.accept_webhook(
-        "test-tenant", event, "same-hash", verified=True, received_at=original
+    first = await ops.accept_webhook(
+        service, "test-tenant", event, "same-hash", verified=True, received_at=original
     )
-    second = await service.accept_webhook(
-        "test-tenant", event, "same-hash", verified=True, received_at=clock()
+    second = await ops.accept_webhook(
+        service, "test-tenant", event, "same-hash", verified=True, received_at=clock()
     )
     assert first["receipt_id"] == second["receipt_id"]
     with service.db.transaction(False) as s:
@@ -26,12 +27,13 @@ async def test_original_receipt_time_survives_delivery(app, clock):
         assert receipt.data["raw_expires_at"] == (original + timedelta(seconds=300)).isoformat()
 
 
-async def test_delivery_does_not_ack_failed_local_commit():
+async def test_delivery_does_not_ack_failed_local_commit(monkeypatch):
     from app.managed_webhooks import deliver
 
-    class Service:
-        async def accept_webhook(self, *args, **kwargs):
-            raise RuntimeError("database offline")
+    async def offline(*args, **kwargs):
+        raise RuntimeError("database offline")
+
+    monkeypatch.setattr(ops, "accept_webhook", offline)
 
     row = {
         "account_id": "account",
@@ -41,7 +43,7 @@ async def test_delivery_does_not_ack_failed_local_commit():
         "received_at": "2026-10-29T01:00:00+00:00",
     }
     with pytest.raises(RuntimeError, match="database offline"):
-        await deliver(Service(), "tenant", [row])
+        await deliver(object(), "tenant", [row])
 
 
 async def test_session_storage_is_private_and_persistent(tmp_path):
@@ -70,10 +72,15 @@ async def test_old_inbound_receipt_creates_review_without_answering(workspace, a
             "from": "+14155550123",
         },
     }
-    await service.accept_webhook(
-        workspace["tenant_id"], event, "late-hash", verified=True, received_at=clock() - timedelta(minutes=2)
+    await ops.accept_webhook(
+        service,
+        workspace["tenant_id"],
+        event,
+        "late-hash",
+        verified=True,
+        received_at=clock() - timedelta(minutes=2),
     )
-    await service.run_jobs(queues=["webhook"])
+    await ops.run_jobs(service, queues=["webhook"])
     with service.db.transaction(False) as s:
         task = s.scalar(
             select(MODELS["followup_tasks"]).where(
@@ -194,7 +201,7 @@ def test_managed_call_uses_direct_transcription_only(workspace, app, clock):
     with service.db.transaction() as s:
         row = get(s, "call_attempts", call["id"], p["tenant_id"])
         assert row.data["transcription_source"] == "direct"
-        service.start_transcription_in(s, p, row)
+        ops.start_transcription_in(service, s, p, row)
         commands = list(s.scalars(select(MODELS["command_outbox"])))
         assert not any(x.data.get("action") == "transcription_start" for x in commands)
         assert row.data["transcription_layout"] == "direct_tracks"
@@ -241,15 +248,17 @@ def test_direct_speech_cost_estimates_both_tracks(monkeypatch):
     assert cost == Decimal("0.04")
 
 
-async def test_delivery_keeps_application_in_the_ordered_webhook_worker():
+async def test_delivery_keeps_application_in_the_ordered_webhook_worker(monkeypatch):
     from app.managed_webhooks import deliver
 
-    class Service:
-        async def accept_webhook(self, *args, **kwargs):
-            return {"receipt_id": "durable", "status": "received"}
+    async def accepted(*args, **kwargs):
+        return {"receipt_id": "durable", "status": "received"}
 
-        async def process_webhook(self, *args):
-            raise AssertionError("Relay must not race the ordered worker")
+    async def raced(*args):
+        raise AssertionError("Relay must not race the ordered worker")
+
+    monkeypatch.setattr(ops, "accept_webhook", accepted)
+    monkeypatch.setattr(ops, "process_webhook", raced)
 
     row = {
         "account_id": "account",
@@ -258,7 +267,7 @@ async def test_delivery_keeps_application_in_the_ordered_webhook_worker():
         "event": {},
         "received_at": "2026-10-29T01:00:00+00:00",
     }
-    assert await deliver(Service(), "tenant", [row]) == [{"account_id": "account", "event_id": "event"}]
+    assert await deliver(object(), "tenant", [row]) == [{"account_id": "account", "event_id": "event"}]
 
 
 async def test_restored_session_initializes_refresh_and_realtime(app, monkeypatch):

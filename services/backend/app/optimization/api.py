@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import Depends
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from app import ops
 from app.optimization.goals import goal_plan
 from app.optimization.numbering import HealthPolicy, timestamp
 from app.platform.db import audit, doc, emit, put, uid, update
@@ -116,13 +117,13 @@ def register_optimization(app, service, principal, administrator):
 
     @app.get("/v1/optimization")
     def report(p=Depends(principal)):
-        return service.learning_report(p)
+        return ops.learning_report(service, p)
 
     @app.post("/v1/admin/optimization/preview")
     def preview(body: OptimizationSettings, p=Depends(administrator)):
         with service.db.transaction(False) as s:
-            campaign = service.scoped(s, "campaigns", p)[0]
-            current = service.optimization_config(s, p, campaign.id)
+            campaign = ops.scoped(service, s, "campaigns", p)[0]
+            current = ops.optimization_config(service, s, p, campaign.id)
             result, _ = goal_plan(service, s, p, campaign, body.conversion_goal or current["conversion_goal"])
             return {
                 **result,
@@ -148,7 +149,7 @@ def register_optimization(app, service, principal, administrator):
             ]
         with service.db.transaction() as s:
             service.db.authorize_stream(s, p)
-            campaign = service.scoped(s, "campaigns", p)[0]
+            campaign = ops.scoped(service, s, "campaigns", p)[0]
             if (
                 body.expected_campaign_version is not None
                 and campaign.version != body.expected_campaign_version
@@ -173,7 +174,7 @@ def register_optimization(app, service, principal, administrator):
                 }
                 if available != roster:
                     fail(422, "Named staffing requires current active reps in this workspace")
-            previous = service.optimization_config(s, p)
+            previous = ops.optimization_config(service, s, p)
             if body.estimate_policy is not None:
                 values["estimate_policy"] = EstimatePolicy.model_validate(
                     {**previous["estimate_policy"], **body.estimate_policy.model_dump(exclude_unset=True)}
@@ -185,14 +186,14 @@ def register_optimization(app, service, principal, administrator):
                 key in values and values[key] != previous[key] for key in ("conversion_goal", "window_days")
             )
             if definition_changed:
-                service.ensure_experiment_cohort(s, p)
+                ops.ensure_experiment_cohort(service, s, p)
                 summary, changes = goal_plan(
                     service, s, p, campaign, values.get("conversion_goal", previous["conversion_goal"])
                 )
                 for lead, state in changes:
                     if any(lead.data.get(key) != value for key, value in state.items()):
                         update(lead, **state)
-                        service.refresh_packet_in(s, p, lead)
+                        ops.refresh_packet_in(service, s, p, lead)
                         emit(s, p["tenant_id"], "lead.goal_updated", lead, service.clock())
                 update(
                     campaign,
@@ -210,7 +211,7 @@ def register_optimization(app, service, principal, administrator):
             update(campaign, optimization={**previous, **values})
             if definition_changed:
                 update(campaign, optimization_epoch=uid(), optimization_trial=None)
-                for candidate in service.scoped(s, "model_versions", p):
+                for candidate in ops.scoped(service, s, "model_versions", p):
                     if candidate.data.get("trial_active") or candidate.data.get("active"):
                         update(
                             candidate,
@@ -218,7 +219,7 @@ def register_optimization(app, service, principal, administrator):
                             active=False,
                             deactivation_reason="Conversion definition changed",
                         )
-                service.ensure_experiment_cohort(s, p)
+                ops.ensure_experiment_cohort(service, s, p)
             audit(
                 s,
                 p["tenant_id"],
@@ -230,17 +231,19 @@ def register_optimization(app, service, principal, administrator):
                 {"fields": sorted(values)},
             )
             emit(s, p["tenant_id"], "optimization.updated", campaign, service.clock())
-            return service.optimization_config(s, p)
+            return ops.optimization_config(service, s, p)
 
     @app.post("/v1/admin/optimization/refresh")
     def refresh(p=Depends(administrator)):
-        return service.request_optimization_refresh(p)
+        return ops.request_optimization_refresh(service, p)
 
     @app.get("/v1/leads/{lead_id}/conversions")
     def list_conversions(lead_id: str, p=Depends(principal)):
         with service.db.transaction(False) as s:
-            service.required(s, "leads", lead_id, p)
-            return [doc(r) for r in service.scoped(s, "conversion_events", p) if r.data["lead_id"] == lead_id]
+            ops.required(service, s, "leads", lead_id, p)
+            return [
+                doc(r) for r in ops.scoped(service, s, "conversion_events", p) if r.data["lead_id"] == lead_id
+            ]
 
     @app.post("/v1/leads/{lead_id}/conversions")
     def conversion(lead_id: str, body: Conversion, p=Depends(principal)):
@@ -248,14 +251,18 @@ def register_optimization(app, service, principal, administrator):
         if body.occurred_at.tzinfo is None or body.occurred_at > now:
             fail(422, "A real observed UTC/timezone-aware conversion time no later than now is required")
         with service.db.transaction() as s:
-            lead = service.required(s, "leads", lead_id, p)
+            lead = ops.required(service, s, "leads", lead_id, p)
             if body.call_id:
-                call = service.required(s, "call_attempts", body.call_id, p)
+                call = ops.required(service, s, "call_attempts", body.call_id, p)
                 if call.data["lead_id"] != lead.id or body.occurred_at < timestamp(call.data["started_at"]):
                     fail(422, "Conversion must match the lead and occur after the attributed attempt")
             data = {**body.model_dump(mode="json"), "lead_id": lead.id}
             previous = next(
-                (r for r in service.scoped(s, "conversion_events", p) if r.external_key == body.event_id),
+                (
+                    r
+                    for r in ops.scoped(service, s, "conversion_events", p)
+                    if r.external_key == body.event_id
+                ),
                 None,
             )
             if previous:
@@ -276,7 +283,7 @@ def register_optimization(app, service, principal, administrator):
                 key=body.event_id,
                 now=now,
             )
-            service.reconcile_goal_status(s, p, lead)
+            ops.reconcile_goal_status(service, s, p, lead)
             from app.optimization.conversations import invalidate_report
 
             invalidate_report(service, s, p, lead.data["campaign_id"])
@@ -287,8 +294,8 @@ def register_optimization(app, service, principal, administrator):
     @app.post("/v1/leads/{lead_id}/conversions/{event_id}/retract")
     def retract_conversion(lead_id: str, event_id: str, body: Retraction, p=Depends(principal)):
         with service.db.transaction() as s:
-            lead = service.required(s, "leads", lead_id, p)
-            result = service.required(s, "conversion_events", event_id, p)
+            lead = ops.required(service, s, "leads", lead_id, p)
+            result = ops.required(service, s, "conversion_events", event_id, p)
             if result.data["lead_id"] != lead.id:
                 fail(404, "Conversion not found")
             if result.data.get("retracted"):
@@ -300,7 +307,7 @@ def register_optimization(app, service, principal, administrator):
                 retracted_by=p["user_id"],
                 retracted_at=service.clock().isoformat(),
             )
-            service.reconcile_goal_status(s, p, lead)
+            ops.reconcile_goal_status(service, s, p, lead)
             from app.optimization.conversations import invalidate_report
 
             invalidate_report(service, s, p, lead.data["campaign_id"])
@@ -319,8 +326,8 @@ def register_optimization(app, service, principal, administrator):
 
     @app.get("/v1/admin/numbers/{number_id}/health")
     def number_health(number_id: str, p=Depends(administrator)):
-        return service.number_health(p, number_id)
+        return ops.number_health(service, p, number_id)
 
     @app.post("/v1/admin/numbers/{number_id}/resume")
     def resume_number(number_id: str, p=Depends(administrator)):
-        return service.resume_number(p, number_id)
+        return ops.resume_number(service, p, number_id)

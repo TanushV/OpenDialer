@@ -3,6 +3,7 @@
 import hashlib
 import json
 
+from app import ops
 from app.optimization.learning import conversion_at, derive_labels, outcome_at
 
 
@@ -44,12 +45,14 @@ def goal_state(lead, goal, calls, events, *, now, suppressed=False, changed=Fals
 def goal_plan(service, s, p, campaign, goal):
     calls, events = {}, {}
     for kind, grouped in (("call_attempts", calls), ("conversion_events", events)):
-        for record in service.scoped(s, kind, p):
+        for record in ops.scoped(service, s, kind, p):
             grouped.setdefault(record.data["lead_id"], []).append({"id": record.id, **record.data})
-    blocked = {r.data["phone"] for r in service.scoped(s, "suppressions", p) if r.data.get("active", True)}
-    before = service.optimization_config(s, p, campaign.id)["conversion_goal"]
+    blocked = {
+        r.data["phone"] for r in ops.scoped(service, s, "suppressions", p) if r.data.get("active", True)
+    }
+    before = ops.optimization_config(service, s, p, campaign.id)["conversion_goal"]
     changes = []
-    for lead in service.scoped(s, "leads", p):
+    for lead in ops.scoped(service, s, "leads", p):
         if lead.data["campaign_id"] != campaign.id:
             continue
         changes.append(

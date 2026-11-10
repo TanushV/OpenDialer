@@ -2,6 +2,7 @@
 
 from sqlalchemy import and_, case, exists, func, or_, select
 
+from app import ops
 from app.lead_lists import in_list
 from app.platform.db import MODELS, emit, update
 from app.privacy import usage_metadata
@@ -32,7 +33,7 @@ def capture(service, p, provider, kind, request_key, context, value, status="run
     """A cumulative update replaces its prior counters, including on failure/cancellation."""
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        prior = service._request_hold(s, p, request_key)
+        prior = ops._request_hold(service, s, p, request_key)
         previous = (prior.data.get("usage") or {}) if prior else {}
         merged = {**previous, **counters(value)}
         for key in ("input_tokens", "output_tokens", "cached_tokens", "reasoning_tokens", "web_search_calls"):
@@ -44,7 +45,8 @@ def capture(service, p, provider, kind, request_key, context, value, status="run
             if status != "running"
             else {k: v for k, v in merged.items() if k not in {"cost", "cost_usd"}}
         )
-        identity = service.usage(
+        identity = ops.usage(
+            service,
             p,
             provider,
             kind,
@@ -54,7 +56,7 @@ def capture(service, p, provider, kind, request_key, context, value, status="run
             reserved=0,
             session=s,
         )
-        row = service.required(s, "usage_ledger", identity, p)
+        row = ops.required(service, s, "usage_ledger", identity, p)
         known = "input_tokens" in merged and "output_tokens" in merged
         terminal = row.data.get("run_status") in {"completed", "failed", "cancelled"}
         if terminal and status == "running":
@@ -236,8 +238,8 @@ def estimate(service, p, *, list_name=None):
     from statistics import median
 
     with service.db.transaction(False) as s:
-        campaign = service.selected_campaign(s, p)
-        base = service.script_base(s, p, campaign)
+        campaign = ops.selected_campaign(service, s, p)
+        base = ops.script_base(service, s, p, campaign)
         model = MODELS["leads"]
         query = select(model).where(
             model.tenant_id == p["tenant_id"],
@@ -247,9 +249,9 @@ def estimate(service, p, *, list_name=None):
         )
         if list_name is not None:
             query = query.where(in_list(model, list_name))
-        eligible = [r for r in s.scalars(query) if service.preparation_permitted(s, p, r)]
+        eligible = [r for r in s.scalars(query) if ops.preparation_permitted(service, s, p, r)]
         count = len(eligible)
-        remaining = sum(service.preparation_state(s, p, r)["status"] != "ready" for r in eligible)
+        remaining = sum(ops.preparation_state(service, s, p, r)["status"] != "ready" for r in eligible)
     receipt = report(
         service,
         p,

@@ -4,6 +4,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from app import ops
 from conftest import ready
 from journey import call, get, hang_up, import_leads, post, run_jobs, wrap_up
 
@@ -308,7 +309,7 @@ def test_the_scripts_facts_and_never_say_reach_the_live_helper(workspace, app):
     service = app.state.service
     p = {k: ws[k] for k in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
     with service.db.transaction(False) as s:
-        call = service.required(s, "call_attempts", placed["id"], p)
+        call = ops.required(service, s, "call_attempts", placed["id"], p)
         prompt = messages(live_help.request_in(service, s, p, call, None))[1]["content"]
     assert "Licensed and insured since 2009." in prompt
     assert "Guaranteed savings" in prompt

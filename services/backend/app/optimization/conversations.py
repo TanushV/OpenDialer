@@ -10,6 +10,7 @@ import unicodedata
 from collections import Counter, defaultdict
 from statistics import NormalDist
 
+from app import ops
 from app.optimization.numbering import timestamp, wilson
 
 
@@ -326,7 +327,7 @@ def conversation_associations(rows, *, as_of, min_support=10, vocabulary=None):
 def invalidate_report(service, s, p, campaign_id):
     from app.platform.db import update
 
-    campaign = service.required(s, "campaigns", campaign_id, p)
+    campaign = ops.required(service, s, "campaigns", campaign_id, p)
     cached = campaign.data.get("conversation_report")
     update(
         campaign,

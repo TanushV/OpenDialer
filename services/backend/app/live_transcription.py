@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from fastapi import Depends, WebSocket, WebSocketDisconnect
 
+from app import ops
 from app.calling.state import TERMINAL
 from app.platform.db import emit, update
 from app.providers import telnyx_stt
@@ -17,7 +18,7 @@ def admission(service, p, call_id, *, finishing=False):
         fail(409, "Direct speech requires a managed local workspace")
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        call = service.required(s, "call_attempts", call_id, p)
+        call = ops.required(service, s, "call_attempts", call_id, p)
         if call.data.get("rep_id") != p["user_id"]:
             fail(403, "Audio belongs to the caller")
         if (
@@ -25,7 +26,7 @@ def admission(service, p, call_id, *, finishing=False):
             or call.data.get("transcription_layout") != "direct_tracks"
         ):
             fail(409, "Transcription is not enabled for this call")
-        if service.speech_revoked(s, p, call):
+        if ops.speech_revoked(service, s, p, call):
             fail(403, "Transcription permission revoked")
         if not finishing and call.data["state"] in TERMINAL | {"ENDING"}:
             return False
@@ -39,7 +40,7 @@ def gap(service, p, call_id):
     reported for an ended call is that ordinary ending, not missing speech.
     """
     with service.db.transaction() as s:
-        call = service.required(s, "call_attempts", call_id, p)
+        call = ops.required(service, s, "call_attempts", call_id, p)
         if call.data["state"] in TERMINAL | {"ENDING"} or call.data.get("ended_at"):
             return False
         update(
@@ -124,7 +125,7 @@ def bind_api(app, service, principal):
                 segment = segments.accept(frame, service.clock())
                 if segment:
                     received = segment.pop("first_received")
-                    await service.transcript(p, call_id, segment, received_at=received)
+                    await ops.transcript(service, p, call_id, segment, received_at=received)
                     await ws.send_json({"status": "transcribed"})
             await ws.send_json({"status": "stopped"})
             await ws.close()

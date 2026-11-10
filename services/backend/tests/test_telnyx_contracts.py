@@ -12,13 +12,14 @@ from datetime import timedelta
 
 import httpx
 import pytest
+from app import ops
 from app.calling import audio_leg
 from app.calling.state import transition
 from app.platform.db import get, update
 from app.providers.telnyx import CarrierConfigurationError, TelnyxCarrier
 from app.telephony.recovery import COMMAND_RETRY_SECONDS, within_command_window
 from conftest import start
-from helpers import voicemail_policy
+from helpers import bound, voicemail_policy
 
 CREDENTIAL = {
     "id": "c215ade3-0d39-418e-94be-c5f780760199",
@@ -112,7 +113,7 @@ async def test_token_request_accepts_the_documented_plain_text_jwt():
 
 def live_agent(service, carrier, monkeypatch, p, *, error=None):
     service.settings.simulation = False
-    monkeypatch.setattr(service, "carrier", lambda _: carrier)
+    monkeypatch.setattr(ops, "carrier", bound(lambda _: carrier))
     monkeypatch.setattr(carrier, "instant_agent_legs", False, raising=False)
     service.configs.write(
         p["tenant_id"], {"sip_username": "rep-browser", "telephony_credential_id": "cred-1"}
@@ -203,7 +204,8 @@ def test_answer_requests_one_inbound_stream_per_leg(workspace, carrier):
 def speech(w, app, call_control_id, text, event_id, **payload):
     service = app.state.service
     receipt = asyncio.run(
-        service.accept_webhook(
+        ops.accept_webhook(
+            service,
             w["tenant_id"],
             {
                 "id": event_id,
@@ -218,13 +220,13 @@ def speech(w, app, call_control_id, text, event_id, **payload):
             verified=True,
         )
     )
-    return asyncio.run(service.process_webhook(w["tenant_id"], receipt["receipt_id"]))
+    return asyncio.run(ops.process_webhook(service, w["tenant_id"], receipt["receipt_id"]))
 
 
 def sides(app, w, call):
     service = app.state.service
     with service.db.transaction(False) as s:
-        return {row["text"]: row["side"] for row in service.transcript_rows(s, principal(w), call["id"])}
+        return {row["text"]: row["side"] for row in ops.transcript_rows(service, s, principal(w), call["id"])}
 
 
 def test_soniox_speech_side_comes_from_the_leg_that_carried_it(workspace, app, carrier):
@@ -469,8 +471,8 @@ def test_expired_status_for_an_ending_call_finishes_into_review(workspace, app, 
 
     monkeypatch.setattr(carrier, "reconcile", expired)
     clock.now += timedelta(minutes=15)
-    asyncio.run(service.recover(p))
-    asyncio.run(service.recover(p))
+    asyncio.run(ops.recover(service, p))
+    asyncio.run(ops.recover(service, p))
     with app.state.db.transaction(False) as s:
         saved = get(s, "call_attempts", call["id"]).data
     assert saved["state"] == "ENDED" and saved["end_reason"] == "carrier_status_expired"
@@ -553,9 +555,13 @@ def test_definitive_prepaid_refusal_never_clears_and_needs_no_paid_retry(
     response = screen(workspace)
     assert reason in response.text, response.text
     with service.db.transaction(False) as s:
-        rows = [r.data for r in service.scoped(s, "registry_snapshots", p) if r.data.get("kind") == "prepaid"]
+        rows = [
+            r.data for r in ops.scoped(service, s, "registry_snapshots", p) if r.data.get("kind") == "prepaid"
+        ]
         holds = [
-            r.data for r in service.scoped(s, "usage_ledger", p) if r.data.get("work_kind") == "dnc_screen"
+            r.data
+            for r in ops.scoped(service, s, "usage_ledger", p)
+            if r.data.get("work_kind") == "dnc_screen"
         ]
     assert [(r["status"], r["listed"], r["recovery_reason"]) for r in rows] == [(status, None, reason)]
     assert [h["status"] for h in holds] == [liability]

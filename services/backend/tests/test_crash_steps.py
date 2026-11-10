@@ -5,8 +5,10 @@ import asyncio
 from datetime import timedelta
 
 import pytest
+from app import ops
 from app.platform.db import MODELS
 from conftest import ready, reserve
+from helpers import bound
 from sqlalchemy import select
 
 
@@ -27,7 +29,7 @@ def calls_for(service, lead_id):
 def recover_for_a_while(service, ws, clock, rounds=14):
     for _ in range(rounds):
         clock.now += timedelta(seconds=61)
-        asyncio.run(service.recover(principal(ws)))
+        asyncio.run(ops.recover(service, principal(ws)))
 
 
 def begin(ws):
@@ -44,7 +46,7 @@ def stop_at(point, service, carrier, monkeypatch):
         raise Crash(point)
 
     if point == "before_dispatch":
-        monkeypatch.setattr(service, "dispatch_call", crash_async)
+        monkeypatch.setattr(ops, "dispatch_call", bound(crash_async))
     elif point == "before_carrier_request":
         monkeypatch.setattr(carrier, "dial", crash_async)
     elif point == "after_carrier_accepted":
@@ -56,7 +58,7 @@ def stop_at(point, service, carrier, monkeypatch):
 
         monkeypatch.setattr(carrier, "dial", accepted_then_crash)
     elif point == "before_receipt_saved":
-        monkeypatch.setattr(service, "_dial_completed", crash)
+        monkeypatch.setattr(ops, "_dial_completed", bound(crash))
 
 
 @pytest.mark.slow
@@ -72,7 +74,7 @@ def test_a_crash_at_any_dial_step_never_dials_twice_and_never_loses_the_call(
     stop_at(point, service, carrier, monkeypatch)
     with pytest.raises(Crash):
         body = {"reservation_id": packet["reservation_id"], "idempotency_key": "crash-" + point}
-        asyncio.run(service.start_call(principal(ws), body))
+        asyncio.run(ops.start_call(service, principal(ws), body))
     monkeypatch.undo()
     recover_for_a_while(service, ws, clock)
     attempts = calls_for(service, lead_id)
@@ -114,9 +116,9 @@ def test_a_crash_at_any_hangup_step_still_ends_the_call(workspace, app, carrier,
         def crash(*args, **kwargs):
             raise Crash(point)
 
-        monkeypatch.setattr(service, "_hangup_completed", crash)
+        monkeypatch.setattr(ops, "_hangup_completed", bound(crash))
     with pytest.raises(Crash):
-        asyncio.run(service.hangup(principal(ws), started["id"]))
+        asyncio.run(ops.hangup(service, principal(ws), started["id"]))
     monkeypatch.undo()
     recover_for_a_while(service, ws, clock)
     (call,) = calls_for(service, packet["lead"]["id"])

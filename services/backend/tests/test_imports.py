@@ -1,6 +1,7 @@
 """R3.3: imports run downward only (section 4), and new packages never reach back into the legacy mixin modules (D24)."""
 
 import ast
+import re
 from pathlib import Path
 
 APP = Path(__file__).resolve().parents[1] / "app"
@@ -84,3 +85,15 @@ def test_the_check_catches_an_upward_import(tmp_path):
         "platform/bad.py imports app.calling: upward or sideways",
         "platform/bad.py imports app.service: legacy module",
     ]
+
+
+def test_every_operation_home_is_bundled_in_the_frozen_sidecar():
+    """`app.ops` loads homes by name at run time; PyInstaller only bundles what an import statement names."""
+    import inspect
+
+    from app import ops
+
+    bundled = set(re.findall(r"import (app\.[a-z_.]+)", inspect.getsource(ops._bundle)))
+    assert set(ops.HOMES.values()) <= bundled
+    for name, home in ops.HOMES.items():
+        assert callable(getattr(ops, name)), f"{home}.{name}"

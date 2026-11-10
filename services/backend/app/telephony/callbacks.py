@@ -11,6 +11,7 @@ from datetime import timedelta
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete, select
 
+from app import ops
 from app.compliance.operating import COSTS
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
@@ -60,497 +61,612 @@ class CallbackRoutingEdit(BaseModel):
         return value.strip() if value is not None else value
 
 
-class InboundCallbacks:
-    def workspace_test_passed(self, s, p):
-        """One answered call proves the shared route; every number on it uses the same path."""
-        proof = self.required(s, "sellers", p["seller_id"], p).data.get("callback_test") or {}
-        return bool(proof.get("answer_confirmed") or (self.settings.simulation and proof.get("simulated")))
+def workspace_test_passed(service, s, p):
+    """One answered call proves the shared route; every number on it uses the same path."""
+    proof = ops.required(service, s, "sellers", p["seller_id"], p).data.get("callback_test") or {}
+    return bool(proof.get("answer_confirmed") or (service.settings.simulation and proof.get("simulated")))
 
-    def _pass_workspace_test(self, s, p, task):
-        seller = self.required(s, "sellers", p["seller_id"], p)
-        if self.workspace_test_passed(s, p):
-            return
-        update(
-            seller,
-            callback_test={
-                "number_id": task.data["number_id"],
-                "at": self.clock().isoformat(),
-                "simulated": self.settings.simulation,
-                "answer_confirmed": True,
-            },
-        )
-        audit(
-            s, p["tenant_id"], p["seller_id"], p.get("user_id"), "number.test_call", seller.id, self.clock()
-        )
-        for number in self.scoped(s, "number_inventory", p):
-            emit(s, p["tenant_id"], "number.updated", number, self.clock())
 
-    def forget_workspace_test(self, tenant_id):
-        """A different Telnyx app is a different path, so its first call has to prove it again."""
-        model = MODELS["sellers"]
-        with self.db.transaction() as s:
-            for seller in s.scalars(select(model).where(model.tenant_id == tenant_id)):
-                update(seller, callback_test=None)
+def _pass_workspace_test(service, s, p, task):
+    seller = ops.required(service, s, "sellers", p["seller_id"], p)
+    if ops.workspace_test_passed(service, s, p):
+        return
+    update(
+        seller,
+        callback_test={
+            "number_id": task.data["number_id"],
+            "at": service.clock().isoformat(),
+            "simulated": service.settings.simulation,
+            "answer_confirmed": True,
+        },
+    )
+    audit(s, p["tenant_id"], p["seller_id"], p.get("user_id"), "number.test_call", seller.id, service.clock())
+    for number in ops.scoped(service, s, "number_inventory", p):
+        emit(s, p["tenant_id"], "number.updated", number, service.clock())
 
-    def callback_config(self, s, p):
-        seller = self.required(s, "sellers", p["seller_id"], p)
-        return {**DEFAULTS, **seller.data.get("callback_routing", {})}
 
-    def read_callback_routing(self, p):
-        with self.db.transaction(False) as s:
-            return {
-                **self.callback_config(s, p),
-                "offline_status": "operator_configuration_required",
-                "costs": COSTS["callbacks"],
-            }
+def forget_workspace_test(service, tenant_id):
+    """A different Telnyx app is a different path, so its first call has to prove it again."""
+    model = MODELS["sellers"]
+    with service.db.transaction() as s:
+        for seller in s.scalars(select(model).where(model.tenant_id == tenant_id)):
+            update(seller, callback_test=None)
 
-    def edit_callback_routing(self, p, data):
-        with self.db.transaction() as s:
-            seller = self.required(s, "sellers", p["seller_id"], p)
-            current = self.callback_config(s, p)
-            data.pop("expected_version", None)
-            values = {**current, **data, "version": current["version"] + 1}
-            if values["destination"] in {n.data["phone"] for n in self.scoped(s, "number_inventory", p)}:
-                fail(422, "Fallback cannot loop back to this seller's inbound numbers")
-            update(seller, callback_routing=values)
-            audit(
-                s, p["tenant_id"], p["seller_id"], p["user_id"], "callback.routing", seller.id, self.clock()
+
+def callback_config(service, s, p):
+    seller = ops.required(service, s, "sellers", p["seller_id"], p)
+    return {**DEFAULTS, **seller.data.get("callback_routing", {})}
+
+
+def read_callback_routing(service, p):
+    with service.db.transaction(False) as s:
+        return {
+            **ops.callback_config(service, s, p),
+            "offline_status": "operator_configuration_required",
+            "costs": COSTS["callbacks"],
+        }
+
+
+def edit_callback_routing(service, p, data):
+    with service.db.transaction() as s:
+        seller = ops.required(service, s, "sellers", p["seller_id"], p)
+        current = ops.callback_config(service, s, p)
+        data.pop("expected_version", None)
+        values = {**current, **data, "version": current["version"] + 1}
+        if values["destination"] in {n.data["phone"] for n in ops.scoped(service, s, "number_inventory", p)}:
+            fail(422, "Fallback cannot loop back to this seller's inbound numbers")
+        update(seller, callback_routing=values)
+        audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "callback.routing", seller.id, service.clock())
+        return {
+            **values,
+            "offline_status": "operator_configuration_required",
+            "costs": COSTS["callbacks"],
+        }
+
+
+def _inbound_command(
+    service, s, p, task, action, payload=None, *, target=None, suffix=None, after=None, attempt=None
+):
+    command = ops.control_intent(
+        service,
+        s,
+        p,
+        task.id,
+        action,
+        payload or {},
+        target=target or task.data["provider_id"],
+        suffix=suffix,
+    )
+    update(command, inbound=True, after_command_id=after, inbound_attempt=attempt)
+    return command
+
+
+def _release_inbound_claim(service, s, task):
+    s.execute(delete(ActiveClaim).where(ActiveClaim.call_id == task.id))
+    s.flush()
+
+
+def _route_inbound(service, s, p, task, *, after=None):
+    attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
+    tried = {a.get("rep_id") for a in attempts}
+    claims = list(s.scalars(select(ActiveClaim).where(ActiveClaim.tenant_id == p["tenant_id"])))
+    lead = get(s, "leads", task.data.get("lead_id"), p["tenant_id"]) if task.data.get("lead_id") else None
+    workspace_sip = service.configs.read(p["tenant_id"]).get("sip_username")
+    candidates = []
+    for user in ops.scoped(service, s, "users", p):
+        presence = user.data.get("presence", {})
+        at = dt(presence.get("at"))
+        sip = user.data.get("sip_username") or workspace_sip
+        if (
+            user.id not in tried
+            and not user.data.get("disabled")
+            and sip
+            and re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", sip)
+            and presence.get("status") == "ready"
+            and presence.get("audio_ready")
+            and presence.get("telephony_ready")
+            and at
+            and 0 <= (service.clock() - at).total_seconds() <= 90
+            and not any(
+                c.rep_id == user.id or (lead and c.endpoint_id == lead.data["endpoint_id"]) for c in claims
             )
-            return {
-                **values,
-                "offline_status": "operator_configuration_required",
-                "costs": COSTS["callbacks"],
-            }
-
-    def _inbound_command(
-        self, s, p, task, action, payload=None, *, target=None, suffix=None, after=None, attempt=None
-    ):
-        command = self.control_intent(
+        ):
+            candidates.append((user, sip))
+    candidates.sort(key=lambda pair: (pair[0].id != task.data.get("responsible_rep_id"), pair[0].id))
+    # Numbers on no lead hear the greeting; only the first test call can come from anyone.
+    known = bool(lead or task.data.get("ambiguous") or not ops.workspace_test_passed(service, s, p))
+    rep, sip = candidates[0] if known and candidates and len(attempts) < 3 else (None, None)
+    config = task.data["routing_config"]
+    target = f"sip:{sip}@sip.telnyx.com" if rep else config["destination"] if known else ""
+    if not rep and any(a.get("kind") == "business_fallback" for a in attempts):
+        target = ""
+    if target in {task.data.get("callback_phone"), task.data.get("called_phone")}:
+        target = ""  # never bounce the caller back to themselves or recurse through this DID
+    route = "rep" if rep else "business_fallback" if target else "callback_queue"
+    update(task, route=route, routed_rep_id=rep.id if rep else None)
+    if target:
+        identity = uid()
+        context = base64.b64encode(
+            json.dumps({"inbound_task": task.id, "attempt": identity}).encode()
+        ).decode()
+        attempt = {
+            "id": identity,
+            "rep_id": rep.id if rep else None,
+            "kind": route,
+            "target": target,
+            "state": "prepared",
+            "provider_id": None,
+        }
+        attempts.append(attempt)
+        update(task, routing_attempts=attempts)
+        if rep:
+            s.add(
+                ActiveClaim(
+                    tenant_id=p["tenant_id"],
+                    seller_id=p["seller_id"],
+                    endpoint_id=lead.data["endpoint_id"] if lead else task.id,
+                    lead_id=lead.id if lead else task.id,
+                    rep_id=rep.id,
+                    number_id=task.data["number_id"],
+                    reservation_id=task.id,
+                    call_id=task.id,
+                    expires_at=service.clock() + timedelta(seconds=service.settings.max_call_seconds),
+                )
+            )
+        ops._inbound_command(
+            service,
             s,
             p,
-            task.id,
-            action,
-            payload or {},
-            target=target or task.data["provider_id"],
-            suffix=suffix,
+            task,
+            "transfer",
+            {
+                "to": target,
+                "from": task.data["called_phone"],
+                "timeout_secs": config["ring_seconds"],
+                "time_limit_secs": service.settings.max_call_seconds,
+                "early_media": False,
+                "target_leg_client_state": context,
+            },
+            suffix="inbound-transfer:" + identity,
+            after=after,
+            attempt=identity,
         )
-        update(command, inbound=True, after_command_id=after, inbound_attempt=attempt)
-        return command
-
-    def _release_inbound_claim(self, s, task):
-        s.execute(delete(ActiveClaim).where(ActiveClaim.call_id == task.id))
-        s.flush()
-
-    def _route_inbound(self, s, p, task, *, after=None):
-        attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
-        tried = {a.get("rep_id") for a in attempts}
-        claims = list(s.scalars(select(ActiveClaim).where(ActiveClaim.tenant_id == p["tenant_id"])))
-        lead = get(s, "leads", task.data.get("lead_id"), p["tenant_id"]) if task.data.get("lead_id") else None
-        workspace_sip = self.configs.read(p["tenant_id"]).get("sip_username")
-        candidates = []
-        for user in self.scoped(s, "users", p):
-            presence = user.data.get("presence", {})
-            at = dt(presence.get("at"))
-            sip = user.data.get("sip_username") or workspace_sip
-            if (
-                user.id not in tried
-                and not user.data.get("disabled")
-                and sip
-                and re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", sip)
-                and presence.get("status") == "ready"
-                and presence.get("audio_ready")
-                and presence.get("telephony_ready")
-                and at
-                and 0 <= (self.clock() - at).total_seconds() <= 90
-                and not any(
-                    c.rep_id == user.id or (lead and c.endpoint_id == lead.data["endpoint_id"])
-                    for c in claims
-                )
-            ):
-                candidates.append((user, sip))
-        candidates.sort(key=lambda pair: (pair[0].id != task.data.get("responsible_rep_id"), pair[0].id))
-        # Numbers on no lead hear the greeting; only the first test call can come from anyone.
-        known = bool(lead or task.data.get("ambiguous") or not self.workspace_test_passed(s, p))
-        rep, sip = candidates[0] if known and candidates and len(attempts) < 3 else (None, None)
-        config = task.data["routing_config"]
-        target = f"sip:{sip}@sip.telnyx.com" if rep else config["destination"] if known else ""
-        if not rep and any(a.get("kind") == "business_fallback" for a in attempts):
-            target = ""
-        if target in {task.data.get("callback_phone"), task.data.get("called_phone")}:
-            target = ""  # never bounce the caller back to themselves or recurse through this DID
-        route = "rep" if rep else "business_fallback" if target else "callback_queue"
-        update(task, route=route, routed_rep_id=rep.id if rep else None)
-        if target:
-            identity = uid()
-            context = base64.b64encode(
-                json.dumps({"inbound_task": task.id, "attempt": identity}).encode()
-            ).decode()
-            attempt = {
-                "id": identity,
-                "rep_id": rep.id if rep else None,
-                "kind": route,
-                "target": target,
-                "state": "prepared",
-                "provider_id": None,
-            }
-            attempts.append(attempt)
-            update(task, routing_attempts=attempts)
-            if rep:
-                s.add(
-                    ActiveClaim(
-                        tenant_id=p["tenant_id"],
-                        seller_id=p["seller_id"],
-                        endpoint_id=lead.data["endpoint_id"] if lead else task.id,
-                        lead_id=lead.id if lead else task.id,
-                        rep_id=rep.id,
-                        number_id=task.data["number_id"],
-                        reservation_id=task.id,
-                        call_id=task.id,
-                        expires_at=self.clock() + timedelta(seconds=self.settings.max_call_seconds),
-                    )
-                )
-            self._inbound_command(
-                s,
-                p,
-                task,
-                "transfer",
-                {
-                    "to": target,
-                    "from": task.data["called_phone"],
-                    "timeout_secs": config["ring_seconds"],
-                    "time_limit_secs": self.settings.max_call_seconds,
-                    "early_media": False,
-                    "target_leg_client_state": context,
-                },
-                suffix="inbound-transfer:" + identity,
-                after=after,
-                attempt=identity,
-            )
-        else:
-            seller = self.required(s, "sellers", p["seller_id"], p)
-            greeting = config.get("greeting")
-            self._inbound_command(
-                s,
-                p,
-                task,
-                "speak",
-                {
-                    "payload": greeting or DEFAULT_GREETING.format(name=seller.data.get("name") or "us"),
-                    "payload_type": "text",
-                    "voice": CUSTOM_GREETING_VOICE if greeting else "female",
-                    "language": "en-US",
-                    "service_level": "premium" if greeting else "basic",
-                    "target_legs": "self",
-                },
-                suffix="inbound-message",
-                after=after,
-            )
-
-    def _receive_inbound(self, tenant_id, payload, event_id, *, session=None, receipt=None):
-        if not payload.get("call_control_id"):
-            fail(422, "Inbound call identity is missing")
-        with self.db.transaction(session=session) as s:
-            # Indexed identities only: a webhook must not decrypt the seller's history.
-            def keyed(kind, phone, *scope):
-                model = MODELS[kind]
-                if not isinstance(phone, str) or not phone.startswith("+"):
-                    return []
-                key = phone
-                found = s.scalars(
-                    select(model)
-                    .where(model.tenant_id == tenant_id, *scope, model.external_key == key)
-                    .limit(2)
-                )
-                return [row for row in found if row.data.get("phone") == phone]
-
-            owned = keyed("number_inventory", payload.get("to"))
-            if len(owned) != 1:
-                return {"received": True, "route": "unrecognized_owned_did"}
-            number = owned[0]
-            p = {"tenant_id": tenant_id, "seller_id": number.seller_id, "user_id": "inbound"}
-            self.db.authorize_stream(s, p)
-            existing = self._by_key(s, p, "followup_tasks", "callback:" + payload["call_control_id"])
-            if existing:
-                return doc(existing)
-            endpoints = keyed(
-                "phone_endpoints", payload.get("from"), MODELS["phone_endpoints"].seller_id == p["seller_id"]
-            )
-            model = MODELS["leads"]
-            leads = (
-                list(
-                    s.scalars(
-                        select(model)
-                        .where(
-                            model.tenant_id == tenant_id,
-                            model.seller_id == p["seller_id"],
-                            model.op_endpoint_id == endpoints[0].id,
-                        )
-                        .limit(2)
-                    )
-                )
-                if len(endpoints) == 1
-                else []
-            )
-            lead = leads[0] if len(leads) == 1 else None
-            previous = (
-                next(iter(self.lead_records(s, p, "call_attempts", lead.id, limit=1, newest=True)), None)
-                if lead
-                else None
-            )
-            responsible = previous.data["rep_id"] if previous else None
-            task = put(
-                s,
-                "followup_tasks",
-                tenant_id,
-                number.seller_id,
-                {
-                    "provider_id": payload["call_control_id"],
-                    "number_id": number.id,
-                    "seller_id": number.seller_id,
-                    "inbound": True,
-                    "inbound_state": "answering",
-                    "caller_ended": False,
-                    "called_phone": number.data["phone"],
-                    "callback_phone": payload.get("from"),
-                    "lead_id": lead.id if lead else None,
-                    "ambiguous": len(leads) > 1,
-                    "previous_call_id": previous.id if previous else None,
-                    "responsible_rep_id": responsible,
-                    "owner_id": responsible,
-                    "status": "open",
-                    "action": "Review return call",
-                    "due_at": self.clock().isoformat(),
-                    "event_id": event_id,
-                    "routing_config": self.callback_config(s, p),
-                    "inbound_verified": bool(receipt and receipt.get("signature_verified")),
-                    "routing_attempts": [],
-                    "inbound_deadline": (
-                        (dt((receipt or {}).get("received_at")) or self.clock()) + timedelta(seconds=40)
-                    ).isoformat(),
-                },
-                key="callback:" + payload["call_control_id"],
-                now=self.clock(),
-            )
-            if dt(task.data["inbound_deadline"]) <= self.clock():
-                update(task, inbound_state="ended", route="missed_offline")
-                emit(s, tenant_id, "task.updated", task, self.clock())
-                return doc(task)
-            answer = self._inbound_command(s, p, task, "answer", suffix="inbound-answer")
-            self._route_inbound(s, p, task, after=answer.id)
-            emit(s, tenant_id, "task.updated", task, self.clock())
-            return doc(task)
-
-    def _task_commands(self, s, p, task):
-        """Only this task's own outbox rows, by their scoped key prefix."""
-        model = MODELS["command_outbox"]
-        return list(
-            s.scalars(
-                select(model).where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.external_key.startswith(task.id + ":"),
-                )
-            )
+    else:
+        seller = ops.required(service, s, "sellers", p["seller_id"], p)
+        greeting = config.get("greeting")
+        ops._inbound_command(
+            service,
+            s,
+            p,
+            task,
+            "speak",
+            {
+                "payload": greeting or DEFAULT_GREETING.format(name=seller.data.get("name") or "us"),
+                "payload_type": "text",
+                "voice": CUSTOM_GREETING_VOICE if greeting else "female",
+                "language": "en-US",
+                "service_level": "premium" if greeting else "basic",
+                "target_legs": "self",
+            },
+            suffix="inbound-message",
+            after=after,
         )
 
-    def _orphan_unreported(self, task, attempts):
-        """A transfer sent without any leg receipt cannot be stopped by reference. Once the caller
-        has left or the deadline passed it is closed here; a late leg receipt is hung up."""
-        for attempt in attempts:
-            if attempt["state"] == "prepared":
-                attempt["state"] = "cancelled"
-            elif not attempt.get("provider_id") and attempt["state"] not in SETTLED:
-                attempt["state"] = "orphaned"
-        update(task, routing_attempts=attempts)
 
-    def _inbound_finished(self, s, p, task):
-        if task.data.get("caller_ended") and all(
-            a["state"] in SETTLED for a in task.data.get("routing_attempts", [])
-        ):
-            update(task, inbound_state="ended", ended_at=self.clock().isoformat())
-            self._release_inbound_claim(s, task)
-        emit(s, p["tenant_id"], "task.updated", task, self.clock())
+def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, receipt=None):
+    if not payload.get("call_control_id"):
+        fail(422, "Inbound call identity is missing")
+    with service.db.transaction(session=session) as s:
+        # Indexed identities only: a webhook must not decrypt the seller's history.
+        def keyed(kind, phone, *scope):
+            model = MODELS[kind]
+            if not isinstance(phone, str) or not phone.startswith("+"):
+                return []
+            key = phone
+            found = s.scalars(
+                select(model).where(model.tenant_id == tenant_id, *scope, model.external_key == key).limit(2)
+            )
+            return [row for row in found if row.data.get("phone") == phone]
 
-    def inbound_event(self, tenant_id, payload, event_type, *, session=None, receipt=None):
-        provider_id = payload.get("call_control_id")
-        if not isinstance(provider_id, str) or not provider_id:
-            return False
-        with self.db.transaction(session=session) as s:
-            model = MODELS["followup_tasks"]
-            matches = list(
+        owned = keyed("number_inventory", payload.get("to"))
+        if len(owned) != 1:
+            return {"received": True, "route": "unrecognized_owned_did"}
+        number = owned[0]
+        p = {"tenant_id": tenant_id, "seller_id": number.seller_id, "user_id": "inbound"}
+        service.db.authorize_stream(s, p)
+        existing = ops._by_key(service, s, p, "followup_tasks", "callback:" + payload["call_control_id"])
+        if existing:
+            return doc(existing)
+        endpoints = keyed(
+            "phone_endpoints", payload.get("from"), MODELS["phone_endpoints"].seller_id == p["seller_id"]
+        )
+        model = MODELS["leads"]
+        leads = (
+            list(
                 s.scalars(
                     select(model)
                     .where(
                         model.tenant_id == tenant_id,
-                        model.op_provider_id == provider_id,
+                        model.seller_id == p["seller_id"],
+                        model.op_endpoint_id == endpoints[0].id,
                     )
                     .limit(2)
                 )
             )
-            if len(matches) > 1:
-                fail(409, "Inbound provider identity is ambiguous; review original callback records")
-            task = matches[0] if matches and matches[0].data.get("inbound") else None
-            attempt_id = None
-            if not task:
-                try:
-                    context = json.loads(base64.b64decode(payload.get("client_state", "")))
-                    if not isinstance(context, dict) or not isinstance(context.get("inbound_task"), str):
-                        return False
-                    task = get(s, "followup_tasks", context["inbound_task"], tenant_id)
-                    if (
-                        not task
-                        or not task.data.get("inbound")
-                        or not any(
-                            a["id"] == context.get("attempt") for a in task.data.get("routing_attempts", [])
-                        )
-                    ):
-                        return False
-                    attempt_id = context.get("attempt")
-                except (ValueError, TypeError):
+            if len(endpoints) == 1
+            else []
+        )
+        lead = leads[0] if len(leads) == 1 else None
+        previous = (
+            next(iter(ops.lead_records(service, s, p, "call_attempts", lead.id, limit=1, newest=True)), None)
+            if lead
+            else None
+        )
+        responsible = previous.data["rep_id"] if previous else None
+        task = put(
+            s,
+            "followup_tasks",
+            tenant_id,
+            number.seller_id,
+            {
+                "provider_id": payload["call_control_id"],
+                "number_id": number.id,
+                "seller_id": number.seller_id,
+                "inbound": True,
+                "inbound_state": "answering",
+                "caller_ended": False,
+                "called_phone": number.data["phone"],
+                "callback_phone": payload.get("from"),
+                "lead_id": lead.id if lead else None,
+                "ambiguous": len(leads) > 1,
+                "previous_call_id": previous.id if previous else None,
+                "responsible_rep_id": responsible,
+                "owner_id": responsible,
+                "status": "open",
+                "action": "Review return call",
+                "due_at": service.clock().isoformat(),
+                "event_id": event_id,
+                "routing_config": ops.callback_config(service, s, p),
+                "inbound_verified": bool(receipt and receipt.get("signature_verified")),
+                "routing_attempts": [],
+                "inbound_deadline": (
+                    (dt((receipt or {}).get("received_at")) or service.clock()) + timedelta(seconds=40)
+                ).isoformat(),
+            },
+            key="callback:" + payload["call_control_id"],
+            now=service.clock(),
+        )
+        if dt(task.data["inbound_deadline"]) <= service.clock():
+            update(task, inbound_state="ended", route="missed_offline")
+            emit(s, tenant_id, "task.updated", task, service.clock())
+            return doc(task)
+        answer = ops._inbound_command(service, s, p, task, "answer", suffix="inbound-answer")
+        ops._route_inbound(service, s, p, task, after=answer.id)
+        emit(s, tenant_id, "task.updated", task, service.clock())
+        return doc(task)
+
+
+def _task_commands(service, s, p, task):
+    """Only this task's own outbox rows, by their scoped key prefix."""
+    model = MODELS["command_outbox"]
+    return list(
+        s.scalars(
+            select(model).where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.external_key.startswith(task.id + ":"),
+            )
+        )
+    )
+
+
+def _orphan_unreported(service, task, attempts):
+    """A transfer sent without any leg receipt cannot be stopped by reference. Once the caller
+    has left or the deadline passed it is closed here; a late leg receipt is hung up."""
+    for attempt in attempts:
+        if attempt["state"] == "prepared":
+            attempt["state"] = "cancelled"
+        elif not attempt.get("provider_id") and attempt["state"] not in SETTLED:
+            attempt["state"] = "orphaned"
+    update(task, routing_attempts=attempts)
+
+
+def _inbound_finished(service, s, p, task):
+    if task.data.get("caller_ended") and all(
+        a["state"] in SETTLED for a in task.data.get("routing_attempts", [])
+    ):
+        update(task, inbound_state="ended", ended_at=service.clock().isoformat())
+        ops._release_inbound_claim(service, s, task)
+    emit(s, p["tenant_id"], "task.updated", task, service.clock())
+
+
+def inbound_event(service, tenant_id, payload, event_type, *, session=None, receipt=None):
+    provider_id = payload.get("call_control_id")
+    if not isinstance(provider_id, str) or not provider_id:
+        return False
+    with service.db.transaction(session=session) as s:
+        model = MODELS["followup_tasks"]
+        matches = list(
+            s.scalars(
+                select(model)
+                .where(
+                    model.tenant_id == tenant_id,
+                    model.op_provider_id == provider_id,
+                )
+                .limit(2)
+            )
+        )
+        if len(matches) > 1:
+            fail(409, "Inbound provider identity is ambiguous; review original callback records")
+        task = matches[0] if matches and matches[0].data.get("inbound") else None
+        attempt_id = None
+        if not task:
+            try:
+                context = json.loads(base64.b64decode(payload.get("client_state", "")))
+                if not isinstance(context, dict) or not isinstance(context.get("inbound_task"), str):
                     return False
-            if not task:
+                task = get(s, "followup_tasks", context["inbound_task"], tenant_id)
+                if (
+                    not task
+                    or not task.data.get("inbound")
+                    or not any(
+                        a["id"] == context.get("attempt") for a in task.data.get("routing_attempts", [])
+                    )
+                ):
+                    return False
+                attempt_id = context.get("attempt")
+            except (ValueError, TypeError):
                 return False
-            p = {
-                "tenant_id": tenant_id,
-                "seller_id": task.seller_id,
-                "user_id": task.data.get("owner_id") or "inbound",
-            }
-            self.db.authorize_stream(s, p)
-            attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
-            if attempt_id:
-                attempt = next(a for a in attempts if a["id"] == attempt_id)
-                if attempt.get("provider_id") not in {None, payload.get("call_control_id")}:
-                    return False
-                attempt["provider_id"] = payload["call_control_id"]
-                if attempt["state"] in ENDED:
-                    return True
-                if receipt and (receipt.get("signature_verified") or self.settings.simulation):
-                    if event_type == "call.answered":
-                        attempt["answer_confirmed"] = True
-                    elif event_type == "call.bridged":
-                        attempt["bridge_confirmed"] = True
-                if event_type == "call.hangup":
-                    connected = attempt["state"] == "connected"
-                    attempt["state"] = "ended"
-                    update(task, routing_attempts=attempts)
-                    self._release_inbound_claim(s, task)
-                    if not task.data.get("caller_ended") and task.data.get("inbound_state") not in {
-                        "ending",
-                        "ended",
-                    }:
-                        if connected:
-                            self._inbound_command(s, p, task, "hangup", suffix="inbound-complete")
-                            update(task, inbound_state="ending")
-                        else:
-                            self._route_inbound(s, p, task)
-                elif task.data.get("caller_ended") or task.data.get("inbound_state") in {"ending", "ended"}:
-                    update(task, routing_attempts=attempts)
-                    self._inbound_command(
+        if not task:
+            return False
+        p = {
+            "tenant_id": tenant_id,
+            "seller_id": task.seller_id,
+            "user_id": task.data.get("owner_id") or "inbound",
+        }
+        service.db.authorize_stream(s, p)
+        attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
+        if attempt_id:
+            attempt = next(a for a in attempts if a["id"] == attempt_id)
+            if attempt.get("provider_id") not in {None, payload.get("call_control_id")}:
+                return False
+            attempt["provider_id"] = payload["call_control_id"]
+            if attempt["state"] in ENDED:
+                return True
+            if receipt and (receipt.get("signature_verified") or service.settings.simulation):
+                if event_type == "call.answered":
+                    attempt["answer_confirmed"] = True
+                elif event_type == "call.bridged":
+                    attempt["bridge_confirmed"] = True
+            if event_type == "call.hangup":
+                connected = attempt["state"] == "connected"
+                attempt["state"] = "ended"
+                update(task, routing_attempts=attempts)
+                ops._release_inbound_claim(service, s, task)
+                if not task.data.get("caller_ended") and task.data.get("inbound_state") not in {
+                    "ending",
+                    "ended",
+                }:
+                    if connected:
+                        ops._inbound_command(service, s, p, task, "hangup", suffix="inbound-complete")
+                        update(task, inbound_state="ending")
+                    else:
+                        ops._route_inbound(service, s, p, task)
+            elif task.data.get("caller_ended") or task.data.get("inbound_state") in {"ending", "ended"}:
+                update(task, routing_attempts=attempts)
+                ops._inbound_command(
+                    service,
+                    s,
+                    p,
+                    task,
+                    "hangup",
+                    target=payload["call_control_id"],
+                    suffix="inbound-leg-end:" + attempt_id,
+                )
+            elif (
+                event_type in {"call.answered", "call.bridged"}
+                and attempt.get("answer_confirmed")
+                and attempt.get("bridge_confirmed")
+                and attempt["state"] != "connected"
+            ):
+                attempt["state"] = "connected"
+                update(
+                    task,
+                    routing_attempts=attempts,
+                    inbound_state="connected",
+                    connected_at=service.clock().isoformat(),
+                    inbound_deadline=(
+                        service.clock() + timedelta(seconds=service.settings.max_call_seconds)
+                    ).isoformat(),
+                )
+                if attempt.get("rep_id") and (
+                    service.settings.simulation or task.data.get("inbound_verified")
+                ):
+                    ops._pass_workspace_test(service, s, p, task)
+                if (
+                    attempt.get("rep_id")
+                    and not task.data.get("human_edited")
+                    and task.data["status"] not in {"completed", "cancelled"}
+                ):
+                    update(
+                        task,
+                        status="completed",
+                        owner_id=attempt["rep_id"],
+                        completion_source="inbound_rep_connected",
+                        completed_at=service.clock().isoformat(),
+                    )
+                    lead_id = task.data.get("lead_id")
+                    related = ops.lead_records(service, s, p, "followup_tasks", lead_id) if lead_id else []
+                    for promised in related:
+                        if (
+                            promised.data.get("kind") == "callback"
+                            and promised.data.get("call_id") == task.data.get("previous_call_id")
+                            and promised.data.get("lead_id") == task.data.get("lead_id")
+                            and promised.data.get("status") in {"open", "snoozed"}
+                            and not promised.data.get("human_edited")
+                        ):
+                            update(
+                                promised,
+                                status="completed",
+                                completion_source="inbound_rep_connected",
+                                inbound_task_id=task.id,
+                            )
+                            emit(s, tenant_id, "task.updated", promised, service.clock())
+                    if task.data.get("lead_id"):
+                        lead = ops.required(service, s, "leads", task.data["lead_id"], p)
+                        ops._sync_callback(service, s, p, lead)
+                        ops.refresh_packet_in(service, s, p, lead)
+            else:
+                update(task, routing_attempts=attempts)
+        elif event_type == "call.answered" and task.data["inbound_state"] == "answering":
+            command = ops._by_key(service, s, p, "command_outbox", task.id + ":inbound-answer")
+            if command and command.data.get("call_id") == task.id:
+                update(
+                    command,
+                    status="completed",
+                    lease_owner=None,
+                    lease_until=None,
+                    confirmation="signed_answer_event",
+                )
+        elif event_type == "call.hangup":
+            update(task, caller_ended=True, inbound_state="ending")
+            for a in attempts:
+                if a.get("provider_id") and a["state"] not in ENDED:
+                    ops._inbound_command(
+                        service,
                         s,
                         p,
                         task,
                         "hangup",
-                        target=payload["call_control_id"],
-                        suffix="inbound-leg-end:" + attempt_id,
+                        target=a["provider_id"],
+                        suffix="inbound-leg-end:" + a["id"],
                     )
-                elif (
-                    event_type in {"call.answered", "call.bridged"}
-                    and attempt.get("answer_confirmed")
-                    and attempt.get("bridge_confirmed")
-                    and attempt["state"] != "connected"
+            ops._orphan_unreported(service, task, attempts)
+            for command in ops._task_commands(service, s, p, task):
+                if (
+                    command.data.get("call_id") == task.id
+                    and command.data["status"] == "pending"
+                    and command.data["action"] != "hangup"
                 ):
-                    attempt["state"] = "connected"
-                    update(
-                        task,
-                        routing_attempts=attempts,
-                        inbound_state="connected",
-                        connected_at=self.clock().isoformat(),
-                        inbound_deadline=(
-                            self.clock() + timedelta(seconds=self.settings.max_call_seconds)
-                        ).isoformat(),
-                    )
-                    if attempt.get("rep_id") and (
-                        self.settings.simulation or task.data.get("inbound_verified")
-                    ):
-                        self._pass_workspace_test(s, p, task)
-                    if (
-                        attempt.get("rep_id")
-                        and not task.data.get("human_edited")
-                        and task.data["status"] not in {"completed", "cancelled"}
-                    ):
-                        update(
-                            task,
-                            status="completed",
-                            owner_id=attempt["rep_id"],
-                            completion_source="inbound_rep_connected",
-                            completed_at=self.clock().isoformat(),
-                        )
-                        lead_id = task.data.get("lead_id")
-                        related = self.lead_records(s, p, "followup_tasks", lead_id) if lead_id else []
-                        for promised in related:
-                            if (
-                                promised.data.get("kind") == "callback"
-                                and promised.data.get("call_id") == task.data.get("previous_call_id")
-                                and promised.data.get("lead_id") == task.data.get("lead_id")
-                                and promised.data.get("status") in {"open", "snoozed"}
-                                and not promised.data.get("human_edited")
-                            ):
-                                update(
-                                    promised,
-                                    status="completed",
-                                    completion_source="inbound_rep_connected",
-                                    inbound_task_id=task.id,
-                                )
-                                emit(s, tenant_id, "task.updated", promised, self.clock())
-                        if task.data.get("lead_id"):
-                            lead = self.required(s, "leads", task.data["lead_id"], p)
-                            self._sync_callback(s, p, lead)
-                            self.refresh_packet_in(s, p, lead)
-                else:
-                    update(task, routing_attempts=attempts)
-            elif event_type == "call.answered" and task.data["inbound_state"] == "answering":
-                command = self._by_key(s, p, "command_outbox", task.id + ":inbound-answer")
-                if command and command.data.get("call_id") == task.id:
-                    update(
-                        command,
-                        status="completed",
-                        lease_owner=None,
-                        lease_until=None,
-                        confirmation="signed_answer_event",
-                    )
-            elif event_type == "call.hangup":
-                update(task, caller_ended=True, inbound_state="ending")
-                for a in attempts:
-                    if a.get("provider_id") and a["state"] not in ENDED:
-                        self._inbound_command(
-                            s, p, task, "hangup", target=a["provider_id"], suffix="inbound-leg-end:" + a["id"]
-                        )
-                self._orphan_unreported(task, attempts)
-                for command in self._task_commands(s, p, task):
-                    if (
-                        command.data.get("call_id") == task.id
-                        and command.data["status"] == "pending"
-                        and command.data["action"] != "hangup"
-                    ):
-                        update(command, status="cancelled", reason="caller_ended")
-            elif event_type == "call.speak.ended" and task.data["inbound_state"] == "notifying":
-                self._inbound_command(s, p, task, "hangup", suffix="inbound-message-end")
-                update(task, inbound_state="ending")
-            self._inbound_finished(s, p, task)
-            return True
+                    update(command, status="cancelled", reason="caller_ended")
+        elif event_type == "call.speak.ended" and task.data["inbound_state"] == "notifying":
+            ops._inbound_command(service, s, p, task, "hangup", suffix="inbound-message-end")
+            update(task, inbound_state="ending")
+        ops._inbound_finished(service, s, p, task)
+        return True
 
-    def end_inbound(self, p, task_id):
-        with self.db.transaction() as s:
-            self.db.authorize_stream(s, p)
-            task = self.required(s, "followup_tasks", task_id, p)
-            if not task.data.get("inbound"):
-                fail(404, "Inbound call not found")
-            if task.data["inbound_state"] != "ended":
-                update(task, inbound_state="ending")
-                self._inbound_command(s, p, task, "hangup", suffix="inbound-requested-end")
-                for attempt in task.data.get("routing_attempts", []):
+
+def end_inbound(service, p, task_id):
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        task = ops.required(service, s, "followup_tasks", task_id, p)
+        if not task.data.get("inbound"):
+            fail(404, "Inbound call not found")
+        if task.data["inbound_state"] != "ended":
+            update(task, inbound_state="ending")
+            ops._inbound_command(service, s, p, task, "hangup", suffix="inbound-requested-end")
+            for attempt in task.data.get("routing_attempts", []):
+                if attempt.get("provider_id") and attempt["state"] not in ENDED:
+                    ops._inbound_command(
+                        service,
+                        s,
+                        p,
+                        task,
+                        "hangup",
+                        target=attempt["provider_id"],
+                        suffix="inbound-leg-end:" + attempt["id"],
+                    )
+            emit(s, p["tenant_id"], "task.updated", task, service.clock())
+        return doc(task)
+
+
+async def reconcile_inbound(service, p):
+    model = MODELS["followup_tasks"]
+
+    def due(query):
+        return query.where(
+            model.tenant_id == p["tenant_id"],
+            model.seller_id == p["seller_id"],
+            model.op_active.is_(True),
+            model.op_reconcile_at <= service.clock(),
+        )
+
+    def pending():
+        # Read first: the reconciliation stamp is written only for due tasks.
+        with service.db.transaction(False) as s:
+            if s.scalar(due(select(model.id)).limit(1)) is None:
+                return []
+        with service.db.transaction() as s:
+            pending_tasks = []
+            for task in s.scalars(due(select(model)).order_by(model.op_reconcile_at, model.id)):
+                update(task, last_reconciled_at=service.clock().isoformat())
+                pending_tasks.append(doc(task))
+            return pending_tasks
+
+    for task in await asyncio.to_thread(pending):
+        legs = [{"provider_id": task["provider_id"]}, *task.get("routing_attempts", [])]
+        for leg in legs:
+            identity = leg.get("provider_id")
+            if not identity or leg.get("state") in ENDED:
+                continue
+            try:
+                provider = await asyncio.to_thread(ops.carrier, service, p["tenant_id"])
+                receipt = await provider.reconcile(identity, identity)
+            except Exception as exc:
+                logging.getLogger(__name__).warning("Inbound status unavailable: %s", type(exc).__name__)
+                continue
+            if (
+                receipt
+                and receipt.get("call_control_id", identity) == identity
+                and (
+                    receipt.get("is_alive") is False
+                    or receipt.get("state") in {"hangup", "ended", "completed"}
+                )
+            ):
+                payload = {"call_control_id": identity}
+                if leg.get("id"):
+                    payload["client_state"] = base64.b64encode(
+                        json.dumps({"inbound_task": task["id"], "attempt": leg["id"]}).encode()
+                    ).decode()
+                await asyncio.to_thread(ops.inbound_event, service, p["tenant_id"], payload, "call.hangup")
+
+
+def inbound_watchdog(service, p):
+    model = MODELS["followup_tasks"]
+
+    def due(query):
+        # Set only while an inbound leg is live and not yet ending.
+        return query.where(
+            model.tenant_id == p["tenant_id"],
+            model.seller_id == p["seller_id"],
+            model.op_control_due_at <= service.clock(),
+        )
+
+    with service.db.transaction(False) as s:
+        if s.scalar(due(select(model.id)).limit(1)) is None:
+            return
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        for task in s.scalars(due(select(model)).order_by(model.op_control_due_at, model.id)):
+            deadline = dt(task.data.get("inbound_deadline"))
+            if (
+                task.data.get("inbound")
+                and task.data.get("inbound_state") not in {"ended", "ending"}
+                and deadline
+                and deadline <= service.clock()
+            ):
+                update(
+                    task,
+                    inbound_state="ending",
+                    review_required=True,
+                    recovery_reason="No terminal routing receipt before deadline",
+                )
+                ops._inbound_command(service, s, p, task, "hangup", suffix="inbound-watchdog")
+                attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
+                for attempt in attempts:
                     if attempt.get("provider_id") and attempt["state"] not in ENDED:
-                        self._inbound_command(
+                        ops._inbound_command(
+                            service,
                             s,
                             p,
                             task,
@@ -558,213 +674,119 @@ class InboundCallbacks:
                             target=attempt["provider_id"],
                             suffix="inbound-leg-end:" + attempt["id"],
                         )
-                emit(s, p["tenant_id"], "task.updated", task, self.clock())
-            return doc(task)
+                ops._orphan_unreported(service, task, attempts)
+                if all(a["state"] in SETTLED for a in attempts):
+                    # No known transfer leg can still hold the rep; the caller leg is ending.
+                    ops._release_inbound_claim(service, s, task)
 
-    async def reconcile_inbound(self, p):
-        model = MODELS["followup_tasks"]
 
-        def due(query):
-            return query.where(
-                model.tenant_id == p["tenant_id"],
-                model.seller_id == p["seller_id"],
-                model.op_active.is_(True),
-                model.op_reconcile_at <= self.clock(),
-            )
-
-        def pending():
-            # Read first: the reconciliation stamp is written only for due tasks.
-            with self.db.transaction(False) as s:
-                if s.scalar(due(select(model.id)).limit(1)) is None:
-                    return []
-            with self.db.transaction() as s:
-                pending_tasks = []
-                for task in s.scalars(due(select(model)).order_by(model.op_reconcile_at, model.id)):
-                    update(task, last_reconciled_at=self.clock().isoformat())
-                    pending_tasks.append(doc(task))
-                return pending_tasks
-
-        for task in await asyncio.to_thread(pending):
-            legs = [{"provider_id": task["provider_id"]}, *task.get("routing_attempts", [])]
-            for leg in legs:
-                identity = leg.get("provider_id")
-                if not identity or leg.get("state") in ENDED:
-                    continue
-                try:
-                    provider = await asyncio.to_thread(self.carrier, p["tenant_id"])
-                    receipt = await provider.reconcile(identity, identity)
-                except Exception as exc:
-                    logging.getLogger(__name__).warning("Inbound status unavailable: %s", type(exc).__name__)
-                    continue
-                if (
-                    receipt
-                    and receipt.get("call_control_id", identity) == identity
-                    and (
-                        receipt.get("is_alive") is False
-                        or receipt.get("state") in {"hangup", "ended", "completed"}
-                    )
-                ):
-                    payload = {"call_control_id": identity}
-                    if leg.get("id"):
-                        payload["client_state"] = base64.b64encode(
-                            json.dumps({"inbound_task": task["id"], "attempt": leg["id"]}).encode()
-                        ).decode()
-                    await asyncio.to_thread(self.inbound_event, p["tenant_id"], payload, "call.hangup")
-
-    def inbound_watchdog(self, p):
-        model = MODELS["followup_tasks"]
-
-        def due(query):
-            # Set only while an inbound leg is live and not yet ending.
-            return query.where(
-                model.tenant_id == p["tenant_id"],
-                model.seller_id == p["seller_id"],
-                model.op_control_due_at <= self.clock(),
-            )
-
-        with self.db.transaction(False) as s:
-            if s.scalar(due(select(model.id)).limit(1)) is None:
-                return
-        with self.db.transaction() as s:
-            self.db.authorize_stream(s, p)
-            for task in s.scalars(due(select(model)).order_by(model.op_control_due_at, model.id)):
-                deadline = dt(task.data.get("inbound_deadline"))
-                if (
-                    task.data.get("inbound")
-                    and task.data.get("inbound_state") not in {"ended", "ending"}
-                    and deadline
-                    and deadline <= self.clock()
-                ):
-                    update(
-                        task,
-                        inbound_state="ending",
-                        review_required=True,
-                        recovery_reason="No terminal routing receipt before deadline",
-                    )
-                    self._inbound_command(s, p, task, "hangup", suffix="inbound-watchdog")
-                    attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
-                    for attempt in attempts:
-                        if attempt.get("provider_id") and attempt["state"] not in ENDED:
-                            self._inbound_command(
-                                s,
-                                p,
-                                task,
-                                "hangup",
-                                target=attempt["provider_id"],
-                                suffix="inbound-leg-end:" + attempt["id"],
-                            )
-                    self._orphan_unreported(task, attempts)
-                    if all(a["state"] in SETTLED for a in attempts):
-                        # No known transfer leg can still hold the rep; the caller leg is ending.
-                        self._release_inbound_claim(s, task)
-
-    def inbound_admit_command(self, s, p, task, command):
-        data = command.data
-        if data["action"] != "hangup" and task.data.get("inbound_state") in {"ending", "ended"}:
-            update(command, status="cancelled", reason="inbound_terminal")
+def inbound_admit_command(service, s, p, task, command):
+    data = command.data
+    if data["action"] != "hangup" and task.data.get("inbound_state") in {"ending", "ended"}:
+        update(command, status="cancelled", reason="inbound_terminal")
+        return False
+    if data.get("after_command_id"):
+        parent = ops.required(service, s, "command_outbox", data["after_command_id"], p)
+        if parent.data["status"] != "completed":
             return False
-        if data.get("after_command_id"):
-            parent = self.required(s, "command_outbox", data["after_command_id"], p)
-            if parent.data["status"] != "completed":
-                return False
-        if data["action"] == "transfer":
-            attempts = [dict(a) for a in task.data["routing_attempts"]]
-            attempt = next(a for a in attempts if a["id"] == data["inbound_attempt"])
-            if attempt["state"] in SETTLED:
-                update(command, status="cancelled", reason="transfer_already_ended")
-                return False
-            if attempt.get("rep_id") and attempt["state"] == "prepared":
-                user = self.required(s, "users", attempt["rep_id"], p)
-                presence = user.data.get("presence", {})
-                at = dt(presence.get("at"))
-                if (
-                    user.data.get("disabled")
-                    or presence.get("status") != "ready"
-                    or not presence.get("audio_ready")
-                    or not presence.get("telephony_ready")
-                    or not at
-                    or not 0 <= (self.clock() - at).total_seconds() <= 90
-                ):
-                    attempt["state"] = "cancelled"
-                    update(task, routing_attempts=attempts)
-                    update(command, status="cancelled", reason="rep_unavailable_before_transfer")
-                    self._release_inbound_claim(s, task)
-                    self._route_inbound(s, p, task)
-                    return False
-            attempt["state"] = "sending"
-            update(
-                task,
-                routing_attempts=attempts,
-                inbound_state="ringing",
-                inbound_deadline=(
-                    (dt(data.get("sent_at")) or self.clock())
-                    + timedelta(seconds=task.data["routing_config"]["ring_seconds"] + 10)
-                ).isoformat(),
-            )
-        elif data["action"] == "speak":
-            update(
-                task,
-                inbound_state="notifying",
-                inbound_deadline=(
-                    (dt(data.get("sent_at")) or self.clock()) + timedelta(seconds=30)
-                ).isoformat(),
-            )
-        if data["action"] in {"transfer", "speak"}:
-            rates = COSTS["callbacks"]
-            speech_rate = (
-                "telnyx_tts_per_character_usd"
-                if data["payload"].get("voice") == CUSTOM_GREETING_VOICE
-                else "standard_tts_per_character_usd"
-            )
-            estimate = (
-                rates["transfer_per_invocation_usd"]
-                if data["action"] == "transfer"
-                else len(data["payload"].get("payload", "")) * rates[speech_rate]
-            )
-            key = "inbound:" + command.id
-            hold = self._request_hold(s, p, key)
+    if data["action"] == "transfer":
+        attempts = [dict(a) for a in task.data["routing_attempts"]]
+        attempt = next(a for a in attempts if a["id"] == data["inbound_attempt"])
+        if attempt["state"] in SETTLED:
+            update(command, status="cancelled", reason="transfer_already_ended")
+            return False
+        if attempt.get("rep_id") and attempt["state"] == "prepared":
+            user = ops.required(service, s, "users", attempt["rep_id"], p)
+            presence = user.data.get("presence", {})
+            at = dt(presence.get("at"))
             if (
-                data.get("sent_at")
-                and hold
-                and hold.data.get("object_id") == task.id
-                and hold.data.get("work_kind") == "callback_" + data["action"]
-                and hold.data.get("provider") == "telnyx"
-                and hold.data.get("status") in {"uncertain", "submitted", "settled"}
+                user.data.get("disabled")
+                or presence.get("status") != "ready"
+                or not presence.get("audio_ready")
+                or not presence.get("telephony_ready")
+                or not at
+                or not 0 <= (service.clock() - at).total_seconds() <= 90
             ):
-                # dispatch_controls already verified the original target and bounded
-                # deduplication window. This reuses an effect, never authorizes a new one.
-                return True
-            if not self.reserve_budget_in(
-                s, p, key, estimate, object_id=task.id, work_kind="callback_" + data["action"]
-            ):
-                update(command, status="cancelled", reason="callback_budget_exhausted")
-                attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
-                for attempt in attempts:
-                    if attempt["id"] == data.get("inbound_attempt"):
-                        attempt["state"] = "cancelled"
+                attempt["state"] = "cancelled"
                 update(task, routing_attempts=attempts)
-                self._release_inbound_claim(s, task)
-                # No-cost fallback: end the answered call without paid transfer or speech, and keep
-                # an ordinary dated return-call task for the responsible rep (not a recovery item).
-                update(
-                    task,
-                    inbound_state="ending",
-                    status="open"
-                    if task.data["status"] not in {"completed", "cancelled"}
-                    else task.data["status"],
-                    action="Return call",
-                    owner_id=task.data.get("owner_id") or task.data.get("responsible_rep_id"),
-                    due_at=task.data.get("due_at") or self.clock().isoformat(),
-                    routing_fallback="budget_exhausted_no_cost",
-                )
-                self._inbound_command(s, p, task, "hangup", suffix="inbound-budget-end")
+                update(command, status="cancelled", reason="rep_unavailable_before_transfer")
+                ops._release_inbound_claim(service, s, task)
+                ops._route_inbound(service, s, p, task)
                 return False
-            hold = self._request_hold(s, p, key)
+        attempt["state"] = "sending"
+        update(
+            task,
+            routing_attempts=attempts,
+            inbound_state="ringing",
+            inbound_deadline=(
+                (dt(data.get("sent_at")) or service.clock())
+                + timedelta(seconds=task.data["routing_config"]["ring_seconds"] + 10)
+            ).isoformat(),
+        )
+    elif data["action"] == "speak":
+        update(
+            task,
+            inbound_state="notifying",
+            inbound_deadline=(
+                (dt(data.get("sent_at")) or service.clock()) + timedelta(seconds=30)
+            ).isoformat(),
+        )
+    if data["action"] in {"transfer", "speak"}:
+        rates = COSTS["callbacks"]
+        speech_rate = (
+            "telnyx_tts_per_character_usd"
+            if data["payload"].get("voice") == CUSTOM_GREETING_VOICE
+            else "standard_tts_per_character_usd"
+        )
+        estimate = (
+            rates["transfer_per_invocation_usd"]
+            if data["action"] == "transfer"
+            else len(data["payload"].get("payload", "")) * rates[speech_rate]
+        )
+        key = "inbound:" + command.id
+        hold = ops._request_hold(service, s, p, key)
+        if (
+            data.get("sent_at")
+            and hold
+            and hold.data.get("object_id") == task.id
+            and hold.data.get("work_kind") == "callback_" + data["action"]
+            and hold.data.get("provider") == "telnyx"
+            and hold.data.get("status") in {"uncertain", "submitted", "settled"}
+        ):
+            # dispatch_controls already verified the original target and bounded
+            # deduplication window. This reuses an effect, never authorizes a new one.
+            return True
+        if not ops.reserve_budget_in(
+            service, s, p, key, estimate, object_id=task.id, work_kind="callback_" + data["action"]
+        ):
+            update(command, status="cancelled", reason="callback_budget_exhausted")
+            attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
+            for attempt in attempts:
+                if attempt["id"] == data.get("inbound_attempt"):
+                    attempt["state"] = "cancelled"
+            update(task, routing_attempts=attempts)
+            ops._release_inbound_claim(service, s, task)
+            # No-cost fallback: end the answered call without paid transfer or speech, and keep
+            # an ordinary dated return-call task for the responsible rep (not a recovery item).
             update(
-                hold,
-                provider="telnyx",
-                status="uncertain",
-                kind="callback_" + data["action"],
-                submitted_at=self.clock().isoformat(),
+                task,
+                inbound_state="ending",
+                status="open"
+                if task.data["status"] not in {"completed", "cancelled"}
+                else task.data["status"],
+                action="Return call",
+                owner_id=task.data.get("owner_id") or task.data.get("responsible_rep_id"),
+                due_at=task.data.get("due_at") or service.clock().isoformat(),
+                routing_fallback="budget_exhausted_no_cost",
             )
-        return True
+            ops._inbound_command(service, s, p, task, "hangup", suffix="inbound-budget-end")
+            return False
+        hold = ops._request_hold(service, s, p, key)
+        update(
+            hold,
+            provider="telnyx",
+            status="uncertain",
+            kind="callback_" + data["action"],
+            submitted_at=service.clock().isoformat(),
+        )
+    return True

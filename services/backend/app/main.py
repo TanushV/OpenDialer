@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
-from app.administration import Dialer
+from app import ops
 from app.calling import audio_leg, detection, timeline
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.lead_lists import memberships
@@ -27,7 +27,7 @@ from app.platform.db import Database, Event, audit, doc, put, rows, update
 from app.preparation.templates import PreparationPolicy
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.scheduling.models import ContactRole, OutcomeCode
-from app.service import TEST_LIST, fail
+from app.service import TEST_LIST, AppState, fail
 from app.telephony.callbacks import CallbackRoutingEdit
 
 
@@ -389,7 +389,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     clock = clock or (lambda: datetime.now(UTC))
     db = Database(settings.database_url)
-    service = Dialer(db, settings, clock, carrier)
+    service = AppState(db, settings, clock, carrier)
     from app.leads.backfill import backfill_leads
 
     backfill_leads(db)
@@ -502,7 +502,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/setup")
     def setup(data: Setup, x_local_token: str | None = Header(default=None)):
         local_nonce(x_local_token)
-        return service.setup(data.model_dump())
+        return ops.setup(service, data.model_dump())
 
     @app.post("/v1/local/session")
     def local_session(x_local_token: str | None = Header(default=None)):
@@ -518,11 +518,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.get("/v1/quiescence")
     def quiescence(p=Depends(principal)):
         with db.transaction(False) as s:
-            return service.quiescence_in(s, p)
+            return ops.quiescence_in(service, s, p)
 
     @app.get("/v1/workspace")
     def workspace(p=Depends(principal)):
-        return service.snapshot(p)
+        return ops.snapshot(service, p)
 
     @app.get("/v1/workspace/{section}")
     def workspace_page(
@@ -533,40 +533,40 @@ def create_app(settings=None, *, clock=None, carrier=None):
         list_name: str | None = None,
         p=Depends(principal),
     ):
-        return service.workspace_page(p, section, cursor=cursor, q=q, filter=filter, list_name=list_name)
+        return ops.workspace_page(service, p, section, cursor=cursor, q=q, filter=filter, list_name=list_name)
 
     @app.post("/v1/simulation/seed")
     def seed(p=Depends(administrator)):
-        return service.seed(p)
+        return ops.seed(service, p)
 
     @app.post("/v1/rep/presence")
     def presence(data: Presence, p=Depends(principal)):
-        return service.presence(p, data.model_dump())
+        return ops.presence(service, p, data.model_dump())
 
     @app.post("/v1/queue/release")
     def release_reservation(p=Depends(principal)):
         with db.transaction() as s:
             db.authorize_stream(s, p)
-            service.release_unused_reservation_in(s, p)
+            ops.release_unused_reservation_in(service, s, p)
         return {"released": True}
 
     @app.post("/v1/queue/next")
     def next_lead(data: QueueNext, p=Depends(principal)):
-        if service.in_test_session(p):
+        if ops.in_test_session(service, p):
             # A test session offers only the Test line list; dialing refuses any other number too.
-            return service.reserve(p, data.campaign_id, [TEST_LIST], None)
-        return service.reserve(p, data.campaign_id, data.list_names, data.callback_lead_id)
+            return ops.reserve(service, p, data.campaign_id, [TEST_LIST], None)
+        return ops.reserve(service, p, data.campaign_id, data.list_names, data.callback_lead_id)
 
     @app.get("/v1/blockers")
     def calling_blockers(p=Depends(principal)):
         """What stops calling now, first to fix first; empty when the rep can dial (R4.3)."""
         with db.transaction(False) as s:
-            return {"blockers": [b.detail() for b in service.dial_blockers_in(s, p, rep=True)]}
+            return {"blockers": [b.detail() for b in ops.dial_blockers_in(service, s, p, rep=True)]}
 
     @app.get("/v1/calling/readiness")
     def calling_readiness(p=Depends(administrator)):
         """R9E.5: run the checks a dial would, while idle; the Dialer shows the result before Start."""
-        return service.calling_readiness(p)
+        return ops.calling_readiness(service, p)
 
     @app.get("/v1/review/issues")
     def review_issues(p=Depends(principal)):
@@ -576,34 +576,34 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction(False) as s:
             return {
                 "issues": issues(
-                    blockers=[b.detail() for b in service.dial_blockers_in(s, p, rep=False)],
-                    leads=[m.data for m in service.scoped(s, "leads", p)],
-                    calls=[m.data for m in service.scoped(s, "call_attempts", p)],
-                    tasks=[m.data for m in service.scoped(s, "followup_tasks", p)],
+                    blockers=[b.detail() for b in ops.dial_blockers_in(service, s, p, rep=False)],
+                    leads=[m.data for m in ops.scoped(service, s, "leads", p)],
+                    calls=[m.data for m in ops.scoped(service, s, "call_attempts", p)],
+                    tasks=[m.data for m in ops.scoped(service, s, "followup_tasks", p)],
                     now=service.clock(),
                 )
             }
 
     @app.post("/v1/calls/start")
     async def start_call(data: CallStart, p=Depends(principal)):
-        return await service.start_call(p, data.model_dump())
+        return await ops.start_call(service, p, data.model_dump())
 
     @app.get("/v1/settings/rows")
     def settings_rows(p=Depends(administrator)):
-        return service.setup_rows(p)
+        return ops.setup_rows(service, p)
 
     @app.post("/v1/settings/rows/{row_id}/check")
     async def check_settings_row(row_id: str, p=Depends(administrator)):
-        return await service.check_setup_row(p, row_id)
+        return await ops.check_setup_row(service, p, row_id)
 
     @app.post("/v1/settings/test-call")
     def start_test_call(p=Depends(administrator)):
         """R7.5: limit calling to the test phone; the Dialer then calls it."""
-        return service.start_test_session(p)
+        return ops.start_test_session(service, p)
 
     @app.delete("/v1/settings/test-call")
     def end_test_call(p=Depends(administrator)):
-        service.end_test_session(p)
+        ops.end_test_session(service, p)
         return {"test_session": False}
 
     @app.get("/v1/learning/summary")
@@ -613,24 +613,24 @@ def create_app(settings=None, *, clock=None, carrier=None):
         from app.platform.db import get
 
         with db.transaction(False) as s:
-            campaign = next(iter(service.scoped(s, "campaigns", p)), None)
+            campaign = next(iter(ops.scoped(service, s, "campaigns", p)), None)
             latest = (campaign.data.get("dataset_summaries") or [None])[-1] if campaign else None
             dataset = get(s, "learning_datasets", latest["id"], p["tenant_id"]) if latest else None
-            models = [m.data for m in service.scoped(s, "model_versions", p)]
-            required = service.optimization_config(s, p)["training_min_rows"] if campaign else 40
+            models = [m.data for m in ops.scoped(service, s, "model_versions", p)]
+            required = ops.optimization_config(service, s, p)["training_min_rows"] if campaign else 40
         return summary(dataset.data.get("rows", []) if dataset else [], models, required_rows=required)
 
     @app.get("/v1/calling/voicemail-report")
     def voicemail_report(p=Depends(principal)):
         """Voicemail detection against what the rep found when they stayed (R6.4)."""
         with db.transaction(False) as s:
-            return detection.report([doc(c) for c in service.scoped(s, "call_attempts", p)])
+            return detection.report([doc(c) for c in ops.scoped(service, s, "call_attempts", p)])
 
     @app.get("/v1/calls/{call_id}/timeline")
     def call_timeline(call_id: str, p=Depends(principal)):
         """What happened on one call, in order: its own steps, carrier events and sent commands (R4.12)."""
         with db.transaction(False) as s:
-            call = service.required(s, "call_attempts", call_id, p)
+            call = ops.required(service, s, "call_attempts", call_id, p)
             return {"call_id": call_id, "entries": timeline.for_call(s, p, call)}
 
     @app.get("/v1/calls/{call_id}")
@@ -639,15 +639,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
         from app.aftercall.summary import suggestion
 
         with db.transaction(False) as s:
-            call = service.required(s, "call_attempts", call_id, p)
+            call = ops.required(service, s, "call_attempts", call_id, p)
             tip, helper = live_help.view(service, call)
-            segments = service.transcript_rows(s, p, call_id)
-            summary = service.call_summary(s, p, call_id)
+            segments = ops.transcript_rows(service, s, p, call_id)
+            summary = ops.call_summary(service, s, p, call_id)
             return {
                 **{k: v for k, v in doc(call).items() if k != "recording_url"},
                 "aftercall": summary,
                 "transcript": segments,
-                "raw_evidence_status": service.raw_status(call, segments),
+                "raw_evidence_status": ops.raw_status(service, call, segments),
                 "coach": tip,
                 "helper_status": helper,
                 "suggested_outcome": suggestion(summary),
@@ -655,35 +655,35 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/calls/{call_id}/stay")
     def stay_on_call(call_id: str, p=Depends(principal)):
-        return service.stay_on_call(p, call_id)
+        return ops.stay_on_call(service, p, call_id)
 
     @app.post("/v1/calls/{call_id}/hangup")
     async def hangup(call_id: str, p=Depends(principal)):
-        return await service.hangup(p, call_id)
+        return await ops.hangup(service, p, call_id)
 
     @app.delete("/v1/calls/{call_id}/transcript")
     def delete_transcript(call_id: str, p=Depends(principal)):
         """R10.5: the rep deletes a call's saved transcript now instead of waiting 30 days."""
         with db.transaction() as s:
-            service.required(s, "call_attempts", call_id, p)
-            service.forget_transcript(s, p, call_id)
+            ops.required(service, s, "call_attempts", call_id, p)
+            ops.forget_transcript(service, s, p, call_id)
         return {"deleted": True}
 
     @app.post("/v1/calls/{call_id}/disposition")
     def disposition(call_id: str, data: Disposition, p=Depends(principal)):
-        saved = service.save_disposition(p, call_id, data.model_dump(mode="json"))
-        if saved.get("is_test") and service.in_test_session(p):
+        saved = ops.save_disposition(service, p, call_id, data.model_dump(mode="json"))
+        if saved.get("is_test") and ops.in_test_session(service, p):
             # A test call is one call: once its outcome is saved, normal calling is back.
-            service.end_test_session(p)
+            ops.end_test_session(service, p)
         return saved
 
     @app.post("/v1/leads/{lead_id}/meeting")
     def report_meeting(lead_id: str, data: MeetingEdit, p=Depends(principal)):
-        return service.report_meeting(p, lead_id, data.model_dump(mode="json", exclude_unset=True))
+        return ops.report_meeting(service, p, lead_id, data.model_dump(mode="json", exclude_unset=True))
 
     @app.post("/v1/suppressions")
     def suppress(data: Suppress, p=Depends(principal)):
-        return service.suppress(p, data.phone, data.reason, event_id=data.event_id)
+        return ops.suppress(service, p, data.phone, data.reason, event_id=data.event_id)
 
     @app.post("/v1/admin/suppressions/release-hold")
     def release_hold(data: HoldRelease, p=Depends(administrator)):
@@ -695,19 +695,19 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def lists(
         list_names: list[str] | None = Query(default=None), selected: bool = False, p=Depends(principal)
     ):
-        return service.list_summary(p, ([] if selected else None) if list_names is None else list_names)
+        return ops.list_summary(service, p, ([] if selected else None) if list_names is None else list_names)
 
     @app.patch("/v1/lists")
     def manage_list(data: ListEdit, p=Depends(administrator)):
-        return service.manage_list(p, data.model_dump())
+        return ops.manage_list(service, p, data.model_dump())
 
     @app.post("/v1/leads/bulk")
     def bulk_leads(data: BulkLeadEdit, p=Depends(administrator)):
-        return service.bulk_leads(p, data.model_dump())
+        return ops.bulk_leads(service, p, data.model_dump())
 
     @app.post("/v1/leads/import")
     def import_leads(data: ImportLeads, p=Depends(administrator)):
-        return service.import_leads(p, data.model_dump())
+        return ops.import_leads(service, p, data.model_dump())
 
     @app.get("/v1/hubspot/lists")
     async def hubspot_lists(p=Depends(administrator)):
@@ -735,23 +735,23 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.get("/v1/leads/{lead_id}/packet")
     def packet(lead_id: str, p=Depends(principal)):
-        return service.packet(p, lead_id)
+        return ops.packet(service, p, lead_id)
 
     @app.get("/v1/preparation")
     def preparation(p=Depends(principal)):
-        return service.preparation_status(p)
+        return ops.preparation_status(service, p)
 
     @app.post("/v1/research/batches")
     def research(data: ResearchBatch, p=Depends(administrator)):
-        return service.prepare_list(p, lead_ids=data.lead_ids)
+        return ops.prepare_list(service, p, lead_ids=data.lead_ids)
 
     @app.post("/v1/preparation/lists")
     def prepare_list(data: PrepareList, p=Depends(administrator)):
-        return service.prepare_list(p, data.list_name)
+        return ops.prepare_list(service, p, data.list_name)
 
     @app.post("/v1/preparation/rewrite")
     def rewrite_scripts(data: RewriteScripts, p=Depends(administrator)):
-        return service.rewrite_scripts(p, **data.model_dump())
+        return ops.rewrite_scripts(service, p, **data.model_dump())
 
     @app.get("/v1/preparation/estimate")
     def preparation_estimate(list_name: str | None = None, p=Depends(administrator)):
@@ -782,34 +782,34 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/preparation/lists/release")
     def release_list(data: PrepareList, p=Depends(administrator)):
-        return service.release_list(p, data.list_name)
+        return ops.release_list(service, p, data.list_name)
 
     @app.post("/v1/preparation/resume")
     def resume_preparation(p=Depends(administrator)):
-        return service.resume_preparation(p)
+        return ops.resume_preparation(service, p)
 
     @app.put("/v1/admin/preparation")
     def preparation_settings(data: PreparationPolicy, p=Depends(administrator)):
         with db.transaction() as s:
             db.authorize_stream(s, p)
-            seller = service.required(s, "sellers", p["seller_id"], p)
+            seller = ops.required(service, s, "sellers", p["seller_id"], p)
             policy = dict(seller.data.get("operating_policy", {}))
             policy["preparation"] = data.model_dump()
             update(seller, operating_policy=policy)
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "preparation.updated", seller.id, clock())
-        service.prepare_tick(p)
+        ops.prepare_tick(service, p)
         return data.model_dump()
 
     @app.post("/v1/calls/{call_id}/transcript")
     async def transcript(call_id: str, data: Transcript, p=Depends(principal)):
         # Synthetic/manual corrections only. Live machine ingestion is signature-verified via webhooks.
-        return await service.transcript(p, call_id, data.model_dump())
+        return await ops.transcript(service, p, call_id, data.model_dump())
 
     @app.patch("/v1/calls/{call_id}/coach")
     def coach_preferences(call_id: str, data: CoachPreferences, p=Depends(principal)):
         """Mute automatic tips on this call, or dismiss the tip shown."""
         with db.transaction() as s:
-            call = service.required(s, "call_attempts", call_id, p)
+            call = ops.required(service, s, "call_attempts", call_id, p)
             preferences = dict(call.data.get("coach_preferences", {}))
             if data.muted is not None:
                 preferences["muted"] = data.muted
@@ -823,7 +823,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
         from app import live_help
 
         with db.transaction(False) as s:
-            service.required(s, "call_attempts", call_id, p)
+            ops.required(service, s, "call_attempts", call_id, p)
         return await live_help.turn(
             service,
             p,
@@ -842,17 +842,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def retry_summary(call_id: str, p=Depends(principal)):
         """R10.4: a summary that failed is written again on request; nothing else is redone."""
         with db.transaction() as s:
-            call = service.required(s, "call_attempts", call_id, p)
-            service.enqueue_aftercall(s, p, call, retry=True)
+            call = ops.required(service, s, "call_attempts", call_id, p)
+            ops.enqueue_aftercall(service, s, p, call, retry=True)
         return {"queued": True}
 
     @app.get("/v1/calls/{call_id}/review")
     def call_review(call_id: str, p=Depends(principal)):
-        return service.call_review(p, call_id)
+        return ops.call_review(service, p, call_id)
 
     @app.patch("/v1/calls/{call_id}/notes")
     def edit_notes(call_id: str, data: NoteEdit, p=Depends(principal)):
-        return service.edit_notes(p, call_id, data.text)
+        return ops.edit_notes(service, p, call_id, data.text)
 
     # The live stream's read, also served over HTTP for catch-up and tests.
     @app.get("/v1/events")
@@ -941,18 +941,18 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def simulation_event(data: SimulationEvent, p=Depends(principal)):
         if not settings.simulation:
             fail(403, "Simulation is disabled")
-        result = service.event(p, data.event_id, data.event_type, data.call_id, data.payload)
+        result = ops.event(service, p, data.event_id, data.event_type, data.call_id, data.payload)
         if saved := result.pop("save_outcome", None):
-            service.auto_disposition(*saved)
+            ops.auto_disposition(service, *saved)
         return result
 
     @app.post("/v1/telephony/token")
     async def telephony_token(p=Depends(principal)):
         def context():
-            provider = service.carrier(p["tenant_id"])
+            provider = ops.carrier(service, p["tenant_id"])
             conf = service.configs.read(p["tenant_id"])
             with db.transaction(False) as s:
-                user = service.required(s, "users", p["user_id"], p)
+                user = ops.required(service, s, "users", p["user_id"], p)
                 credential = user.data.get("telephony_credential_id") or conf.get("telephony_credential_id")
                 sip = user.data.get("sip_username") or conf.get("sip_username")
             return provider, credential, sip
@@ -970,31 +970,31 @@ def create_app(settings=None, *, clock=None, carrier=None):
         body.pop("expected_version", None)
         # Versions are immutable: only the current policy is edited; publishing makes the next version.
         with db.transaction(False) as s:
-            policy = service.required(s, "policy_versions", policy_id, p)
-            campaign = service.required(s, "campaigns", policy.data["campaign_id"], p)
+            policy = ops.required(service, s, "policy_versions", policy_id, p)
+            campaign = ops.required(service, s, "campaigns", policy.data["campaign_id"], p)
             if campaign.data["policy_id"] != policy.id:
                 fail(
                     409,
                     "POLICY_VERSION_CONFLICT: a newer calling policy is current; reload it before publishing",
                 )
-        return service.publish(p, policy_id, body)
+        return ops.publish(service, p, policy_id, body)
 
     @app.get("/v1/admin/preflight")
     def preflight(deep: bool = False, p=Depends(administrator)):
-        return service.preflight(p, deep=deep)
+        return ops.preflight(service, p, deep=deep)
 
     @app.get("/v1/admin/callback-routing")
     def callback_routing(p=Depends(administrator)):
-        return service.read_callback_routing(p)
+        return ops.read_callback_routing(service, p)
 
     @app.put("/v1/admin/callback-routing")
     def write_callback_routing(data: CallbackRoutingEdit, p=Depends(administrator)):
-        return service.edit_callback_routing(p, data.model_dump(exclude_none=True))
+        return ops.edit_callback_routing(service, p, data.model_dump(exclude_none=True))
 
     @app.post("/v1/callbacks/{task_id}/hangup")
     async def end_callback(task_id: str, p=Depends(principal)):
-        result = await asyncio.to_thread(service.end_inbound, p, task_id)
-        await service.dispatch_controls(p)
+        result = await asyncio.to_thread(ops.end_inbound, service, p, task_id)
+        await ops.dispatch_controls(service, p)
         return result
 
     @app.get("/v1/definitions")
@@ -1013,13 +1013,13 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
         config = service.configs.read(p["tenant_id"])
         with db.transaction(False) as s:
-            budget = service.scoped(s, "budgets", p)[0]
+            budget = ops.scoped(service, s, "budgets", p)[0]
             # Older stores have daily/monthly limits and no per-list budget; defaults fill the gap.
             budget_values = Budget.model_validate(
                 {key: budget.data[key] for key in Budget.model_fields if key in budget.data}
             ).model_dump()
             # Current campaign goal and weekly schedule for the setup checklist.
-            optimization = service.optimization_config(s, p)
+            optimization = ops.optimization_config(service, s, p)
         return {
             **{k: v for k, v in config.items() if k not in SECRET_FIELDS and not k.startswith("_")},
             "configured": {k: bool(config.get(k)) for k in SECRET_FIELDS},
@@ -1060,7 +1060,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             fail(422, "Provider edits require request_id and expected_version together")
         if values.get("dnc_seller_authorization"):
             values["dnc_seller_authorization"]["seller_id"] = p["seller_id"]
-        if values.get("test_session") and not (values.get("test_phone") or service.test_phone(p)):
+        if values.get("test_session") and not (values.get("test_phone") or ops.test_phone(service, p)):
             fail(409, "Type your phone number in Test phone first")
         from urllib.parse import urlsplit
 
@@ -1082,7 +1082,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     fail(422, "Remote provider endpoints require HTTPS")
         with db.transaction() as s:
             db.authorize_stream(s, p)
-            service._restore_operator(s, p)
+            ops._restore_operator(service, s, p)
             previous_route = service.configs.read(p["tenant_id"]).get("telnyx_connection_id")
             service.configs.write(
                 p["tenant_id"],
@@ -1102,36 +1102,38 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 {"fields": sorted(values)},
             )
         if previous_route and values.get("telnyx_connection_id") not in {None, previous_route}:
-            service.forget_workspace_test(p["tenant_id"])
+            ops.forget_workspace_test(service, p["tenant_id"])
         return read_settings(p)
 
     @app.put("/v1/admin/budget")
     def budget(data: Budget, p=Depends(administrator)):
         with db.transaction() as s:
-            obj = service.scoped(s, "budgets", p)[0]
+            obj = ops.scoped(service, s, "budgets", p)[0]
             update(obj, **data.model_dump())
             audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "budget.updated", obj.id, clock())
             return doc(obj)
 
     @app.post("/v1/admin/numbers/add")
     async def add_owned_number(data: OwnedNumber, p=Depends(administrator)):
-        return await service.add_owned_number(p, data.phone, move_from_other_app=data.move_from_other_app)
+        return await ops.add_owned_number(
+            service, p, data.phone, move_from_other_app=data.move_from_other_app
+        )
 
     @app.put("/v1/admin/numbers/spend-cap")
     async def spend_cap(data: SpendCap, p=Depends(administrator)):
-        return await service.save_spend_cap(p, data.daily_usd)
+        return await ops.save_spend_cap(service, p, data.daily_usd)
 
     @app.put("/v1/admin/caller-name")
     async def caller_name(data: CallerName, p=Depends(administrator)):
-        return await service.save_caller_name(p, data.name)
+        return await ops.save_caller_name(service, p, data.name)
 
     @app.get("/v1/admin/numbers/registry-export")
     def registry_export(p=Depends(administrator)):
-        return service.registry_export(p)
+        return ops.registry_export(service, p)
 
     @app.post("/v1/admin/leads/{lead_id}/carrier-lookup")
     async def carrier_lookup(lead_id: str, data: CarrierLookup, p=Depends(administrator)):
-        return await service.lookup_lead_carrier(p, lead_id)
+        return await ops.lookup_lead_carrier(service, p, lead_id)
 
     @app.get("/v1/admin/numbers/summary")
     def numbers_summary(list_name: str | None = None, p=Depends(administrator)):
@@ -1144,17 +1146,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
         from app.platform.db import MODELS
 
         with db.transaction(False) as s:
-            numbers = service.scoped(s, "number_inventory", p)
+            numbers = ops.scoped(service, s, "number_inventory", p)
             lifecycles = Counter(n.data["lifecycle"] for n in numbers)
-            ready = sum(bool(service.number_readiness_in(s, p, n)["outbound_ready"]) for n in numbers)
-            test_passed = service.workspace_test_passed(s, p)
+            ready = sum(bool(ops.number_readiness_in(service, s, p, n)["outbound_ready"]) for n in numbers)
+            test_passed = ops.workspace_test_passed(service, s, p)
             binding = MODELS["lead_number_bindings"]
             stable = s.scalar(
                 select(func.count())
                 .select_from(binding)
                 .where(binding.tenant_id == p["tenant_id"], binding.seller_id == p["seller_id"])
             )
-            campaign = service.selected_campaign(s, p)
+            campaign = ops.selected_campaign(service, s, p)
             model = MODELS["leads"]
             lists = sorted(
                 s.scalars(
@@ -1203,15 +1205,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
         }
         if set(data) - allowed:
             fail(422, "Unrecognized number settings")
-        return service.edit_number(p, number_id, data)
+        return ops.edit_number(service, p, number_id, data)
 
     @app.post("/v1/admin/numbers/sync")
     async def sync_numbers(p=Depends(administrator)):
-        return await service.sync_numbers(p)
+        return await ops.sync_numbers(service, p)
 
     @app.post("/v1/admin/numbers/{number_id}/configure")
     async def configure_number(number_id: str, data: dict | None = None, p=Depends(administrator)):
-        return await service.configure_owned_number(p, number_id, data)
+        return await ops.configure_owned_number(service, p, number_id, data)
 
     @app.post("/v1/admin/numbers/search")
     async def search_numbers(data: dict, p=Depends(administrator)):
@@ -1235,10 +1237,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
             def areas_for_list():
                 with db.transaction(False) as s:
-                    campaign = service.selected_campaign(s, p)
+                    campaign = ops.selected_campaign(service, s, p)
                     leads = [
                         r.data
-                        for r in service.scoped(s, "leads", p)
+                        for r in ops.scoped(service, s, "leads", p)
                         if r.data["campaign_id"] == campaign.id
                         and (data.get("list_name") is None or data["list_name"] in memberships(r.data))
                     ]
@@ -1265,7 +1267,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return not city or not place or place.casefold().startswith(city.casefold())
 
         found, refused = [], 0
-        carrier = service.carrier(p["tenant_id"])
+        carrier = ops.carrier(service, p["tenant_id"])
         # One at a time: Telnyx rate limits bursts, and one refused area code must not lose the rest.
         for area in areas:
             try:
@@ -1332,9 +1334,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.get("/v1/admin/numbers/orders")
     def number_orders(p=Depends(administrator)):
         with db.transaction(False) as s:
-            owned = {n.data["phone"]: n.data for n in service.scoped(s, "number_inventory", p)}
+            owned = {n.data["phone"]: n.data for n in ops.scoped(service, s, "number_inventory", p)}
             orders = []
-            for row in service.purchase_orders_in(s, p):
+            for row in ops.purchase_orders_in(service, s, p):
                 number = owned.get(row.data["phone"], {})
                 status = number.get("provider_status") if number.get("provider_present") is True else None
                 ready = (
@@ -1350,45 +1352,45 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def purchase_number(data: NumberPurchase, p=Depends(administrator)):
         if not data.approve_recurring:
             fail(422, "Approve the displayed number and its recurring rental before ordering")
-        return await service.purchase_number(p, str(data.quote_id))
+        return await ops.purchase_number(service, p, str(data.quote_id))
 
     @app.post("/v1/admin/numbers/orders/{order_id}/reconcile")
     async def reconcile_number_order(order_id: str, p=Depends(administrator)):
-        return await service.reconcile_number_order(p, order_id)
+        return await ops.reconcile_number_order(service, p, order_id)
 
     @app.post("/v1/admin/recovery")
     async def recovery(p=Depends(administrator)):
-        return await service.recover(p)
+        return await ops.recover(service, p)
 
     @app.get("/v1/admin/recovery")
     def recovery_items(p=Depends(administrator)):
-        return service.recovery_items(p)
+        return ops.recovery_items(service, p)
 
     @app.post("/v1/admin/recovery/commands/{identity}")
     async def recovery_action(identity: str, data: RecoveryEdit, p=Depends(administrator)):
-        return await service.recovery_action(p, identity, **data.model_dump())
+        return await ops.recovery_action(service, p, identity, **data.model_dump())
 
     @app.post("/v1/admin/recovery/agents/{identity}")
     async def recover_agent(identity: str, data: RecoveryEdit, p=Depends(administrator)):
         if data.action != "reconcile":
             fail(422, "Agent recovery requires carrier reconciliation")
-        return await service.reconcile_agent(p, identity, data.expected_version, data.provider_id)
+        return await ops.reconcile_agent(service, p, identity, data.expected_version, data.provider_id)
 
     @app.post("/v1/admin/recovery/jobs/{identity}/retry")
     def retry_job(identity: str, data: JobRetry, p=Depends(administrator)):
-        return service.retry_job(p, identity, data.expected_attempts)
+        return ops.retry_job(service, p, identity, data.expected_attempts)
 
     @app.post("/v1/admin/jobs/run")
     async def run_jobs(p=Depends(administrator)):
-        return await service.run_jobs(p["tenant_id"])
+        return await ops.run_jobs(service, p["tenant_id"])
 
     @app.post("/v1/admin/backup")
     def backup(p=Depends(administrator)):
-        return service.backup(p)
+        return ops.backup(service, p)
 
     @app.post("/v1/admin/restore")
     def restore(data: dict, p=Depends(administrator)):
-        return service.restore(p, data.get("backup_id", ""))
+        return ops.restore(service, p, data.get("backup_id", ""))
 
     @app.patch("/v1/leads/{lead_id}/endpoint")
     def correct_endpoint(lead_id: str, data: dict, p=Depends(administrator)):
@@ -1399,9 +1401,13 @@ def create_app(settings=None, *, clock=None, carrier=None):
         if not phone.e164 or not data.get("evidence"):
             fail(422, "A valid replacement endpoint and evidence reference are required")
         with db.transaction() as session:
-            lead = service.required(session, "leads", lead_id, p)
+            lead = ops.required(service, session, "leads", lead_id, p)
             endpoint = next(
-                (r for r in service.scoped(session, "phone_endpoints", p) if r.data["phone"] == phone.e164),
+                (
+                    r
+                    for r in ops.scoped(service, session, "phone_endpoints", p)
+                    if r.data["phone"] == phone.e164
+                ),
                 None,
             )
             if not endpoint:
@@ -1460,19 +1466,19 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.patch("/v1/tasks/{task_id}")
     def task_status(task_id: str, data: TaskEdit, p=Depends(principal)):
-        return service.edit_task(p, task_id, data.model_dump(mode="json", exclude_unset=True))
+        return ops.edit_task(service, p, task_id, data.model_dump(mode="json", exclude_unset=True))
 
     @app.patch("/v1/leads/{lead_id}/outreach")
     def review_outreach(lead_id: str, data: OutreachEdit, p=Depends(principal)):
-        return service.resolve_goal_review(p, lead_id, data.model_dump(mode="json", exclude_unset=True))
+        return ops.resolve_goal_review(service, p, lead_id, data.model_dump(mode="json", exclude_unset=True))
 
     @app.post("/v1/calls/{call_id}/dtmf")
     async def dtmf(call_id: str, data: KeypadRequest, p=Depends(principal)):
-        return await service.send_keypad(p, call_id, data.digits, data.idempotency_key)
+        return await ops.send_keypad(service, p, call_id, data.digits, data.idempotency_key)
 
     @app.get("/v1/calls/{call_id}/dtmf/{request_id}")
     def keypad_status(call_id: str, request_id: str, p=Depends(principal)):
-        return service.keypad_status(p, call_id, request_id)
+        return ops.keypad_status(service, p, call_id, request_id)
 
     @app.post("/v1/telephony/agent")
     async def agent_leg(p=Depends(principal)):
@@ -1488,7 +1494,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/control/run")
     async def control_run(p=Depends(administrator)):
-        return await service.dispatch_controls(p)
+        return await ops.dispatch_controls(service, p)
 
     @app.post("/v1/admin/models/{model_id}/rollback")
     def rollback_model(model_id: str, data: dict, p=Depends(administrator)):
@@ -1496,7 +1502,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
             fail(422, "Rollback reason required")
         with db.transaction() as session:
             if model_id == "baseline":
-                for item in service.scoped(session, "model_versions", p):
+                for item in ops.scoped(service, session, "model_versions", p):
                     update(item, active=False, trial_active=False)
                 audit(
                     session,
@@ -1508,9 +1514,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     clock(),
                 )
                 return {"active": "pooled-funnel-v3"}
-            model = service.required(session, "model_versions", model_id, p)
-            if not model.data.get("ever_activated") or not service.model_source_current(
-                session, p, model, service.optimization_config(session, p)
+            model = ops.required(service, session, "model_versions", model_id, p)
+            if not model.data.get("ever_activated") or not ops.model_source_current(
+                service, session, p, model, ops.optimization_config(service, session, p)
             ):
                 fail(
                     409,
@@ -1523,7 +1529,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
                     409,
                     "Rollback artifact is unavailable or failed verification; use the pooled baseline",
                 )
-            for item in service.scoped(session, "model_versions", p):
+            for item in ops.scoped(service, session, "model_versions", p):
                 update(item, active=item.id == model.id, trial_active=False)
             audit(
                 session,
@@ -1539,7 +1545,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/admin/restore/reconcile")
     async def reconcile_restore(data: dict, p=Depends(administrator)):
-        return await service.reconcile_restore(p, data.get("review_reference"), data.get("provider_ids"))
+        return await ops.reconcile_restore(service, p, data.get("review_reference"), data.get("provider_ids"))
 
     from app.optimization.api import register_optimization
     from app.optimization.script_lab import register_script_lab

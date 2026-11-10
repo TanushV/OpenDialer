@@ -1,5 +1,6 @@
 """R8.8: the learning card says what has been learned, from real calls only."""
 
+from app import ops
 from app.learning.summary import summary
 
 
@@ -61,8 +62,8 @@ def test_a_campaign_saved_with_the_old_hundred_call_start_moves_to_the_new_one(w
 
     service, db, p = app.state.service, app.state.service.db, principal(workspace)
     with db.transaction() as s:
-        campaign = service.selected_campaign(s, p)
+        campaign = ops.selected_campaign(service, s, p)
         saved = {**campaign.data.get("optimization", {}), "training_min_rows": 100}
         campaign.data = {**campaign.data, "optimization": saved}
     with db.transaction(False) as s:
-        assert service.optimization_config(s, p)["training_min_rows"] == 40
+        assert ops.optimization_config(service, s, p)["training_min_rows"] == 40

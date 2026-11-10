@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app import ops
 from app.platform.db import uid
 from app.providers.inference import InferenceResult
 
@@ -126,16 +127,16 @@ def require_review(request, receipt):
 async def review_generated(service, p, request, *, object_id, role, seconds=15):
     """Optional background work only; never a mandatory second live-coach round trip."""
     deadline = time.monotonic() + min(15, seconds)
-    provider = service.inference(p["tenant_id"], role, p["user_id"])
+    provider = ops.inference(service, p["tenant_id"], role, p["user_id"])
     if not provider or seconds <= 0:
         raise ValueError("Meaning review unavailable before evidence expiry")
     key = f"review:{object_id}:{request['fingerprint']}:{uid()}"
     if not await asyncio.to_thread(
-        service.reserve_optional_budget, p, key, 0.10, object_id=object_id, work_kind="grounding_review"
+        ops.reserve_optional_budget, service, p, key, 0.10, object_id=object_id, work_kind="grounding_review"
     ):
         raise ValueError("Meaning review exceeds the authorized optional budget")
     if time.monotonic() >= deadline:
-        await asyncio.to_thread(service.release_unsubmitted_budget, p, key)
+        await asyncio.to_thread(ops.release_unsubmitted_budget, service, p, key)
         raise ValueError("Meaning review evidence expired before submission")
     try:
         async with asyncio.timeout(deadline - time.monotonic()):
@@ -144,7 +145,8 @@ async def review_generated(service, p, request, *, object_id, role, seconds=15):
         # Cancellation/timeout does not prove that the upstream request was free.
         await asyncio.shield(
             asyncio.to_thread(
-                service.usage,
+                ops.usage,
+                service,
                 p,
                 getattr(provider, "billing", "openai"),
                 "grounding_review",
@@ -156,7 +158,8 @@ async def review_generated(service, p, request, *, object_id, role, seconds=15):
         )
         raise
     await asyncio.to_thread(
-        service.usage,
+        ops.usage,
+        service,
         p,
         getattr(provider, "billing", "openai"),
         "grounding_review",

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
+from app import ops
 from app.compliance.policy import CallContext, authorize
 from journey import get, post, start
 
@@ -46,7 +47,9 @@ def test_saved_drop_commands_cannot_play_after_update(workspace, app, carrier, a
     p = {key: workspace[key] for key in ("tenant_id", "seller_id", "user_id")} | {"role": "owner"}
     with app.state.db.transaction() as s:
         update(row(s, "call_attempts", started["id"]), state="VM_PENDING", voicemail_asset="old-asset")
-        service.control_intent(s, p, started["id"], action, {"media_name": "old-asset"}, suffix="old-drop")
+        ops.control_intent(
+            service, s, p, started["id"], action, {"media_name": "old-asset"}, suffix="old-drop"
+        )
     post(workspace, "/v1/admin/control/run", {})
     assert not any(item["action"] == "playback_start" for item in carrier.actions)
     assert not any(item["action"] == "gather" for item in carrier.actions)

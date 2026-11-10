@@ -6,6 +6,7 @@ archived lead, so it never joined the Test line list, and at 3 AM Eastern the ca
 
 from datetime import UTC, datetime
 
+from app import ops
 from conftest import ready
 from helpers import finish
 
@@ -56,7 +57,9 @@ def test_a_test_call_revives_an_archived_lead_with_the_same_number(workspace, ap
         from helpers import principal
 
         lead = next(
-            m for m in app.state.service.scoped(s, "leads", principal(workspace)) if m.data["phone"] == PHONE
+            m
+            for m in ops.scoped(app.state.service, s, "leads", principal(workspace))
+            if m.data["phone"] == PHONE
         )
     archived = client.post(
         "/v1/leads/bulk", headers=headers, json={"lead_ids": [lead.id], "action": "archive"}
@@ -79,7 +82,7 @@ def test_saving_the_test_call_outcome_ends_the_test_session(workspace, app):
     ).json()
     assert call["is_test"] is True
     finish(workspace, call, "no_answer")
-    assert app.state.service.in_test_session({"tenant_id": workspace["tenant_id"]}) is False
+    assert ops.in_test_session(app.state.service, {"tenant_id": workspace["tenant_id"]}) is False
 
 
 def test_a_test_session_without_a_test_phone_is_off(workspace, app):
@@ -87,7 +90,7 @@ def test_a_test_session_without_a_test_phone_is_off(workspace, app):
     assert client.put("/v1/admin/settings", headers=headers, json={"test_session": True}).status_code == 409
     # An older workspace saved with the flag but no phone (the owner's, November 9) reads as off.
     app.state.service.configs.write(workspace["tenant_id"], {"test_session": True})
-    assert app.state.service.in_test_session({"tenant_id": workspace["tenant_id"]}) is False
+    assert ops.in_test_session(app.state.service, {"tenant_id": workspace["tenant_id"]}) is False
 
 
 def test_an_empty_queue_says_why(workspace, clock):

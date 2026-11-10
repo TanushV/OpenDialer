@@ -8,6 +8,7 @@ from pathlib import Path
 from time import monotonic
 
 import pytest
+from app import ops
 from app.platform.db import MODELS, Job, get
 from conftest import ready, reserve, start
 from sqlalchemy import select
@@ -115,8 +116,8 @@ async def test_an_ended_agent_leg_keeps_the_rep_ready_for_the_next_call(workspac
         "event_type": "call.hangup",
         "payload": {"call_control_id": leg, "hangup_cause": "normal_clearing", "hangup_source": "caller"},
     }
-    await service.accept_webhook(workspace["tenant_id"], event, "agent-hash", verified=True)
-    await service.run_jobs(queues=["webhook"])
+    await ops.accept_webhook(service, workspace["tenant_id"], event, "agent-hash", verified=True)
+    await ops.run_jobs(service, queues=["webhook"])
     with service.db.transaction(False) as s:
         presence = get(s, "users", workspace["user_id"], workspace["tenant_id"]).data["presence"]
     assert presence["status"] == "ready"
@@ -143,8 +144,8 @@ async def test_the_reps_own_sip_leg_finishes_without_a_failed_job(workspace, app
             "hangup_source": sip_leg["hangup_source"],
         },
     }
-    await service.accept_webhook(workspace["tenant_id"], event, "sip-hash", verified=True)
-    await service.run_jobs(queues=["webhook"])
+    await ops.accept_webhook(service, workspace["tenant_id"], event, "sip-hash", verified=True)
+    await ops.run_jobs(service, queues=["webhook"])
     with service.db.transaction(False) as s:
         receipt = s.scalar(select(MODELS["webhook_inbox"]))
         assert receipt.data["status"] == "ignored"

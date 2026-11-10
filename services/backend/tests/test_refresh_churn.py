@@ -7,6 +7,7 @@ On 1.0.1 a refresh was queued every ten minutes whatever happened: 1,076 of 1,09
 from datetime import timedelta
 
 import pytest
+from app import ops
 from app.platform.db import Event, Job
 from conftest import start
 from sqlalchemy import func, select
@@ -27,9 +28,9 @@ def updated_events(service):
 
 
 async def settle(service):
-    service.schedule_optimization()
+    ops.schedule_optimization(service)
     for _ in range(3):
-        await service.run_jobs(queues=["ml"])
+        await ops.run_jobs(service, queues=["ml"])
 
 
 def finalize_one(workspace, key):
@@ -60,7 +61,7 @@ async def test_an_idle_workspace_queues_no_refreshes(workspace, app, clock):
     before = len(refresh_jobs(service))
     for _ in range(30):
         clock.now += timedelta(minutes=1)
-        service.schedule_optimization()
+        ops.schedule_optimization(service)
     assert len(refresh_jobs(service)) == before
 
 
@@ -72,13 +73,13 @@ async def test_a_finalized_call_queues_one_refresh_within_the_minute(workspace, 
     finalize_one(workspace, "churn-call")
     # The next maintenance tick, a minute on, picks it up; a second tick in that minute adds nothing.
     clock.now += timedelta(minutes=1)
-    service.schedule_optimization()
-    service.schedule_optimization()
+    ops.schedule_optimization(service)
+    ops.schedule_optimization(service)
     assert len(refresh_jobs(service)) == before + 1
     for _ in range(3):
-        await service.run_jobs(queues=["ml"])
+        await ops.run_jobs(service, queues=["ml"])
     clock.now += timedelta(minutes=5)
-    service.schedule_optimization()
+    ops.schedule_optimization(service)
     assert len(refresh_jobs(service)) == before + 1
 
 
@@ -92,7 +93,7 @@ async def test_a_refresh_that_changes_nothing_emits_no_update(workspace, app, cl
         "user_id": workspace["user_id"],
         "role": "owner",
     }
-    service.refresh_optimization_job(p)  # The first refresh records the first learning snapshot.
+    ops.refresh_optimization_job(service, p)  # The first refresh records the first learning snapshot.
     quiet = updated_events(service)
-    service.refresh_optimization_job(p)
+    ops.refresh_optimization_job(service, p)
     assert updated_events(service) == quiet

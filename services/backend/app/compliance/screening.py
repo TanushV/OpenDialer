@@ -9,6 +9,7 @@ from fastapi import Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from app import ops
 from app.compliance.operating import (
     COSTS,
     ScreeningRequest,
@@ -39,7 +40,7 @@ class ScreeningRetry(BaseModel):
 
 def active_admin(service, s, p):
     """One user (R3.4): the signed-in user may always act."""
-    return service.required(s, "users", p["user_id"], p) is not None
+    return ops.required(service, s, "users", p["user_id"], p) is not None
 
 
 def lease_active(service, data):
@@ -90,7 +91,7 @@ def claim(service, p, phone=None, identity=None, retry=None):
             fail(403, "An active administrator is required for prepaid screening")
         model = MODELS["registry_snapshots"]
         row = (
-            service.required(s, "registry_snapshots", identity, p)
+            ops.required(service, s, "registry_snapshots", identity, p)
             if identity
             else s.scalar(
                 select(model).where(
@@ -109,7 +110,7 @@ def claim(service, p, phone=None, identity=None, retry=None):
                 return None, view(service, row, config, max_age), None
             if row.version != retry.expected_version:
                 fail(409, "Screening changed; reload before deciding on another paid query")
-        if service.suppressed(s, p, phone):
+        if ops.suppressed(service, s, p, phone):
             if retry:
                 fail(403, "INTERNAL_DNC_BLOCKS_LOOKUP")
             return (
@@ -134,12 +135,13 @@ def claim(service, p, phone=None, identity=None, retry=None):
         ):
             fail(403, "DNC_SELLER_AUTHORIZATION_REQUIRED")
         key = "dnc:" + uid()
-        seller = service.required(s, "sellers", p["seller_id"], p)
+        seller = ops.required(service, s, "sellers", p["seller_id"], p)
         rate = seller.data.get("operating_policy", {}).get("account_rates", {}).get("dnc")
         estimate = float(rate["values"]["estimated_per_query_usd"]) if rate else QUERY_ESTIMATE
         # Retain a legacy/crashed attempt's liability before admitting a new one.
         if row and row.data.get("request_key") and row.data.get("status") in UNFINISHED - {"unsubmitted"}:
-            service.usage(
+            ops.usage(
+                service,
                 p,
                 "donotcalldnc",
                 "dnc_screen",
@@ -149,8 +151,8 @@ def claim(service, p, phone=None, identity=None, retry=None):
                 reserved=row.data.get("estimate_usd", QUERY_ESTIMATE),
                 session=s,
             )
-        if not service.reserve_budget_in(
-            s, p, key, estimate, object_id=screening_key(service, phone), work_kind="dnc_screen"
+        if not ops.reserve_budget_in(
+            service, s, p, key, estimate, object_id=screening_key(service, phone), work_kind="dnc_screen"
         ):
             fail(403, "DNC_QUERY_BUDGET_EXHAUSTED")
         values = {
@@ -206,7 +208,7 @@ def query_charge(service, s, p, intent, result):
     rate = Decimal(str(intent.get("estimate_usd", QUERY_ESTIMATE)))
     credits, source = 1, "configured_per_query_rate"
     if result:
-        seller = service.required(s, "sellers", p["seller_id"], p)
+        seller = ops.required(service, s, "sellers", p["seller_id"], p)
         prior = seller.data.get("dnc_credit_observation") or {}
         current = result["credits_remaining"]
         if type(prior.get("credits")) is int and 1 <= prior["credits"] - current <= 2:
@@ -220,14 +222,15 @@ def finish(service, p, intent, result, refusal=None):
     # Billing is recorded even when current authority/source versions reject publication.
     if refusal in {"DNC_PROVIDER_KEY_INVALID", "DNC_PROVIDER_CREDITS_EXHAUSTED"}:
         # The provider refused before any lookup: there is no charge to hold.
-        service.release_refused_budget(p, intent["request_key"], refusal)
+        ops.release_refused_budget(service, p, intent["request_key"], refusal)
     elif result or refusal:
         with service.db.transaction() as s:
             service.db.authorize_stream(s, p)
             cost, source = query_charge(service, s, p, intent, result)
-            service.settle_estimate_in(s, p, intent["request_key"], cost, source)
+            ops.settle_estimate_in(service, s, p, intent["request_key"], cost, source)
     else:
-        service.usage(
+        ops.usage(
+            service,
             p,
             "donotcalldnc",
             "dnc_screen",
@@ -240,7 +243,7 @@ def finish(service, p, intent, result, refusal=None):
     rejected = False
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        row = service.required(s, "registry_snapshots", intent["id"], p)
+        row = ops.required(service, s, "registry_snapshots", intent["id"], p)
         if (
             row.version != intent["version"]
             or row.data.get("request_key") != intent["request_key"]
@@ -253,7 +256,7 @@ def finish(service, p, intent, result, refusal=None):
             and lease_active(service, row.data)
             and authority_stamp(config) == intent["authority_stamp"]
             and authorized_screen(service, config, intent["phone"], max_age)
-            and not service.suppressed(s, p, intent["phone"])
+            and not ops.suppressed(service, s, p, intent["phone"])
         )
         if result and not rejected:
             update(

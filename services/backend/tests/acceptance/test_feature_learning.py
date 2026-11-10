@@ -5,6 +5,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from app import ops
 from journey import event, get, post, ready, run_jobs, wrap_up
 
 METRIC_KEYS = (
@@ -152,7 +153,9 @@ def test_refresh_stores_estimates_counted_from_the_calls(workspace, app, clock):
     run_jobs(workspace, rounds=3)
     service = app.state.service
     with service.db.transaction(False) as s:
-        campaign = service.required(s, "campaigns", workspace["campaign_id"], {**workspace, "role": "admin"})
+        campaign = ops.required(
+            service, s, "campaigns", workspace["campaign_id"], {**workspace, "role": "admin"}
+        )
         statistics = campaign.data["selection_profile"]["statistics"]
     total = statistics["total"]
     assert total["rows"] == 10 and total["human_successes"] == sum(c["human"] for c in calls)

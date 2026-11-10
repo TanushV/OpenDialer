@@ -10,6 +10,7 @@ from datetime import timedelta
 
 import httpx
 
+from app import ops
 from app.calling.state import TERMINAL
 from app.helper import live
 from app.platform.config import PROVIDER_DEFAULTS
@@ -54,17 +55,18 @@ def _live(service, s, p, call):
     """Whether the helper may answer on this call now."""
     if call.data["state"] in TERMINAL | {"ENDING"} or call.data.get("transcription_disabled"):
         return False
-    lead = service.required(s, "leads", call.data["lead_id"], p)
-    return not service.suppressed(s, p, lead.data["phone"])
+    lead = ops.required(service, s, "leads", call.data["lead_id"], p)
+    return not ops.suppressed(service, s, p, lead.data["phone"])
 
 
 def request_in(service, s, p, call, question):
     """Everything one turn sends: script, lead, research, earlier calls and the call so far."""
-    lead = service.required(s, "leads", call.data["lead_id"], p)
-    script = call.data.get("script_snapshot") or service.selected_script(s, p, lead)[0]
+    lead = ops.required(service, s, "leads", call.data["lead_id"], p)
+    script = call.data.get("script_snapshot") or ops.selected_script(service, s, p, lead)[0]
     facts = [
         doc(r).get("statement")
-        for r in service.context_rows(
+        for r in ops.context_rows(
+            service,
             s,
             p,
             "research_facts",
@@ -76,7 +78,8 @@ def request_in(service, s, p, call, question):
     ]
     earlier = []
     for prior in reversed(
-        service.lead_records(
+        ops.lead_records(
+            service,
             s,
             p,
             "call_attempts",
@@ -87,8 +90,8 @@ def request_in(service, s, p, call, question):
             newest=True,
         )
     ):
-        summary = service.call_summary(s, p, prior.id) or {}
-        note = service._by_key(s, p, "notes", prior.id)
+        summary = ops.call_summary(service, s, p, prior.id) or {}
+        note = ops._by_key(service, s, p, "notes", prior.id)
         earlier.append(
             {
                 "at": prior.data.get("started_at") or "",
@@ -100,10 +103,10 @@ def request_in(service, s, p, call, question):
         )
     dialogue = [
         {"side": r.get("side"), "text": r.get("text", ""), "script_section": r.get("script_section")}
-        for r in service.transcript_rows(s, p, call.id)
+        for r in ops.transcript_rows(service, s, p, call.id)
         if r.get("is_final") and not r.get("system_audio") and r.get("text")
     ][-live.DIALOGUE :]
-    seller = service.required(s, "sellers", p["seller_id"], p)
+    seller = ops.required(service, s, "sellers", p["seller_id"], p)
     shown = service.tips.shown.get(call.id)
     return {
         "seller": seller.data.get("name", ""),
@@ -119,7 +122,7 @@ def request_in(service, s, p, call, question):
 
 def _prepare(service, p, call_id, question, automatic):
     with service.db.transaction(False) as s:
-        call = service.required(s, "call_attempts", call_id, p)
+        call = ops.required(service, s, "call_attempts", call_id, p)
         if not _live(service, s, p, call):
             return None, "ended"
         if automatic and call.data.get("coach_preferences", {}).get("muted"):
@@ -133,7 +136,7 @@ def _prepare(service, p, call_id, question, automatic):
 def _publish(service, p, call_id, tip):
     """Show `tip` (None clears it) and tell the Dialer to re-read the call."""
     with service.db.transaction() as s:
-        call = service.required(s, "call_attempts", call_id, p)
+        call = ops.required(service, s, "call_attempts", call_id, p)
         if not _live(service, s, p, call):
             return False
         if tip is None:
@@ -146,7 +149,7 @@ def _publish(service, p, call_id, tip):
 
 def _requeue(service, p, call_id):
     with service.db.transaction() as s:
-        call = service.required(s, "call_attempts", call_id, p)
+        call = ops.required(service, s, "call_attempts", call_id, p)
         if call.data["state"] not in TERMINAL | {"ENDING"}:
             queue(service, s, p, call, live.BUSY_RETRY_MS)
 
@@ -168,7 +171,7 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
         return {**result, "status": skipped}
     key = f"coach:{call_id}:{identity}"
     if not await asyncio.to_thread(
-        service.reserve_optional_budget, p, key, 0.01, object_id=call_id, work_kind="live_coach"
+        ops.reserve_optional_budget, service, p, key, 0.01, object_id=call_id, work_kind="live_coach"
     ):
         service.tips.status[call_id] = {"status": "paused", "reason": "budget"}
         return {**result, "status": "unavailable"}
@@ -221,12 +224,14 @@ def _settle(service, p, coach, call_id, key, unsent):
     """Record what the turn cost; a request that never left this computer releases its hold."""
     try:
         if unsent and not getattr(coach, "last_request_id", None):
-            service.release_unsubmitted_budget(p, key)
+            ops.release_unsubmitted_budget(service, p, key)
             return
         result = InferenceResult(
             {}, getattr(coach, "last_usage", {}) or {}, getattr(coach, "last_request_id", None)
         )
-        service.usage(p, "openrouter", "live_coach", result, object_id=call_id, reserved=0, request_key=key)
+        ops.usage(
+            service, p, "openrouter", "live_coach", result, object_id=call_id, reserved=0, request_key=key
+        )
     except Exception as exc:  # The ledger never decides whether the rep sees a tip.
         log.warning("Live helper usage was not recorded: %s", type(exc).__name__)
 
@@ -241,7 +246,7 @@ def _withdraw(service, p, call_id, identity):
 def cancel(service, p, call_id, request_id):
     """The rep cancelled a question still being answered."""
     with service.db.transaction(False) as s:
-        service.required(s, "call_attempts", call_id, p)
+        ops.required(service, s, "call_attempts", call_id, p)
     return {"status": "cancelled" if service.tips.cancel(call_id, request_id) else "not_running"}
 
 

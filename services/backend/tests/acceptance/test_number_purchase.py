@@ -3,6 +3,8 @@
 from datetime import timedelta
 
 import pytest
+from app import ops
+from helpers import bound
 
 
 def request(w, method, path, body=None, status=200):
@@ -224,7 +226,7 @@ def test_telnyx_purchase_and_reconciliation_use_original_reference(workspace, ap
         )
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    monkeypatch.setattr(service, "carrier", lambda _: TelnyxCarrier("synthetic", "route", http=http))
+    monkeypatch.setattr(ops, "carrier", bound(lambda _: TelnyxCarrier("synthetic", "route", http=http)))
     try:
         assert approve(workspace, q)["status"] == "uncertain"
         assert (

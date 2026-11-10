@@ -6,7 +6,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 
 import httpx
 
-from app import priority
+from app import ops, priority
 
 MAINTENANCE = frozenset({"maintenance", "call_control"})
 # Fallback probes for work committed by another process (connected workers).
@@ -60,15 +60,15 @@ class AuthorityRuntime:
             wakeup.clear()
             try:
                 if queue in MAINTENANCE:
-                    await self.service.maintenance_tick()
+                    await ops.maintenance_tick(self.service)
                 elif queue in FOREGROUND_LANES:
                     with priority.GATE.work():
-                        await self.service.run_jobs(queues=[queue])
+                        await ops.run_jobs(self.service, queues=[queue])
                 else:
                     # Background work does not start while a calling request or live job is in
                     # flight, but a bounded yield keeps it progressing under continuous calling.
                     await priority.GATE.wait_idle()
-                    await self.service.run_jobs(queues=[queue])
+                    await ops.run_jobs(self.service, queues=[queue])
             except Exception as exc:
                 logging.getLogger(__name__).warning("%s deferred: %s", queue, type(exc).__name__)
             try:

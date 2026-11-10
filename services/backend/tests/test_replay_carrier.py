@@ -10,6 +10,7 @@ from pathlib import Path
 from time import monotonic
 
 import pytest
+from app import ops
 from app.calling.state import TERMINAL
 from app.platform.db import MODELS, Job, get
 from app.providers import replay_carrier as replay
@@ -38,7 +39,7 @@ async def play(app, workspace, timeline, variant):
     service.managed.last_exchange, service.managed.caught_up = monotonic(), True
     service.managed.numbers = {"+14155550100"}
     client, headers = workspace["client"], workspace["headers"]
-    carrier = service.carrier(workspace["tenant_id"])
+    carrier = ops.carrier(service, workspace["tenant_id"])
     # Real rep audio legs, as the Dialer opens them: one for this call, one per renewal recorded.
     agents = [
         client.post("/v1/telephony/agent", headers=headers).json()["agent_call_control_id"]
@@ -68,7 +69,8 @@ async def play(app, workspace, timeline, variant):
     for event in variant(events):
         received = event["received_at"]
         body = {k: v for k, v in event.items() if k != "received_at"}
-        await service.accept_webhook(
+        await ops.accept_webhook(
+            service,
             workspace["tenant_id"],
             body,
             event["id"],
@@ -76,7 +78,7 @@ async def play(app, workspace, timeline, variant):
             received_at=min(received, service.clock()),
         )
     for _ in range(3):
-        await service.run_jobs(queues=["webhook"])
+        await ops.run_jobs(service, queues=["webhook"])
     with service.db.transaction(False) as s:
         row = get(s, "call_attempts", call["id"], workspace["tenant_id"])
         active = [

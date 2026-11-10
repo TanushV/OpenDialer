@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from app import ops
 from journey import answered_by_human, call, event, get, hang_up, post, run_jobs, start, wrap_up
 
 
@@ -146,7 +147,8 @@ class Telnyx:
         body = json.dumps({"data": event}).encode()
         client = self.ws["client"]
         accept = partial(
-            client.app.state.service.accept_webhook,
+            ops.accept_webhook,
+            client.app.state.service,
             self.ws["tenant_id"],
             event,
             hashlib.sha256(body).hexdigest(),
