@@ -26,7 +26,7 @@ Everything that decides whether the next call happens is small and checked.
 | Watchdog | `calling/watchdog.py` | A self-clearing blocker that outlives its promise is repaired (the relay loop restarts), then shown as stuck with Reconnect. |
 | Readiness | `/v1/calling/readiness` | While paused, the Dialer shows how many leads can be called now, or the plain reason none can. |
 | Screen | `calling/screen.ts` | The Dialer's phase is a pure function of one state; `keys()` says what each key does in it. |
-| Loop | `calling/useCallLoop.ts` | Start, dial, voicemail skip, hang-up, save and the next call. Start and Pause decide the screen at once. |
+| Loop | `calling/useCallLoop.ts` | Start, dial, voicemail skip, hang-up, save and the next call. Every key decides the screen at once. |
 | Call states | `calling/state.py` | `DIALING` to `RINGING`, `HUMAN` or a mailbox, `ENDED` (waiting for an outcome) and `FINALIZED` (saved). |
 | Dial safety | `service.py` | A durable dial record and carrier command ID: a lead is never dialed twice, and a call can always be ended. |
 
@@ -42,7 +42,11 @@ why in plain words. A test call to the rep's own phone skips hours and attempt l
 | Every combination of blocker facts | `tests/test_blockers.py` | Anything wrong names a blocker; each has a way out. |
 | Each blocker in and out | `tests/acceptance/test_blocker_exits.py` | All 21 blockers clear through their real code path. A new blocker without a test fails CI. |
 | Fault soak | `tests/test_fault_soak.py` | Random runs with clock jumps, duplicate and late events and opt-outs: no server error, never two open calls, no dial after an opt-out, Pause honored, and recovery always dials or says why. |
+| The rep's own key | `apps/desktop/tests/screen-model.test.ts`, `simple-calling.spec.ts` | Hang up, Skip, Stay and the outcome keys show at once over any re-read (`withIntent`); one save at a time; a Pause pressed during any start step wins. |
 | Layout | `apps/desktop/tests/layout-audit.spec.ts` | On every page, at both window sizes, the main control stays uncovered and still. |
+
+CI runs every browser test once, in WebKit (the Mac app) and Chromium (Windows), so a flaky test fails instead of
+hiding a defect.
 
 ## Leads and numbers
 
