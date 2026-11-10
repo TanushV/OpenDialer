@@ -79,7 +79,9 @@ export async function clickUntil(
   timeout = 30_000,
 ) {
   await expect(async () => {
-    await target.click({ timeout: 5_000 });
+    // A click that did land may take the target away (the effect came late): then only check the effect.
+    if (await target.isVisible())
+      await target.click({ timeout: 5_000 }).catch(() => undefined);
     await done();
   }).toPass({ timeout, intervals: [250, 1_000, 2_000] });
 }

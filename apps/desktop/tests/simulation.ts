@@ -199,10 +199,11 @@ export async function leaveNoCall(page: Page) {
 
 /** Answer the ringing simulated call as a person. */
 export async function answer(page: Page) {
-  await page
-    .getByRole("button", { name: "Simulate human answer", exact: true })
-    .click();
-  await expect(callStatus(page)).toContainText("Talking");
+  // Safe to repeat: the button leaves once the call is answered. WebKit can drop the click while the view re-renders.
+  await clickUntil(
+    page.getByRole("button", { name: "Simulate human answer", exact: true }),
+    () => expect(callStatus(page)).toContainText("Talking", { timeout: 3_000 }),
+  );
 }
 
 export const hangUp = (page: Page) =>
