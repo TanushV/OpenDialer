@@ -68,17 +68,9 @@ test("the CRM keys save and check in Settings, and the HubSpot panel names a mis
       .getByText("Research uses OpenRouter (DeepSeek) on this computer.")
       .first(),
   ).toBeVisible();
-  await expect(page.getByTestId("setup-calls_for")).toContainText(
-    "Which HubSpot contacts this computer syncs and calls",
+  // One user (owner, November 10): no Calls for row and no Team calling panel.
+  await expect(page.getByTestId("setup-calls_for")).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Team calling" })).toHaveCount(
+    0,
   );
-  // R9C.9: the Team panel names what it needs before a seat can be set up.
-  const team = page.getByRole("group", { name: "Team calling" });
-  await team.locator("summary").click();
-  await expect(team).toContainText("Not in use yet");
-  await team.getByLabel("Rep name").fill("Rep One");
-  await team.getByLabel("Rep's Telnyx API key").fill("KEY-test-only-123");
-  await team.getByRole("button", { name: "Create setup file" }).click();
-  await expect(
-    page.getByText("Import the owner's calling setup file first").first(),
-  ).toBeVisible();
 });

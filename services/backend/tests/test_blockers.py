@@ -181,7 +181,6 @@ def test_every_combination_of_facts_names_blockers_that_each_have_a_way_out():
         "pending_optouts": [0, 2],
         "rep_audio_ready": [None, True, False],
         "channel_limited": [False, True],
-        "pool": [None, "NUMBER_POOL_EMPTY"],
     }
     checked = 0
     for values in product(*flags.values()):
@@ -199,7 +198,6 @@ def test_every_combination_of_facts_names_blockers_that_each_have_a_way_out():
             or facts.pending_optouts
             or facts.rep_audio_ready is False
             or facts.channel_limited
-            or facts.pool
         )
         assert bool(found) == bool(bad), facts
         assert len({b.code for b in found}) == len(found), "a blocker is listed twice"
@@ -207,4 +205,4 @@ def test_every_combination_of_facts_names_blockers_that_each_have_a_way_out():
             assert EXITS[b.code].by_itself_within or EXITS[b.code].control
             assert b.message and b.fix
         checked += 1
-    assert checked > 10_000
+    assert checked > 9_000

@@ -544,7 +544,7 @@ async def test_the_fallback_agent_searches_reads_and_keeps_the_no_retention_rout
     assert "Hilltop Apartments added two buildings" in tool_answers[1]["content"]
 
 
-def test_a_seat_set_to_the_fallback_researches_with_openrouter_even_when_chatgpt_is_signed_in(
+def test_research_set_to_the_fallback_uses_openrouter_even_when_chatgpt_is_signed_in(
     workspace, app, monkeypatch
 ):
     from app.providers.chat_agent import ChatAgent

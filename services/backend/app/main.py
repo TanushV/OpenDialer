@@ -146,10 +146,6 @@ class ImportLeads(Strict):
     column_map: dict[str, dict[str, str | None]] | None = None
 
 
-class CallsFor(Strict):
-    owner_id: str = Field(min_length=1, max_length=40)
-
-
 class HubSpotSync(Strict):
     list_id: str = Field(min_length=1, max_length=40)
     list_name: str = Field(min_length=1, max_length=120)
@@ -158,17 +154,6 @@ class HubSpotSync(Strict):
 class SpendLimit(Strict):
     list_name: str = Field(min_length=1, max_length=120)
     usd: float = Field(ge=0, le=10000, allow_inf_nan=False)
-
-
-class PoolNumber(Strict):
-    phone: str = Field(pattern=r"^\+1[2-9][0-9]{9}$")
-    daily_cap: int = Field(default=50, ge=1, le=200)
-    active: bool = True
-
-
-class SeatCreate(Strict):
-    label: str = Field(min_length=1, max_length=60)
-    telnyx_api_key: str = Field(min_length=10, max_length=512, repr=False)
 
 
 class ColumnMapRequest(Strict):
@@ -780,18 +765,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
         return await crm.lists(service, p)
 
-    @app.get("/v1/hubspot/owners")
-    async def hubspot_owners(p=Depends(administrator)):
-        from app import crm
-
-        return await crm.owners(service, p)
-
-    @app.put("/v1/hubspot/calls-for")
-    def hubspot_calls_for(data: CallsFor, p=Depends(administrator)):
-        from app import crm
-
-        return crm.set_calls_for(service, p, data.owner_id)
-
     @app.post("/v1/hubspot/sync")
     async def hubspot_sync(data: HubSpotSync, p=Depends(administrator)):
         from app import crm
@@ -803,69 +776,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
         from app import crm
 
         return crm.set_spend_limit(service, p, data.list_name.strip(), data.usd)
-
-    @app.post("/v1/seats")
-    async def create_seat(data: SeatCreate, p=Depends(administrator)):
-        """R9C.9: set up a rep's seat from this (the owner's) computer and return the rep's private setup file."""
-        from app.numbers.seat import SeatSetupError
-        from app.numbers.seat import create_seat as make
-        from app.providers.telnyx import TelnyxCarrier
-
-        conf = service.configs.read(p["tenant_id"])
-        managed = service.managed
-        if not (managed.enabled(p["tenant_id"]) and managed.client and conf.get("telephony_credential_id")):
-            fail(
-                409,
-                {"code": "SEAT_SETUP_NEEDS_OWNER", "message": "Import the owner's calling setup file first"},
-            )
-        http = getattr(service, "http", None)
-        try:
-            return await make(
-                TelnyxCarrier(conf["telnyx_api_key"], conf["telnyx_connection_id"], http=http),
-                TelnyxCarrier(data.telnyx_api_key, None, http=http),
-                label=data.label.strip(),
-                credential_id=conf["telephony_credential_id"],
-                webhook_url=conf["webhook_url"],
-                relay=managed.client,
-                relay_url=managed.config["url"],
-                shared=conf,
-                http=http,
-            )
-        except SeatSetupError as exc:
-            fail(409, {"code": "SEAT_SETUP_FAILED", "message": str(exc)})
-
-    @app.get("/v1/pool")
-    async def pool_usage(p=Depends(administrator)):
-        """The shared pool's numbers and the team's attempts on each today (section 9C)."""
-        from app.numbers import pool
-
-        if not service.configs.read(p["tenant_id"]).get("number_pool") or not service.managed.client:
-            return {"enabled": False, "numbers": {}}
-        try:
-            return {"enabled": True, "numbers": await pool.usage(service.managed.client)}
-        except Exception:
-            fail(502, {"code": "POOL_UNREACHABLE", "message": "The number pool did not answer; try again"})
-
-    @app.put("/v1/pool/numbers")
-    async def pool_number(data: PoolNumber, p=Depends(administrator)):
-        """The owner adds a pool number (bought in Telnyx, on the shared incoming route) or changes its cap."""
-        if not service.managed.client:
-            fail(
-                409,
-                {"code": "SEAT_SETUP_NEEDS_OWNER", "message": "Import the owner's calling setup file first"},
-            )
-        try:
-            await service.managed.client.rpc(
-                "relay_set_pool_number",
-                {"phone": data.phone, "daily_cap": data.daily_cap, "active": data.active},
-            ).execute()
-        except Exception:
-            fail(
-                409,
-                {"code": "POOL_OWNER_ONLY", "message": "Only the team owner's computer can change the pool"},
-            )
-        service.configs.write(p["tenant_id"], {"number_pool": True})
-        return {"phone": data.phone, "daily_cap": data.daily_cap, "active": data.active}
 
     @app.post("/v1/leads/column-map")
     def column_map(data: ColumnMapRequest, p=Depends(administrator)):

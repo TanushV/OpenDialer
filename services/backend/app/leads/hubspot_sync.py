@@ -19,7 +19,6 @@ PROPERTIES = (
     "state",
     "city",
     "hs_linkedin_url",
-    "hubspot_owner_id",
     "notes_last_contacted",
     "opendialer_opt_out",
     "opendialer_opt_out_reason",
@@ -61,25 +60,20 @@ def row(contact):
     return {k: v for k, v in out.items() if v}
 
 
-def plan(contacts, members, existing, *, owner_id, now, last_called=None):
-    """Changes for one sync: {"add", "update", "drop", "opt_outs", "recent", "other_owner"}.
+def plan(contacts, members, existing, *, now, last_called=None):
+    """Changes for one sync: {"add", "update", "drop", "opt_outs", "recent"}.
 
-    `existing` maps a contact id to that lead's stored row. `last_called` maps a contact id to when this seat last
+    `existing` maps a contact id to that lead's stored row. `last_called` maps a contact id to when this app last
     called it, so the guard ignores our own calls.
     """
     last_called = last_called or {}
     members = set(members)
-    out = {"add": [], "update": [], "drop": [], "opt_outs": [], "recent": {}, "other_owner": 0}
+    out = {"add": [], "update": [], "drop": [], "opt_outs": [], "recent": {}}
     for contact in contacts:
         cid = str(contact["id"])
         if cid not in members:
             continue
         props = contact.get("properties") or {}
-        if owner_id and str(props.get("hubspot_owner_id") or "") != str(owner_id):
-            out["other_owner"] += 1
-            if cid in existing:
-                out["drop"].append(cid)  # Reassigned to another rep: their seat calls it now.
-            continue
         data = row(contact)
         if str(props.get("opendialer_opt_out") or "").lower() == "true":
             out["opt_outs"].append(
@@ -97,11 +91,5 @@ def plan(contacts, members, existing, *, owner_id, now, last_called=None):
             out["add"].append((cid, data))
         elif existing[cid] != data:
             out["update"].append((cid, data))
-    owned = {
-        str(c["id"])
-        for c in contacts
-        if not owner_id or str((c.get("properties") or {}).get("hubspot_owner_id") or "") == str(owner_id)
-    }
-    out["drop"] += [cid for cid in existing if cid not in members and cid not in out["drop"]]
-    out["drop"] += [cid for cid in existing if cid in members and cid not in owned and cid not in out["drop"]]
+    out["drop"] = [cid for cid in existing if cid not in members]
     return out

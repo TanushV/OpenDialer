@@ -16,7 +16,7 @@ B = "+12125550102"  # Found by LeadOcean for the contact with no number; on the 
 class Fakes:
     def __init__(self):
         self.calls, self.writes, self.created_calls = [], [], []
-        self.members = ["1", "2", "3"]
+        self.members = ["1", "3"]
         self.down = False
 
     def __call__(self, request):
@@ -38,13 +38,6 @@ class Fakes:
                         "hubspot_owner_id": "11",
                         "hs_linkedin_url": "https://www.linkedin.com/in/ann",
                     },
-                    "2": {
-                        "firstname": "Bob",
-                        "lastname": "Other",
-                        "company": "Beta",
-                        "phone": "+12125550199",
-                        "hubspot_owner_id": "22",
-                    },
                     "3": {
                         "firstname": "Cy",
                         "lastname": "Nophone",
@@ -58,10 +51,6 @@ class Fakes:
                     json={
                         "results": [{"id": i["id"], "properties": people[i["id"]]} for i in body["inputs"]]
                     },
-                )
-            if path == "/crm/v3/owners":
-                return httpx.Response(
-                    200, json={"results": [{"id": "11", "firstName": "Pat", "lastName": "Rep"}]}
                 )
             if path == "/calling/v1/dispositions":
                 return httpx.Response(
@@ -151,10 +140,6 @@ def setup(ws, monkeypatch):
     )
     assert response.status_code == 200, response.text
     assert (
-        call("PUT", "/v1/hubspot/calls-for", headers=ws["headers"], json={"owner_id": "11"}).status_code
-        == 200
-    )
-    assert (
         call(
             "PUT",
             "/v1/lists/spend-limit",
@@ -175,7 +160,7 @@ def test_a_hubspot_list_syncs_checks_numbers_and_do_not_call_then_logs_the_call(
     ws = workspace
     fakes = setup(ws, monkeypatch)
     result = post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
-    assert (result["added"], result["other_owner"]) == (2, 1), "this seat syncs only Pat's contacts"
+    assert result["added"] == 2 and "other_owner" not in result
     run_jobs(ws, rounds=3)
     leads = crm_leads(ws)
     assert set(leads) == {"1", "3"}
@@ -234,7 +219,7 @@ def test_a_call_to_a_crm_lead_lands_on_the_contact_with_its_owner_and_no_transcr
     run_jobs(ws, rounds=3)
     assert len(fakes.created_calls) == 1
     record = fakes.created_calls[0]
-    assert record["properties"]["hubspot_owner_id"] == "11"
+    assert "hubspot_owner_id" not in record["properties"]
     assert record["properties"]["hs_call_disposition"] == "d-mb"
     assert record["associations"][0]["to"]["id"] == "1"
     assert "transcript" not in json.dumps(record).lower()
@@ -274,8 +259,6 @@ def test_checking_the_hubspot_key_creates_the_apps_fields_once(workspace, monkey
     made = []
 
     def respond(request):
-        if request.url.path == "/crm/v3/owners":
-            return httpx.Response(200, json={"results": []})
         if request.method == "GET":
             return httpx.Response(404)
         made.append(json.loads(request.content)["name"])

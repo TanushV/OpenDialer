@@ -18,7 +18,7 @@ from app.platform.db import MODELS
 from app.platform.secret_files import read_private, write_private
 from app.service import dt, fail
 
-SEAT_SECRETS = (
+FILE_SECRETS = (
     "telnyx_api_key",
     "openrouter_api_key",
     "hubspot_service_key",
@@ -39,8 +39,7 @@ class ConnectionProfile(BaseModel):
     telnyx_api_key: str = Field(default="", max_length=512, repr=False)
     openrouter_api_key: str = Field(default="", max_length=512, repr=False)
     password: str = Field(min_length=12, max_length=512, repr=False)
-    # A rep's seat file (R9C.9): the shared pool and the team's shared keys travel with it.
-    number_pool: bool = False
+    # Keys a setup file may carry, so a new computer needs no retyping.
     hubspot_service_key: str = Field(default="", max_length=512, repr=False)
     treg_token: str = Field(default="", max_length=512, repr=False)
     realvalidito_api_key: str = Field(default="", max_length=200, repr=False)
@@ -248,7 +247,7 @@ class ManagedConnection:
 
     async def connect(self, tenant_id, profile):
         await self.close()
-        values = profile.model_dump(mode="json", exclude={"password", *SEAT_SECRETS, "number_pool"})
+        values = profile.model_dump(mode="json", exclude={"password", *FILE_SECRETS})
         staged = SessionStorage(self.storage.path.with_suffix("." + str(uuid4()) + ".staged"))
         candidate = await self.make_client(values, staged)
         try:
@@ -289,9 +288,7 @@ class ManagedConnection:
             for k, v in settings.items()
             if k in {"telnyx_connection_id", "telnyx_public_key", "telephony_credential_id", "sip_username"}
         }
-        configured.update({k: getattr(profile, k) for k in SEAT_SECRETS if getattr(profile, k)})
-        if profile.number_pool:
-            configured["number_pool"] = True
+        configured.update({k: getattr(profile, k) for k in FILE_SECRETS if getattr(profile, k)})
         configured["webhook_url"] = profile.url + "/functions/v1/telnyx-webhook"
         previous = self.service.configs.read(tenant_id).get("telnyx_connection_id")
         self.service.configs.write(tenant_id, configured, advance_version=True)

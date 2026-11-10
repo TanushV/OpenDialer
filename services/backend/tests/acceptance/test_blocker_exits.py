@@ -28,7 +28,7 @@ RELAY_SETTINGS = {
     "sip_username": "rep-line",
 }
 PROFILE = {
-    "label": "Test seat",
+    "label": "Test computer",
     "url": "https://abcdefghijklmnopqrst.supabase.co",
     "publishable_key": "sb_publishable_test_key",
     "workspace_id": WORKSPACE_ID,
@@ -357,10 +357,6 @@ def _timed(code, key, extra=None):
     return check
 
 
-number_pool_empty = _timed("NUMBER_POOL_EMPTY", "pool_blocked_until", {"pool_blocked": "POOL_EMPTY"})
-number_pool_unreachable = _timed(
-    "NUMBER_POOL_UNREACHABLE", "pool_blocked_until", {"pool_blocked": "POOL_UNREACHABLE"}
-)
 telnyx_call_limit_reached = _timed("TELNYX_CALL_LIMIT_REACHED", "channel_limited_until")
 
 
@@ -389,8 +385,6 @@ EXIT_TESTS = {
     "CALLER_NUMBER_PAUSED": caller_number_paused,
     "PENDING_LOCAL_OPTOUTS": pending_local_optouts,
     "TEST_SESSION_TEST_LINE_ONLY": test_session_test_line_only,
-    "NUMBER_POOL_EMPTY": number_pool_empty,
-    "NUMBER_POOL_UNREACHABLE": number_pool_unreachable,
     "TELNYX_CALL_LIMIT_REACHED": telnyx_call_limit_reached,
     "REP_AUDIO_NOT_READY": rep_audio_not_ready,
 }

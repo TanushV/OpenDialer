@@ -43,7 +43,6 @@ class CallRecord:
     from_number: str
     to_number: str
     note: str = ""
-    owner_id: str | None = None
 
 
 def outcome_label(outcome):
@@ -78,7 +77,6 @@ def properties(record, disposition_id):
         "hs_call_title": "OpenDialer call",
         "hs_call_body": record.note[:5000],
         "opendialer_call_id": record.call_id,
-        **({"hubspot_owner_id": record.owner_id} if record.owner_id else {}),
     }
 
 

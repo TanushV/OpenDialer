@@ -16,7 +16,6 @@ SCOPES = (
     "crm.lists.read",
     "crm.objects.contacts.read",
     "crm.objects.contacts.write",
-    "crm.objects.owners.read",
     "crm.schemas.contacts.write",
 )
 # Properties the app creates once at setup (R9B.10). Our own opt-out flag is the one a sync reads and writes.
@@ -134,17 +133,6 @@ class HubSpot:
             {"id": str(item["listId"]), "name": item.get("name", "")}
             for item in (found or {}).get("lists", [])
             if str(item.get("objectTypeId", "0-1")) == "0-1"
-        ]
-
-    async def owners(self):
-        return [
-            {
-                "id": str(o["id"]),
-                "name": " ".join(filter(None, [o.get("firstName"), o.get("lastName")])) or o.get("email", ""),
-                "email": o.get("email", ""),
-            }
-            for o in await self._pages("/crm/v3/owners", params={"limit": 100})
-            if not o.get("archived")
         ]
 
     async def members(self, list_id):

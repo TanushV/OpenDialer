@@ -4,7 +4,6 @@ import { useWorkspace } from "../context";
 export function AccessAndRecovery() {
   const { api, run, notice, refresh } = useWorkspace();
   const [reference, setReference] = useState("");
-  // D25: a team is seats, each on its own computer (Settings, Team calling); this workspace has one rep.
   return (
     <div className="two-column">
       <section className="card padded">

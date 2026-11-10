@@ -258,15 +258,6 @@ class Dialer(
                     pending_optouts=presence.get("pending_optouts", 0),
                     rep_audio_ready=audio,
                     channel_limited=(conf.get("channel_limited_until") or "") > self.clock().isoformat(),
-                    pool=(
-                        (
-                            "NUMBER_POOL_UNREACHABLE"
-                            if conf.get("pool_blocked") == "POOL_UNREACHABLE"
-                            else "NUMBER_POOL_EMPTY"
-                        )
-                        if (conf.get("pool_blocked_until") or "") > self.clock().isoformat()
-                        else None
-                    ),
                 )
             )
         )
@@ -300,8 +291,6 @@ class Dialer(
         elif code.startswith("CONNECTION_") and managed.enabled(p["tenant_id"]):
             await managed.close()
             await managed.start()
-        elif code in {"NUMBER_POOL_EMPTY", "NUMBER_POOL_UNREACHABLE"}:
-            self.configs.write(p["tenant_id"], {"pool_blocked_until": None})
         elif code == "TELNYX_CALL_LIMIT_REACHED":
             self.configs.write(p["tenant_id"], {"channel_limited_until": None})
 
@@ -406,17 +395,6 @@ class Dialer(
             from app.providers.treg import Treg
 
             ok, detail = await Treg(conf["treg_token"]).check()
-        elif row_id == "calls_for":
-            from app.providers.hubspot import HubSpot, HubSpotError
-
-            try:
-                owners = await HubSpot(conf["hubspot_service_key"], http=http).owners()
-            except HubSpotError as exc:
-                owners, detail = None, str(exc)
-            owner = next((o for o in owners or [] if o["id"] == str(conf["hubspot_owner_id"])), None)
-            ok = owner is not None
-            if owners is not None:
-                detail = f"Calls for {owner['name']}" if owner else "That HubSpot user no longer exists"
         else:
             raise HTTPException(409, f"The {spec.label} check arrives with its integration")
         checks = {

@@ -139,10 +139,10 @@ def test_a_lost_microphone_names_itself_and_calling_returns_with_it(workspace, a
     assert blockers(workspace) == []
 
 
-def test_a_telnyx_channel_limit_refusal_pauses_only_this_seat_and_is_not_counted(
+def test_a_telnyx_channel_limit_refusal_pauses_calling_and_is_not_counted(
     workspace, app, carrier, clock, monkeypatch
 ):
-    """R9C.4: over the account's calls-at-once limit, the dial is refused; this seat waits a minute with a named
+    """R9C.4: over the account's calls-at-once limit, the dial is refused; calling waits a minute with a named
     blocker, the lead keeps its attempt, and calling resumes by itself."""
     from app.calling.carrier_errors import is_channel_limit
 

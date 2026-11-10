@@ -8,7 +8,6 @@ interface SyncResult {
   removed: number;
   opted_out: number;
   recently_contacted: number;
-  other_owner: number;
 }
 
 /**
@@ -29,9 +28,9 @@ export function HubSpotLists({ onSynced }: { onSynced: () => Promise<void> }) {
       <div>
         <h2>Sync a HubSpot list</h2>
         <p className="muted">
-          Only contacts owned by the HubSpot user this computer calls for are
-          synced. Numbers are checked (about 6¢ a contact) and each number gets
-          a do-not-call check before it can be dialed.
+          Every contact on the list is synced. Numbers are checked (about 6¢ a
+          contact) and each number gets a do-not-call check before it can be
+          dialed.
         </p>
       </div>
       <div>
@@ -110,8 +109,7 @@ export function HubSpotLists({ onSynced }: { onSynced: () => Promise<void> }) {
           <p className="small" role="status">
             {result.added} added · {result.updated} updated · {result.removed}{" "}
             removed · {result.opted_out} opted out · {result.recently_contacted}{" "}
-            reached recently by another dialer · {result.other_owner} owned by
-            other reps
+            reached recently by another dialer
           </p>
         )}
       </div>

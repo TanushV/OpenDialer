@@ -18,7 +18,7 @@ from app.service import fail
 log = logging.getLogger(__name__)
 LANE = "crm"
 STALE = timedelta(hours=24)  # Section 5: a list not synced for a day stops dialing its leads.
-SYNC_EVERY = timedelta(minutes=30)  # Section 9C: while calling, every seat syncs this often.
+SYNC_EVERY = timedelta(minutes=30)  # While calling, the chosen list syncs this often.
 
 
 def config(service, p):
@@ -54,24 +54,6 @@ async def reach(call):
 
 async def lists(service, p):
     return {"lists": await reach(hubspot(service, p).lists())}
-
-
-async def owners(service, p):
-    return {
-        "owners": await reach(hubspot(service, p).owners()),
-        "calls_for": config(service, p).get("hubspot_owner_id"),
-    }
-
-
-def set_calls_for(service, p, owner_id):
-    """Chosen once when the seat is set up; changed only by setting the seat up again (D25)."""
-    current = config(service, p).get("hubspot_owner_id")
-    if current and current != owner_id:
-        fail(
-            409, {"code": "CALLS_FOR_SET", "message": "This computer already calls for another HubSpot user"}
-        )
-    service.configs.write(p["tenant_id"], {"hubspot_owner_id": str(owner_id)})
-    return {"calls_for": str(owner_id)}
 
 
 def set_spend_limit(service, p, list_name, usd):
@@ -161,7 +143,6 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
     from app.preparation.workflows import company_key
 
     now = service.clock()
-    conf = config(service, p)
     with service.db.transaction() as s:
         campaign = _campaign(service, s, p)
         existing = crm_leads(service, s, p, list_name)
@@ -174,7 +155,6 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
             contacts,
             members,
             {cid: lead.data.get("crm_row") for cid, lead in existing.items()},
-            owner_id=conf.get("hubspot_owner_id"),
             now=now,
             last_called=last_called,
         )
@@ -277,7 +257,6 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
         "removed": len(planned["drop"]),
         "opted_out": len(planned["opt_outs"]),
         "recently_contacted": len(planned["recent"]),
-        "other_owner": planned["other_owner"],
     }
 
 
@@ -573,7 +552,6 @@ async def log_job(service, p, call_id):
         from_number=data.get("from_number") or "",
         to_number=lead_data.get("phone") or "",
         note=((data.get("disposition") or {}).get("note") or "")[:2000],
-        owner_id=config(service, p).get("hubspot_owner_id"),
     )
     uncertain = bool(data.get("crm_log_attempted"))
     await asyncio.to_thread(_mark_attempt, service, p, call_id)

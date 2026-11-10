@@ -244,7 +244,6 @@ function SetupRow({
         </form>
       )}
       {extra && <div className="setup-row-extra">{extra}</div>}
-      {row.id === "calls_for" && <CallsFor onSaved={check} />}
       {row.id === "chatgpt" && <ResearchRoute />}
       {testCall && (
         <Button variant="primary" onClick={() => void testCall()}>
@@ -261,63 +260,7 @@ function SetupRow({
   );
 }
 
-/** Which HubSpot user this computer calls for: chosen once when the seat is set up, then read-only (D25). */
-function CallsFor({ onSaved }: { onSaved: () => Promise<void> }) {
-  const { api, run } = useWorkspace();
-  const [owners, setOwners] = useState<{ id: string; name: string }[]>([]);
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [pick, setPick] = useState("");
-  if (chosen) return null;
-  return (
-    <div className="setup-row-form">
-      {owners.length === 0 ? (
-        <Button
-          onClick={() =>
-            void run(async () => {
-              const found = await api<{
-                owners: { id: string; name: string }[];
-                calls_for: string | null;
-              }>("/v1/hubspot/owners");
-              setOwners(found.owners);
-              setChosen(found.calls_for);
-              setPick(found.owners[0]?.id ?? "");
-            })
-          }
-        >
-          Choose HubSpot user
-        </Button>
-      ) : (
-        <>
-          <select
-            aria-label="Calls for"
-            value={pick}
-            onChange={(e) => setPick(e.target.value)}
-          >
-            {owners.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-          <Button
-            disabled={!pick}
-            onClick={() =>
-              void run(async () => {
-                await api("/v1/hubspot/calls-for", "PUT", { owner_id: pick });
-                setChosen(pick);
-                await onSaved();
-              })
-            }
-          >
-            Save
-          </Button>
-        </>
-      )}
-    </div>
-  );
-}
-
-/** R9C.10: a rep's seat researches with their own ChatGPT login, or with the OpenRouter fallback as its main route. */
+/** R9C.10: research uses the ChatGPT login, or the OpenRouter fallback as its main route. */
 function ResearchRoute() {
   const { api, run, notice } = useWorkspace();
   const [route, setRoute] = useState<string | null>(null);
