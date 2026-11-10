@@ -115,7 +115,7 @@ def sidecar_build():
     return module
 
 
-def test_authority_sidecar_excludes_fitting_postgres_and_phone_tables_and_trainer_carries_fitting():
+def test_authority_sidecar_excludes_fitting_postgres_and_phone_tables_and_no_trainer_is_built():
     build = sidecar_build()
     authority = build.authority_arguments()
     excluded = {authority[i + 1] for i, value in enumerate(authority) if value == "--exclude-module"}
@@ -131,19 +131,17 @@ def test_authority_sidecar_excludes_fitting_postgres_and_phone_tables_and_traine
         "phonenumbers.tzdata",
     } <= excluded
     assert Path(authority[-1]).as_posix().endswith("scripts/backend_entry.py")
-    trainer = build.trainer_arguments()
-    assert Path(trainer[-1]).as_posix().endswith("scripts/trainer_entry.py")
-    assert not {"numpy", "scipy", "sklearn", "joblib"} & set(build.TRAINER_EXCLUDES)
-    assert {"sklearn.ensemble", "sklearn.calibration", "app.ml.worker"} <= set(build.TRAINER_IMPORTS)
+    # D31: StatML is archived, so no trainer sidecar is frozen.
+    assert not hasattr(build, "trainer_arguments")
+    assert not (ROOT / "scripts/trainer_entry.py").exists()
     hook = (ROOT / "scripts/pyinstaller_hooks/hook-phonenumbers.py").read_text()
     assert "phonenumbers.geodata" in hook
 
 
-def test_desktop_bundles_the_trainer_beside_the_authority():
+def test_desktop_bundles_the_authority_and_codex_without_a_trainer():
     config = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())
     assert config["bundle"]["externalBin"] == [
         "binaries/opendialer-backend",
-        "binaries/opendialer-trainer",
         "binaries/opendialer-codex",
         "binaries/codex-code-mode-host",
     ]

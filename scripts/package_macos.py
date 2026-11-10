@@ -15,8 +15,8 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 IDENTIFIER = "com.opendialer.desktop"
 BUNDLE = "OpenDialer.app"
-# Python authority/trainer and the pinned Codex runtime with its code-mode helper.
-SIDECARS = ("opendialer-backend", "opendialer-trainer", "opendialer-codex", "codex-code-mode-host")
+# Python authority and the pinned Codex runtime with its code-mode helper.
+SIDECARS = ("opendialer-backend", "opendialer-codex", "codex-code-mode-host")
 
 
 def run(command, **kwargs):
@@ -84,7 +84,7 @@ def main():
     app = root / "apps/desktop/src-tauri/target/release/bundle/macos" / BUNDLE
     sidecars = {name: app / "Contents/MacOS" / name for name in SIDECARS}
     if not all(path.is_file() for path in sidecars.values()):
-        raise SystemExit("Freeze both sidecars and build the complete app before packaging")
+        raise SystemExit("Freeze the sidecars and build the complete app before packaging")
     stamp = "--timestamp=none" if identity == "-" else "--timestamp"
     for sidecar in sidecars.values():
         entitlement = (
@@ -123,8 +123,8 @@ def main():
     )
     run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)])
     run([str(sidecars["opendialer-backend"]), "--help"], stdout=subprocess.DEVNULL, timeout=30)
-    # The signed trainer must load its own fitting libraries under the hardened runtime.
-    run([str(sidecars["opendialer-trainer"]), "--self-check"], stdout=subprocess.DEVNULL, timeout=300)
+    # The signed backend must load its native search libraries under the hardened runtime.
+    run([str(sidecars["opendialer-backend"]), "self-check"], stdout=subprocess.DEVNULL, timeout=120)
     archive = app.parent / "OpenDialer.app.tar.gz"
     with tarfile.open(archive, "w:gz") as tar:
         tar.add(app, arcname=BUNDLE)

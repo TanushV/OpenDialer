@@ -10,7 +10,7 @@ from app import ops
 from app.leads.record import number_view
 from app.platform.config import LIMITS, PROVIDER_DEFAULTS, inference_model
 from app.platform.db import MODELS, audit, doc, emit, put, rows, uid, update
-from app.service import dt, fail
+from app.service import dt
 
 # Outcome of one claimed job in a drain pass: completed; requeued with progress
 # or newer input; or handled without progress (coalesced, failed, lost lease).
@@ -296,8 +296,8 @@ async def run_jobs(service, tenant_id=None, queues=None):
                             logging.getLogger(__name__).warning(
                                 "Script proposal deferred: %s", type(exc).__name__
                             )
-                elif kind is None:  # Operational training snapshots carry no kind.
-                    await ops.train_model_job(service, p, job["payload"])
+                elif kind is None:  # A training job saved before StatML was archived (D31): nothing to do.
+                    pass
                 else:
                     raise UnknownJobKind(f"No ml handler for job kind {kind!r}")
             else:
@@ -357,124 +357,6 @@ async def run_jobs(service, tenant_id=None, queues=None):
         # A sibling's commits can make work due after a lane found nothing; run it in this call.
         await asyncio.gather(*(drain(lane) for lane, empty in zip(lanes, idle, strict=True) if empty))
     return {"processed": processed, "status": "failed" if errors else "passed", "errors": errors}
-
-
-def _training_source(service, s, p, payload, *, rows=True):
-    """The named immutable dataset, re-verified by content; the job carries no rows.
-
-    Publication passes rows=False: an unchanged row version is the same content,
-    so the write transaction neither decrypts nor rehashes the snapshot."""
-    from app.optimization.workflows import dataset_checksum
-
-    ops.required(service, s, "users", p["user_id"], p)
-    config = ops.optimization_config(service, s, p)
-    changed = config["conversion_goal"] != payload.get("goal") or (
-        payload.get("window_days") is not None and config["window_days"] != payload["window_days"]
-    )
-    changed |= payload.get("baseline") is not None and payload["baseline"] != {
-        k: config[k] for k in ("estimate_policy", "handling_seconds")
-    }
-    if rows:
-        dataset = ops.required(service, s, "learning_datasets", payload.get("source_dataset_id"), p)
-        identity, version, data = dataset.id, dataset.version, dataset.data
-        changed |= (
-            data.get("source") != "immutable_operational_feature_snapshots"
-            or data.get("checksum") != payload.get("input_fingerprint")
-            or dataset_checksum(data) != payload.get("input_fingerprint")
-            or data.get("goal") != payload.get("goal")
-            or data.get("baseline") != payload.get("baseline")
-            or (payload.get("window_days") is not None and data.get("window_days") != payload["window_days"])
-        )
-    else:
-        model = MODELS["learning_datasets"]
-        identity, data = payload.get("source_dataset_id"), {}
-        version = s.scalar(
-            select(model.version).where(
-                model.id == identity, model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"]
-            )
-        )
-        if version is None:
-            fail(404, "learning_datasets not found")
-    if changed:
-        fail(409, "Training source or goal changed; prepare the current owned dataset")
-    prior = ops._by_key(service, s, p, "model_versions", "training:" + identity)
-    return version, doc(prior) if prior else None, data.get("rows")
-
-
-def _training_snapshot(service, p, payload):
-    with service.db.transaction(False) as s:
-        return ops._training_source(service, s, p, payload)
-
-
-def _training_publish(service, p, payload, version, result):
-    with service.db.transaction() as s:
-        service.db.authorize_stream(s, p)
-        current, prior, _ = ops._training_source(service, s, p, payload, rows=False)
-        if current != version:
-            fail(409, "Training dataset changed during fitting")
-        if prior:
-            return False
-        from app.ml.training import promotion_allowed
-
-        promote = promotion_allowed(result)
-        if promote:
-            for other in ops.scoped(service, s, "model_versions", p):
-                if other.data.get("active"):
-                    update(other, active=False, replaced_at=service.clock().isoformat())
-        model = put(
-            s,
-            "model_versions",
-            p["tenant_id"],
-            p["seller_id"],
-            {
-                **result,
-                "active": promote,
-                "promoted_at": service.clock().isoformat() if promote else None,
-                "source_dataset_id": payload.get("source_dataset_id"),
-                "goal": payload.get("goal", "meeting_booked"),
-                "window_days": payload.get("window_days"),
-            },
-            key="training:" + payload["source_dataset_id"],
-            now=service.clock(),
-        )
-        # R8.5, R8.6: each promotion is recorded; a model that does not pass stays as evidence only.
-        audit(
-            s,
-            p["tenant_id"],
-            p["seller_id"],
-            None,
-            "model.promoted" if promote else "model.kept_inactive",
-            model.id,
-            service.clock(),
-            {"reviewable": bool(result.get("reviewable"))},
-        )
-    return True
-
-
-async def train_model_job(service, p, payload):
-    import shutil
-
-    from app.ml.worker import train_isolated
-
-    version, prior, rows = await asyncio.to_thread(ops._training_snapshot, service, p, payload)
-    if prior:
-        return
-    directory = service.settings.data_dir / "models" / uid()
-    published = False
-    try:
-        result = await train_isolated(rows, directory, baseline=payload.get("baseline"))
-        publication = asyncio.create_task(
-            asyncio.to_thread(ops._training_publish, service, p, payload, version, result)
-        )
-        try:
-            published = await asyncio.shield(publication)
-        except asyncio.CancelledError:
-            # A cancelled await cannot roll back an already-running commit.
-            published = await publication
-            raise
-    finally:
-        if not published:
-            await asyncio.to_thread(shutil.rmtree, directory, True)
 
 
 async def periodic_optimization(service, tenant_id=None):

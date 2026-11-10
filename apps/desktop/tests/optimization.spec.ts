@@ -38,10 +38,12 @@ test("optimization goals, learning state and provider settings persist", async (
     .getByRole("button", { name: "Apply reviewed goal change" })
     .click();
   await expect(page.getByText("Campaign goal saved").first()).toBeVisible();
-  await openMoreSettings(page, "Learning");
+  // D31: StatML is archived; only the number limits remain from its settings.
+  await openMoreSettings(page, "Number limits");
   await expect(
-    page.getByRole("region", { name: "Planning assumptions" }),
+    page.getByRole("region", { name: "Number limits" }),
   ).toBeVisible();
+  await expect(page.getByLabel("Exploration share")).toHaveCount(0);
   await page.reload();
   await openMoreSettings(page, "Campaign goal");
   await expect(page.getByLabel("Conversion goal")).toHaveValue("sale_won");

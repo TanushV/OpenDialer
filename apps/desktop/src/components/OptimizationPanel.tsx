@@ -118,28 +118,20 @@ function PlanningAssumptions({
       />
     </label>
   );
-  const estimate = settings.estimate_policy;
   return (
     <section
       className="card padded optimization-panel"
-      aria-label="Planning assumptions"
+      aria-label="Number limits"
     >
-      <h2>Planning assumptions</h2>
+      <h2>Number limits</h2>
       <p className="fine">
-        Engineering starting values for forecasts and learning. Calling
-        permissions, callbacks, stable caller identity and coverage stay
-        mandatory; nothing here authorizes a number purchase.
+        Limits that protect your numbers. Nothing here buys a number.
       </p>
       <div className="optimization-fields">
-        {number("exploration", "Exploration share", "0.01")}
-        {number("horizon_hours", "Forecast horizon (hours)")}
-        {number("rep_minutes", "Available rep minutes")}
-        {number("handling_seconds", "Average handling time (seconds)")}
         {number(
           "daily_capacity_per_number",
           "Reviewed daily capacity per number",
         )}
-        {number("training_min_rows", "Minimum training rows")}
         {number(
           "account_channel_limit",
           "Account concurrent-call limit (blank if unknown)",
@@ -149,14 +141,6 @@ function PlanningAssumptions({
           "Shortfall review interval (hours)",
         )}
       </div>
-      <label className="check-row">
-        <input
-          type="checkbox"
-          checked={draft.auto_train}
-          onChange={(e) => change("auto_train", e.target.checked)}
-        />
-        Automatic training from call history
-      </label>
       {draft.health_policy && (
         <details>
           <summary>Advanced number evidence policy</summary>
@@ -193,23 +177,6 @@ function PlanningAssumptions({
           </div>
         </details>
       )}
-      {estimate && (
-        <details>
-          <summary>Sparse estimate assumptions</summary>
-          <p className="fine" data-testid="estimate-assumptions">
-            Human pickup prior {estimate.human_prior[0]} successes /{" "}
-            {estimate.human_prior[1]} failures · Right party prior{" "}
-            {estimate.right_prior[0]} / {estimate.right_prior[1]} · Selected
-            goal prior {estimate.goal_prior[0]} / {estimate.goal_prior[1]} ·
-            Pooled shrinkage weight {estimate.shrinkage} · Work prior{" "}
-            {estimate.work_prior} attempt equivalents.
-          </p>
-          <p className="fine">
-            Read-only starting weights. They apply until observed outcomes
-            provide support; changing them requires renewed model evaluation.
-          </p>
-        </details>
-      )}
       <button
         className="secondary"
         disabled={saving}
@@ -237,7 +204,7 @@ function PlanningAssumptions({
           })
         }
       >
-        Save planning assumptions
+        Save number limits
       </button>
     </section>
   );

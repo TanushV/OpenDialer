@@ -3,7 +3,7 @@
 uv run python scripts/check.py                 fast tier (each change, pre-commit hook)
 uv run python scripts/check.py full            everything Verify runs (pre-push hook)
 uv run python scripts/check.py package         frozen sidecars plus a smoke start
-uv run python scripts/check.py sidecars        check sidecars already built: trainer learns, backend starts
+uv run python scripts/check.py sidecars        check the backend sidecar already built: it starts and loads search
 uv run python scripts/check.py KEYWORD         lint plus the backend and frontend tests matching KEYWORD
 uv run python scripts/check.py run STEP...     named steps; GitHub CI calls these
 uv run python scripts/check.py install-hooks   turn on the .githooks pre-commit and pre-push hooks
@@ -176,24 +176,13 @@ def package():
 
 
 def sidecars():
-    """R8.10: the frozen trainer starts, learns a planted pattern through its stdin protocol and its model is
-    served; the frozen backend answers /health. Checks the sidecars already built, as CI's Mac job does."""
+    """The frozen backend loads web search and answers /health. Checks the sidecar already built, as CI's Mac job
+    does. (The trainer it once checked was archived with StatML, D31.)"""
     host = ["rustc", "--print", "host-tuple"]  # toolchain on PATH, as in CI
     triple = subprocess.run(host, capture_output=True, text=True, check=True)  # noqa: S603
     binaries = TAURI / "binaries"
     suffix = ".exe" if os.name == "nt" else ""  # R9D.1: the Windows sidecars are .exe files.
     backend = binaries / f"opendialer-backend-{triple.stdout.strip()}{suffix}"
-    trainer = binaries / f"opendialer-trainer-{triple.stdout.strip()}{suffix}"
-    subprocess.run(  # noqa: S603 - the sidecar this tier just built
-        [str(trainer), "--self-check"], check=True, stdout=subprocess.DEVNULL, timeout=300
-    )
-    print("  pass  trainer self-check")
-    fitted = subprocess.run(  # noqa: S603 - the check script in this repository
-        [sys.executable, "scripts/trainer_check.py", str(trainer)], cwd=ROOT, timeout=600, check=False
-    )
-    if fitted.returncode:
-        print("  FAIL  frozen trainer did not learn the planted pattern")
-        return False
     searched = subprocess.run(  # noqa: S603 - the sidecar this tier just built
         [str(backend), "self-check"], capture_output=True, text=True, timeout=120, check=False
     )

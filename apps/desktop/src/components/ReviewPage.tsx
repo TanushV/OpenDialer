@@ -8,7 +8,6 @@ import { Empty } from "./Operations";
 import { FollowupTasks } from "./FollowupTasks";
 import { WrapUp } from "./WrapUp";
 import { CallTimeline } from "./CallTimeline";
-import { LearningCard } from "./LearningCard";
 import { ReviewIssues } from "./ReviewIssues";
 import { SummaryView } from "./SummaryView";
 
@@ -130,7 +129,6 @@ export function ReviewPage({
             <Empty text="Your completed conversations will appear here." />
           )}
         </section>
-        <LearningCard />
       </>
     );
   const summary = review.summary;

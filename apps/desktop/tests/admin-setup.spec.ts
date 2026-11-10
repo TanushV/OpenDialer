@@ -304,12 +304,16 @@ test("advanced detail is one collapsed view and debug controls are gone", async 
   await expect(page.getByLabel("Conversion goal")).toHaveCount(0);
   await openSettings(page);
   expect(strategyReads).toEqual([]);
-  await openMore(page, "Learning");
-  await expect(page.getByLabel("Human pickup prior successes")).toHaveCount(0);
-  await page.getByText("Sparse estimate assumptions", { exact: true }).click();
-  await expect(page.getByTestId("estimate-assumptions")).toContainText(
-    "Human pickup prior",
-  );
+  await openMore(page, "Number limits");
+  // D31: StatML is archived, with its estimates and training switches.
+  for (const gone of [
+    "Human pickup prior successes",
+    "Exploration share",
+    "Minimum training rows",
+    "Automatic training from call history",
+  ])
+    await expect(page.getByLabel(gone)).toHaveCount(0);
+  await expect(page.getByTestId("estimate-assumptions")).toHaveCount(0);
   for (const gone of [
     "Reviewed replay cases JSON",
     "External reputation evidence",

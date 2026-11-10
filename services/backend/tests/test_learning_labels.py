@@ -2,7 +2,6 @@
 
 from datetime import UTC, datetime, timedelta
 
-from app import ops
 from app.optimization.learning import training_rows
 
 NOW = datetime(2026, 11, 8, tzinfo=UTC)
@@ -116,30 +115,6 @@ def test_lead_features_read_seniority_size_source_and_trigger():
     assert lead_features({}, NOW)["trigger_strength"] == "none"
 
 
-def test_new_fields_are_one_hot_and_old_rows_read_as_unknown():
-    from app.ml.training import feature_order, fitted_vocabulary, vector_v2
-
-    rows = [{"features": {"title_seniority": "vp", "segment": "general"}}] * 3
-    vocabulary = fitted_vocabulary(rows)
-    assert vocabulary["categories"]["title_seniority"] == ["vp"]
-    order = feature_order(vocabulary, conversation=False)
-    assert "cat:title_seniority=vp" in order and "cat:title_seniority=unknown" in order
-    new = dict(zip(order, vector_v2({"title_seniority": "vp"}, order, vocabulary), strict=True))
-    old = dict(zip(order, vector_v2({"feature_schema_version": 2}, order, vocabulary), strict=True))
-    assert new["cat:title_seniority=vp"] == 1.0 and new["cat:title_seniority=unknown"] == 0.0
-    assert old["cat:title_seniority=unknown"] == 1.0 and old["cat:industry=unknown"] == 1.0
-
-
-def test_a_reviewed_model_goes_live_without_manual_approval():
-    """R8.5: the out-of-time review is the gate; no manual approval or trial."""
-    from app.ml.training import promotion_allowed
-
-    passed = {"feature_schema_version": 3, "reviewable": True, "coverage_delta": 0, "policy_violations": 0}
-    assert promotion_allowed(passed)
-    assert not promotion_allowed({**passed, "reviewable": False})
-    assert not promotion_allowed({**passed, "coverage_delta": -1})
-
-
 def test_the_comparison_group_rolls_a_worse_model_back_only_with_enough_calls():
     """R8.6: control beating the model by 5 points over 100 decided calls each rolls it back."""
     from app.optimization.learning import ROLLBACK_MIN_DECIDED, arm_comparison, rollback_due
@@ -157,41 +132,6 @@ def test_the_comparison_group_rolls_a_worse_model_back_only_with_enough_calls():
     assert not rollback_due(arm_comparison(rows("candidate", n - 1, 0) + rows("control", n, 50), since))
     older = [{"experiment_arm": "control", "at": (since - timedelta(days=1)).isoformat(), "conversion": 1}]
     assert arm_comparison(older, since)["control"] == (0, 0)
-
-
-def test_publishing_a_reviewed_model_makes_it_the_only_live_one(workspace, app, monkeypatch):
-    from app.platform.db import MODELS
-    from helpers import bound, principal
-
-    service, p = app.state.service, principal(workspace)
-    reviewed = {"feature_schema_version": 3, "reviewable": True, "coverage_delta": 0, "policy_violations": 0}
-    with service.db.transaction() as s:
-        old = ops.scoped(service, s, "model_versions", p)
-    assert not [m for m in old if m.data.get("active")]
-
-    monkeypatch.setattr(ops, "_training_source", bound(lambda s, p, payload, rows=False: ("v", None, None)))
-
-    def publish(dataset_id, result):
-        ops._training_publish(service, p, {"source_dataset_id": dataset_id}, "v", result)
-
-    publish("first", reviewed)
-    publish("second", reviewed)
-    publish("third", {**reviewed, "reviewable": False})
-    with service.db.transaction(False) as s:
-        models = {m.external_key: m.data for m in s.query(MODELS["model_versions"]).all()}
-    assert [k for k, m in models.items() if m["active"]] == ["training:second"]
-    assert models["training:first"]["replaced_at"] and models["training:third"]["promoted_at"] is None
-
-
-def test_training_runs_at_most_daily_and_only_with_new_labels():
-    """R8.7: no retraining on every call; nightly when labels grew."""
-    from app.optimization.workflows import training_due
-
-    assert training_due({}, 120, NOW)
-    yesterday = {"at": (NOW - timedelta(hours=21)).isoformat(), "labeled": 120}
-    assert training_due(yesterday, 121, NOW)
-    assert not training_due(yesterday, 120, NOW)
-    assert not training_due({"at": (NOW - timedelta(hours=3)).isoformat(), "labeled": 100}, 150, NOW)
 
 
 def test_ai_saved_outcomes_do_not_become_observed_training_labels():

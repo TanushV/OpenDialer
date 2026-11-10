@@ -1,10 +1,8 @@
-"""Freeze the local authority and its separate CPU trainer into self-contained sidecars.
+"""Freeze the local authority into a self-contained sidecar and bundle the pinned Codex runtime.
 
-The desktop authority only runs local mode on SQLite and serves promoted funnel models with a
-pure-Python evaluator, so it ships without the numeric stack, the PostgreSQL drivers or the phone
-geocoding/carrier/timezone tables. A onefile binary re-extracts its whole payload on every launch,
-so everything left out here is startup time saved. Fitting runs in the separate trainer binary,
-which carries NumPy, SciPy and scikit-learn and is extracted only when a training child starts.
+The desktop authority only runs local mode on SQLite, so it ships without the numeric stack, the PostgreSQL drivers
+or the phone geocoding/carrier/timezone tables. A onefile binary re-extracts its whole payload on every launch, so
+everything left out here is startup time saved. The model trainer was archived with StatML (D31).
 """
 
 import argparse
@@ -17,7 +15,7 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 
-# Never in the authority: fitting libraries (trainer only), PostgreSQL drivers (connected mode is
+# Never in the authority: fitting libraries, PostgreSQL drivers (connected mode is
 # the server image), phone tables that app/compliance/phone.py never reads, and test-only probes.
 AUTHORITY_EXCLUDES = (
     "psutil",
@@ -56,42 +54,15 @@ AUTHORITY_EXCLUDES = (
     "markdown_it",
     "trio",
 )
-# The trainer runs app.ml.worker only: fitting never imports the server, database, encryption,
-# phone or research stacks (static analysis of app would otherwise pull them all in).
-TRAINER_EXCLUDES = (
-    "psutil",
-    "psycopg",
-    "psycopg_binary",
-    "psycopg_c",
-    "psycopg_pool",
-    "fastapi",
-    "starlette",
-    "uvicorn",
-    "uvloop",
-    "httptools",
-    "watchfiles",
-    "websockets",
-    "sqlalchemy",
-    "cryptography",
-    "phonenumbers",
-    "httpx",
-    "httpcore",
-    "h11",
-    "bs4",
-    "soupsieve",
-    "charset_normalizer",
-    "cffi",
-    "jwt",
-    "yaml",
-    "setuptools",
-    "_distutils_hack",
-    "pytest",
-    "_pytest",
-    "pygments",
-    "rich",
-    "markdown_it",
-    "trio",
-)
+
+
+def host_triple():
+    output = subprocess.check_output(  # noqa: S603 - fixed toolchain probe
+        [shutil.which("rustc") or "/usr/bin/rustc", "-vV"], text=True
+    )
+    return output.split("host: ")[1].splitlines()[0]
+
+
 # SQLAlchemy 2.1 compiles these pure-Python modules with Cython. The authority ships their sources
 # instead: eight fewer native images to verify per launch, same documented behavior.
 SQLALCHEMY_CYTHON = (
@@ -104,23 +75,6 @@ SQLALCHEMY_CYTHON = (
     "sqlalchemy.sql._cache_key_cy",
     "sqlalchemy.sql._util_cy",
 )
-TRAINER_IMPORTS = (
-    "app.ml.worker",
-    "app.ml.training",
-    "app.ml.serving",
-    "sklearn.ensemble",
-    "sklearn.calibration",
-    "sklearn.frozen",
-    "sklearn.metrics",
-    "threadpoolctl",
-)
-
-
-def host_triple():
-    output = subprocess.check_output(  # noqa: S603 - fixed toolchain probe
-        [shutil.which("rustc") or "/usr/bin/rustc", "-vV"], text=True
-    )
-    return output.split("host: ")[1].splitlines()[0]
 
 
 def flags(option, values):
@@ -167,18 +121,6 @@ def authority_arguments():
     ]
 
 
-def trainer_arguments():
-    return [
-        *flags("--exclude-module", TRAINER_EXCLUDES),
-        "--name",
-        "opendialer-trainer",
-        *flags("--hidden-import", TRAINER_IMPORTS),
-        "--collect-all",
-        "tzdata",
-        str(root / "scripts/trainer_entry.py"),
-    ]
-
-
 def freeze(name, arguments, triple, suffix):
     work = root / "work"
     subprocess.run(  # noqa: S603 - fixed current interpreter and repository build entrypoint
@@ -211,14 +153,10 @@ def freeze(name, arguments, triple, suffix):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--only", choices=("authority", "trainer"))
-    args = parser.parse_args(argv)
+    parser.parse_args(argv)
     triple = host_triple()
     suffix = ".exe" if platform.system() == "Windows" else ""
-    if args.only != "trainer":
-        freeze("opendialer-backend", authority_arguments(), triple, suffix)
-    if args.only != "authority":
-        freeze("opendialer-trainer", trainer_arguments(), triple, suffix)
+    freeze("opendialer-backend", authority_arguments(), triple, suffix)
     bundle_codex(triple, suffix)
 
 

@@ -33,7 +33,7 @@ test("a number pauses and resumes from its own row, with no review form", async 
 
 test("the number health window saves under Advanced", async ({ page }) => {
   await enterSimulation(page);
-  await openMoreSettings(page, "Learning");
+  await openMoreSettings(page, "Number limits");
   await page
     .getByText("Advanced number evidence policy", { exact: true })
     .click();
@@ -43,10 +43,10 @@ test("the number health window saves under Advanced", async ({ page }) => {
       r.url().endsWith("/v1/admin/optimization") &&
       r.request().method() === "PUT",
   );
-  await page.getByRole("button", { name: "Save planning assumptions" }).click();
+  await page.getByRole("button", { name: "Save number limits" }).click();
   expect((await policy).ok()).toBeTruthy();
   await page.reload();
-  await openMoreSettings(page, "Learning");
+  await openMoreSettings(page, "Number limits");
   await page
     .getByText("Advanced number evidence policy", { exact: true })
     .click();

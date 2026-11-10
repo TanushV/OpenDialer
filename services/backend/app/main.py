@@ -615,20 +615,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
         ops.end_test_session(service, p)
         return {"test_session": False}
 
-    @app.get("/v1/learning/summary")
-    def learning_summary(p=Depends(principal)):
-        """The Review card: what StatML has learned from real calls (R8.8)."""
-        from app.learning.summary import summary
-        from app.platform.db import get
-
-        with db.transaction(False) as s:
-            campaign = next(iter(ops.scoped(service, s, "campaigns", p)), None)
-            latest = (campaign.data.get("dataset_summaries") or [None])[-1] if campaign else None
-            dataset = get(s, "learning_datasets", latest["id"], p["tenant_id"]) if latest else None
-            models = [m.data for m in ops.scoped(service, s, "model_versions", p)]
-            required = ops.optimization_config(service, s, p)["training_min_rows"] if campaign else 40
-        return summary(dataset.data.get("rows", []) if dataset else [], models, required_rows=required)
-
     @app.get("/v1/calling/voicemail-report")
     def voicemail_report(p=Depends(principal)):
         """Voicemail detection against what the rep found when they stayed (R6.4)."""
@@ -1506,53 +1492,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.post("/v1/admin/control/run")
     async def control_run(p=Depends(administrator)):
         return await ops.dispatch_controls(service, p)
-
-    @app.post("/v1/admin/models/{model_id}/rollback")
-    def rollback_model(model_id: str, data: dict, p=Depends(administrator)):
-        if not data.get("reason"):
-            fail(422, "Rollback reason required")
-        with db.transaction() as session:
-            if model_id == "baseline":
-                for item in ops.scoped(service, session, "model_versions", p):
-                    update(item, active=False, trial_active=False)
-                audit(
-                    session,
-                    p["tenant_id"],
-                    p["seller_id"],
-                    p["user_id"],
-                    "model.baseline_restored",
-                    p["tenant_id"],
-                    clock(),
-                )
-                return {"active": "pooled-funnel-v3"}
-            model = ops.required(service, session, "model_versions", model_id, p)
-            if not model.data.get("ever_activated") or not ops.model_source_current(
-                service, session, p, model, ops.optimization_config(service, session, p)
-            ):
-                fail(
-                    409,
-                    "Rollback requires a previously activated model with the current evaluated definition",
-                )
-            from app.ml.training import predict_funnel
-
-            if not predict_funnel(model.data, {}, service.settings.data_dir / "models"):
-                fail(
-                    409,
-                    "Rollback artifact is unavailable or failed verification; use the pooled baseline",
-                )
-            for item in ops.scoped(service, session, "model_versions", p):
-                update(item, active=item.id == model.id, trial_active=False)
-            audit(
-                session,
-                p["tenant_id"],
-                p["seller_id"],
-                p["user_id"],
-                "model.rollback",
-                model.id,
-                clock(),
-                {"reason": data["reason"]},
-            )
-            return doc(model)
 
     @app.post("/v1/admin/restore/reconcile")
     async def reconcile_restore(data: dict, p=Depends(administrator)):

@@ -666,7 +666,7 @@ function MoreSettings({ settings }: { settings: AdminSettingsState }) {
             <CallbackRouting />
           </details>
           <details>
-            <summary>Learning</summary>
+            <summary>Number limits</summary>
             <LearningAdvanced />
           </details>
           <details>

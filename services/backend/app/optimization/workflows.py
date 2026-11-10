@@ -3,7 +3,7 @@ import json
 from collections import defaultdict
 from datetime import UTC, timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 
 from app import ops
 from app.optimization.geography import planning_zones
@@ -15,10 +15,9 @@ from app.optimization.numbering import (
     timestamp,
     warmup_allowance,
 )
-from app.platform.db import MODELS, ActiveClaim, Job, audit, doc, emit, get, put, update
+from app.platform.db import MODELS, ActiveClaim, Job, audit, doc, emit, put, update
 from app.platform.jobs import jobdoc
 from app.scheduling.models import (
-    FEATURE_VERSIONS,
     OPTIMIZATION_DEFAULTS,
     EstimatePolicy,
     prediction_key,
@@ -32,7 +31,6 @@ STAGES = ("p_human", "p_right_party_given_human", "p_conversion_given_right_part
 
 DEFAULTS = OPTIMIZATION_DEFAULTS
 OLD_TRAINING_START = 100
-MIN_CLASS = 5  # Answered and unanswered calls each needed before a model is trained.
 # Under the bounded training child's 16 MiB input, leaving room for its envelope.
 TRAINING_SNAPSHOT_MAX_BYTES = 15 * 1024 * 1024
 
@@ -41,15 +39,6 @@ class TrainingRows(list):
     """As-of training rows; ``truncation`` records any bound that omitted evidence."""
 
     truncation = None
-
-
-# R8.7: train at most once a day, and only when new labeled calls exist since the last training.
-TRAINING_INTERVAL = timedelta(hours=20)
-
-
-def training_due(last, labeled, now):
-    at = timestamp(last.get("at")) if last.get("at") else None
-    return labeled > last.get("labeled", -1) and (at is None or now - at >= TRAINING_INTERVAL)
 
 
 def dataset_checksum(value):
@@ -188,110 +177,6 @@ def ensure_experiment_cohort(service, s, p, campaign_id=None):
             now=service.clock(),
         )
     return epoch
-
-
-def model_source_current(service, s, p, model, config):
-    """Check the evaluated definition once per transaction, without ML imports."""
-    value = model.data
-    if value.get("goal", config["conversion_goal"]) != config["conversion_goal"]:
-        return False
-    if value.get("feature_schema_version", 1) not in FEATURE_VERSIONS:
-        return value.get("window_days", config["window_days"]) == config["window_days"]
-    baseline = {k: config[k] for k in ("estimate_policy", "handling_seconds")}
-    if value.get("baseline") != baseline or value.get("window_days") != config["window_days"]:
-        return False
-    source = get(s, "learning_datasets", value.get("source_dataset_id"), p["tenant_id"])
-    return bool(
-        source
-        and source.seller_id == p["seller_id"]
-        and source.data.get("baseline") == baseline
-        and source.data.get("goal") == config["conversion_goal"]
-        and source.data.get("window_days") == config["window_days"]
-    )
-
-
-def serving_model(service, s, p, config, lead_id=None):
-    from app.optimization.learning import PRODUCTION_HOLDOUT_FRACTION, stable_control
-
-    # The persistent production holdout only; trial arms come from recorded enrollment.
-    holdout = config.get("production_holdout_fraction", PRODUCTION_HOLDOUT_FRACTION)
-    if lead_id and stable_control(lead_id, holdout):
-        return None
-    # This pointer cache lives only for this read transaction. A rollback,
-    # promotion or goal edit is visible to the next decision immediately.
-    cache = s.info.setdefault("serving_context", {})
-    scope = (
-        p["tenant_id"],
-        p["seller_id"],
-        config["conversion_goal"],
-        config["window_days"],
-        config["handling_seconds"],
-        EstimatePolicy.model_validate(config["estimate_policy"]).version,
-    )
-    if scope not in cache:
-        model = MODELS["model_versions"]
-        prefetched = s.info.get("row_cache", {}).get(("model_versions", p["tenant_id"], p["seller_id"]))
-        models = (
-            prefetched
-            if prefetched is not None
-            else list(
-                s.scalars(
-                    select(model).where(
-                        model.tenant_id == p["tenant_id"],
-                        model.seller_id == p["seller_id"],
-                        (model.ctx_key == "active")
-                        | ((model.ctx_key == "trial") & (model.ctx_expires_at > service.clock())),
-                        or_(model.ctx_status == config["conversion_goal"], model.ctx_status.is_(None)),
-                    )
-                )
-            )
-        )
-        models = [m for m in models if ops.model_source_current(service, s, p, m, config)]
-        cache[scope] = {"models": models}
-        if any(m.data.get("trial_active") for m in models):
-            campaign = ops.selected_campaign(service, s, p)
-            cache[scope]["epoch"] = (
-                campaign.id + ":" + campaign.data.get("optimization_epoch", "conversion-v2")
-            )
-    context = cache[scope]
-    models = [
-        m
-        for m in context["models"]
-        if m.data.get("goal", config["conversion_goal"]) == config["conversion_goal"]
-    ]
-    trials = [
-        m
-        for m in models
-        if m.data.get("trial_active")
-        and m.data.get("trial_epoch") == context.get("epoch")
-        and timestamp(m.data.get("trial_ends_at"))
-        and timestamp(m.data["trial_ends_at"]) > service.clock()
-    ]
-    if trials and lead_id is None:
-        return trials[0]
-    if trials:
-        if "assignments" not in context:
-            prefetched = s.info.get("row_cache", {}).get(
-                ("experiment_assignments", p["tenant_id"], p["seller_id"])
-            )
-            context["assignments"] = {r.external_key: r for r in prefetched or []}
-            context["assignments_prefetched"] = prefetched is not None
-        key = context["epoch"] + ":" + lead_id
-        assignments = context["assignments"]
-        if key not in assignments and not context["assignments_prefetched"]:
-            assignments[key] = ops._by_key(service, s, p, "experiment_assignments", key)
-        enrollment = assignments.get(key)
-        if (
-            enrollment
-            and enrollment.data.get("lead_id") == lead_id
-            and enrollment.data.get("epoch") == context["epoch"]
-            and enrollment.data.get("family", "optimization") == "optimization"
-            and enrollment.data.get("arm") == "candidate"
-        ):
-            trial = next((m for m in trials if m.id == enrollment.data.get("trial_model_id")), None)
-            if trial:
-                return trial
-    return next((m for m in models if m.data.get("active")), None)
 
 
 def reconcile_goal_status(service, s, p, lead):
@@ -843,57 +728,6 @@ def save_operational_dataset(service, p, *, lease=None):
     return dataset
 
 
-def train_operational(service, p, dataset=None):
-    dataset = dataset if dataset is not None else ops.save_operational_dataset(service, p)
-    data = dataset["rows"]
-    with service.db.transaction(False) as s:
-        minimum = ops.optimization_config(service, s, p)["training_min_rows"]
-    from app.ml.training import training_support
-
-    known = [r["human"] for r in data if r.get("human") in (0, 1)]
-    positives = sum(known)
-    reason = (
-        "Independent labeled outcomes and both answer classes are required"
-        if len(known) < minimum or min(positives, len(known) - positives) < MIN_CLASS
-        else training_support(data)
-    )
-    if reason:
-        # No bounded child is started when no stage could meet the review policy.
-        return {
-            "status": "insufficient_data",
-            "rows": len(data),
-            "classified_rows": len(known),
-            "required_rows": minimum,
-            "dataset_id": dataset["id"],
-            "reason": reason,
-        }
-    from app.ml.worker import trainer_unavailable
-
-    if reason := trainer_unavailable():
-        return {
-            "status": "trainer_unavailable",
-            "rows": len(data),
-            "dataset_id": dataset["id"],
-            "reason": reason,
-        }
-    # The job names the immutable dataset; the trainer loads and verifies its rows.
-    job = service.jobs.enqueue(
-        "ml",
-        {
-            "seller_id": p["seller_id"],
-            "user_id": p["user_id"],
-            "source_dataset_id": dataset["id"],
-            "input_fingerprint": dataset["checksum"],
-            "goal": dataset["goal"],
-            "baseline": dataset["baseline"],
-            "window_days": dataset["window_days"],
-        },
-        "operational-train:" + dataset["checksum"],
-        tenant_id=p["tenant_id"],
-    )
-    return {"status": job["status"], "rows": len(data), "job_id": job["id"], "dataset_id": dataset["id"]}
-
-
 def refresh_observed_health(service, p, *, lease=None):
 
     with service.db.transaction(False) as s:
@@ -991,18 +825,8 @@ def refresh_learning(service, p, *, lease=None):
             # No screen event for an unchanged report (section 8: no UI churn).
             update(campaign, conversation_report=report)
             emit(s, p["tenant_id"], "optimization.updated", campaign, service.clock())
-        last = campaign.data.get("last_training") or {}
-    labeled = sum(1 for row in dataset["rows"] if row.get("human") in (0, 1))
-    if not config["auto_train"]:
-        training = {"status": "disabled"}
-    elif not training_due(last, labeled, service.clock()):
-        training = {"status": "not_due", "labeled": labeled, "last": last}
-    else:
-        training = ops.train_operational(service, p, dataset)
-        if training.get("job_id"):
-            with service.db.transaction() as s:
-                campaign = ops.required(service, s, "campaigns", campaign_id, p, lock=True)
-                update(campaign, last_training={"at": service.clock().isoformat(), "labeled": labeled})
+    # D31: StatML is archived, so no model is trained; associations and script memory still refresh.
+    training = {"status": "archived"}
     return {
         "status": "ready",
         "dataset_id": dataset["id"],
