@@ -162,13 +162,18 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
     if automatic and service.tips.busy(call_id):
         await asyncio.to_thread(_requeue, service, p, call_id)
         return {**result, "status": "busy"}
+    request, skipped = await asyncio.to_thread(_prepare, service, p, call_id, question, automatic)
+    if request is None:
+        return {**result, "status": skipped}
+    if automatic and live.screener(request["dialogue"]):
+        # R11.8: a fixed line, with no model call and no key needed.
+        tip = live.card(identity, live.SCREENER_TIP, private=False, done=True, now=service.clock())
+        await asyncio.to_thread(_publish, service, p, call_id, tip)
+        return {**result, "status": "shown"}
     coach = await asyncio.to_thread(provider, service, p)
     if coach is None:
         service.tips.status[call_id] = {"status": "paused", "reason": "not_configured"}
         return {**result, "status": "unavailable"}
-    request, skipped = await asyncio.to_thread(_prepare, service, p, call_id, question, automatic)
-    if request is None:
-        return {**result, "status": skipped}
     key = f"coach:{call_id}:{identity}"
     if not await asyncio.to_thread(
         ops.reserve_optional_budget, service, p, key, 0.01, object_id=call_id, work_kind="live_coach"

@@ -172,3 +172,39 @@ def test_a_tip_pulls_up_the_script_part_that_fits_what_the_prospect_said(workspa
     coach = tip_after_speech(ws, clock, call_id)["coach"]
     assert coach["say_or_ask"].startswith("They said")
     assert coach["script_part"]["label"] and coach["script_part"]["text"]
+
+
+def test_a_call_screener_gets_a_fixed_tip_without_a_model_or_key(workspace, clock):
+    """R11.8, live November 10: a phone's own screener answered a test call and the carrier heard a person. The rep
+    must say who they are and why they called; the helper says so at once, with no model call and no key."""
+    from app.helper import live as helper
+
+    ws = workspace
+    call_id = start(ws)["id"]
+    answered_by_human(ws, call_id)
+    chunk(
+        ws,
+        call_id,
+        "s1",
+        "Hi, if you record your name and reason for calling, I'll see if this person is available.",
+    )
+    tip = tip_after_speech(ws, clock, call_id)["coach"]
+    assert tip["say_or_ask"] == helper.SCREENER_TIP and tip["status"] == "ready"
+    clock.now += timedelta(seconds=5)
+    chunk(ws, call_id, "r1", "Hi, it's Sam from Agite, calling about your sales team's CRM work.", side="rep")
+    assert tip_after_speech(ws, clock, call_id)["coach"]["say_or_ask"] == helper.SCREENER_TIP
+
+
+def test_screener_prompts_are_recognized_and_ordinary_lines_are_not():
+    from app.helper.live import screener
+
+    for said in (
+        "Hi, if you record your name and reason for calling, I'll see if this person is available.",
+        "The person you're calling is using a screening service from Google. Go ahead and say your name and why "
+        "you're calling.",
+        "Please state your name and the reason for your call.",
+    ):
+        assert screener([{"side": "remote", "text": said}]), said
+    for said in ("Hello?", "Who is this?", "What's your name again?", "Why are you calling me?"):
+        assert not screener([{"side": "remote", "text": said}]), said
+    assert not screener([{"side": "rep", "text": "Please say your name and why you're calling."}])

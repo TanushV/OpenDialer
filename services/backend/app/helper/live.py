@@ -8,6 +8,7 @@ research, the summaries of earlier calls and the call so far. A tip is advice fo
 for a short while and is never saved. Outcomes, tasks and what happened on the call belong to the after-call summary.
 """
 
+import re
 from datetime import timedelta
 
 QUIET = "(nothing)"
@@ -122,6 +123,21 @@ def clean(text):
     # The model sometimes appends the quiet marker to a real answer; the rep never sees it.
     text = " ".join((text or "").replace(QUIET, " ").split())[:MAX_CHARS]
     return text if text.strip(" .,;:-") else None
+
+
+# R11.8: a phone's own screener (iPhone "record your name and reason for calling", Google's "screening service")
+# sounds like a person to the carrier; the rep has to say who they are and why they called.
+SCREENER = re.compile(
+    r"\b(say|state|record)\b[^.?!]{0,30}\byour name\b[^.?!]{0,60}\b(reason|why)\b|screening service",
+    re.IGNORECASE,
+)
+SCREENER_TIP = "Call screener: say your name and why you're calling, in one sentence."
+
+
+def screener(dialogue):
+    """True when the latest line is the prospect's phone asking who is calling and why."""
+    last = dialogue[-1] if dialogue else None
+    return bool(last and last.get("side") == "remote" and SCREENER.search(last.get("text") or ""))
 
 
 def card(identity, text, *, private, done, now, part=None):
