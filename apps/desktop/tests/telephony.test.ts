@@ -412,3 +412,19 @@ test("a delayed local audio stop cannot announce the replacement disconnected", 
   phone.mute();
   expect(replacement.toggleAudioMute).toHaveBeenCalledTimes(1);
 });
+
+test("the client holds only the leg it answered, never a leg it was told about but never rang", async () => {
+  // Live check, November 10: calls went out on an audio leg from four days earlier that this client never had.
+  const { phone, client } = await connected();
+  phone.expectAgentLeg("stale-agent-from-an-earlier-run");
+  expect(phone.holdsAgent("stale-agent-from-an-earlier-run")).toBe(false);
+  phone.expectAgentLeg("fresh-agent");
+  const agent = call("sdk-agent", "ringing", "fresh-agent");
+  client.emit(agent);
+  await Promise.resolve();
+  client.emit({ ...agent, state: "active" });
+  expect(phone.holdsAgent("fresh-agent")).toBe(true);
+  expect(phone.holdsAgent("stale-agent-from-an-earlier-run")).toBe(false);
+  client.emit({ ...agent, state: "hangup" });
+  expect(phone.holdsAgent("fresh-agent")).toBe(false);
+});

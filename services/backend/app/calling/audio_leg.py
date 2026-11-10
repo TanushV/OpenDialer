@@ -7,6 +7,7 @@ The credential behind it is checked with Telnyx once per app session, not on eve
 import asyncio
 import base64
 import json
+import logging
 import re
 from datetime import timedelta
 
@@ -32,6 +33,8 @@ from app.platform.leases import owns_effect
 ACTIVE = ("submitting", "uncertain", "ringing", "answered")
 SIP_NAME = re.compile(r"[A-Za-z0-9_.+-]{1,128}")
 LEASE = timedelta(seconds=30)
+
+log = logging.getLogger(__name__)
 
 
 def find(s, p, *, provider_id=None, leg_id=None, rep_id=None, active=False):
@@ -169,7 +172,14 @@ async def create(ctx, p):
     leg_id, owner = uid(), uid()
     leg, created = await asyncio.to_thread(_claim, ctx, p, leg_id, owner)
     if not created:
-        return {"agent_call_control_id": leg["provider_id"]}
+        if await _still_live(ctx, carrier, leg["provider_id"]):
+            return {"agent_call_control_id": leg["provider_id"]}
+        # A leg from an earlier run of the app, or one the carrier no longer has, belongs to no audio client: reusing
+        # it put calls on dead audio (live check, November 10). End it and dial a fresh one.
+        await asyncio.to_thread(_retire, ctx, p, leg["id"])
+        leg, created = await asyncio.to_thread(_claim, ctx, p, leg_id, owner)
+        if not created:
+            raise HTTPException(409, "The previous audio leg could not be ended; press Start calling again")
     state = json.dumps({"agent_leg_id": leg_id, SCOPE_KEY: workspace(p)})
     try:
         receipt = await carrier.dial(
@@ -189,7 +199,29 @@ async def create(ctx, p):
             503, "Agent submission is uncertain; await its signed receipt or reconcile before retrying"
         ) from exc
     await asyncio.to_thread(_completed, ctx, p, leg_id, owner, receipt["call_control_id"])
+    ctx.memo.setdefault("agent_legs", set()).add(receipt["call_control_id"])
     return {"agent_call_control_id": receipt["call_control_id"]}
+
+
+async def _still_live(ctx, carrier, provider_id):
+    """Reusable only if this run of the app made the leg (its audio client is this one) and the carrier has it live."""
+    if provider_id not in ctx.memo.get("agent_legs", set()):
+        return False
+    try:
+        status = await carrier.reconcile(None, provider_id)
+    except Exception as exc:
+        log.warning("Could not read audio leg %s: %s", provider_id, type(exc).__name__)
+        return False
+    return (
+        bool(status) and status.get("is_alive", status.get("state") not in {"hangup", "ended"}) is not False
+    )
+
+
+def _retire(ctx, p, leg_row_id):
+    with ctx.db.transaction() as s:
+        row = scoped_get(s, p, "call_legs", leg_row_id, lock=True)
+        if row and AgentLeg.model_validate(row.data).state != "ended":
+            update(row, state="ended", ended_at=ctx.clock().isoformat())
 
 
 def on_event(s, workspace_id, payload, event_type):

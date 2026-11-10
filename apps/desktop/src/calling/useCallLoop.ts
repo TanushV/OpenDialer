@@ -265,6 +265,14 @@ export function useCallLoop(visible: boolean) {
         throw new Error(
           "Your audio did not connect. Check your headset, then start again.",
         );
+      // The server's word is not enough: this app's own audio client must hold the leg, or the prospect would hear
+      // nobody (live check, November 10: calls went out on a leg from four days earlier).
+      for (let i = 0; i < 20 && !telephony.current.holdsAgent(agent); i++)
+        await new Promise((r) => setTimeout(r, 250));
+      if (!telephony.current.holdsAgent(agent))
+        throw new Error(
+          "Your audio did not connect, so no call was placed. Press Start calling to try again.",
+        );
     }
     await api("/v1/rep/presence", "POST", {
       status: "ready",

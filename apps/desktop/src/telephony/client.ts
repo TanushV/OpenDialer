@@ -316,6 +316,17 @@ export class Telephony {
   get activeIdentity() {
     return providerId(this.selected()) || null;
   }
+  /** True when this client is on the rep's audio leg `id` right now. */
+  holdsAgent(id: string) {
+    const agent = this.agent;
+    return (
+      !!agent &&
+      providerId(agent) === id &&
+      this.expectedAgent === id &&
+      !this.closed.has(id) &&
+      !ended(agent)
+    );
+  }
   audioStreams(id: string) {
     const call = this.selected(id);
     if (

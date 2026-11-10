@@ -51,3 +51,14 @@ stops says why (the Dialer sends the reason and the backend logs it), and the sp
 The live helper's script tracking matched the rep's words to script sections, which a paraphrase or a speech-to-text
 error breaks. It is replaced by something simple: the script goes to the model as numbered parts, and each tip starts
 with the number of the part that fits the moment; the Dialer shows the line to say and that script part together.
+
+## The real cause: a dead audio leg reused (found November 10, 23:40)
+
+The store showed all three calls tied to the rep's audio leg `v3:6_Gbj…`, created **November 6** and still marked
+`answered` because its hang-up event arrived while the app was closed. Starting audio reused any leg the store called
+active, and the Dialer trusted the store's "answered", so each call was bridged to audio no client held: the
+transcript had no streams (the stopped-transcript message), and the rep's side was almost certainly silent.
+
+Fixed with tests: a leg is reused only if this run of the app made it and the carrier says it is live; any other is
+ended and a fresh leg dialed. The Dialer dials only once its own audio client holds the leg. The earlier "audio needs
+a click" theory was wrong (the app's web view allows audio without one); that change stays as harmless.

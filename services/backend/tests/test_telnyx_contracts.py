@@ -770,3 +770,27 @@ def test_repeated_distinct_carrier_blocks_pause_outbound_and_keep_the_attempt(wo
         number = get(s, "number_inventory", call["number_id"])
         assert number.data["lifecycle"] == "paused_for_outbound"
         assert number.data["callback_retained"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_leg_left_answered_by_an_earlier_run_is_never_reused(workspace, app, carrier, monkeypatch):
+    """Live check, November 10: three calls were tied to an audio leg from November 6 that the store still called
+    answered, so no audio reached the rep and no transcript started. A leg is reused only when this run of the app
+    made it and the carrier says it is still live; anything else is ended and a fresh leg is dialed."""
+    service, p = app.state.service, principal(workspace)
+    live_agent(service, carrier, monkeypatch, p)
+    first = await audio_leg.create(service.ctx, p)
+    with service.db.transaction() as s:
+        audio_leg.on_event(
+            s, p["tenant_id"], {"call_control_id": first["agent_call_control_id"]}, "call.answered"
+        )
+    # Same run, leg still live at the carrier: reused.
+    assert await audio_leg.create(service.ctx, p) == first
+    # A new run of the app (the backend restarted): the old leg belongs to no audio client now.
+    service.ctx.memo.pop("agent_legs", None)
+    dials = len(carrier.dials)
+    fresh = await audio_leg.create(service.ctx, p)
+    assert fresh != first and len(carrier.dials) == dials + 1
+    with service.db.transaction() as s:
+        old = audio_leg.find(s, p, provider_id=first["agent_call_control_id"])
+        assert old.data["state"] == "ended"
