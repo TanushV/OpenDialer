@@ -59,6 +59,10 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D25 | Withdrawn by D27. Several reps call at once as seats. Each seat is one rep on one Mac with its own app, SQLite file, relay workspace, Telnyx Call Control application, telephony credential and API key, on the one Telnyx account. HubSpot's contact owner decides which seat calls a contact; a seat syncs only its owner's contacts, so no live lock is needed. One HubSpot Service Key, one Treg token and one RealValidito key serve every seat. A CSV file belongs to one seat. No app login: the Mac's own login protects a seat. See section 9C. | Owner decision, November 8; the Telnyx account is Verified (checked in the portal November 8) |
 | D27 | One user only. Seats (D25), the shared number pool (D26), "Calls for", team calling, roles, passwords and sign-out are gone; every member of the chosen HubSpot list is synced whoever owns it. Section 9C and L21 to L24 are withdrawn. | Owner decision, November 10 ("We don't need this multi user") |
 | D28 | Size caps stay warnings for 2.0. At 2.0 the backend is 32,537 lines (cap 18,000), the frontend 14,385, 126 routes and the largest file 1,557 lines (`main.py`). The excess sits in legacy modules that still work and are tested (D24); cutting them to the cap is a rewrite of working code for no behavior change, so it waits until a feature needs those modules. Bans and code rules stay hard failures. | Builder decision, November 10, under the owner's "finish to 2.0"; the owner can reverse it |
+| D29 | A callback rings the app whenever it is open, on any page and paused or not, with a ring tone; otherwise the caller hears the greeting and a missed-call task is kept. Forwarding to a phone comes later (D30). | Owner, November 10 ("if someone calls back and the app is open it should show in the app") |
+| D30 | Forwarding to the rep's phone is deferred; its field is hidden until it works with the app closed. | Owner, November 10 ("you can push off forwarding") |
+| D31 | StatML is archived (tagged, then removed). The one learning view kept is stage drop-off: where answered calls end in the script. | Owner, November 10 ("archive statml"; "the main use it has is stage dropoff") |
+| D32 | No voicemail feature: the skip at detection stays; the rep speaks into a voicemail by pressing Stay or on the last attempt. No recorded drop. | Owner, November 10 ("we just let the rep speak into the voicemail normally"; "keep skip") |
 | D26 | Withdrawn by D27. One shared number pool. Any seat can call from any pool number. The relay picks the number for each call (local area code first, then least used today) and counts daily use across all seats, so the per-number cap holds for the team. Pool numbers sit on one shared incoming route, and a callback rings the seat that last called that prospect, or goes to voicemail and a task on that seat. | Owner decision, November 8; that a Call Control dial may present any number on the account is confirmed in L23 |
 
 Open owner inputs:
@@ -1605,6 +1609,39 @@ Docs and release:
 
 Done when: every live check passes on Mac and Windows and the owner signs off. **Owner sitting 7.**
 
+### Phase 11: finish 2.0 (owner approved November 10)
+
+Found live and decided by the owner on November 10: callbacks never reached the app (every one so far heard the
+greeting, because the app took a call only mid-session with audio up, and silently); a number bought November 6 still
+reads "purchased" although Telnyx made it active that minute; forwarding waits; voicemail needs no new feature and
+the skip stays (the rep presses Stay, or the last attempt holds the line); StatML is archived; stage drop-off is the
+one learning view kept. Each item gets its tests first.
+
+- [x] R11.1 Plan text: D29 to D32 and this phase.
+- [ ] R11.2 Numbers: any number the app holds as pending is re-checked against Telnyx at start and every few
+      minutes, so a missed order event never leaves it "purchased".
+- [ ] R11.3 Callbacks ring in the app whenever it is open (D29): the call client stays registered while the app is
+      open; the backend rings the app when its heartbeat is fresh and it is not on another call, for any caller; a
+      ring panel on every page with the caller (lead name when known), Answer and Decline, a ring tone and a macOS
+      notification when the window is hidden; answer gives two-way audio, transcript, helper and outcome keys;
+      Decline or 20 seconds unanswered plays the greeting and keeps a missed-call task; outbound dialing waits while a
+      callback rings or is live.
+- [ ] R11.4 Forwarding waits (D30): the forwarding field and offline reference are hidden; the greeting stays.
+- [ ] R11.5 Archive StatML (D31): tag `statml-archive`, then remove the learned model, training, comparison group,
+      trainer program and its CI and release steps, and Review's learning card. The queue orders callbacks due, then
+      never called, then longest since the last try, inside calling hours and company spacing. Script storage and
+      per-number caps stay.
+- [ ] R11.6 Stage drop-off (D31): the after-call summary names the script part where the call ended, checked against
+      the script's parts; Review shows where answered calls end, by outcome.
+- [ ] R11.7 HubSpot test segment (section 9B's rule, never built): test calls to a contact on the chosen test segment
+      are written to HubSpot, so L15 to L18 run on the owner's line.
+- [ ] R11.8 Call screeners: when the transcript shows a phone's screener, the helper shows "say your name and why
+      you're calling" without a model call.
+- [ ] R11.9 One candidate, installed; live sessions: calls (transcript, voice both ways, helper, screener, L3 to L7),
+      callbacks (app open on any page, hidden, busy, missed, closed), failures (L9 to L13), HubSpot (L15 to L19, the
+      first paid number search on the owner's yes, the do-not-call check once its key is saved); then R10.13 and
+      R10.14.
+
 ## 14. Risks
 
 | # | Risk | Handling |
@@ -1803,3 +1840,7 @@ Done when: every live check passes on Mac and Windows and the owner signs off. *
   shows only the newest answer (CI caught a removed list shown as Paused). Next: candidate 3 from the green head,
   install, a live call that proves transcript, helper and the rep's voice, then publish 2.0.0. Owner-gated: HubSpot
   L14 to L18 need a list in the owner's HubSpot (the key cannot create one), Windows L25 to L27 need a PC and signing.
+- November 10, 2026 (morning): owner approved Phase 11 after live findings: callbacks never reached the app, a
+  number stuck as purchased, StatML archived for stage drop-off, forwarding deferred, voicemail skip kept (D29 to D32).
+  HubSpot: the key reaches portal 51457381; one contact of 4,759 has a number; segment "testing" syncs on the real
+  list read (L14). Next: R11.2.
