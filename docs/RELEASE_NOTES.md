@@ -1,3 +1,15 @@
+# OpenDialer 2.0.0
+
+- **One user, one computer.** No sign-in, roles, team seats or shared number pool. Every contact on the chosen HubSpot list is synced, whoever owns it in HubSpot.
+- **Calling decides in one place.** Whether the next call is dialed is one rule, checked over every combination of setup, connection, numbers, opt-outs, audio and the call in progress.
+- **Settings never undoes a newer answer.** A slow re-read can no longer bring back an old error or an old check result.
+- **Steadier screens.** Base styles can no longer override a button, a field or a table, so every page looks the same as before, on purpose.
+
+Updating from 1.0.1 or any 1.0.3 to 1.0.10 keeps your workspace, numbers, script and saved credentials. The team-calling and "Calls for" settings are gone; nothing else you saved changes.
+Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Updating from 1.0.0 also preserves your workspace, numbers, playbook and calling settings. macOS may ask for microphone access again.
+Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched in its previous folder.
+Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 1.0.10
 
 - **Saved keys can be checked.** A key saved before this version shows Check in its Settings row, so it turns green without typing it again.

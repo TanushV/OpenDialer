@@ -1,6 +1,6 @@
 [package]
 name = "opendialer-desktop"
-version = "1.0.10"
+version = "2.0.0"
 description = "OpenDialer desktop"
 authors = ["OpenDialer contributors"]
 edition = "2021"
