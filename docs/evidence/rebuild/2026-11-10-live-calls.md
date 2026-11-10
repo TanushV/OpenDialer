@@ -62,3 +62,15 @@ transcript had no streams (the stopped-transcript message), and the rep's side w
 Fixed with tests: a leg is reused only if this run of the app made it and the carrier says it is live; any other is
 ended and a fresh leg dialed. The Dialer dials only once its own audio client holds the leg. The earlier "audio needs
 a click" theory was wrong (the app's web view allows audio without one); that change stays as harmless.
+
+## Candidate 3 (draft built from `015805a`)
+
+Installed 00:38 (November 10) over candidate 2: archive SHA-256 matched `SHA256SUMS.txt`, `codesign --verify --deep
+--strict` passed, the installed binary matches the archive, and no call was live. The backend came up healthy on the
+same workspace.
+
+| Step | Result |
+|---|---|
+| Reopen with test call 3 still owed an outcome | The Dialer reopened on "They hung up · 0:32" with the outcome keys; nothing dialed (L10's "reopening shows the call owed an outcome; no second dial" holds across an app replacement). |
+| Save it (key 6) | Saved as Voicemail, still marked a test call. The owner has not said whether voicemail took it, so this outcome is a best guess on a test record that reaches neither learning nor HubSpot. |
+| After saving | The Dialer showed Start calling, paused; no countdown into the real lists (the candidate 2 defect is fixed live). |
