@@ -45,7 +45,7 @@ profile unset. Create a distinct **Telephony Credential** for each rep on that c
 can be the same for both reps; separate keys let the operator revoke them independently.
 [Telnyx contact center guide](https://developers.telnyx.com/docs/voice/webrtc/use-cases/contact-center).
 
-1. Deploy to the isolated pilot relay first. Use an approved number on a test Call Control application. Set
+1. Deploy to the existing OpenDialer relay. Use an approved number on a dedicated test Call Control application. Set
    `OPENDIALER_RELAY_PUBLIC_URL` if the runtime's gateway URL differs from the project's public HTTPS URL.
    Setup uses the project's default publishable key, or `OPENDIALER_RELAY_PUBLISHABLE_KEY` if explicitly set.
    Service keys stay with the operator and on the relay.
@@ -65,7 +65,7 @@ can be the same for both reps; separate keys let the operator revoke them indepe
 
 ```sh
 uv run python scripts/provision_rep.py \
-  --relay-ref "$OPENDIALER_STAGING_REF" --connection "$OPENDIALER_TELNYX_APP" \
+  --relay-ref "$OPENDIALER_RELAY_REF" --connection "$OPENDIALER_TELNYX_APP" \
   --pool "$OPENDIALER_POOL_ID" --segment "$OPENDIALER_REP_SEGMENT" \
   --credential "$OPENDIALER_REP_CREDENTIAL" --sip-user "$OPENDIALER_REP_SIP_USER" \
   --label "Pilot rep B" --output "$OPENDIALER_PRIVATE_PROFILES/rep-b.json"
@@ -85,15 +85,16 @@ up to 30 days. The app opens the locally matched prospect.
 ## Deploy and verify
 
 Use the CLI v3 remote target and compare the dry run with the local migration IDs. Apply the migrations before
-deploying Edge code. Use these commands against the pilot relay first:
+deploying Edge code. The November 11 in-place rollout used the Supabase connector. The repository filenames
+match the hosted migration IDs.
 
 ```sh
-supabase db push --remote="$OPENDIALER_STAGING_REF" --dry-run --skip-vault
-supabase db push --remote="$OPENDIALER_STAGING_REF" --skip-vault
-supabase functions deploy telnyx-webhook managed-setup callback-fallback --remote="$OPENDIALER_STAGING_REF"
+supabase db push --remote="$OPENDIALER_RELAY_REF" --dry-run --skip-vault
+supabase db push --remote="$OPENDIALER_RELAY_REF" --skip-vault
+supabase functions deploy telnyx-webhook managed-setup callback-fallback --remote="$OPENDIALER_RELAY_REF"
 ```
 
-The production URL stays the same when the receiver is redeployed after the pilot. The functions authenticate with
+The pilot and standalone Mac use the existing webhook URL. The functions authenticate with
 the Telnyx signature, the operator invitation, or the worker token respectively, so platform JWT verification is off.
 
 For the hosted greeting, set Edge secrets `OPENDIALER_TELNYX_CALLBACK_KEY`, `OPENDIALER_TELNYX_ACCOUNT_ID` and a

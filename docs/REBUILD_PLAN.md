@@ -1674,7 +1674,8 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       The hosted receiver verifies Telnyx signatures and omits the `inbound_call` transfer field. Only the production
       OpenDialer project was visible in the connected account. The two October SQL bodies matched the local files
       by byte length and digest. Give the files the hosted IDs in the following table and keep their contents.
-      The production dry run should list `20261111112021_shared_number_pool.sql` and the new shared-routing migration.
+      The four November migrations were applied in order through the Supabase connector on November 11. Their
+      repository filenames use the hosted migration IDs, and the SQL digests match.
       [Supabase migration deployment](https://supabase.com/docs/guides/deployment/database-migrations)
 
 | October migration | Repository ID today | Hosted ID to adopt |
@@ -1703,7 +1704,7 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       retry preserves the earlier owner. Match the original incoming call and its transfer leg to that same rep.
       Store the receipt and ownership together and deduplicate by Telnyx event ID. Retain the current private relay
       tables and grant each client RPC only the access needed by its scoped workspace.
-      [Current reservation and callback SQL](../supabase/migrations/20261111112021_shared_number_pool.sql) ·
+      [Current reservation and callback SQL](../supabase/migrations/20261111192755_shared_number_pool.sql) ·
       [Telnyx webhook delivery](https://developers.telnyx.com/docs/voice/programmable-voice/receiving-webhooks) ·
       [Telnyx transfer context](https://developers.telnyx.com/api-reference/call-commands/transfer-call)
 
@@ -1712,13 +1713,14 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       shared SIP connection for internal URI calling with its outbound voice profile unset. Each rep gets a Telnyx
       Telephony Credential under that connection, a relay workspace and a HubSpot segment. Use the existing managed
       setup flow to issue the private profile. Configure the profile’s public URL
-      and publishable key for the target relay so staging profiles use staging. Point the pilot application at that
-      relay’s endpoint. Deploy the reviewed receiver at the existing path. Preserve Ed25519 and timestamp checks,
+      and publishable key for the existing relay. Point the pilot application at the existing webhook endpoint.
+      Deploy the reviewed receiver at that path. Preserve Ed25519 and timestamp checks,
       the `inbound_call` field and acknowledgement after durable storage. Supabase gateway JWT verification stays
       disabled for `telnyx-webhook` and `managed-setup`, which check the Telnyx signature and the operator-issued
       invitation respectively. The Supabase service key stays on the server.
       [Relay runbook](../supabase/README.md) · [Supabase function configuration](https://supabase.com/docs/guides/functions/function-configuration)
-      Profile generation and the receiver were exercised on disposable Supabase. The hosted deploy belongs to R12.11.
+      The receiver and setup function were deployed and tested with temporary profiles on the existing project.
+      Live pilot profiles still need their approved number and test segments.
 
 - [x] **R12.9 Play the greeting when the rep is offline (D29).**
       The relay queues incoming events for delivery after a reconnect. The desktop currently issues the greeting command.
@@ -1730,7 +1732,8 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       secret. Use the recorded Telnyx webhook and durable retry state to recover from worker interruptions.
       [Current offline capability](../services/backend/app/administration.py) ·
       [Supabase function scheduling](https://supabase.com/docs/guides/functions/schedule-functions)
-      Code and replay verified. The caller hearing the greeting over Telnyx is still a pilot check.
+      Code and replay verified. The worker is deployed. Its Edge secrets, Vault token and schedule are needed for
+      the live greeting check.
 
 - [x] **R12.10 Prove the software locally before live calls.**
       Run the tests for a fresh audio leg, the shared application’s routing, two profiles syncing distinct HubSpot
@@ -1740,17 +1743,18 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       Mac and exercise the callback panels and first-call setup. Run the fast and full tiers and require Verify to
       pass on the candidate commit. Record replay and package evidence before the hosted pilot.
 
-- [ ] **R12.11 Stage the relay and run the two-rep pilot.**
-      Prepare an isolated hosted relay and a test Call Control application on the same Telnyx account. Select an
-      approved caller number for the pilot, provision both profiles, and confirm the dry run points at staging.
-      Use the Supabase CLI v3 commands below. Deploy the reviewed fallback function to the same staging target when
-      running the closed-app test. Record the results and timings under `docs/evidence/rebuild/`.
+- [ ] **R12.11 Run the two-rep pilot on the existing relay.**
+      On November 11 the owner approved deploying to the existing OpenDialer project before the live pilot.
+      The migrations and functions are deployed. The Mac renewed its lease with all four registered numbers,
+      and temporary profiles passed signed routing checks on the hosted relay. Use a dedicated test Call Control
+      application on the same Telnyx account, one approved caller ID and two pilot profiles. Set up the callback
+      worker before the closed-app check. Record the results and timings under `docs/evidence/rebuild/`.
       [Supabase hosted targeting and dry runs](https://supabase.com/docs/guides/local-development/local-and-hosted-projects)
 
 ```sh
-supabase db push --remote="$OPENDIALER_STAGING_REF" --dry-run --skip-vault
-supabase db push --remote="$OPENDIALER_STAGING_REF" --skip-vault
-supabase functions deploy telnyx-webhook managed-setup callback-fallback --remote="$OPENDIALER_STAGING_REF"
+supabase db push --remote="$OPENDIALER_RELAY_REF" --dry-run --skip-vault
+supabase db push --remote="$OPENDIALER_RELAY_REF" --skip-vault
+supabase functions deploy telnyx-webhook managed-setup callback-fallback --remote="$OPENDIALER_RELAY_REF"
 ```
 
 | Pilot check | Pass condition |
@@ -1763,14 +1767,13 @@ supabase functions deploy telnyx-webhook managed-setup callback-fallback --remot
 | Close the rep’s app before the callback | The caller hears the greeting and the intended rep sees one missed-call task after reconnecting. |
 | Move a test contact to the other rep’s segment and call it again | The prospect sees the same number. Once the second rep’s call is confirmed, the next callback reaches that rep. |
 
-- [ ] **R12.12 Enable the shared pool in production and publish the signed candidate.**
-      After the pilot passes, apply the reviewed migrations and redeploy the receiver at the existing production URL.
-      Verify the existing single-rep profile before enabling the pool for the first two reps. Check which
-      application owns each approved number and carry forward confirmed caller-ID bindings and callback ownership.
+- [ ] **R12.12 Expand the shared pool and publish the signed candidate.**
+      After the pilot passes, check which application owns each approved production number and carry forward
+      confirmed caller-ID bindings and callback ownership before expanding beyond the pilot.
       Use the signed release procedure in section 12A. If the rollout needs to stop, pause new pooled outbound
       calls, keep the inbound route and callback bindings available, and reconcile in-flight calls before switching profiles.
 
-The operator completes the code, local tests, migration and function preparation, and any staging work covered by
+The operator completes the code, local tests, relay deployment, and any pilot preparation covered by
 existing access and approved test assets. Once the live run is ready, bundle any remaining inputs into one request.
 Use two approved destination phones, two HubSpot test segments and a second rep computer for the final audio check.
 The owner chooses or approves the account-owned pilot caller number and authorizes the live test. Check available
@@ -1992,5 +1995,9 @@ test assets and admin access before asking for anything. The signed rollout foll
   R12.5 and R12.6, aligning the migration filenames and fixing first-call audio for a new rep.
 - November 11, 2026: R12.5 to R12.7 and R12.9 implemented. R12.8 profile issuance and receiver exercised on
   disposable Supabase. R12.10 exercised with two packaged 2.1.0 apps and signed fixtures on this Mac.
-  [Verification receipt](evidence/rebuild/2026-11-11-2.1-shared-application.md). Next: R12.11 needs an isolated
-  hosted target and approved test assets. R12.12 follows the pilot and signed release gate.
+  [Verification receipt](evidence/rebuild/2026-11-11-2.1-shared-application.md).
+- November 11, 2026: the owner approved the in-place rollout. Four migrations and three functions were deployed to
+  the existing project. The existing Mac stayed connected, and two temporary hosted profiles passed signed callback
+  routing at the cap. Temporary records were removed. The dedicated pilot Call Control application and two
+  incoming-only WebRTC credentials are ready. R12.11 still needs an approved caller ID, both test phones and
+  segments, and the worker's secrets and schedule. R12.12 follows the pilot and signed release gate.
