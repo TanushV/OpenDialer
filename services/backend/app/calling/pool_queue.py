@@ -30,9 +30,9 @@ def use_binding(service, p, provisional, selected, *, accepted):
         )
         if not live:
             return False
+        lead = ops.required(service, s, "leads", saved["lead_id"], p)
         number = ops._by_key(service, s, p, "number_inventory", selected) if selected else None
-        if number is not None:
-            lead = ops.required(service, s, "leads", saved["lead_id"], p)
+        if number is not None and claim.endpoint_id == lead.data["endpoint_id"]:
             binding = ops._by_key(service, s, p, "lead_number_bindings", lead.id)
             if binding is None:
                 put(

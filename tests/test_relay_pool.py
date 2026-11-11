@@ -597,6 +597,10 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
     sql(f"update relay_private.number_pool_numbers set outbound_enabled=false where phone='{SPARE}';")
     second = "+14155550102"
     contacts = {"14": (PROSPECT, "Jordan"), "15": (second, "Casey")}
+    stored_phones = {
+        "14": {"phone": "(415) 555-0101", "mobilephone": "+14155550109"},
+        "15": {"phone": "Not provided", "mobilephone": "415.555.0102"},
+    }
     clock = datetime(2026, 11, 11, 18, tzinfo=UTC)
 
     def hubspot(request):
@@ -623,12 +627,15 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
             return httpx.Response(200, json={"results": [{"recordId": path.split("/")[-2]}]})
         if path.endswith("/contacts/batch/read"):
             segment = json.loads(request.content)["inputs"][0]["id"]
-            phone, name = contacts[segment]
+            _, name = contacts[segment]
             return httpx.Response(
                 200,
                 json={
                     "results": [
-                        {"id": segment, "properties": {"phone": phone, "firstname": name, "company": name}}
+                        {
+                            "id": segment,
+                            "properties": {**stored_phones[segment], "firstname": name, "company": name},
+                        }
                     ],
                 },
             )
@@ -699,7 +706,6 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
             "/v1/admin/settings",
             {
                 "hubspot_service_key": "fixture",
-                "test_phone": phone,
                 "telnyx_connection_id": connection,
                 "sip_username": f"rep-{segment}",
                 "realvalidito_api_key": "fixture",
@@ -718,7 +724,6 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
         assert send("GET", "/v1/hubspot/lists")["lists"] == [{"id": segment, "name": f"Rep {segment}"}]
         send("POST", "/v1/hubspot/sync", {"list_id": segment, "list_name": f"Rep {segment}"})
         send("POST", "/v1/admin/jobs/run")
-        send("POST", "/v1/settings/test-call")
         send(
             "POST",
             "/v1/rep/presence",
@@ -729,8 +734,11 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
                 "agent_call_control_id": "agent-fixture",
             },
         )
-        reservation = send("POST", "/v1/queue/next", {"campaign_id": seeded["campaign_id"]})
-        assert reservation["lead"]["name"] == name and reservation["number"]["phone"] == NUMBER
+        reservation = send(
+            "POST", "/v1/queue/next", {"campaign_id": seeded["campaign_id"], "list_names": [f"Rep {segment}"]}
+        )
+        assert reservation["lead"]["name"] == name and reservation["lead"]["external_id"] == segment
+        assert reservation["lead"]["phone"] == phone and reservation["number"]["phone"] == NUMBER
         started = send(
             "POST",
             "/v1/calls/start",
@@ -745,6 +753,7 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
             "connection_id": connection,
             "direction": "outgoing",
         }
+        assert payload["to"] == phone and started["is_test"] is False
         assert (
             receipt(sql, f"out-{segment}", "call.initiated", payload, seat=A if shared else seat)
             == "received"
@@ -771,9 +780,9 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
             )
             if shared:
                 sql(f"select relay_exchange('{seat}','{INSTALL}','[]','',true);", seat=seat)
+        sql(f"update relay_private.number_pool_numbers set daily_limit=2 where phone='{NUMBER}';")
         assert inbound(sql, "first-app", caller=PROSPECT) == [A, a.call["id"]]
         assert inbound(sql, "second-app", caller=second) == [B, b.call["id"]]
-        sql(f"update relay_private.number_pool_numbers set daily_limit=2 where phone='{NUMBER}';")
 
         for seat, rep, tag, name in [(A, a, "first-app", "Jordan"), (B, b, "second-app", "Casey")]:
             batch = json.loads(

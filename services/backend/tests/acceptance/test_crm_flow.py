@@ -13,12 +13,31 @@ from journey import get, post, ready, run_jobs
 
 A = "+12125550101"  # On the CRM record; Trestle confirms it.
 B = "+12125550102"  # Found by LeadOcean for the contact with no number; on the federal do-not-call list.
+C = "+12125550103"  # Saved by the rep in HubSpot.
 
 
 class Fakes:
     def __init__(self):
         self.calls, self.writes, self.created_calls = [], [], []
         self.members = ["1", "3"]
+        self.people = {
+            "1": {
+                "firstname": "Ann",
+                "lastname": "Crm",
+                "company": "Acme",
+                "phone": A,
+                "hubspot_owner_id": "11",
+                "hs_linkedin_url": "https://www.linkedin.com/in/ann",
+            },
+            "3": {
+                "firstname": "Cy",
+                "lastname": "Nophone",
+                "company": "Gamma",
+                "hubspot_owner_id": "11",
+                "hs_linkedin_url": "https://www.linkedin.com/in/cy",
+            },
+        }
+        self.mobile_saved_during_lookup = None
         self.down = False
 
     def __call__(self, request):
@@ -31,27 +50,20 @@ class Fakes:
             if path.endswith("/memberships"):
                 return httpx.Response(200, json={"results": [{"recordId": m} for m in self.members]})
             if path == "/crm/v3/objects/contacts/batch/read":
-                people = {
-                    "1": {
-                        "firstname": "Ann",
-                        "lastname": "Crm",
-                        "company": "Acme",
-                        "phone": A,
-                        "hubspot_owner_id": "11",
-                        "hs_linkedin_url": "https://www.linkedin.com/in/ann",
-                    },
-                    "3": {
-                        "firstname": "Cy",
-                        "lastname": "Nophone",
-                        "company": "Gamma",
-                        "hubspot_owner_id": "11",
-                        "hs_linkedin_url": "https://www.linkedin.com/in/cy",
-                    },
-                }
                 return httpx.Response(
                     200,
                     json={
-                        "results": [{"id": i["id"], "properties": people[i["id"]]} for i in body["inputs"]]
+                        "results": [
+                            {
+                                "id": item["id"],
+                                "properties": {
+                                    k: v
+                                    for k, v in self.people[item["id"]].items()
+                                    if k in body["properties"]
+                                },
+                            }
+                            for item in body["inputs"]
+                        ]
                     },
                 )
             if path == "/calling/v1/dispositions":
@@ -95,6 +107,8 @@ class Fakes:
                 assert parse_qs(request.url.query.decode())["linkedin_url"] == [
                     "https://www.linkedin.com/in/cy"
                 ]
+                if self.mobile_saved_during_lookup:
+                    self.people["3"]["mobilephone"] = self.mobile_saved_during_lookup
                 answer = {"data": {"found": True, "phones": [{"phone": B, "type": "mobile"}]}}
             return httpx.Response(
                 200, json=answer, headers={"X-Treg-Cost-Micro": str(cost), "X-Treg-Call-Id": "c"}
@@ -243,6 +257,95 @@ def test_a_hubspot_list_syncs_checks_numbers_and_do_not_call_then_logs_the_call(
     assert removed["removed"] == 1
 
 
+def test_an_unusable_hubspot_phone_uses_the_saved_mobile_and_reformatting_keeps_it(
+    workspace, carrier, monkeypatch
+):
+    ws = workspace
+    fakes = setup(ws, monkeypatch)
+    fakes.members = ["1"]
+    fakes.people["1"].update(phone="N/A", mobilephone="(212) 555-0103")
+    post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    run_jobs(ws, rounds=3)
+    lead = crm_leads(ws)["1"]
+    assert (lead["phone"], lead["number_source"], lead["number_hold"]) == (C, "crm", None)
+    assert lead["dnc"]["phone"] == C
+    assert all(
+        ".find" not in path and "reveal" not in path for host, path in fakes.calls if host == "treg.to"
+    )
+    assert all("phone" not in props and "mobilephone" not in props for _, props in fakes.writes)
+
+    previous_requests = [path for host, path in fakes.calls if host == "treg.to"]
+    fakes.people["1"]["mobilephone"] = "+1 212-555-0103"
+    synced = post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    assert synced["updated"] == 0
+    run_jobs(ws)
+    assert [path for host, path in fakes.calls if host == "treg.to"] == previous_requests
+    ready(ws)
+    reservation = post(
+        ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"], "list_names": ["HubSpot list"]}
+    )
+    assert reservation["lead"]["id"] == lead["id"]
+    post(
+        ws,
+        "/v1/calls/start",
+        {"reservation_id": reservation["reservation_id"], "idempotency_key": "saved-mobile"},
+    )
+    assert carrier.dials[-1]["to"] == C
+
+
+def test_removing_a_saved_phone_invalidates_the_reservation_and_the_replacement_gets_its_own_check(
+    workspace, carrier, monkeypatch
+):
+    ws = workspace
+    fakes = setup(ws, monkeypatch)
+    fakes.members = ["1"]
+    post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    run_jobs(ws, rounds=3)
+    ready(ws)
+    selection = {"campaign_id": ws["campaign_id"], "list_names": ["HubSpot list"]}
+    reservation = post(ws, "/v1/queue/next", selection)
+    assert reservation["lead"]["phone"] == A
+
+    fakes.people["1"]["phone"] = None
+    post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    assert crm_leads(ws)["1"]["phone"] == ""
+    post(
+        ws,
+        "/v1/calls/start",
+        {"reservation_id": reservation["reservation_id"], "idempotency_key": "removed-phone"},
+        status=409,
+    )
+    assert not carrier.dials
+    post(ws, "/v1/queue/release")
+
+    fakes.people["1"]["phone"] = "212-555-0103"
+    post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    lead = crm_leads(ws)["1"]
+    assert (lead["id"], lead["phone"], lead["number_hold"]) == (
+        reservation["lead"]["id"],
+        C,
+        "DNC_NOT_CHECKED",
+    )
+    post(ws, "/v1/queue/next", selection, status=409)
+    run_jobs(ws, rounds=3)
+    assert crm_leads(ws)["1"]["dnc"]["phone"] == C
+    assert post(ws, "/v1/queue/next", selection)["lead"]["phone"] == C
+
+
+def test_enrichment_skips_phone_writeback_when_hubspot_received_a_mobile_during_lookup(
+    workspace, monkeypatch
+):
+    ws = workspace
+    fakes = setup(ws, monkeypatch)
+    fakes.members = ["3"]
+    fakes.mobile_saved_during_lookup = C
+    post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    run_jobs(ws, rounds=4)
+    assert fakes.people["3"]["mobilephone"] == C
+    assert any("phone_status" in props for _, props in fakes.writes)
+    assert all("phone" not in props for _, props in fakes.writes)
+
+
 def test_hubspot_down_during_a_sync_names_the_failure_and_calling_is_untouched(workspace, monkeypatch):
     ws = workspace
     fakes = setup(ws, monkeypatch)
@@ -256,7 +359,10 @@ def test_hubspot_down_during_a_sync_names_the_failure_and_calling_is_untouched(w
     )
 
 
-def test_a_call_to_a_crm_lead_lands_on_the_contact_with_its_owner_and_no_transcript(workspace, monkeypatch):
+@pytest.mark.parametrize("outcome, disposition", [("meeting_booked", "d-mb"), ("wrong_party", "d-wn")])
+def test_a_crm_call_records_the_dialed_number_after_a_hubspot_edit(
+    workspace, monkeypatch, outcome, disposition
+):
     from journey import answered_by_human, hang_up, reserve, wrap_up
 
     ws = workspace
@@ -272,14 +378,20 @@ def test_a_call_to_a_crm_lead_lands_on_the_contact_with_its_owner_and_no_transcr
     )
     answered_by_human(ws, call["id"])
     hang_up(ws, call["id"])
-    wrap_up(ws, call["id"], outcome="meeting_booked")
+    fakes.people["1"]["phone"] = C
+    post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    wrap_up(ws, call["id"], outcome=outcome)
     run_jobs(ws, rounds=3)
     assert len(fakes.created_calls) == 1
     record = fakes.created_calls[0]
     assert "hubspot_owner_id" not in record["properties"]
-    assert record["properties"]["hs_call_disposition"] == "d-mb"
+    assert record["properties"]["hs_call_disposition"] == disposition
+    assert record["properties"]["hs_call_to_number"] == A
     assert record["associations"][0]["to"]["id"] == "1"
     assert "transcript" not in json.dumps(record).lower()
+    lead = crm_leads(ws)["1"]
+    assert lead["phone"] == C and not lead["suppressed"]
+    assert lead["dnc"]["phone"] == C
 
 
 def test_a_list_not_synced_for_a_day_stops_dialing_its_leads_and_start_calling_syncs_it(

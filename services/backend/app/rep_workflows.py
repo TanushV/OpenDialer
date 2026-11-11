@@ -847,21 +847,33 @@ def save_disposition(service, p, call_id, data, *, source="rep_reported"):
                     "message": "Record the current meeting outcome and next outreach action first; this legacy meeting is not linked to a specific call.",
                 },
             )
+        endpoint = None
         if outcome in NUMBER_STOPS:
             # Journal the denial before any wrap-up mutation or receipt can
             # commit. A rollback retains the journal and recovery hold.
+            endpoint_id = call.data.get("endpoint_id") or lead.data["endpoint_id"]
+            endpoint = ops.required(service, s, "phone_endpoints", endpoint_id, p)
             ops.suppress(
                 service,
                 p,
-                lead.data["phone"],
+                endpoint.data["phone"],
                 outcome,
                 event_id=f"disposition:{call_id}:{outcome}",
                 session=s,
             )
+            if outcome == "opt_out" and lead.data["phone"] and lead.data["endpoint_id"] != endpoint_id:
+                ops.suppress(
+                    service,
+                    p,
+                    lead.data["phone"],
+                    outcome,
+                    event_id=f"disposition:{call_id}:{outcome}:{lead.data['endpoint_id']}",
+                    session=s,
+                )
         task = callback_review = tasks = None
         if not replayed and not duplicate:
             ops._wrapup_note(service, s, p, call, canonical, outcome)
-            ops._apply_outcome(service, s, p, call, lead, canonical, source, edit_version)
+            ops._apply_outcome(service, s, p, call, lead, canonical, source, edit_version, endpoint=endpoint)
             tasks = ops.lead_records(service, s, p, "followup_tasks", lead.id)  # One scan serves the save.
             task, callback_review = ops._wrapup_callbacks(service, s, p, call, lead, canonical, source, tasks)
             ops._wrapup_meeting(
@@ -926,7 +938,7 @@ def _wrapup_note(service, s, p, call, canonical, outcome):
     )
 
 
-def _apply_outcome(service, s, p, call, lead, canonical, source, edit_version):
+def _apply_outcome(service, s, p, call, lead, canonical, source, edit_version, *, endpoint):
     """The outcome on the call, the lead and, for a bad number, its endpoint."""
     outcome = canonical["outcome"]
     prior = (
@@ -958,9 +970,9 @@ def _apply_outcome(service, s, p, call, lead, canonical, source, edit_version):
         outcome_history=[*call.data.get("outcome_history", []), *prior],
     )
     update(lead, last_outcome=outcome, last_outcome_at=service.clock().isoformat())
-    if outcome in {"wrong_party", "invalid_endpoint"}:
-        update(lead, status="needs_correction")
-        endpoint = ops.required(service, s, "phone_endpoints", lead.data["endpoint_id"], p)
+    if endpoint and outcome in {"wrong_party", "invalid_endpoint"}:
+        if endpoint.id == lead.data["endpoint_id"]:
+            update(lead, status="needs_correction")
         update(
             endpoint,
             **(

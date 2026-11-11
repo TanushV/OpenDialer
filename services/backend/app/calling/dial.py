@@ -26,7 +26,7 @@ from app.calling.records import (
 )
 from app.calling.recovery import next_step
 from app.calling.state import TERMINAL, moved
-from app.compliance.policy import authorize, retry_seconds
+from app.compliance.policy import Decision, authorize, retry_seconds
 from app.numbers import pool
 from app.platform.config import TEST_LINES
 from app.platform.db import (
@@ -98,15 +98,16 @@ def _prepare_call(service, p, data):
         reservation, claim, held = _held_reservation(service, s, p, data["reservation_id"], now)
         if service.managed.pool is not None and not held.pool_ref:
             require(Situation(step="dial", reservation_ok=False), "Reserve the shared number before dialing.")
+        lead = ops.required(service, s, "leads", reservation.data["lead_id"], p)
         require(
             Situation(
                 blockers=tuple(ops.dial_blockers_in(service, s, p, rep=True)),
                 step="dial",
-                reservation_ok=True,
-            )
+                reservation_ok=claim.endpoint_id == lead.data["endpoint_id"],
+            ),
+            "The prospect's phone number changed. Start calling to reserve its current number.",
         )
         agent = ops.required(service, s, "users", p["user_id"], p).data["presence"]["agent_call_control_id"]
-        lead = ops.required(service, s, "leads", reservation.data["lead_id"], p)
         ops.refuse_outside_test_line(service, p, lead)
         number = ops.required(service, s, "number_inventory", reservation.data["number_id"], p)
         service.managed.require_number(workspace(p), number.data)
@@ -236,12 +237,16 @@ def _claim_dial(service, p, call_id, owner):
         if command.data["status"] != "pending":
             return
         lead = ops.required(service, s, "leads", call.data["lead_id"], p, lock=True)
-        ops.refuse_outside_test_line(service, p, lead)
-        number = ops.required(service, s, "number_inventory", call.data["number_id"], p)
-        service.managed.require_number(workspace(p), number.data)
-        decision = authorize(
-            ops.context(service, s, {**p, **CallView.model_validate(call.data).dial_scope}, lead, number)
-        )
+        payload = command.data["payload"]
+        if payload["to"] == lead.data["phone"]:
+            ops.refuse_outside_test_line(service, p, lead)
+            number = ops.required(service, s, "number_inventory", call.data["number_id"], p)
+            service.managed.require_number(workspace(p), number.data)
+            decision = authorize(
+                ops.context(service, s, {**p, **CallView.model_validate(call.data).dial_scope}, lead, number)
+            )
+        else:
+            decision = Decision(False, ["RESERVATION_INVALID"])
         submission_decision = ops.record_decision(service, s, p, lead, decision)
         if not decision.allowed:
             update(command, status="cancelled", reasons=decision.reasons)
@@ -259,7 +264,6 @@ def _claim_dial(service, p, call_id, owner):
         allowance = max(
             attempts.attempt_allowance or 0, PolicyLimits.model_validate(policy.data).max_attempts
         )
-        payload = command.data["payload"]
         update(
             command,
             status="sending",

@@ -71,8 +71,10 @@ def number_hold(lead, now=None):
     hold = STATUS_HOLDS.get(lead.get("number_status"))
     if hold:
         return hold
-    if lead.get("source") == "crm" and lead.get("dnc", {}).get("status") != "checked":
-        return "DNC_NOT_CHECKED"
+    if lead.get("source") == "crm":
+        check = lead.get("dnc") or {}
+        if check.get("status") != "checked" or check.get("phone") != lead.get("phone"):
+            return "DNC_NOT_CHECKED"
     return None
 
 

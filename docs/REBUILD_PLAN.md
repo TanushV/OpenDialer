@@ -2005,3 +2005,7 @@ test assets and admin access before asking for anything. The signed rollout foll
   out on the first start. After relaunch, one test call reached the approved line and saved voicemail. See the
   [standalone Mac test](evidence/rebuild/2026-11-11-2.1-shared-application.md#standalone-mac-test-after-deployment).
   R12.11 still needs a second phone, an approved caller ID, the segments and the worker setup.
+- November 11, 2026: verified the existing HubSpot test contact and fixed the handling of stored Phone and Mobile
+  Phone values, number changes during calling, and phone write-back. The two-profile replay test used CRM leads
+  through the normal queue. A rollback-only check on the existing Supabase relay confirmed separate callback inboxes
+  at the outbound cap. [HubSpot phone verification](evidence/rebuild/2026-11-11-2.1-shared-application.md#hubspot-numbers-already-on-contacts).

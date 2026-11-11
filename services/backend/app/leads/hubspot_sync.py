@@ -1,19 +1,20 @@
-"""What one HubSpot list sync changes (D17, D25, section 9B). Pure: the caller reads HubSpot and writes the store.
+"""What one HubSpot list sync changes (D17, D33, section 9B). Pure: the caller reads HubSpot and writes the store.
 
-HubSpot picks who is called and the app picks the order. A seat syncs only the members its "Calls for" user owns, so
-two seats never share a contact. A sync can add a suppression and never remove one. A member that left the list stops
-being dialed and keeps its history. A contact another dialer reached inside the spacing window waits (the
-last-contacted guard, checked in L18).
+HubSpot picks who is called and the app picks the order. Each rep syncs their assigned segment. A sync can add a
+suppression and never remove one. A member that left the list stops being dialed and keeps its history. A contact
+another dialer reached inside the spacing window waits (the last-contacted guard, checked in L18).
 """
 
 from datetime import datetime, timedelta
 
+from app.compliance.phone import normalize_phone
+
+PHONE_PROPERTIES = ("phone", "mobilephone")
 PROPERTIES = (
     "firstname",
     "lastname",
     "company",
-    "phone",
-    "mobilephone",
+    *PHONE_PROPERTIES,
     "jobtitle",
     "website",
     "state",
@@ -38,6 +39,21 @@ def _stamp(value):
         return None
 
 
+def dialable_phone(value):
+    """Use the same E.164 identity for a stored number, the local endpoint and the shared pool."""
+    phone = normalize_phone(str(value or "").strip()).e164
+    return phone if phone and phone.startswith("+1") else None
+
+
+def _stored_phone(props):
+    values = [str(props.get(field) or "").strip() for field in PHONE_PROPERTIES]
+    # Keep a nonempty unsupported value in the source row so enrichment cannot overwrite it.
+    for value in values:
+        if phone := dialable_phone(value):
+            return phone
+    return next(filter(None, values), "")
+
+
 def row(contact):
     """The intake row for one contact: identity first, then every other property under its own name."""
     props = {k: v for k, v in (contact.get("properties") or {}).items() if v not in (None, "")}
@@ -48,7 +64,7 @@ def row(contact):
         "first name": first,
         "last name": last,
         "company": props.get("company", ""),
-        "phone": props.get("phone") or props.get("mobilephone") or "",
+        "phone": _stored_phone(props),
         "domain": website.removeprefix("www."),
         "state": props.get("state", ""),
         "city": props.get("city", ""),

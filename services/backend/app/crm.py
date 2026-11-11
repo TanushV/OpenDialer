@@ -8,9 +8,9 @@ check or write retries as a job and, when it cannot settle, reaches Needs attent
 import asyncio
 import logging
 from datetime import timedelta
+from weakref import WeakValueDictionary
 
 from app import ops
-from app.compliance.phone import normalize_phone
 from app.leads import dnc, hubspot_sync, intake
 from app.leads import waterfall as wf
 from app.platform.db import audit, doc, emit, put, update
@@ -134,22 +134,42 @@ def _lead_fields(row):
         "name": str(row.get("name") or "Unknown")[:200],
         "company": str(row.get("company") or "")[:200],
         "domain": str(row.get("domain") or "")[:250].lower(),
+        "crm_phone": row.get("phone"),
         "crm_row": row,
     }
+
+
+def _previous_crm_row(lead):
+    row = lead.get("crm_row") or {}
+    # Older syncs could clear the source row while leaving the last checked CRM number in use.
+    if not hubspot_sync.dialable_phone(row.get("phone")) and (
+        previous := hubspot_sync.dialable_phone(lead.get("crm_phone"))
+    ):
+        return {**row, "phone": previous}
+    return row
 
 
 def _set_phone(service, s, p, lead, phone, now):
     """Point a lead at a number; with none, it waits as Needs a number and is not dialable."""
     from app.optimization.geography import AREA_STATES
 
+    changes = {}
+    if not lead or lead.get("phone") != phone:
+        changes["dnc"] = {"status": "not_checked", "reason": "not yet run"}
     if not phone:
-        return {"phone": "", "endpoint_id": None, "status": "needs_number", "number_status": "needs_number"}
+        if not lead or lead.get("status") in (None, "eligible", "needs_number"):
+            changes["status"] = "needs_number"
+        return {**changes, "phone": "", "endpoint_id": None, "number_status": "needs_number"}
     endpoint = _endpoint(service, s, p, phone, now)
-    changes = {"phone": phone, "endpoint_id": endpoint.id, "region": phone[2:5]}
-    if not lead or not lead.get("state"):
+    changes.update(phone=phone, endpoint_id=endpoint.id, region=phone[2:5])
+    if not lead or not lead.get("state") or lead.get("state_source") == "phone_area_code":
         changes["state"] = AREA_STATES.get(phone[2:5])
         changes["state_source"] = "phone_area_code" if changes["state"] else "unknown"
-    if not lead or lead.get("status") in (None, "needs_number"):
+    if (
+        not lead
+        or lead.get("status") in (None, "needs_number")
+        or (lead.get("status") == "needs_correction" and lead.get("phone") != phone)
+    ):
         changes["status"] = "eligible"
     return changes
 
@@ -163,6 +183,7 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
         require_segment(service, p, list_id)
         campaign = _campaign(service, s, p)
         existing = crm_leads(service, s, p, list_name)
+        previous = {cid: _previous_crm_row(lead.data) for cid, lead in existing.items()}
         last_called = {
             cid: service_time(lead.data.get("last_called_at"))
             for cid, lead in existing.items()
@@ -171,7 +192,7 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
         planned = hubspot_sync.plan(
             contacts,
             members,
-            {cid: lead.data.get("crm_row") for cid, lead in existing.items()},
+            previous,
             now=now,
             last_called=last_called,
         )
@@ -185,7 +206,7 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
         update(campaign, lists={**lists, list_name: {**lists.get(list_name, {}), "crm": crm}})
         checks = []
         for cid, row in planned["add"]:
-            phone = normalize_phone(str(row.get("phone") or "")).e164
+            phone = hubspot_sync.dialable_phone(row.get("phone"))
             data = {
                 **_lead_fields(row),
                 "company_key": company_key(row),
@@ -204,8 +225,8 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
                 "source": "crm",
                 "external_id": cid,
                 "crm_list_id": list_id,
+                "crm_number_revision": 1,
                 "number_status": "checking",
-                "dnc": {"status": "not_checked", "reason": "not yet run"},
                 "crm_synced_at": now.isoformat(),
             }
             data.update(_set_phone(service, s, p, None, phone, now))
@@ -214,14 +235,19 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
             lead = put(
                 s, "leads", p["tenant_id"], p["seller_id"], data, key=f"crm:{campaign.id}:{cid}", now=now
             )
-            checks.append(lead.id)
+            checks.append(lead)
         for cid, row in planned["update"]:
             lead = existing[cid]
             changes = _lead_fields(row)
-            phone = normalize_phone(str(row.get("phone") or "")).e164
-            if phone and phone != lead.data.get("crm_phone"):
-                changes.update(_set_phone(service, s, p, lead.data, phone, now), number_status="checking")
-                checks.append(lead.id)  # A changed CRM number is checked again (R9B.14).
+            phone = hubspot_sync.dialable_phone(row.get("phone"))
+            if phone != hubspot_sync.dialable_phone(previous[cid].get("phone")):
+                changes.update(
+                    _set_phone(service, s, p, lead.data, phone, now),
+                    number_status="checking",
+                    number_note=None,
+                    crm_number_revision=lead.version + 1,
+                )
+                checks.append(lead)  # A changed CRM number is checked again (R9B.14).
             update(lead, **changes)
         for lead in existing.values():
             update(lead, crm_synced_at=now.isoformat())
@@ -244,17 +270,23 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
                     else lead.data["status"],
                 )
         for entry in planned["opt_outs"]:
-            phone = normalize_phone(str(entry["phone"] or "")).e164
+            phone = hubspot_sync.dialable_phone(entry["phone"])
             if phone and not ops.suppressed(service, s, p, phone):
                 ops.suppress(
-                    service, p, phone, "opt_out", event_id=f"hubspot-opt-out:{entry['contact_id']}", session=s
+                    service,
+                    p,
+                    phone,
+                    "opt_out",
+                    event_id=f"hubspot-opt-out:{entry['contact_id']}:{phone}",
+                    session=s,
                 )
-        for lead_id in checks:
+        for lead in checks:
+            revision = lead.data["crm_number_revision"]
             service.jobs.enqueue_in(
                 s,
                 LANE,
-                {"kind": "waterfall", "lead_id": lead_id, **_who(p)},
-                f"waterfall:{lead_id}:{now.isoformat()}",
+                {"kind": "waterfall", "lead_id": lead.id, "crm_number_revision": revision, **_who(p)},
+                f"waterfall:{lead.id}:sync:{revision}",
                 tenant_id=p["tenant_id"],
             )
         audit(
@@ -342,7 +374,10 @@ def lists_due(service, s, p, now):
 async def run_job(service, p, payload):
     kind = payload["kind"]
     if kind == "waterfall":
-        return await waterfall_job(service, p, payload["lead_id"])
+        lead_id = payload["lead_id"]
+        locks = service.__dict__.setdefault("_waterfall_locks", WeakValueDictionary())
+        async with locks.setdefault(lead_id, asyncio.Lock()):
+            return await waterfall_job(service, p, lead_id, revision=payload.get("crm_number_revision"))
     if kind == "dnc":
         return await dnc_job(service, p)
     if kind == "crm_log":
@@ -372,7 +407,7 @@ def _contact(lead):
         "domain": lead.get("domain"),
         "linkedin_url": row.get("linkedin url"),
         "email": row.get("email"),
-        "existing_phone": row.get("phone"),
+        "existing_phone": hubspot_sync.dialable_phone(row.get("phone")),
     }
 
 
@@ -384,7 +419,7 @@ def _list_room(service, s, p, lead):
     return None if limit is None else max(0, limit - crm.get("spent_micro", 0))
 
 
-async def waterfall_job(service, p, lead_id):
+async def waterfall_job(service, p, lead_id, *, revision=None):
     """Run the agreed waterfall on one CRM lead; then its do-not-call check. A CSV lead is never checked."""
     from app.providers.treg import Treg, TregError
 
@@ -392,19 +427,24 @@ async def waterfall_job(service, p, lead_id):
         lead = ops.required(service, s, "leads", lead_id, p)
         if lead.data.get("source") != "crm":
             return {"skipped": "csv"}
+        current_revision = lead.data.get("crm_number_revision")
+        if revision is not None and revision != current_revision:
+            return {"skipped": "superseded"}
         room = _list_room(service, s, p, lead)
         ledger = dict(lead.data.get("waterfall") or {})
+        contact = _contact(lead.data)
+    existing_phone = contact["existing_phone"]
     token = config(service, p).get("treg_token")
     if not token or room is None:
         # No token or no spend limit: a CRM number dials as Unconfirmed; with none, the lead waits (section 9A).
-        has_number = bool(_contact(lead.data)["existing_phone"])
         await asyncio.to_thread(
             _store_number,
             service,
             p,
             lead_id,
-            {"number_status": "unconfirmed" if has_number else "needs_number"},
+            {"number_status": "unconfirmed" if existing_phone else "needs_number"},
             None,
+            revision=current_revision,
         )
         return await dnc_job(service, p)
     saves = []
@@ -421,7 +461,7 @@ async def waterfall_job(service, p, lead_id):
             room_micro=room,
             save=save,
         )
-        result = await engine.run(_contact(lead.data))
+        result = await engine.run(contact)
     except wf.SpendLimit:
         await asyncio.to_thread(
             _store_number,
@@ -430,23 +470,27 @@ async def waterfall_job(service, p, lead_id):
             lead_id,
             {"number_status": "checking", "number_note": "The list's spend limit is reached"},
             None,
+            revision=current_revision,
         )
         return {"status": "spend_limit"}
     except (wf.Held, TregError) as exc:
         log.warning("Waterfall held for a lead: %s", type(exc).__name__)
-        has_number = bool(_contact(lead.data)["existing_phone"])
         await asyncio.to_thread(
             _store_number,
             service,
             p,
             lead_id,
-            {"number_status": "unconfirmed" if has_number else "needs_number", "number_note": str(exc)[:200]},
+            {
+                "number_status": "unconfirmed" if existing_phone else "needs_number",
+                "number_note": str(exc)[:200],
+            },
             None,
+            revision=current_revision,
         )
         return {"status": "held"}
     status = {"provider_error": "needs_number"}.get(result["status"], result["status"])
     changes = {"number_status": status, "number_source": result["finder"] or lead.data.get("number_source")}
-    await asyncio.to_thread(_store_number, service, p, lead_id, changes, result)
+    await asyncio.to_thread(_store_number, service, p, lead_id, changes, result, revision=current_revision)
     await dnc_job(service, p)
     return {"status": status}
 
@@ -457,15 +501,10 @@ def _store_ledger(service, p, lead_id, ledger):
         update(lead, waterfall=ledger)
 
 
-def _store_number(service, p, lead_id, changes, result):
+def _store_number(service, p, lead_id, changes, result, *, revision):
     now = service.clock()
     with service.db.transaction() as s:
         lead = ops.required(service, s, "leads", lead_id, p)
-        if result and result.get("phone") and result["phone"] != lead.data.get("phone"):
-            changes.update(_set_phone(service, s, p, lead.data, result["phone"], now))
-            changes["number_status"] = {"provider_error": "needs_number"}.get(
-                result["status"], result["status"]
-            )
         if result:
             campaign = _campaign(service, s, p)
             lists = campaign.data.get("lists", {})
@@ -477,13 +516,18 @@ def _store_number(service, p, lead_id, changes, result):
                 campaign,
                 lists={**lists, lead.data["list_name"]: {**lists[lead.data["list_name"]], "crm": crm}},
             )
-            changes["waterfall_spent"] = result["spent_micro"]
+            update(lead, waterfall_spent=result["spent_micro"])
+        if lead.data.get("crm_number_revision") != revision:
+            return  # A sync changed the stored number while the check was in flight.
+        stored = (lead.data.get("crm_row") or {}).get("phone")
+        if result:
+            if result.get("phone") and result["phone"] != lead.data.get("phone"):
+                changes.update(_set_phone(service, s, p, lead.data, result["phone"], now))
             changes["waterfall_result"] = {k: result[k] for k in ("status", "phone", "finder", "spent_micro")}
-        changes["crm_phone"] = (lead.data.get("crm_row") or {}).get("phone")
         update(lead, **changes)
         status = changes.get("number_status")
         props = {"phone_status": status} if status in {"confirmed", "unconfirmed", "conflict"} else {}
-        if result and result.get("phone") and not changes["crm_phone"]:
+        if result and result.get("phone") and not stored:
             props["phone"] = result[
                 "phone"
             ]  # Written only into an empty field; a CRM number is never overwritten.
@@ -510,10 +554,13 @@ async def dnc_job(service, p):
         ).validate([lead["phone"] for lead in due])
     except DNCUnavailable as exc:
         await asyncio.to_thread(
-            _store_dnc, service, p, [(lead["id"], dnc.failed(lead, exc.reason, now), None) for lead in due]
+            _store_dnc,
+            service,
+            p,
+            [(lead["id"], lead["phone"], dnc.failed(lead, exc.reason, now), None) for lead in due],
         )
         return {"checked": 0, "reason": exc.reason}
-    results = [(lead["id"], *dnc.outcome(lead, answers[lead["phone"]], now)) for lead in due]
+    results = [(lead["id"], lead["phone"], *dnc.outcome(lead, answers[lead["phone"]], now)) for lead in due]
     await asyncio.to_thread(_store_dnc, service, p, results)
     return {"checked": len(results)}
 
@@ -521,8 +568,10 @@ async def dnc_job(service, p):
 def _store_dnc(service, p, results):
     now = service.clock()
     with service.db.transaction() as s:
-        for lead_id, changes, suppression in results:
+        for lead_id, phone, changes, suppression in results:
             lead = ops.required(service, s, "leads", lead_id, p)
+            if lead.data["phone"] != phone:
+                continue  # A reply for an older number cannot clear or suppress the replacement.
             update(lead, **changes)
             if suppression and not ops.suppressed(service, s, p, suppression["phone"]):
                 ops.suppress(
@@ -556,6 +605,9 @@ async def log_job(service, p, call_id):
         call = ops.required(service, s, "call_attempts", call_id, p)
         lead = ops.required(service, s, "leads", call.data["lead_id"], p)
         data, lead_data = dict(call.data), dict(lead.data)
+        endpoint_id = data.get("endpoint_id")
+        endpoint = ops.scoped_get(service, s, p, "phone_endpoints", endpoint_id) if endpoint_id else None
+        dialed_phone = endpoint.data["phone"] if endpoint else lead_data.get("phone") or ""
     # R11.7: a test call to a HubSpot contact is the owner's own test contact (a test session dials only the
     # rep's phone), so it is written; that is how L15 to L18 run on the owner's line.
     if lead_data.get("source") != "crm" or not lead_data.get("external_id"):
@@ -573,7 +625,7 @@ async def log_job(service, p, call_id):
         started_at=data.get("answered_at") or data.get("created_at") or service.clock().isoformat(),
         duration_ms=int(1000 * float(data.get("talk_seconds") or 0)),
         from_number=data.get("from_number") or "",
-        to_number=lead_data.get("phone") or "",
+        to_number=dialed_phone,
         note=((data.get("disposition") or {}).get("note") or "")[:2000],
     )
     uncertain = bool(data.get("crm_log_attempted"))
@@ -584,7 +636,7 @@ async def log_job(service, p, call_id):
         summary = (ops.call_summary(service, s, p, call_id) or {}).get("summary")
     if summary:
         await crm_log.add_summary(hs, hubspot_id, summary)
-    if outcome in {"wrong_party", "invalid_endpoint"}:
+    if outcome in {"wrong_party", "invalid_endpoint"} and dialed_phone == lead_data.get("phone"):
         await hs.update_contact(lead_data["external_id"], {"phone_status": "wrong_number"})
     if outcome == "opt_out":
         await hs.update_contact(
@@ -650,12 +702,22 @@ async def contact_job(service, p, lead_id):
         pending, contact_id = dict(lead.get("crm_pending") or {}), lead.get("external_id")
     if not pending or not contact_id:
         return {"written": []}
-    await hubspot(service, p).update_contact(contact_id, pending)
+    hs = hubspot(service, p)
+    properties = dict(pending)
+    if "phone" in properties:
+        contacts = await hs.contacts([contact_id], hubspot_sync.PHONE_PROPERTIES)
+        saved = (contacts[0].get("properties") or {}) if contacts else {}
+        if not contacts or any(
+            str(saved.get(field) or "").strip() for field in hubspot_sync.PHONE_PROPERTIES
+        ):
+            properties.pop("phone")
+    if properties:
+        await hs.update_contact(contact_id, properties)
     with service.db.transaction() as s:
         row = ops.required(service, s, "leads", lead_id, p)
         left = {k: v for k, v in (row.data.get("crm_pending") or {}).items() if pending.get(k) != v}
         update(row, crm_pending=left)
-    return {"written": sorted(pending)}
+    return {"written": sorted(properties)}
 
 
 def on_outcome(service, s, p, call, lead, outcome):
@@ -665,7 +727,10 @@ def on_outcome(service, s, p, call, lead, outcome):
     now = service.clock()
     update(lead, last_called_at=now.isoformat())
     enqueue_log(service, s, p, call)
-    if outcome == "wrong_party":
+    if (
+        outcome == "wrong_party"
+        and (call.data.get("endpoint_id") or lead.data["endpoint_id"]) == lead.data["endpoint_id"]
+    ):
         ledger = dict(lead.data.get("waterfall") or {})
         wf.mark_wrong(ledger, lead.data["phone"])
         update(lead, waterfall=ledger, number_status="checking")

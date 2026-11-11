@@ -504,7 +504,8 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
     campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
     policy = ops.required(service, s, "policy_versions", campaign.data["policy_id"], p)
     seller = ops.required(service, s, "sellers", p["seller_id"], p)
-    endpoint = ops.required(service, s, "phone_endpoints", lead.data["endpoint_id"], p)
+    endpoint_id = lead.data["endpoint_id"]
+    endpoint = ops.required(service, s, "phone_endpoints", endpoint_id, p) if endpoint_id else None
     user = ops.required(service, s, "users", p["user_id"], p)
     config, presence = policy.data, user.data.get("presence", {})
     internal_suppressed = ops.suppressed(service, s, p, lead.data["phone"])
@@ -548,10 +549,13 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         callback_owner_matches=active
         or not lead.data.get("callback_due_at")
         or lead.data.get("callback_owner_id") in {None, p["user_id"]},
-        endpoint_valid=endpoint.data["format_status"] == "valid"
-        and endpoint.data.get("reachability_status") != "invalid_endpoint"
-        and not endpoint.data.get("reassignment_review_required", False),
-        ownership=endpoint.data.get("ownership_status", "unknown"),
+        endpoint_valid=bool(
+            endpoint
+            and endpoint.data["format_status"] == "valid"
+            and endpoint.data.get("reachability_status") != "invalid_endpoint"
+            and not endpoint.data.get("reassignment_review_required", False)
+        ),
+        ownership=endpoint.data.get("ownership_status", "unknown") if endpoint else "unknown",
         timezone=lead.data.get("timezone"),
         timezone_confidence=lead.data.get("timezone_confidence", "unknown"),
         timezones=plausible_zones(lead.data),
