@@ -63,7 +63,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D30 | Forwarding to the rep's phone is deferred; its field is hidden until it works with the app closed. | Owner, November 10 ("you can push off forwarding") |
 | D31 | StatML is archived (tagged, then removed). The one learning view kept is stage drop-off: where answered calls end in the script. | Owner, November 10 ("archive statml"; "the main use it has is stage dropoff") |
 | D32 | No voicemail feature: the skip at detection stays; the rep speaks into a voicemail by pressing Stay or on the last attempt. No recorded drop. | Owner, November 10 ("we just let the rep speak into the voicemail normally"; "keep skip") |
-| D33 | In 2.1, separate computer profiles may share a number pool. Each profile syncs one HubSpot segment. Each prospect keeps the same caller ID, and return calls ring the computer that placed the confirmed call from the dialed number. The rolling 24-hour limit is at most 90 outbound attempts per number. Inbound callbacks use no outbound capacity. | Owner, November 11; team mode supersedes D27 for 2.1 |
+| D33 | In 2.1, reps share one Telnyx Call Control application, one SIP connection and a number pool. Each rep has a private computer profile, a WebRTC audio credential and one HubSpot segment. Each prospect keeps the same caller ID, and return calls ring the computer that placed the last confirmed call from the dialed number. The rolling 24-hour limit is at most 90 outbound attempts per number. Inbound callbacks use no outbound capacity. | Owner, November 11. Phase 12 specifies the rollout. |
 | D26 | Withdrawn by D27. One shared number pool. Any seat can call from any pool number. The relay picks the number for each call (local area code first, then least used today) and counts daily use across all seats, so the per-number cap holds for the team. Pool numbers sit on one shared incoming route, and a callback rings the seat that last called that prospect, or goes to voicemail and a task on that seat. | Owner decision, November 8; that a Call Control dial may present any number on the account is confirmed in L23 |
 
 Open owner inputs:
@@ -674,6 +674,9 @@ Line: **203-821-1101**, the owner's own phone.
 
 Each session records a receipt under `docs/evidence/rebuild/`: scenario, version, pass or fail, timing and notes. It also
 answers whether the hourly carrier cap applies and whether the automated notice plays.
+
+Use the Phase 12 pilot for the D33 shared application. L23 describes the earlier design with a Call Control application
+per rep.
 
 ## 11. File dispositions
 
@@ -1654,10 +1657,122 @@ one learning view kept. Each item gets its tests first.
       stay associated with that computer. Outbound capacity and unused outbound reservations cannot block ringing.
       The binding retains callback ownership after outbound attempt records expire.
 - [x] R12.4 Test with disposable relay and desktop data, including overlapping calls from separate profiles, callback
-      affinity at the outbound limit, and the in-app prospect view.
-- [ ] R12.5 Stage the relay migration, then provision two real computers and distinct HubSpot test segments.
-      Prove L23 before enabling the pool in production. Record live two-way audio and return routing, including
-      a window off-screen, and verify carrier behavior while the target computer is offline.
+      affinity at the outbound limit, and the in-app prospect view. These tests used the first implementation with
+      separate Call Control applications and replayed carrier events. See the [local verification receipt](evidence/rebuild/2026-11-11-2.1-local.md).
+
+One Telnyx account owns the numbers. Each environment uses one Call Control application, one credential-based SIP
+connection and one relay endpoint at `/functions/v1/telnyx-webhook`. Each rep imports a private setup file under
+**Settings → Call connection**. The file connects their computer to its own relay workspace, WebRTC credential and
+assigned HubSpot segment. Telnyx API keys authenticate account requests. A key per rep is optional for independent
+revocation. Telnyx supports multiple audio credentials on one SIP connection.
+[Telnyx contact-center guide](https://developers.telnyx.com/docs/voice/webrtc/use-cases/contact-center) ·
+[Telnyx telephony credentials](https://developers.telnyx.com/docs/voice/webrtc/auth/telephony-credentials)
+
+- [ ] **R12.5 Align the repository migration history with hosted Supabase.**
+      On November 11 the connected [OpenDialer project](https://supabase.com/dashboard/project/wfucwxgeexzwhinrylyn)
+      reported only two applied migrations. Its database has neither the number-pool tables nor the pool RPCs.
+      The hosted receiver verifies Telnyx signatures and omits the `inbound_call` transfer field. Only the production
+      OpenDialer project was visible in the connected account. The two October SQL bodies matched the local files
+      by byte length and digest. Give the files the hosted IDs in the following table and keep their contents.
+      The production dry run should list `20261111112021_shared_number_pool.sql` and the new shared-routing migration.
+      [Supabase migration deployment](https://supabase.com/docs/guides/deployment/database-migrations)
+
+| October migration | Repository ID today | Hosted ID to adopt |
+|---|---|---|
+| `managed_control_relay` | `20261029091412` | `20261029092005` |
+| `managed_connection_setup` | `20261029202925` | `20261029203132` |
+
+- [ ] **R12.6 Fix first-call audio for a new rep.**
+      Reproduce `CALLER_NUMBER_ROUTE_REQUIRED` with a fresh profile and only a number supplied by the relay pool.
+      Exercise `POST /v1/telephony/agent` with the production Telnyx client and a mocked HTTP transport. The first
+      agent dial must use a pool-authorized caller ID and the rep’s own SIP address. Read the relay pool’s route
+      readiness when starting audio. The internal audio leg uses no prospect dial capacity. Include cases for an
+      unavailable pool and a standalone workspace.
+      The earlier replay tests skipped the real audio setup branch. [Audio leg setup](../services/backend/app/calling/audio_leg.py)
+
+- [ ] **R12.7 Route the shared application’s signed events by call ownership.**
+      Add an opt-in shared application to the pool in a new migration. The application’s signing route belongs to
+      the pool and can verify events when a rep is disabled. Extend `relay_pool_submit` to record the authenticated
+      workspace and expected endpoints before a prospect dial. Register the rep’s audio leg before its dial using
+      the same account, application and workspace checks. The authenticated workspace and current installation lease
+      determine ownership. On a matching signed event, bind Telnyx’s call-control ID to the workspace so subsequent
+      events reach it even when they carry fewer fields. An unresolved outbound event stays out of rep inboxes until
+      the relay can match it or reconcile it. Keep the current legacy application route for standalone profiles.
+
+      Use the dialed number and the caller’s phone to find the last confirmed rep for a callback. An unsuccessful
+      retry preserves the earlier owner. Match the original incoming call and its transfer leg to that same rep.
+      Store the receipt and ownership together and deduplicate by Telnyx event ID. Retain the current private relay
+      tables and grant each client RPC only the access needed by its scoped workspace.
+      [Current reservation and callback SQL](../supabase/migrations/20261111112021_shared_number_pool.sql) ·
+      [Telnyx webhook delivery](https://developers.telnyx.com/docs/voice/programmable-voice/receiving-webhooks) ·
+      [Telnyx transfer context](https://developers.telnyx.com/api-reference/call-commands/transfer-call)
+
+- [ ] **R12.8 Generate the rep profiles and deploy the webhook receiver.**
+      An operator selects the shared application, approved numbers and outbound voice profile once. Configure the
+      shared SIP connection for internal URI calling with its outbound voice profile unset. Each rep gets a Telnyx
+      Telephony Credential under that connection, a relay workspace and a HubSpot segment. Use the existing managed
+      setup flow to issue the private profile. Configure the profile’s public URL
+      and publishable key for the target relay so staging profiles use staging. Point the pilot application at that
+      relay’s endpoint. Deploy the reviewed receiver at the existing path. Preserve Ed25519 and timestamp checks,
+      the `inbound_call` field and acknowledgement after durable storage. Supabase gateway JWT verification stays
+      disabled for `telnyx-webhook` and `managed-setup`, which check the Telnyx signature and the operator-issued
+      invitation respectively. The Supabase service key stays on the server.
+      [Relay runbook](../supabase/README.md) · [Supabase function configuration](https://supabase.com/docs/guides/functions/function-configuration)
+
+- [ ] **R12.9 Play the greeting when the rep is offline (D29).**
+      The relay queues incoming events for delivery after a reconnect. The desktop currently issues the greeting command.
+      Add a durable claim for the original incoming call so the reachable desktop or a hosted fallback can handle it.
+      Publish each rep’s WebRTC reachability to their scoped workspace and give an open desktop time to claim the
+      call through its normal relay exchange. If the rep is offline or the claim window expires, the worker answers, plays the configured greeting
+      and leaves one task for the assigned rep. Reconcile existing Telnyx commands before retrying a timed-out claim.
+      Skip calls the caller has already ended. Store the fallback worker’s authorized Telnyx account key as an Edge
+      secret. Use the recorded Telnyx webhook and durable retry state to recover from worker interruptions.
+      [Current offline capability](../services/backend/app/administration.py) ·
+      [Supabase function scheduling](https://supabase.com/docs/guides/functions/schedule-functions)
+
+- [ ] **R12.10 Prove the software locally before live calls.**
+      Run the tests for a fresh audio leg, the shared application’s routing, two profiles syncing distinct HubSpot
+      fixtures, a rep disabled on the shared route, repeated and out-of-order events, and one callback task per
+      call. Run the migrations on a disposable local Supabase stack. Verify attempts 90 and 91, a callback at the
+      cap, and a retry that preserves the prospect’s caller ID. Launch both packaged profiles simultaneously on this
+      Mac and exercise the callback panels and first-call setup. Run the fast and full tiers and require Verify to
+      pass on the candidate commit. Record replay and package evidence before the hosted pilot.
+
+- [ ] **R12.11 Stage the relay and run the two-rep pilot.**
+      Prepare an isolated hosted relay and a test Call Control application on the same Telnyx account. Select an
+      approved caller number for the pilot, provision both profiles, and confirm the dry run points at staging.
+      Use the Supabase CLI v3 commands below. Deploy the reviewed fallback function to the same staging target when
+      running the closed-app test. Record the results and timings under `docs/evidence/rebuild/`.
+      [Supabase hosted targeting and dry runs](https://supabase.com/docs/guides/local-development/local-and-hosted-projects)
+
+```sh
+supabase db push --remote="$OPENDIALER_STAGING_REF" --dry-run --skip-vault
+supabase db push --remote="$OPENDIALER_STAGING_REF" --skip-vault
+supabase functions deploy telnyx-webhook managed-setup --remote="$OPENDIALER_STAGING_REF"
+```
+
+| Pilot check | Pass condition |
+|---|---|
+| Import each setup file and sync its HubSpot segment | Each rep sees only their assigned test contacts and can start their first call. |
+| Two simultaneous calls from the same pooled number | Each approved phone shows the shared caller ID and has two-way audio with its own rep. Record Telnyx’s concurrent channel use. |
+| Both phones call the pooled number back | Each callback rings only the last confirmed rep and opens the matched prospect. Answer, decline and hang-up affect the intended call. |
+| Repeat with the app paused or its window hidden | The registered app rings. A declined or missed call plays the greeting and creates one task. |
+| Reach a lowered pilot outbound limit and call back | The next outbound attempt waits. Inbound rings and stays outside the counter. Local tests prove the actual 90-attempt ceiling. |
+| Close the rep’s app before the callback | The caller hears the greeting and the intended rep sees one missed-call task after reconnecting. |
+| Move a test contact to the other rep’s segment and call it again | The prospect sees the same number. Once the second rep’s call is confirmed, the next callback reaches that rep. |
+
+- [ ] **R12.12 Enable the shared pool in production and publish the signed candidate.**
+      After the pilot passes, apply the reviewed migrations and redeploy the receiver at the existing production URL.
+      Verify the existing single-rep profile before enabling the pool for the first two reps. Check which
+      application owns each approved number and carry forward confirmed caller-ID bindings and callback ownership.
+      Use the signed release procedure in section 12A. If the rollout needs to stop, pause new pooled outbound
+      calls, keep the inbound route and callback bindings available, and reconcile in-flight calls before switching profiles.
+
+The operator completes the code, local tests, migration and function preparation, and any staging work covered by
+existing access and approved test assets. Once the live run is ready, bundle any remaining inputs into one request.
+Use two approved destination phones, two HubSpot test segments and a second rep computer for the final audio check.
+The owner chooses or approves the account-owned pilot caller number and authorizes the live test. Check available
+test assets and admin access before asking for anything. The signed rollout follows section 12A.
 
 ## 14. Risks
 
@@ -1869,4 +1984,7 @@ one learning view kept. Each item gets its tests first.
   (`1b1d4d4`). Next: candidate 4, install, live sessions (R11.9), publish.
 - November 11, 2026: the owner set shared calling as 2.1 scope (D33), with sticky caller IDs and up to 90 outbound
   attempts per number. The two-profile checks passed on a disposable relay with replayed calls and in the Mac app.
-  [Local evidence](evidence/rebuild/2026-11-11-2.1-local.md). Next is R12.5, the hosted relay and live carrier test.
+  [Local evidence](evidence/rebuild/2026-11-11-2.1-local.md).
+- November 11, 2026: recorded the one-application rollout in Phase 12. The read-only Supabase check confirmed the
+  October migration history, the missing pool schema and the older receiver. The next implementation steps are
+  R12.5 and R12.6, aligning the migration filenames and fixing first-call audio for a new rep.
