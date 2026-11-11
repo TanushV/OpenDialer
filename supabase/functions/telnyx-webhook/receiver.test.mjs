@@ -27,8 +27,9 @@ async function request(
   data = event,
   stamp = Math.floor(now / 1000),
   tamper = false,
+  meta,
 ) {
-  const body = JSON.stringify({ data });
+  const body = JSON.stringify({ data, meta });
   const signature = Buffer.from(
     await crypto.subtle.sign(
       "Ed25519",
@@ -45,7 +46,7 @@ async function request(
     body: tamper ? body + " " : body,
   });
 }
-function harness() {
+function harness(shared = false) {
   const saved = [];
   const receiver = createReceiver({
     now: () => now,
@@ -55,6 +56,8 @@ function harness() {
             workspace_id: "owner-1",
             public_key: publicKey,
             account_id: "account-1",
+            connection_id: "app-1",
+            shared,
           }
         : null,
     persist: async (item) => {
@@ -66,6 +69,19 @@ function harness() {
   });
   return { saved, receiver };
 }
+test("shared receipts dedupe signed delivery retries with different metadata", async () => {
+  const { saved, receiver } = harness(true);
+  const data = {
+    ...event,
+    payload: { ...event.payload, from: "+1-202-555-0133", to: "+12025550131" },
+  };
+  assert.equal((await receiver(await request(data, undefined, false, { attempt: 1 }))).status, 200);
+  assert.equal((await receiver(await request(data, undefined, false, { attempt: 2 }))).status, 200);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].connection_id, "app-1");
+  assert.equal(saved[0].event.payload.from, "+12025550133");
+  assert.equal((await receiver(await request({ ...data, event_type: "call.answered" }))).status, 409);
+});
 test("valid event is routed, sanitized and deduplicated", async () => {
   const { saved, receiver } = harness();
   assert.equal((await receiver(await request())).status, 200);

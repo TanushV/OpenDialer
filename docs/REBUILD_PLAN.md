@@ -1668,7 +1668,7 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
 [Telnyx contact-center guide](https://developers.telnyx.com/docs/voice/webrtc/use-cases/contact-center) ·
 [Telnyx telephony credentials](https://developers.telnyx.com/docs/voice/webrtc/auth/telephony-credentials)
 
-- [ ] **R12.5 Align the repository migration history with hosted Supabase.**
+- [x] **R12.5 Align the repository migration history with hosted Supabase.**
       On November 11 the connected [OpenDialer project](https://supabase.com/dashboard/project/wfucwxgeexzwhinrylyn)
       reported only two applied migrations. Its database has neither the number-pool tables nor the pool RPCs.
       The hosted receiver verifies Telnyx signatures and omits the `inbound_call` transfer field. Only the production
@@ -1682,7 +1682,7 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
 | `managed_control_relay` | `20261029091412` | `20261029092005` |
 | `managed_connection_setup` | `20261029202925` | `20261029203132` |
 
-- [ ] **R12.6 Fix first-call audio for a new rep.**
+- [x] **R12.6 Fix first-call audio for a new rep.**
       Reproduce `CALLER_NUMBER_ROUTE_REQUIRED` with a fresh profile and only a number supplied by the relay pool.
       Exercise `POST /v1/telephony/agent` with the production Telnyx client and a mocked HTTP transport. The first
       agent dial must use a pool-authorized caller ID and the rep’s own SIP address. Read the relay pool’s route
@@ -1690,7 +1690,7 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       unavailable pool and a standalone workspace.
       The earlier replay tests skipped the real audio setup branch. [Audio leg setup](../services/backend/app/calling/audio_leg.py)
 
-- [ ] **R12.7 Route the shared application’s signed events by call ownership.**
+- [x] **R12.7 Route the shared application’s signed events by call ownership.**
       Add an opt-in shared application to the pool in a new migration. The application’s signing route belongs to
       the pool and can verify events when a rep is disabled. Extend `relay_pool_submit` to record the authenticated
       workspace and expected endpoints before a prospect dial. Register the rep’s audio leg before its dial using

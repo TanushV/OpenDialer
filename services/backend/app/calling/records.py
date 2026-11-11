@@ -50,6 +50,7 @@ class NumberView(View):
     lifecycle: str
     identity_configured: bool = False
     provider_present: bool | None = None
+    shared_pool: str | None = None
 
 
 def presence_of(user_data):

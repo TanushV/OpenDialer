@@ -1,8 +1,15 @@
 // Runtime-independent signed receiver; no provider bodies in logs or error responses.
-type Route = { workspace_id: string; account_id: string; public_key: string };
+type Route = {
+  workspace_id: string;
+  account_id: string;
+  connection_id: string;
+  public_key: string;
+  shared?: boolean;
+};
 type Receipt = {
   workspace_id: string;
   account_id: string;
+  connection_id: string;
   hash: string;
   received_at: string;
   event: Record<string, unknown>;
@@ -43,6 +50,18 @@ const reply = (status: number, result: string) =>
   Response.json({ result }, { status });
 function bytes(value: string) {
   return Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
+}
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
+  if (value !== null && typeof value === "object")
+    return "{" + Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+      .map(([key, entry]) => JSON.stringify(key) + ":" + canonical(entry)).join(",") + "}";
+  return JSON.stringify(value);
+}
+function normalizePhone(value: unknown) {
+  if (typeof value !== "string" || !/^\+1[0-9 ().-]+$/.test(value)) return value;
+  const phone = value.replace(/[ ().-]/g, "");
+  return /^\+1[0-9]{10}$/.test(phone) ? phone : value;
 }
 function sanitize(payload: Record<string, unknown>) {
   const result: Record<string, unknown> = {};
@@ -166,14 +185,20 @@ export function createReceiver(deps: Dependencies) {
         /* No raw cryptographic error output. */
       }
       if (!verified) return reply(401, "invalid_signature");
+      // The signed delivery metadata (including the attempt number) can change on a retry.
+      const identity = route.shared ? new TextEncoder().encode(canonical(event)) : bodyBytes;
       const hash = Array.from(
-        new Uint8Array(await crypto.subtle.digest("SHA-256", bodyBytes)),
+        new Uint8Array(await crypto.subtle.digest("SHA-256", identity)),
         (x) => x.toString(16).padStart(2, "0"),
       ).join("");
       const speech = event.event_type === "call.transcription";
+      const payload = sanitize(event.payload);
+      if (route.shared) for (const endpoint of ["from", "to"])
+        if (endpoint in payload) payload[endpoint] = normalizePhone(payload[endpoint]);
       const result = await deps.persist({
         workspace_id: route.workspace_id,
         account_id: route.account_id,
+        connection_id: route.connection_id,
         hash,
         received_at: new Date(deps.now()).toISOString(),
         event: {
@@ -185,7 +210,7 @@ export function createReceiver(deps: Dependencies) {
             typeof event.occurred_at === "string"
               ? new Date(event.occurred_at).toISOString()
               : null,
-          payload: sanitize(event.payload),
+          payload,
         },
       });
       return reply(result === "collision" ? 409 : 200, result);

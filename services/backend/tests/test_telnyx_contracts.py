@@ -9,6 +9,8 @@ import asyncio
 import base64
 import json
 from datetime import timedelta
+from time import monotonic
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -170,6 +172,125 @@ def test_misconfigured_credential_returns_an_actionable_setup_error(
     assert detail["code"] == "TELEPHONY_CREDENTIAL_MISCONFIGURED"
     assert "sip_uri_calling_preference" in detail["message"]
     assert not carrier.dials
+
+
+@pytest.mark.parametrize(
+    "mode", ["pooled-at-cap", "paused-pool", "offline-pool", "standalone", "shared-app", "lease-lost"]
+)
+def test_fresh_rep_audio_uses_the_ready_relay_route(client, app, monkeypatch, mode):
+    created = client.post(
+        "/v1/setup",
+        headers={"X-Local-Token": "test-local-secret"},
+        json={"seller_name": "Fresh rep", "campaign_name": "Test"},
+    )
+    assert created.status_code == 200, created.text
+    profile = created.json()
+    scope = profile["tenant_id"]
+    service = app.state.service
+    service.settings.simulation = False
+    service.configs.write(
+        scope,
+        {
+            "telnyx_api_key": "fixture",
+            "telnyx_connection_id": "call-control-app",
+            "sip_username": CREDENTIAL["sip_username"],
+            "telephony_credential_id": CREDENTIAL["id"],
+        },
+    )
+    phone = "+12025550101"
+    intents = []
+    if mode == "standalone":
+        with service.db.transaction() as s:
+            from app.platform.db import put
+
+            put(
+                s,
+                "number_inventory",
+                scope,
+                profile["seller_id"],
+                {"phone": phone, "lifecycle": "healthy", "identity_configured": True},
+                key=phone,
+                now=service.clock(),
+            )
+    else:
+        managed = service.managed
+        managed.config = {"tenant_id": scope, "workspace_id": "fixture", "store_id": "test-store"}
+        managed.last_exchange = monotonic()
+        managed.caught_up = mode != "offline-pool"
+        managed.apply_pool_snapshot(
+            scope,
+            {
+                "id": "shared",
+                "segment_id": "14",
+                "shared_connection_id": "call-control-app" if mode in {"shared-app", "lease-lost"} else None,
+                "numbers": [
+                    {"phone": phone, "daily_limit": 90, "used": 90, "outbound_enabled": mode != "paused-pool"}
+                ],
+            },
+        )
+
+        def rpc(name, parameters):
+            async def execute():
+                return SimpleNamespace(
+                    data={"reason": "unavailable"} if mode == "lease-lost" else {"submitted": True}
+                )
+
+            intents.append((name, parameters))
+            return SimpleNamespace(execute=execute)
+
+        monkeypatch.setattr(managed, "client", SimpleNamespace(rpc=rpc))
+    seen = []
+    checks = credential_transport()
+
+    def http(request):
+        seen.append(request)
+        if request.url.path == "/v2/calls":
+            if mode in {"shared-app", "lease-lost"}:
+                name, intent = intents[0]
+                body = json.loads(request.content)
+                assert name == "relay_pool_agent"
+                assert intent == {
+                    "agent_ref": body["command_id"],
+                    "number": phone,
+                    "destination": body["to"],
+                    "store": "test-store",
+                    "installation": managed.installation,
+                }
+            return httpx.Response(200, json={"data": {"call_control_id": "v3:agent"}})
+        return checks.handle_request(request)
+
+    monkeypatch.setattr(
+        service, "http", httpx.AsyncClient(transport=httpx.MockTransport(http)), raising=False
+    )
+    response = client.post(
+        "/v1/telephony/agent", headers={"Authorization": f"Bearer {profile['access_token']}"}
+    )
+    if mode == "lease-lost":
+        assert response.status_code == 409, response.text
+        assert [req.url.path for req in seen] == [
+            f"/v2/telephony_credentials/{CREDENTIAL['id']}",
+            "/v2/credential_connections/1234567890",
+        ]
+        assert len(intents) == 1
+    elif mode in {"paused-pool", "offline-pool"}:
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == (
+            "CALLER_NUMBER_PAUSED" if mode == "paused-pool" else "CONNECTION_DELIVERY_GAP"
+        )
+        assert not seen
+    else:
+        assert response.status_code == 200, response.text
+        assert [r.url.path for r in seen] == [
+            f"/v2/telephony_credentials/{CREDENTIAL['id']}",
+            "/v2/credential_connections/1234567890",
+            "/v2/calls",
+        ]
+        dial = json.loads(seen[-1].content)
+        assert (dial["from"], dial["to"], dial["connection_id"]) == (
+            phone,
+            f"sip:{CREDENTIAL['sip_username']}@sip.telnyx.com",
+            "call-control-app",
+        )
 
 
 def event(w, call, name, payload=None):

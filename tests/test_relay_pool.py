@@ -30,6 +30,9 @@ POOL = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 NUMBER = "+12025550101"
 SPARE = "+12025550102"
 PROSPECT = "+14155550101"
+PROSPECT_B = "+14155550102"
+INSTALL = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+WRONG_INSTALL = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 
 pytestmark = pytest.mark.slow
 
@@ -189,6 +192,151 @@ def inbound(sql, tag, *, phone=NUMBER, caller=PROSPECT):
             f"select jsonb_build_array(workspace_id,event->>'callback_call_id') "
             f"from relay_events where event_id='{tag}';"
         )
+    )
+
+
+@pytest.fixture
+def shared_db(pool_db):
+    sql = pool_db
+    sql(f"""
+      update relay_private.number_pools set shared_connection_id='app-a' where id='{POOL}';
+      update relay_workspaces set settings=jsonb_build_object(
+        'telnyx_connection_id','app-a','sip_username',case when id='{A}' then 'rep-a' else 'rep-b' end
+      ) where id in ('{A}','{B}');
+    """)
+    for seat in (A, B):
+        sql(f"select relay_exchange('{seat}','{INSTALL}');", seat=seat)
+    return sql
+
+
+def shared_hold(sql, seat, ref, prospect, *, installation=INSTALL):
+    return json.loads(
+        sql(
+            f"select relay_pool_reserve('{ref}','{prospect}','{NUMBER}',false,'{seat}','{installation}');",
+            seat=seat,
+        )
+    )
+
+
+def shared_submit(sql, seat, ref, call, *, installation=INSTALL):
+    return json.loads(
+        sql(
+            f"select relay_pool_submit('{ref}','{call}','{NUMBER}','{seat}','{installation}');",
+            seat=seat,
+        )
+    )
+
+
+def context(**fields):
+    return base64.b64encode(json.dumps(fields).encode()).decode()
+
+
+def shared_out(call, target, **payload):
+    return {
+        "call_control_id": f"carrier-{call}",
+        "connection_id": "app-a",
+        "direction": "outgoing",
+        "from": NUMBER,
+        "to": target,
+        "client_state": context(call_id=call),
+        **payload,
+    }
+
+
+def event_owner(sql, event_id):
+    return sql(f"select workspace_id from relay_events where event_id='{event_id}';")
+
+
+def test_shared_app_routes_two_reps_by_current_lease_and_verified_endpoints(shared_db):
+    sql = shared_db
+    assert shared_hold(sql, A, "hold-a", PROSPECT)["phone"] == NUMBER
+    assert shared_hold(sql, B, "hold-b", PROSPECT_B)["phone"] == NUMBER
+    assert (
+        shared_hold(sql, B, "other-install", "+14155550103", installation=WRONG_INSTALL)["reason"]
+        == "unavailable"
+    )
+    assert shared_submit(sql, B, "hold-b", "call-b", installation=WRONG_INSTALL)["reason"] == "unavailable"
+    assert submit(sql, B, "hold-b", "call-b")["reason"] == "unavailable"
+    assert shared_submit(sql, B, "hold-b", "call-b")["submitted"]
+    assert shared_submit(sql, A, "hold-a", "call-a")["submitted"]
+    sparse = {"connection_id": "app-a", "call_control_id": "carrier-call-b"}
+    assert receipt(sql, "b-early", "call.machine.detection.ended", sparse) == "pending"
+    assert receipt(sql, "b-early", "call.machine.detection.ended", sparse) == "duplicate"
+    assert not event_owner(sql, "b-early")
+    assert receipt(sql, "unknown", "call.initiated", shared_out("unsubmitted", PROSPECT)) == "pending"
+    assert (
+        receipt(
+            sql, "mismatch", "call.initiated", shared_out("call-b", PROSPECT, call_control_id="wrong-did")
+        )
+        == "pending"
+    )
+    assert not event_owner(sql, "mismatch")
+    assert (
+        receipt(
+            sql,
+            "b-confirmed",
+            "call.initiated",
+            shared_out("call-b", PROSPECT_B, client_state=context(call_id="call-b", tenant_id=A)),
+        )
+        == "received"
+    )
+    assert receipt(sql, "a-confirmed", "call.initiated", shared_out("call-a", PROSPECT)) == "received"
+    assert [event_owner(sql, event) for event in ("b-early", "b-confirmed", "a-confirmed")] == [B, B, A]
+    assert receipt(sql, "b-confirmed", "call.initiated", shared_out("call-b", PROSPECT_B)) == "duplicate"
+    sql(f"update relay_workspaces set active=false where id='{A}';")
+    route = json.loads(sql("set role service_role; select relay_route('','carrier-call-b');"))
+    assert route["connection_id"] == "app-a"
+    assert receipt(sql, "b-ended", "call.hangup", {"call_control_id": "carrier-call-b"}) == "received"
+    assert event_owner(sql, "b-ended") == B
+    assert sql("select count(*) from relay_private.number_pool_attempts where ended_at is not null;") == "1"
+
+
+def test_shared_audio_and_return_legs_never_spend_outbound_capacity(shared_db):
+    sql = shared_db
+    sql(f"update relay_private.number_pool_numbers set daily_limit=1 where phone='{NUMBER}';")
+    assert shared_hold(sql, B, "last-slot", PROSPECT)["phone"] == NUMBER
+    assert shared_submit(sql, B, "last-slot", "last-call")["submitted"]
+    assert receipt(sql, "dial", "call.initiated", shared_out("last-call", PROSPECT)) == "received"
+    assert receipt(sql, "dial-ended", "call.hangup", {"call_control_id": "carrier-last-call"}) == "received"
+    assert shared_hold(sql, A, "at-cap", PROSPECT) == {"reason": "capacity", "phone": NUMBER}
+
+    def agent(sip):
+        return json.loads(
+            sql(
+                f"select relay_pool_agent('audio-b','{NUMBER}','{sip}','{B}','{INSTALL}');",
+                seat=B,
+            )
+        )
+
+    assert agent("sip:rep-a@sip.telnyx.com")["reason"] == "unavailable"
+    assert agent("sip:rep-b@sip.telnyx.com")["submitted"]
+    audio = shared_out("audio-b", "sip:rep-b@sip.telnyx.com", client_state=context(agent_leg_id="audio-b"))
+    assert receipt(sql, "audio-event", "call.answered", audio) == "received"
+    assert event_owner(sql, "audio-event") == B
+    assert inbound(sql, "shared-return") == [B, "last-call"]
+    transfer = shared_out(
+        "transfer",
+        "sip:rep-b@sip.telnyx.com",
+        client_state=context(inbound_call="inbound-shared-return", inbound_task="task", attempt="transfer"),
+    )
+    assert (
+        receipt(
+            sql,
+            "wrong-transfer",
+            "call.initiated",
+            transfer
+            | {
+                "call_control_id": "wrong-transfer",
+                "to": "sip:rep-a@sip.telnyx.com",
+            },
+        )
+        == "pending"
+    )
+    assert receipt(sql, "transfer", "call.initiated", transfer) == "received"
+    assert receipt(sql, "transfer-end", "call.hangup", {"call_control_id": "carrier-transfer"}) == "received"
+    assert [event_owner(sql, e) for e in ("transfer", "transfer-end", "wrong-transfer")] == [B, B, ""]
+    assert (
+        sql("select count(*) from relay_private.number_pool_attempts where submitted_at is not null;") == "1"
     )
 
 

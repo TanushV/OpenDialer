@@ -20,6 +20,7 @@ class PoolNumber(BaseModel):
 class PoolSnapshot(BaseModel):
     id: str
     segment_id: str = Field(pattern=r"^[0-9]{1,40}$")
+    shared_connection_id: str | None = None
     numbers: tuple[PoolNumber, ...]
 
     def number(self, phone):
@@ -72,7 +73,7 @@ async def request(managed, method, params):
     try:
         if managed.client is None:
             return PoolAdmission(reason="unavailable")
-        response = await managed.client.rpc(method, params).execute()
+        response = await managed.client.rpc(method, {**params, **lease_params(managed)}).execute()
         return PoolAdmission.model_validate(response.data)
     except Exception as error:
         LOG.warning("Shared number pool %s failed: %s", method, type(error).__name__)
@@ -83,6 +84,14 @@ async def cancel(managed, ref, *, unsent=False):
     if managed.client is None:
         return
     try:
-        await managed.client.rpc("relay_pool_cancel", {"request_ref": ref, "was_unsent": unsent}).execute()
+        await managed.client.rpc(
+            "relay_pool_cancel", {"request_ref": ref, "was_unsent": unsent, **lease_params(managed)}
+        ).execute()
     except Exception as error:
         LOG.warning("Shared number hold could not be released: %s", type(error).__name__)
+
+
+def lease_params(managed):
+    if managed.pool and managed.pool.shared_connection_id:
+        return {"store": managed.config["store_id"], "installation": managed.installation}
+    return {}

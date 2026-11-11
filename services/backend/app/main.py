@@ -1492,7 +1492,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/telephony/agent")
     async def agent_leg(p=Depends(principal)):
-        return await audio_leg.create(service.ctx, p)
+        return await audio_leg.create(service.ctx, p, service.managed)
 
     @app.get("/v1/telephony/agent/{provider_id:path}")
     def agent_status(provider_id: str, p=Depends(principal)):

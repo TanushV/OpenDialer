@@ -1,6 +1,8 @@
 """Outgoing control delivery. Auth refresh belongs to the supported Supabase SDK."""
 
 import asyncio
+import base64
+import json
 import logging
 import re
 from pathlib import Path
@@ -87,8 +89,20 @@ async def deliver(service, tenant_id, events):
     """A crash before remote ack causes safe local deduplication on the next fetch."""
     acknowledgements = []
     for row in events:
+        event = row["event"]
+        if event.get("relay_shared") and (encoded := event["payload"].get("client_state")):
+            # Shared routing selected this authenticated inbox. The carrier's tenant_id cannot select it.
+            context = json.loads(base64.b64decode(encoded))
+            context["tenant_id"] = tenant_id
+            event = {
+                **event,
+                "payload": {
+                    **event["payload"],
+                    "client_state": base64.b64encode(json.dumps(context).encode()).decode(),
+                },
+            }
         await ops.accept_webhook(
-            service, tenant_id, row["event"], row["hash"], verified=True, received_at=dt(row["received_at"])
+            service, tenant_id, event, row["hash"], verified=True, received_at=dt(row["received_at"])
         )
         acknowledgements.append({"account_id": row["account_id"], "event_id": row["event_id"]})
     return acknowledgements

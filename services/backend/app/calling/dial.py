@@ -378,6 +378,14 @@ async def dispatch_call(service, p, call_id):
             # Configuration fails before any request exists; nothing can be live.
             raise CarrierNotSubmitted(type(exc).__name__) from exc
         if pool_ref:
+            snapshot = service.managed.pool
+            if (
+                snapshot
+                and snapshot.shared_connection_id
+                and getattr(provider, "connection_id", snapshot.shared_connection_id)
+                != snapshot.shared_connection_id
+            ):
+                raise CarrierNotSubmitted("This calling profile does not match the shared application.")
             admission = await pool.request(
                 service.managed,
                 "relay_pool_submit",

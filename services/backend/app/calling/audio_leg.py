@@ -16,6 +16,7 @@ from sqlalchemy import select
 
 from app.calling.blockers import blocked, refuse
 from app.calling.records import AgentLeg, NumberView, UserView, presence_of
+from app.numbers.pool import request
 from app.platform.db import (
     MODELS,
     SCOPE_KEY,
@@ -57,7 +58,7 @@ def find(s, p, *, provider_id=None, leg_id=None, rep_id=None, active=False):
     return next((row for row in candidates if row.data["kind"] == "agent"), None)
 
 
-def setup(ctx, p):
+def setup(ctx, p, pool=None):
     """(SIP name, credential, caller number) for the rep's leg, or the blocker that is missing."""
     conf = ctx.configs.read(workspace(p))
     with ctx.db.transaction(False) as s:
@@ -66,12 +67,17 @@ def setup(ctx, p):
         credential = user.telephony_credential_id or conf.get("telephony_credential_id")
         if not sip or not SIP_NAME.fullmatch(sip) or not credential:
             refuse([blocked("AUDIO_SETUP_MISSING")])
+        if pool is not None:
+            # An internal SIP leg never spends a PSTN attempt, even at the outbound cap.
+            if phone := next((n.phone for n in pool.numbers if n.outbound_enabled), None):
+                return sip, credential, phone
+            refuse([blocked("CALLER_NUMBER_PAUSED" if pool.numbers else "NO_CALLER_NUMBER", shared=True)])
         model = MODELS["number_inventory"]
         rows = s.scalars(select(model).where(*scoped_where(model, p)))
         numbers = [
             n
             for n in (NumberView.model_validate(row.data) for row in rows)
-            if n.lifecycle not in {"retired_callback_only", "paused_for_outbound"}
+            if not n.shared_pool and n.lifecycle not in {"retired_callback_only", "paused_for_outbound"}
         ]
         routed = [n for n in numbers if n.identity_configured and n.provider_present is not False]
         if not routed:
@@ -157,7 +163,7 @@ def _instant_leg(ctx, p):
     return provider_id
 
 
-async def create(ctx, p):
+async def create(ctx, p, managed=None):
     """Dial the rep's registered client and return the new leg's carrier reference."""
     try:
         carrier = await asyncio.to_thread(ctx.carrier, workspace(p))
@@ -167,7 +173,12 @@ async def create(ctx, p):
         raise
     if carrier.instant_agent_legs:
         return {"agent_call_control_id": await asyncio.to_thread(_instant_leg, ctx, p)}
-    sip, credential, phone = await asyncio.to_thread(setup, ctx, p)
+    pool = managed.pool if managed and managed.enabled(workspace(p)) else None
+    if pool is not None:
+        managed.require_ready(workspace(p))
+        if pool.shared_connection_id and carrier.connection_id != pool.shared_connection_id:
+            refuse([blocked("AUDIO_SETUP_MISSING")])
+    sip, credential, phone = await asyncio.to_thread(setup, ctx, p, pool)
     await verify_once(ctx, carrier, credential, sip)
     leg_id, owner = uid(), uid()
     leg, created = await asyncio.to_thread(_claim, ctx, p, leg_id, owner)
@@ -180,11 +191,20 @@ async def create(ctx, p):
         leg, created = await asyncio.to_thread(_claim, ctx, p, leg_id, owner)
         if not created:
             raise HTTPException(409, "The previous audio leg could not be ended; press Start calling again")
+    target = f"sip:{sip}@sip.telnyx.com"
+    if pool and pool.shared_connection_id:
+        intent = await request(
+            managed, "relay_pool_agent", {"agent_ref": leg_id, "number": phone, "destination": target}
+        )
+        if not intent.submitted:
+            await asyncio.to_thread(_retire, ctx, p, leg_id)
+            managed.wake.set()
+            refuse([blocked(managed.connection_code(workspace(p)) or "AUDIO_SETUP_MISSING")])
     state = json.dumps({"agent_leg_id": leg_id, SCOPE_KEY: workspace(p)})
     try:
         receipt = await carrier.dial(
             {
-                "to": f"sip:{sip}@sip.telnyx.com",
+                "to": target,
                 "from": phone,
                 "time_limit_secs": ctx.settings.max_call_seconds,
                 "command_id": leg_id,
