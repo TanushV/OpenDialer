@@ -2001,3 +2001,7 @@ test assets and admin access before asking for anything. The signed rollout foll
   routing at the cap. Temporary records were removed. The dedicated pilot Call Control application and two
   incoming-only WebRTC credentials are ready. R12.11 still needs an approved caller ID, both test phones and
   segments, and the worker's secrets and schedule. R12.12 follows the pilot and signed release gate.
+- November 11, 2026: the owner approved 1101 as the first recipient. On the installed 2.0.0 Mac, the audio leg timed
+  out on the first start. After relaunch, one test call reached the approved line and saved voicemail. See the
+  [standalone Mac test](evidence/rebuild/2026-11-11-2.1-shared-application.md#standalone-mac-test-after-deployment).
+  R12.11 still needs a second phone, an approved caller ID, the segments and the worker setup.
