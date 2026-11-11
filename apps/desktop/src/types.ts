@@ -113,6 +113,8 @@ export interface NumberRecord {
   recent_sip_blocks?: number;
   reason?: string;
   today_limit?: number;
+  shared_pool?: string;
+  shared_used?: number;
   synthetic?: boolean;
   external_reputation?: {
     source: string;

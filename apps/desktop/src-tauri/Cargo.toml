@@ -1,6 +1,6 @@
 [package]
 name = "opendialer-desktop"
-version = "2.0.0"
+version = "2.1.0"
 description = "OpenDialer desktop"
 authors = ["OpenDialer contributors"]
 edition = "2021"
@@ -24,6 +24,9 @@ url = "2"
 # Already locked through tauri-plugin-shell; used only to terminate the owned SSH process group.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSObject", "NSProcessInfo", "NSString"] }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_System_Power"] }
 [dev-dependencies]

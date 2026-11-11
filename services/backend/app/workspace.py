@@ -163,6 +163,8 @@ def workspace_page(
             evidence = {n["id"]: n for n in ops.inventory_evidence(service, s, p, fast=True)}
             for value in selected:
                 row = evidence[value["id"]]
+                if row.get("capacity_mode") == "shared":
+                    value.update(daily_limit=row["approved_daily_limit"], shared_used=row["used_today"])
                 value["today_limit"] = (
                     row["daily_limit"]
                     if value["outbound_ready"]

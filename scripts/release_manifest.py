@@ -48,7 +48,7 @@ if msi:
 if not archive or not dmg or not exe:
     raise SystemExit("Signed Mac and Windows artifacts are both required for this release")
 # The updater shows each bullet's bold headline from this release's notes, then the upgrade paragraph after them.
-release_notes = (root / "docs/RELEASE_NOTES.md").read_text()
+release_notes = (root / "docs/RELEASE_NOTES.md").read_text().split("\n# ", 1)[0]
 headlines = "".join(
     h.rstrip(".:") + ". " for h in re.findall(r"^- \*\*(.+?)\*\*", release_notes, re.MULTILINE)
 )

@@ -35,7 +35,7 @@ def test_business_day_ramp_excludes_weekends_unresolved_calls_and_idle_days():
     assert warmup_allowance(number(), history, START + timedelta(days=2)) == 25
     assert warmup_allowance(number(), history, START + timedelta(days=5)) == 40
     assert warmup_allowance(number(), history, START + timedelta(days=11)) == 40
-    assert warmup_allowance(number(), history, START + timedelta(days=12)) == 50
+    assert warmup_allowance(number(), history, START + timedelta(days=12)) == 60
     unresolved = [(at, lead, False) for at, lead, _ in history]
     assert warmup_allowance(number(), unresolved, START + timedelta(days=30)) == 15
     assert warmup_allowance(number(daily_limit=5), history, START + timedelta(days=30)) == 5
@@ -55,6 +55,11 @@ def test_the_effective_limit_uses_the_allowance_and_still_drops_on_trouble():
 
     healthy = {"lifecycle": "healthy", "daily_limit": 40}
     assert warmup_allowance(healthy, [], START) == 40
+
+
+def test_mature_numbers_can_reach_ninety_and_saved_limits_cannot_exceed_it():
+    assert warmup_allowance(number(daily_limit=90), calls(30, 1), START + timedelta(days=30)) == 90
+    assert adaptive_daily_limit({"daily_limit": 120}, {}) == 90
 
 
 def test_the_same_metro_comes_before_the_least_used_number():

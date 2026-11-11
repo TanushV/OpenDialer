@@ -15,6 +15,7 @@ from app import ops
 from app.calling.blockers import CATALOG, blocked, refuse
 from app.calling.relay import after_exchange, after_failure
 from app.calling.state import TERMINAL
+from app.numbers.pool import PoolSnapshot, mirror_inventory
 from app.platform.db import MODELS
 from app.platform.secret_files import read_private, write_private
 from app.service import dt, fail
@@ -116,6 +117,8 @@ class ManagedConnection:
         self.wake = asyncio.Event()
         self.joined = asyncio.Event()
         self.numbers = set()
+        self.pool: PoolSnapshot | None = None
+        self.pool_checked = False
         self.edit_lock = asyncio.Lock()
         self.speech_failed = False
         self.configuring = False
@@ -172,18 +175,35 @@ class ManagedConnection:
 
     def assigned(self, tenant_id, numbers):
         """Numbers on this workspace's Telnyx app, or already seen by its relay."""
+        if self.pool is not None:
+            return [n for n in numbers if self.pool.number(n.get("phone")) is not None]
         connection = self.service.configs.read(tenant_id).get("telnyx_connection_id")
         return [
             n
             for n in numbers
-            if n.get("phone") in self.numbers or (connection and n.get("connection_id") == connection)
+            if not n.get("shared_pool")
+            and (n.get("phone") in self.numbers or (connection and n.get("connection_id") == connection))
         ]
 
     def require_number(self, tenant_id, number):
+        if number.get("shared_pool") or self.pool is not None:
+            if self.pool is None or self.pool.number(number["phone"]) is None:
+                fail(409, "This caller number is unavailable in the shared pool.")
         if self.enabled(tenant_id):
             self.require_ready(tenant_id)
             if not self.assigned(tenant_id, [number]):
                 fail(409, "This number is not assigned to this workspace")
+
+    def apply_pool_snapshot(self, tenant_id, payload):
+        pool = PoolSnapshot.model_validate(payload) if payload else None
+        if pool is not None and (
+            self.pool is None
+            or self.pool.id != pool.id
+            or {n.phone for n in self.pool.numbers} != {n.phone for n in pool.numbers}
+        ):
+            mirror_inventory(self.service, tenant_id, pool)
+        self.pool = pool
+        self.pool_checked = True
 
     async def settle_gap(self, batch, acknowledgements):
         """Clear the relay's delivery gap once nothing here is waiting on the missed events (see `after_exchange`).
@@ -280,6 +300,8 @@ class ManagedConnection:
             "tenant_id": tenant_id,
             "store_id": self.config["store_id"] if same else str(uuid4()),
         }
+        self.pool = None
+        self.pool_checked = False
         staged.path.replace(self.storage.path)
         staged.path = self.storage.path
         self.storage = staged
@@ -350,6 +372,7 @@ class ManagedConnection:
                     self.state = "sign_in_required"
                     return
                 first = await self.exchange()
+                await asyncio.to_thread(self.apply_pool_snapshot, self.config["tenant_id"], first.get("pool"))
                 await self.listen(first["topic"])
                 acknowledgements = []
                 while True:
@@ -358,6 +381,9 @@ class ManagedConnection:
                     if batch["topic"] != first["topic"]:
                         raise RuntimeError("Subscription changed")
                     self.last_exchange = monotonic()
+                    await asyncio.to_thread(
+                        self.apply_pool_snapshot, self.config["tenant_id"], batch.get("pool")
+                    )
                     acknowledgements = await deliver(self.service, self.config["tenant_id"], batch["events"])
                     self.numbers = set(batch.get("numbers", []))
                     gap = bool(batch.get("gap_since"))

@@ -233,8 +233,14 @@ def dial_blockers_in(service, s, p, *, rep, integrity_ok=True):
                 campaign=bool(next(iter(ops.scoped(service, s, "campaigns", p)), None)),
                 number=ops.number_setup_blocker(service, s, p, numbers),
                 test_number=next(
-                    (n.data["phone"] for n in numbers if n.data.get("identity_configured")), None
+                    (
+                        n.data["phone"]
+                        for n in numbers
+                        if n.data.get("identity_configured") or n.data.get("shared_pool")
+                    ),
+                    None,
                 ),
+                shared_pool=service.managed.pool is not None,
                 pending_optouts=presence.get("pending_optouts", 0),
                 rep_audio_ready=audio,
                 channel_limited=(conf.get("channel_limited_until") or "") > service.clock().isoformat(),
@@ -601,6 +607,16 @@ def _preflight_queue(service, s, p, campaign, numbers, screening, blockers, warn
 
 def number_setup_blocker(service, s, p, numbers):
     """The one next step for caller numbers, or None when any number can call now."""
+    if (pool := service.managed.pool) is not None:
+        if not pool.numbers:
+            return "NO_CALLER_NUMBER"
+        if not any(n.outbound_enabled for n in pool.numbers):
+            return "CALLER_NUMBER_PAUSED"
+        return (
+            None
+            if ops.workspace_test_passed(service, s, p) or ops.in_test_session(service, p)
+            else ("CALLER_NUMBER_CALLBACK_TEST_REQUIRED")
+        )
     active = [n for n in numbers if n.data.get("lifecycle") != "retired_callback_only"]
     readiness = [(n, ops.number_readiness_in(service, s, p, n)) for n in active]
     if any(r["outbound_ready"] for _, r in readiness):

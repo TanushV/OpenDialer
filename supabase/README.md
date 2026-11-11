@@ -10,7 +10,7 @@ Audio and transcript text never pass through it. The desktop integration ships i
 
 ## Caller setup
 
-Import the private per-computer JSON profile in **Settings → Setup → Calling**. It supplies public carrier settings,
+Import the private per-computer JSON profile under **Call connection** in Settings. It supplies public carrier settings,
 a scoped delivery login and optionally provider keys. Sessions refresh automatically. Callers do not need tunnels,
 a public PC address, SIP passwords or Supabase dashboard accounts. See [the user setup guide](../docs/GETTING_STARTED.md#calling-card).
 
@@ -34,6 +34,32 @@ a public PC address, SIP passwords or Supabase dashboard accounts. See [the user
 To revoke access, disable the workspace and revoke its Auth sessions. To move a workspace, first stop the old
 computer and reconcile calls, then restore its local data plus private managed connection/session files. Releasing
 `store_id` and lease fields is an operator action, never an automatic workaround for an ownership conflict.
+
+## Shared number pool (2.1)
+
+Use two distinct 2.1 setup profiles with dedicated Telnyx applications and audio credentials. Apply the pool
+migration in staging and verify that each application can display the same account-owned caller ID while the
+number keeps its incoming route. The incoming application and its signature key must already have a
+`relay_routes` entry. Use its workspace as the default destination for an unknown caller.
+
+As the relay operator, add a row to `relay_private.number_pools` with the account ID. Add one
+`number_pool_members` row per workspace, using a distinct HubSpot segment ID for each rep. Add each existing
+number to `number_pool_numbers` with its fixed incoming connection ID. Set a smaller `daily_limit` for any
+number still ramping. The default and maximum are 90 outbound attempts in a rolling 24 hours. Pause outbound
+with `outbound_enabled=false` so old return calls still reach the rep. Keep the number and its incoming route
+registered until old callbacks have aged out.
+
+The authenticated exchange supplies only the current profile's pool and segment. A rep's first successful
+reservation binds that prospect to a number. For a migration with existing bindings, seed the pool's bindings
+using confirmed assignments, or let each desktop offer its existing number on its first shared reservation.
+The relay records callback ownership when it sees a signed event for the submitted call. Ownership lasts
+with the binding, and both the inbound call and its transfer leg stay on that desktop. The desktop handles
+an active call and the greeting. The relay keeps a matched missed-call receipt for up to 30 days so an offline
+desktop can record it after reconnecting.
+
+To check the second computer's audio, start a Test call in Settings to its approved test line. Call the
+displayed number back and answer on that computer. Test a paused desktop, a hidden window and a number at
+its outbound cap before making the pool available to live lists.
 
 ## Deploy and verify
 

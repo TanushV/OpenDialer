@@ -58,6 +58,12 @@ def list_permitted(service, s, p, lead):
     campaign = ops.required(service, s, "campaigns", value["campaign_id"], p)
     catalog = campaign.data.get("lists", {})
     names = memberships(value)
+    if (pool := service.managed.pool) is not None and not ops.own_test_line(service, p, lead):
+        names = [
+            name
+            for name in names
+            if (catalog.get(name, {}).get("crm") or {}).get("list_id") == pool.segment_id
+        ]
     if p.get("callback_lead_id"):
         due = timestamp(value.get("callback_due_at"))
         return bool(

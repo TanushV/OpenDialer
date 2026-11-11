@@ -349,13 +349,13 @@ def test_first_inbound_call_uses_the_ready_owners_workspace_sip(fresh, carrier, 
 
 
 @pytest.mark.slow
-def test_a_new_number_warms_up_from_15_a_day_toward_60_and_shows_it(workspace, carrier):
+def test_a_new_number_warms_up_from_15_a_day_toward_90_and_shows_it(workspace, carrier):
     ws = workspace
     connect(ws)
     own_numbers(carrier)
     post(ws, "/v1/admin/numbers/add", {"phone": SF})
     number = numbers(ws)[SF]
-    assert number["daily_limit"] == 60 and number["today_limit"] == 15
+    assert number["daily_limit"] == 90 and number["today_limit"] == 15
 
 
 def test_caller_name_is_optional_and_applied_to_every_number(workspace, carrier):

@@ -84,6 +84,7 @@ def _receive_webhook(service, tenant_id, event, body_hash, verified=False, recei
                     "status": "received",
                     "received_at": received_at.isoformat(),
                     "occurred_at": event.get("occurred_at"),
+                    "callback_call_id": event.get("callback_call_id") if verified else None,
                     "raw_expires_at": (received_at + timedelta(seconds=RAW_TTL_SECONDS)).isoformat(),
                 },
                 key=event["id"],

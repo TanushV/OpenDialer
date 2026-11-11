@@ -428,6 +428,18 @@ def inventory_capacity(service, s, p, *, health=None):
                 at = at if at.tzinfo else at.replace(tzinfo=UTC)
                 history[number_id].append((at, lead_id, status in RESOLVED_STATES))
     for value in result:
+        if value.get("shared_pool"):
+            pool = service.managed.pool
+            entry = pool.number(value["phone"]) if pool and pool.id == value["shared_pool"] else None
+            if entry:
+                value.update(
+                    approved_daily_limit=entry.daily_limit,
+                    daily_limit=entry.daily_limit if entry.outbound_enabled else 0,
+                    used_today=entry.used,
+                    reserved_attempts=0,
+                    capacity_mode="shared",
+                )
+                continue
         value["approved_daily_limit"] = value["daily_limit"]
         if value["id"] in warming:
             value["warmup_allowance"] = warmup_allowance(value, history[value["id"]], service.clock())

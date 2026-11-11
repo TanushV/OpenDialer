@@ -623,9 +623,11 @@ def release_unused_reservation_in(service, s, p):
         reservation = ops.required(service, s, "reservations", claim.reservation_id, p)
         update(reservation, status="cancelled")
         s.delete(claim)
+        return reservation.data.get("pool_ref")
 
 
 def presence(service, p, data):
+    released = None
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
         user = ops.required(service, s, "users", p["user_id"], p)
@@ -634,7 +636,7 @@ def presence(service, p, data):
             if not verified or verified.data.get("state") != "answered":
                 fail(403, "Agent leg must be established and verified by the server")
         if data.get("status") == "paused":
-            ops.release_unused_reservation_in(service, s, p)
+            released = ops.release_unused_reservation_in(service, s, p)
         starting = (
             data.get("status") == "ready" and (user.data.get("presence") or {}).get("status") != "ready"
         )
@@ -646,7 +648,7 @@ def presence(service, p, data):
         crm.schedule_syncs(
             service, p, starting=True
         )  # Start calling syncs every HubSpot list first (section 6).
-    return presence
+    return presence, released
 
 
 def reachable(service, p, registered):

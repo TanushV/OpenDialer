@@ -280,6 +280,17 @@ def number_owners(service, s, phones):
 
 def number_readiness_in(service, s, p, number):
     value = doc(number)
+    if value.get("shared_pool"):
+        pool = service.managed.pool
+        entry = pool.number(value["phone"]) if pool and value["shared_pool"] == pool.id else None
+        tested = ops.workspace_test_passed(service, s, p)
+        return {
+            "configuration_errors": [] if entry else ["shared_pool_unavailable"],
+            "workspace_test_passed": tested,
+            "outbound_ready": bool(
+                entry and entry.outbound_enabled and (tested or ops.in_test_session(service, p))
+            ),
+        }
     errors = []
     if not service.settings.simulation:
         if not value.get("provider_id") or value.get("provider_present") is not True:
@@ -421,6 +432,8 @@ async def add_owned_number(service, p, phone, *, move_from_other_app=False):
     phone = normalize_phone(phone).e164
     if not phone:
         fail(422, "Valid owned number required")
+    if (pool := service.managed.pool) is not None and pool.number(phone) is not None:
+        fail(409, "This shared number already uses the pool's incoming route.")
     inventory = await ops.carrier(service, p["tenant_id"]).list_numbers()
     item = next((n for n in inventory if normalize_phone(str(n.get("phone_number", ""))).e164 == phone), None)
     if not item:
@@ -574,6 +587,8 @@ def _merge_inventory(service, p, inventory, adopt=frozenset()):
         }
         for phone, item in normalized.items():
             row = all_numbers.get(phone)
+            if row and row.data.get("shared_pool"):
+                continue
             if not row and phone in owners:
                 assigned_elsewhere += phone in wanted
                 continue
@@ -644,6 +659,7 @@ def _merge_inventory(service, p, inventory, adopt=frozenset()):
                 row.tenant_id == p["tenant_id"]
                 and row.seller_id == p["seller_id"]
                 and row.data.get("provider_id")
+                and not row.data.get("shared_pool")
                 and phone not in normalized
             ):
                 update(
@@ -680,6 +696,8 @@ def _claim_number_configuration(service, p, number_id, connection, expected_vers
         service.db.authorize_stream(s, p)
         ops._configuration_actor(service, s, p)
         number = ops.required(service, s, "number_inventory", number_id, p)
+        if number.data.get("shared_pool"):
+            fail(409, "The pool's incoming route is managed centrally.")
         service.managed.require_ready(p["tenant_id"])
         if service.managed.enabled(p["tenant_id"]) and connection != service.configs.read(p["tenant_id"]).get(
             "telnyx_connection_id"

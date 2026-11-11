@@ -507,7 +507,35 @@ fn wait_for_backend_release(limit: std::time::Duration) {
     }
 }
 
+#[cfg(target_os = "macos")]
+struct CallbackActivity(
+    objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2_foundation::NSObjectProtocol>>,
+);
+
+#[cfg(target_os = "macos")]
+impl CallbackActivity {
+    fn begin() -> Self {
+        use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+        Self(
+            NSProcessInfo::processInfo().beginActivityWithOptions_reason(
+                NSActivityOptions::UserInitiatedAllowingIdleSystemSleep,
+                &NSString::from_str("Receive OpenDialer callbacks while the app is open"),
+            ),
+        )
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for CallbackActivity {
+    fn drop(&mut self) {
+        // SAFETY: this token came from NSProcessInfo's own beginActivity method.
+        unsafe { objc2_foundation::NSProcessInfo::processInfo().endActivity(&self.0) };
+    }
+}
+
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    let _callback_activity = CallbackActivity::begin();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

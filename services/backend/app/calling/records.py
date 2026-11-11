@@ -79,6 +79,7 @@ class ReservationView(View):
     treatment_variant_id: str | None = None
     feature_snapshot_id: str | None = None
     policy_decision_id: str | None = None
+    pool_ref: str | None = None
     coaching_comparison: Any = None
     script_comparison: Any = None
 

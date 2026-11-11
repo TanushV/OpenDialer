@@ -79,6 +79,29 @@ test("valid event is routed, sanitized and deduplicated", async () => {
     undefined,
   );
 });
+test("a signed transfer leg keeps the root call identity for callback routing", async () => {
+  const { saved, receiver } = harness();
+  const context = {
+    inbound_call: "v3:callback+root/1=",
+    inbound_task: "task-1",
+    attempt: "leg-1",
+  };
+  const client_state = Buffer.from(
+    JSON.stringify({ ...context, secret: "remove" }),
+  ).toString("base64");
+  const response = await receiver(
+    await request({
+      ...event,
+      event_type: "call.bridged",
+      payload: { ...event.payload, client_state },
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    JSON.parse(Buffer.from(saved[0].event.payload.client_state, "base64")),
+    context,
+  );
+});
 test("signature, timestamp and route rejection never persists", async () => {
   const { saved, receiver } = harness();
   assert.equal(

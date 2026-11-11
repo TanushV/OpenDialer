@@ -36,6 +36,7 @@ const contextFields = new Set([
   "tenant_id",
   "agent_leg_id",
   "inbound_task",
+  "inbound_call",
   "attempt",
 ]);
 const reply = (status: number, result: string) =>
@@ -63,7 +64,9 @@ function sanitize(payload: Record<string, unknown>) {
           ([k, v]) =>
             contextFields.has(k) &&
             typeof v === "string" &&
-            /^[A-Za-z0-9_.:-]{1,128}$/.test(v),
+            (k === "inbound_call"
+              ? /^[A-Za-z0-9_.:=+/-]{1,512}$/.test(v)
+              : /^[A-Za-z0-9_.:-]{1,128}$/.test(v)),
         ),
       );
       if (Object.keys(clean).length)

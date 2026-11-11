@@ -9,7 +9,7 @@ from app import ops
 from app.optimization.goals import goal_plan
 from app.optimization.numbering import HealthPolicy, timestamp
 from app.platform.db import audit, doc, emit, put, uid, update
-from app.scheduling.models import EstimatePolicy
+from app.scheduling.models import MAX_DAILY_CALLS_PER_NUMBER, EstimatePolicy
 from app.service import fail
 
 
@@ -48,7 +48,7 @@ class OptimizationSettings(Strict):
     horizon_hours: int | None = Field(default=None, ge=1, le=168)
     rep_minutes: float | None = Field(default=None, ge=0, le=100800)
     handling_seconds: float | None = Field(default=None, ge=10, le=7200)
-    daily_capacity_per_number: int | None = Field(default=None, ge=1, le=1000)
+    daily_capacity_per_number: int | None = Field(default=None, ge=1, le=MAX_DAILY_CALLS_PER_NUMBER)
     training_min_rows: int | None = Field(default=None, ge=20, le=20000)
     staffed_windows: list[StaffedWindow] | None = Field(default=None, max_length=100)
     additional_ready_after_hours: int | None = Field(default=None, ge=0, le=168)

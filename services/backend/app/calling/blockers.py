@@ -118,12 +118,12 @@ EXITS = {
     "CONNECTION_RECONNECTING": Exit(by_itself_within=60),
     "CONNECTION_DELIVERY_GAP": Exit(by_itself_within=60),
     "NO_CAMPAIGN": Exit(control="Leads: Import a list"),
-    "NO_CALLER_NUMBER": Exit(control="Numbers: Buy or add a number"),
+    "NO_CALLER_NUMBER": Exit(control="Numbers: Buy or add a number, or ask the pool operator to add one"),
     "CALLER_NUMBER_ROUTE_REQUIRED": Exit(control="Numbers: Set up route"),
     "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": Exit(
         control="Call the number from your phone and answer it here"
     ),
-    "CALLER_NUMBER_PAUSED": Exit(control="Numbers: Resume outbound"),
+    "CALLER_NUMBER_PAUSED": Exit(control="Numbers: Resume outbound, or ask the pool operator to resume it"),
     "PENDING_LOCAL_OPTOUTS": Exit(by_itself_within=60),
     "TEST_SESSION_TEST_LINE_ONLY": Exit(control="Settings: End test session"),
     "TELNYX_CALL_LIMIT_REACHED": Exit(by_itself_within=60),
@@ -153,6 +153,7 @@ class Facts:
     campaign: bool = True
     number: str | None = None  # None when a caller number is ready, else its code.
     test_number: str | None = None  # The number to call for the one-time test call.
+    shared_pool: bool = False
     pending_optouts: int = 0
     rep_audio_ready: bool | None = None  # None when the question is not being asked (Settings).
     # Telnyx refused the last dial over the account's channel limit (R9C.4).
@@ -184,11 +185,29 @@ def blockers(facts):
         codes.append("TELNYX_CALL_LIMIT_REACHED")
     if facts.rep_audio_ready is False:
         codes.append("REP_AUDIO_NOT_READY")
-    return [blocked(code, facts.test_number) for code in sorted(set(codes), key=ORDER.__getitem__)]
+    return [
+        blocked(code, facts.test_number, shared=facts.shared_pool)
+        for code in sorted(set(codes), key=ORDER.__getitem__)
+    ]
 
 
-def blocked(code, phone=None):
+def blocked(code, phone=None, *, shared=False):
     message, fix = CATALOG[code]
+    if shared:
+        message, fix = {
+            "NO_CALLER_NUMBER": (
+                "Ask the pool operator to add a caller number to the shared pool.",
+                "numbers",
+            ),
+            "CALLER_NUMBER_PAUSED": (
+                "Ask the pool operator to resume outbound on a shared number.",
+                "numbers",
+            ),
+            "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": (
+                "Start a Test call in Settings, then call the displayed number back and answer it here.",
+                "settings",
+            ),
+        }.get(code, (message, fix))
     return Blocker(code, message.format(phone=phone or "one of your numbers"), fix)
 
 

@@ -4,10 +4,12 @@ R9B.2, R9B.4, R9B.5, R9B.14, R9B.15, R9B.19 and R9C.2 through the API. No real p
 """
 
 import json
+from types import SimpleNamespace
 from urllib.parse import parse_qs
 
 import httpx
-from journey import get, post, run_jobs
+import pytest
+from journey import get, post, ready, run_jobs
 
 A = "+12125550101"  # On the CRM record; Trestle confirms it.
 B = "+12125550102"  # Found by LeadOcean for the contact with no number; on the federal do-not-call list.
@@ -155,6 +157,60 @@ def setup(ws, monkeypatch):
 def crm_leads(ws):
     items = get(ws, "/v1/workspace/leads", params={"list_name": "HubSpot list"})["items"]
     return {lead["external_id"]: lead for lead in items}
+
+
+@pytest.mark.slow
+def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_relay(
+    workspace, carrier, monkeypatch
+):
+    ws = workspace
+    setup(ws, monkeypatch)
+    managed = ws["client"].app.state.service.managed
+    with monkeypatch.context() as startup:
+        startup.setattr(managed, "config", {"tenant_id": ws["tenant_id"]})
+        post(ws, "/v1/hubspot/sync", {"list_id": "88", "list_name": "Other rep"}, status=409)
+    chosen = "+12125550190"
+    managed.apply_pool_snapshot(
+        ws["tenant_id"],
+        {
+            "id": "team",
+            "segment_id": "77",
+            "numbers": [
+                {"phone": "+12125550189", "daily_limit": 90, "used": 0, "outbound_enabled": True},
+                {"phone": chosen, "daily_limit": 90, "used": 1, "outbound_enabled": True},
+            ],
+        },
+    )
+    requests = []
+
+    class RPC:
+        def rpc(self, name, args):
+            requests.append((name, args))
+
+            async def execute():
+                result = {"phone": chosen} if name == "relay_pool_reserve" else {"submitted": True}
+                return SimpleNamespace(data=result)
+
+            return SimpleNamespace(execute=execute)
+
+    monkeypatch.setattr(managed, "client", RPC())
+    assert post(ws, "/v1/hubspot/sync", {"list_id": "88", "list_name": "Other rep"}, status=403)
+    post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    run_jobs(ws, rounds=3)
+    ready(ws)
+    selected = post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"]})
+    assert selected["lead"]["phone"] == A and selected["number"]["phone"] == chosen
+    response = post(
+        ws,
+        "/v1/calls/start",
+        {
+            "reservation_id": selected["reservation_id"],
+            "idempotency_key": "pool-call-1",
+        },
+    )
+    assert response["number_id"] == selected["number"]["id"]
+    assert carrier.dials[-1]["from"] == chosen
+    assert [name for name, _ in requests] == ["relay_pool_reserve", "relay_pool_submit"]
 
 
 def test_a_hubspot_list_syncs_checks_numbers_and_do_not_call_then_logs_the_call(workspace, monkeypatch):

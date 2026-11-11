@@ -51,6 +51,7 @@ OUTCOME_LABELS = {
 }
 REP_CONFIRMED_SOURCES = {"rep_reported"}
 Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+MAX_DAILY_CALLS_PER_NUMBER = 90
 # One optimization defaults registry; the settings API validates bounds on edits.
 OPTIMIZATION_DEFAULTS = {
     "conversion_goal": "meeting_booked",
@@ -60,7 +61,7 @@ OPTIMIZATION_DEFAULTS = {
     "horizon_hours": 24,
     "rep_minutes": 480,
     "handling_seconds": 120,
-    "daily_capacity_per_number": 60,
+    "daily_capacity_per_number": MAX_DAILY_CALLS_PER_NUMBER,
     "training_min_rows": 40,
     "staffed_windows": [],
     "additional_ready_after_hours": 0,

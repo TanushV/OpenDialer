@@ -185,7 +185,9 @@ def _route_inbound(service, s, p, task, *, after=None):
             and re.fullmatch(r"[A-Za-z0-9_.+-]{1,128}", sip)
             and can_ring(service, user)
             and not any(
-                c.rep_id == user.id or (lead and c.endpoint_id == lead.data["endpoint_id"]) for c in claims
+                c.call_id is not None
+                and (c.rep_id == user.id or (lead and c.endpoint_id == lead.data["endpoint_id"]))
+                for c in claims
             )
         ):
             candidates.append((user, sip))
@@ -204,7 +206,13 @@ def _route_inbound(service, s, p, task, *, after=None):
     if target:
         identity = uid()
         context = base64.b64encode(
-            json.dumps({"inbound_task": task.id, "attempt": identity}).encode()
+            json.dumps(
+                {
+                    "inbound_task": task.id,
+                    "attempt": identity,
+                    "inbound_call": task.data["provider_id"],
+                }
+            ).encode()
         ).decode()
         attempt = {
             "id": identity,
@@ -217,6 +225,9 @@ def _route_inbound(service, s, p, task, *, after=None):
         attempts.append(attempt)
         update(task, routing_attempts=attempts)
         if rep:
+            if any(c.rep_id == rep.id and c.call_id is None for c in claims):
+                ops.release_unused_reservation_in(service, s, {**p, "user_id": rep.id})
+                s.flush()
             s.add(
                 ActiveClaim(
                     tenant_id=p["tenant_id"],
@@ -314,7 +325,28 @@ def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, rec
             else []
         )
         lead = leads[0] if len(leads) == 1 else None
-        previous = (
+        from_call = (receipt or {}).get("callback_call_id")
+        previous = get(s, "call_attempts", from_call, tenant_id) if isinstance(from_call, str) else None
+        if (
+            previous
+            and previous.seller_id == number.seller_id
+            and previous.data.get("number_id") == number.id
+        ):
+            candidate = get(s, "leads", previous.data.get("lead_id"), tenant_id)
+            endpoint = get(s, "phone_endpoints", previous.data.get("endpoint_id"), tenant_id)
+            if (
+                candidate
+                and candidate.seller_id == number.seller_id
+                and endpoint
+                and endpoint.seller_id == number.seller_id
+                and endpoint.data.get("phone") == payload.get("from")
+            ):
+                lead = candidate
+            else:
+                previous = None
+        else:
+            previous = None
+        previous = previous or (
             next(iter(ops.lead_records(service, s, p, "call_attempts", lead.id, limit=1, newest=True)), None)
             if lead
             else None

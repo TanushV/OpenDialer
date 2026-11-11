@@ -276,3 +276,49 @@ test("a callback rings from any page and the open app says it can take calls", a
   await expect(inbound).toContainText("Jordan Ellis · Northstar Example");
   await expect(inbound).toContainText("+14155550111");
 });
+
+test("a matched callback opens the prospect and last outcome while ringing", async ({
+  page,
+}) => {
+  await page.route("**/v1/leads/callback-prospect/packet", (route) =>
+    route.fulfill({
+      json: {
+        lead: {
+          id: "callback-prospect",
+          name: "Jordan Ellis",
+          company: "Northstar Example",
+        },
+        prospect_brief: {
+          last_outcome: "callback_requested",
+          summary: "Asked about the renewal date.",
+          next_step: "Confirm the renewal date.",
+        },
+      },
+    }),
+  );
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.tasks.push({
+      id: "callback-with-prospect",
+      version: 1,
+      inbound: true,
+      inbound_state: "ringing",
+      routed_rep_id: data.user.id,
+      callback_phone: "+14155550111",
+      lead_name: "Jordan Ellis",
+      lead_id: "callback-prospect",
+    });
+    await route.fulfill({ response, json: data });
+  });
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  const tryWorkspace = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await tryWorkspace.isVisible()) await tryWorkspace.click();
+  const prospect = page.getByRole("region", { name: "Callback prospect" });
+  await expect(prospect).toContainText("Northstar Example");
+  await expect(prospect).toContainText("Callback requested");
+  await expect(prospect).toContainText("Confirm the renewal date.");
+});

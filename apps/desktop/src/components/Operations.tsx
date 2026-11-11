@@ -1051,6 +1051,24 @@ function NumberRow({
     }
   }
   const paused = number.lifecycle === "paused_for_outbound";
+  if (number.shared_pool) {
+    return (
+      <tr>
+        <td>
+          <strong>{number.phone}</strong>
+          <small>
+            {number.outbound_ready ? "Ready to dial" : "Outbound unavailable"}
+          </small>
+        </td>
+        <td>{number.region}</td>
+        <td>Shared pool</td>
+        <td>
+          {number.shared_used ?? 0} / {number.daily_limit} outbound
+        </td>
+        <td colSpan={2}>Callbacks always routed separately</td>
+      </tr>
+    );
+  }
   return (
     <tr>
       <td>

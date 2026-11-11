@@ -27,6 +27,7 @@ from app.calling.records import (
 from app.calling.recovery import next_step
 from app.calling.state import TERMINAL, moved
 from app.compliance.policy import authorize, retry_seconds
+from app.numbers import pool
 from app.platform.config import TEST_LINES
 from app.platform.db import (
     MODELS,
@@ -65,6 +66,23 @@ def _held_reservation(service, s, p, reservation_id, now):
     return reservation, claim, ReservationView.model_validate(reservation.data)
 
 
+def _dial_payload(service, scope, call_id, phone, caller, agent):
+    return {
+        "to": phone,
+        "from": caller,
+        "link_to": agent,
+        "bridge_on_answer": True,
+        "answering_machine_detection": "premium",
+        "timeout_secs": service.configs.read(scope).get("outbound_ring_seconds", 40),
+        "prevent_double_bridge": True,
+        "time_limit_secs": service.settings.max_call_seconds,
+        "command_id": call_id,
+        "client_state": base64.b64encode(
+            json.dumps({"call_id": call_id, SCOPE_KEY: scope}).encode()
+        ).decode(),
+    }
+
+
 def _prepare_call(service, p, data):
     now = service.clock()
     with service.db.transaction() as s:
@@ -78,6 +96,8 @@ def _prepare_call(service, p, data):
                 fail(409, "Idempotency key belongs to another intent")
             return doc(previous), False
         reservation, claim, held = _held_reservation(service, s, p, data["reservation_id"], now)
+        if service.managed.pool is not None and not held.pool_ref:
+            require(Situation(step="dial", reservation_ok=False), "Reserve the shared number before dialing.")
         require(
             Situation(
                 blockers=tuple(ops.dial_blockers_in(service, s, p, rep=True)),
@@ -105,7 +125,9 @@ def _prepare_call(service, p, data):
                 "lead_id": lead.id,
                 "endpoint_id": lead.data["endpoint_id"],
                 "number_id": number.id,
+                "from_number": number.data["phone"],
                 "reservation_id": reservation.id,
+                **({"pool_ref": held.pool_ref} if held.pool_ref else {}),
                 "dial_scope": held.dial_scope,
                 "treatment_variant_id": held.treatment_variant_id,
                 "feature_snapshot_id": held.feature_snapshot_id,
@@ -133,21 +155,9 @@ def _prepare_call(service, p, data):
         update(reservation, status="active", call_id=call.id)
         # The persistent agent leg carries the rep's own speech stream for this call.
         update(call, agent_provider_id=agent)
-        payload = {
-            "to": lead.data["phone"],
-            "from": number.data["phone"],
-            "link_to": agent,
-            "bridge_on_answer": True,
-            # Telnyx detection on every attempt; a mailbox beep ends non-final attempts.
-            "answering_machine_detection": "premium",
-            "timeout_secs": service.configs.read(workspace(p)).get("outbound_ring_seconds", 40),
-            "prevent_double_bridge": True,
-            "time_limit_secs": service.settings.max_call_seconds,
-            "command_id": call.id,
-            "client_state": base64.b64encode(
-                json.dumps({"call_id": call.id, SCOPE_KEY: workspace(p)}).encode()
-            ).decode(),
-        }
+        payload = _dial_payload(
+            service, workspace(p), call.id, lead.data["phone"], number.data["phone"], agent
+        )
         put(
             s,
             "command_outbox",
@@ -360,15 +370,34 @@ async def dispatch_call(service, p, call_id):
     claimed = await asyncio.to_thread(ops._claim_dial, service, p, call_id, owner)
     if not claimed:
         return
+    pool_ref = claimed[1].get("pool_ref")
     try:
         try:
             provider = await asyncio.to_thread(ops.carrier, service, workspace(p))
         except Exception as exc:
             # Configuration fails before any request exists; nothing can be live.
             raise CarrierNotSubmitted(type(exc).__name__) from exc
+        if pool_ref:
+            admission = await pool.request(
+                service.managed,
+                "relay_pool_submit",
+                {
+                    "request_ref": pool_ref,
+                    "local_call": call_id,
+                    "number": claimed[3]["from"],
+                },
+            )
+            if not admission.submitted:
+                raise CarrierNotSubmitted("The shared outbound number is no longer reserved.")
         receipt = await provider.dial(claimed[3])
     except Exception as exc:
         logging.getLogger(__name__).warning("Dial for %s failed: %s", call_id, type(exc).__name__)
+        if pool_ref and (
+            isinstance(exc, CarrierNotSubmitted)
+            or isinstance(exc, httpx.HTTPStatusError)
+            and 400 <= exc.response.status_code < 500
+        ):
+            await pool.cancel(service.managed, pool_ref, unsent=True)
         await asyncio.to_thread(ops._dial_failed, service, p, call_id, claimed[0], owner, exc)
         return
     cancel = await asyncio.to_thread(ops._dial_completed, service, p, call_id, claimed, owner, receipt)

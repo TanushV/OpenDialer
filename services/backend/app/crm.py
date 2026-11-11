@@ -53,8 +53,23 @@ async def reach(call):
         )
 
 
+def assigned_segment(service, p):
+    managed = service.managed
+    if not managed.pool_checked:
+        managed.require_ready(p["tenant_id"])
+    return managed.pool.segment_id if managed.pool else None
+
+
+def require_segment(service, p, list_id):
+    if (segment := assigned_segment(service, p)) is not None and segment != list_id:
+        fail(403, "This machine can sync only its assigned HubSpot segment.")
+
+
 async def lists(service, p):
-    return {"lists": await reach(hubspot(service, p).lists())}
+    assigned_segment(service, p)  # Wait for the first exchange before loading this profile's lists.
+    available = await reach(hubspot(service, p).lists())
+    segment = assigned_segment(service, p)
+    return {"lists": [item for item in available if segment is None or item["id"] == segment]}
 
 
 def set_spend_limit(service, p, list_name, usd):
@@ -145,6 +160,7 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
 
     now = service.clock()
     with service.db.transaction() as s:
+        require_segment(service, p, list_id)
         campaign = _campaign(service, s, p)
         existing = crm_leads(service, s, p, list_name)
         last_called = {
@@ -298,6 +314,7 @@ def schedule_syncs(service, p, *, starting=False):
 
 async def sync(service, p, list_id, list_name):
     """Read the list's members and their contacts, then write the plan. Calling never waits on it."""
+    require_segment(service, p, list_id)
     hs = hubspot(service, p)
     members = await reach(hs.members(list_id))
     contacts = await reach(hs.contacts(members, hubspot_sync.PROPERTIES)) if members else []
@@ -311,6 +328,8 @@ def lists_due(service, s, p, now):
     for name, state in (campaign.data.get("lists") or {}).items():
         crm = (state or {}).get("crm")
         if not crm or state.get("archived"):
+            continue
+        if (pool := service.managed.pool) is not None and pool.segment_id != crm["list_id"]:
             continue
         synced = service_time(crm.get("synced_at"))
         out.append((name, crm["list_id"], synced, synced is None or now - synced >= STALE))

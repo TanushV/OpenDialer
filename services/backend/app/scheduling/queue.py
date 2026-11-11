@@ -435,18 +435,20 @@ def _claim_in(service, s, p, campaign_id, plan):
         )
     )
     binding = ops._by_key(service, s, p, "lead_number_bindings", lead.id)
-    if binding:
-        update(binding, number_id=number.id)
-    else:
-        put(
-            s,
-            "lead_number_bindings",
-            p["tenant_id"],
-            p["seller_id"],
-            {"lead_id": lead.id, "number_id": number.id},
-            key=lead.id,
-            now=now,
-        )
+    shared = service.managed.pool is not None
+    if not shared:
+        if binding:
+            update(binding, number_id=number.id)
+        else:
+            put(
+                s,
+                "lead_number_bindings",
+                p["tenant_id"],
+                p["seller_id"],
+                {"lead_id": lead.id, "number_id": number.id},
+                key=lead.id,
+                now=now,
+            )
     actions = ["approved-default"]  # Script wording is tested by script comparisons instead.
     # No treatment may be randomized without a registered comparison (REMEDIATION 9.4);
     # none exists, so the reviewed default is chosen with certainty and logged as such.
@@ -530,8 +532,10 @@ def _claim_in(service, s, p, campaign_id, plan):
         treatment_variant_id=choice["action"],
         policy_decision_id=policy_decision.id,
     )
-    emit(s, p["tenant_id"], "reservation.created", reservation, now)
+    if not shared:
+        emit(s, p["tenant_id"], "reservation.created", reservation, now)
     return {
+        **({"preferred_is_bound": binding is not None} if shared else {}),
         "reservation_id": reservation.id,
         "expires_at": reservation.data["expires_at"],
         "lead": doc(lead),

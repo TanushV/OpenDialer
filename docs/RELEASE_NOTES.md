@@ -1,3 +1,11 @@
+# OpenDialer 2.1.0
+
+- **A shared number pool for reps.** Each computer uses its own calling profile and one assigned HubSpot segment. The pool remembers each prospect's caller ID across attempts and machines.
+- **Callbacks open the prospect.** A return call to a pool number rings the computer that placed the confirmed call from that number. The matched prospect and last outcome appear on the incoming call.
+- **Up to 90 outbound attempts per number in 24 hours.** The shared pool applies the limit across reps. Incoming callbacks stay eligible at the outbound limit.
+
+Updating from 2.0.0 keeps the local workspace. The relay operator enables shared calling for each participating computer. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.0.0
 
 - **Callbacks ring in the app.** While OpenDialer is open, on any page and paused or not, a call back to one of your numbers rings with a tone, bounces the Dock and shows who it is, with Answer and Decline. When the app is closed or nobody answers, the caller hears your greeting and you get a follow-up. Forwarding to your phone comes later.

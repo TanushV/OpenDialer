@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.optimization.geography import area_code, caller_region_rank, coverage_region, metro
-from app.scheduling.models import FEATURE_VERSIONS, contact_labels
+from app.scheduling.models import FEATURE_VERSIONS, MAX_DAILY_CALLS_PER_NUMBER, contact_labels
 from app.scheduling.models import wilson as wilson
 
 
@@ -397,7 +397,7 @@ def warmup_allowance(number, attempts, now):
     """Count completed weekdays with resolved outbound use in the workspace business day."""
     from zoneinfo import ZoneInfo
 
-    maximum = int(number.get("daily_limit", 0))
+    maximum = min(MAX_DAILY_CALLS_PER_NUMBER, int(number.get("daily_limit", 0)))
     start = timestamp(number.get("warmup_started_at"))
     if not start:
         return maximum
@@ -408,12 +408,14 @@ def warmup_allowance(number, attempts, now):
         for at, _, resolved in attempts
         if resolved and at >= start and (day := at.astimezone(zone).date()) < today and day.weekday() < 5
     }
-    return min(maximum, 15 if len(days) < 2 else 25 if len(days) < 5 else 40 if len(days) < 10 else 50)
+    return min(maximum, 15 if len(days) < 2 else 25 if len(days) < 5 else 40 if len(days) < 10 else maximum)
 
 
 def adaptive_daily_limit(number, health):
     """Adapt observed delivery workload without exceeding the reviewed cap or warmup allowance."""
-    maximum = max(0, int(number.get("warmup_allowance", number.get("daily_limit", 0))))
+    maximum = min(
+        MAX_DAILY_CALLS_PER_NUMBER, max(0, int(number.get("warmup_allowance", number.get("daily_limit", 0))))
+    )
     if number.get("outbound_ready") is False or health.get("recommended_action") == "hold_outbound":
         return 0
     if health.get("recommended_action") == "review_workload":

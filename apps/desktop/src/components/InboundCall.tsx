@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { native } from "../api/client";
 import { label, useWorkspace } from "../context";
 import { createRinger } from "../telephony/ringer";
-import type { FollowupTask } from "../types";
+import type { FollowupTask, Packet } from "../types";
 
 /** Bounce the Dock when a callback rings while another app is in front (D29). */
 async function askForAttention() {
@@ -39,6 +39,23 @@ export function InboundCall({
   const [muted, setMuted] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [accepted, setAccepted] = useState(false);
+  const [prospect, setProspect] = useState<Packet | null>(null);
+  const leadId = task.lead_id;
+  useEffect(() => {
+    if (!leadId) return;
+    let current = true;
+    void api<Packet>(`/v1/leads/${encodeURIComponent(leadId)}/packet`).then(
+      (packet) => {
+        if (current) setProspect(packet);
+      },
+      (error) => console.warn("Could not open the callback prospect:", error),
+    );
+    return () => {
+      current = false;
+    };
+  }, [api, leadId]);
+  const matched = prospect?.lead.id === leadId ? prospect : null;
+  const brief = matched?.prospect_brief;
   const connected = task.inbound_state === "connected";
   const ringing = task.inbound_state === "ringing" && !accepting && !accepted;
   const ringer = useMemo(() => createRinger(), []);
@@ -136,6 +153,18 @@ export function InboundCall({
       )}
       {task.review_required && (
         <p role="status">Routing needs review. The follow-up remains saved.</p>
+      )}
+      {matched && (
+        <section aria-label="Callback prospect">
+          <h3>{matched.lead.name}</h3>
+          {matched.lead.company && <p>{matched.lead.company}</p>}
+          {brief?.last_outcome && (
+            <p>Last outcome · {label(brief.last_outcome)}</p>
+          )}
+          {brief?.summary && <p>{brief.summary}</p>}
+          {brief?.next_step && <p>{brief.next_step}</p>}
+          {matched.lead.domain && <p>{matched.lead.domain}</p>}
+        </section>
       )}
     </section>
   );

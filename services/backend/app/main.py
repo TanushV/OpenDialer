@@ -19,9 +19,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app import ops
-from app.calling import audio_leg, detection, timeline
+from app.calling import audio_leg, detection, pool_queue, timeline
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.lead_lists import memberships
+from app.numbers import pool
 from app.platform.config import Settings
 from app.platform.db import Database, Event, audit, doc, put, rows, update
 from app.preparation.templates import PreparationPolicy
@@ -549,22 +550,29 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return ops.reachable(service, p, data.registered)
 
     @app.post("/v1/rep/presence")
-    def presence(data: Presence, p=Depends(principal)):
-        return ops.presence(service, p, data.model_dump())
+    async def presence(data: Presence, p=Depends(principal)):
+        saved, released = await asyncio.to_thread(ops.presence, service, p, data.model_dump())
+        if released:
+            await pool.cancel(service.managed, released)
+        return saved
 
     @app.post("/v1/queue/release")
-    def release_reservation(p=Depends(principal)):
-        with db.transaction() as s:
-            db.authorize_stream(s, p)
-            ops.release_unused_reservation_in(service, s, p)
+    async def release_reservation(p=Depends(principal)):
+        def release():
+            with db.transaction() as s:
+                db.authorize_stream(s, p)
+                return ops.release_unused_reservation_in(service, s, p)
+
+        if released := await asyncio.to_thread(release):
+            await pool.cancel(service.managed, released)
         return {"released": True}
 
     @app.post("/v1/queue/next")
-    def next_lead(data: QueueNext, p=Depends(principal)):
+    async def next_lead(data: QueueNext, p=Depends(principal)):
         if ops.in_test_session(service, p):
             # A test session offers only the Test line list; dialing refuses any other number too.
-            return ops.reserve(service, p, data.campaign_id, [TEST_LIST], None)
-        return ops.reserve(service, p, data.campaign_id, data.list_names, data.callback_lead_id)
+            return await pool_queue.reserve(service, p, data.campaign_id, [TEST_LIST], None)
+        return await pool_queue.reserve(service, p, data.campaign_id, data.list_names, data.callback_lead_id)
 
     @app.get("/v1/blockers")
     def calling_blockers(p=Depends(principal)):

@@ -1,6 +1,6 @@
 # How OpenDialer works
 
-November 2026, version 1.0.10. The plan that produced this design, with its decisions and history, is
+November 2026, version 2.1.0. The plan that produced this design, with its decisions and history, is
 [REBUILD_PLAN.md](REBUILD_PLAN.md). Older design documents are in [history/](history/).
 
 ## One computer, one rep, one file
@@ -9,11 +9,15 @@ November 2026, version 1.0.10. The plan that produced this design, with its deci
   keeps the computer awake while the rep is calling, and installs signed updates. Mac and Windows build from the same
   code.
 - **Screens** (`apps/desktop/src`, React): the Dialer, Leads, Review, Numbers, Script and Settings.
-- **Backend** (`services/backend/app`, Python and FastAPI): all decisions and all data. One SQLite file per rep, in the
+- **Backend** (`services/backend/app`, Python and FastAPI): the rep's calling decisions and data. One SQLite file per rep, in the
   app's data folder. Saved keys are encrypted with a private key file beside it.
 - **Relay** (`supabase/`): Telnyx sends call events to a small Supabase function; the backend fetches them over HTTP every
   20 seconds, sooner when Realtime wakes it, and acknowledges each one after it is saved. Calling never depends on
   Realtime.
+
+In 2.1, separately provisioned computers can use one shared pool and one HubSpot portal. The relay supplies each
+computer's allowed numbers and segment. It stores sticky number bindings, outbound reservations and callback routing
+metadata. The desktop keeps lead names, scripts, notes and transcripts. See [relay provisioning](../supabase/README.md#shared-number-pool-21).
 
 ## The calling core
 

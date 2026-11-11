@@ -8,6 +8,7 @@ import { useWorkspace } from "../context";
 import { OptOutJournal } from "../state/optouts";
 import { nextLeadWithRetry } from "../state/queue";
 import { afterAudioStatus, Telephony } from "../telephony/client";
+import { createReachabilityHeartbeat } from "../telephony/reachability";
 import { captureSpeech, unlockSpeechAudio } from "../telephony/speech";
 import type { Call, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
@@ -319,40 +320,30 @@ export function useCallLoop(visible: boolean) {
   // five minutes.
   useEffect(() => {
     let stopped = false;
-    let retryAt = 0;
-    const tick = async () => {
-      if (
-        !w.simulation &&
-        !telephony.current.registered &&
-        !connectingRef.current &&
-        Date.now() >= retryAt
-      ) {
-        try {
-          const result = await api<{ token: string }>(
-            "/v1/telephony/token",
-            "POST",
-          );
-          if (!stopped)
-            await telephony.current.connect(result.token, audio.current!);
-        } catch (error) {
-          retryAt = Date.now() + 5 * 60_000;
-          console.warn(
-            "The call client could not register for callbacks:",
-            error,
-          );
-        }
-      }
-      if (stopped) return;
-      await api("/v1/rep/reachable", "POST", {
-        registered: w.simulation || telephony.current.registered,
-      }).catch((error: unknown) =>
-        console.warn("Could not say this app can take calls:", error),
-      );
-    };
-    void tick();
-    const timer = setInterval(() => void tick(), 30_000);
+    const heartbeat = createReachabilityHeartbeat({
+      registered: () => w.simulation || telephony.current.registered,
+      connect: async () => {
+        if (connectingRef.current) return;
+        const result = await api<{ token: string }>(
+          "/v1/telephony/token",
+          "POST",
+        );
+        if (
+          !stopped &&
+          !connectingRef.current &&
+          !telephony.current.registered &&
+          audio.current
+        )
+          await telephony.current.connect(result.token, audio.current);
+      },
+      publish: (registered) => api("/v1/rep/reachable", "POST", { registered }),
+      reportError: (error) => console.warn("Callback reachability:", error),
+    });
+    void heartbeat.tick();
+    const timer = setInterval(() => void heartbeat.tick(), 30_000);
     return () => {
       stopped = true;
+      heartbeat.stop();
       clearInterval(timer);
     };
   }, [api, w.simulation]);

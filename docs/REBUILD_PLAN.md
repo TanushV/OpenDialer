@@ -10,8 +10,8 @@ It supersedes the "every feature stays" and "both modes" rules of [LEAN_PLAN.md]
 ## 1. TLDR
 
 - Make OpenDialer a small, single-user dialer for Mac and Windows that is simple enough for bugs to show up in the code and tests.
-- A team calls as seats: one rep, one Mac, one copy of the app. HubSpot's contact owner decides who calls whom, the relay
-  shares one number pool across seats and routes callbacks to the rep who called, and there is no shared server (D25, D26).
+- In 2.1, each rep has a desktop profile and a HubSpot segment. The existing relay shares sticky caller IDs across
+  profiles and routes callbacks to the desktop that called (D33).
 - Keep the working integrations: Telnyx, speech, ChatGPT agent, relay and signed releases.
 - Cut about 60% of the code, then rebuild the call core, Dialer, Settings, StatML learning and research criteria.
 - Work one module at a time. A calling module is finished only when live calls to the owner's test line pass and the
@@ -63,6 +63,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D30 | Forwarding to the rep's phone is deferred; its field is hidden until it works with the app closed. | Owner, November 10 ("you can push off forwarding") |
 | D31 | StatML is archived (tagged, then removed). The one learning view kept is stage drop-off: where answered calls end in the script. | Owner, November 10 ("archive statml"; "the main use it has is stage dropoff") |
 | D32 | No voicemail feature: the skip at detection stays; the rep speaks into a voicemail by pressing Stay or on the last attempt. No recorded drop. | Owner, November 10 ("we just let the rep speak into the voicemail normally"; "keep skip") |
+| D33 | In 2.1, separate computer profiles may share a number pool. Each profile syncs one HubSpot segment. Each prospect keeps the same caller ID, and return calls ring the computer that placed the confirmed call from the dialed number. The rolling 24-hour limit is at most 90 outbound attempts per number. Inbound callbacks use no outbound capacity. | Owner, November 11; team mode supersedes D27 for 2.1 |
 | D26 | Withdrawn by D27. One shared number pool. Any seat can call from any pool number. The relay picks the number for each call (local area code first, then least used today) and counts daily use across all seats, so the per-number cap holds for the team. Pool numbers sit on one shared incoming route, and a callback rings the seat that last called that prospect, or goes to voicemail and a task on that seat. | Owner decision, November 8; that a Call Control dial may present any number on the account is confirmed in L23 |
 
 Open owner inputs:
@@ -175,10 +176,9 @@ Rep keys -> API -> dial/hangup commands -> Telnyx             one state stream
                                                      screen(state) -> fixed Dialer layout
 ```
 
-**Seats (D25, D26).** Each rep's Mac runs this whole picture with its own SQLite file. The relay is the only shared
-piece: it already keeps one workspace per Mac and routes carrier events by Call Control application. For seats it also
-holds the number pool, the team's daily use of each number and which seat last called each prospect. Audio, transcripts,
-leads and learning stay on each Mac.
+**Shared calling (D33).** Each rep's computer runs this whole picture with its own SQLite file and HubSpot segment.
+The relay tracks the pool, outbound usage per caller number, and the last confirmed caller for each prospect's sticky
+number. Audio, transcripts and leads stay on the rep's computer.
 
 **Backend layout.** Plain modules and functions that receive a small `Ctx` (db, clock, settings, carrier). Imports run
 downward only.
@@ -1644,6 +1644,21 @@ one learning view kept. Each item gets its tests first.
       first paid number search on the owner's yes, the do-not-call check once its key is saved); then R10.13 and
       R10.14.
 
+### Phase 12: shared calling in 2.1
+
+- [x] R12.1 One assigned HubSpot segment per computer profile, using the existing setup and sync.
+- [x] R12.2 Relay-owned sticky number bindings, per-prospect dial admission, and a 90-attempt rolling outbound ceiling.
+      A rep may use a pooled number without reassigning its incoming carrier route. Existing local bindings take
+      precedence on their first pool dial if the number belongs to the pool and the relay has no binding yet.
+- [x] R12.3 Verified carrier events attach return calls to the originating computer. A missed call and its prospect
+      stay associated with that computer. Outbound capacity and unused outbound reservations cannot block ringing.
+      The binding retains callback ownership after outbound attempt records expire.
+- [x] R12.4 Test with disposable relay and desktop data, including overlapping calls from separate profiles, callback
+      affinity at the outbound limit, and the in-app prospect view.
+- [ ] R12.5 Stage the relay migration, then provision two real computers and distinct HubSpot test segments.
+      Prove L23 before enabling the pool in production. Record live two-way audio and return routing, including
+      a window off-screen, and verify carrier behavior while the target computer is offline.
+
 ## 14. Risks
 
 | # | Risk | Handling |
@@ -1852,3 +1867,6 @@ one learning view kept. Each item gets its tests first.
   removed; the queue is callbacks, never called, longest waiting); stage drop-off in Review from the after-call
   summary; test calls to the owner's HubSpot contact written; a fixed call-screener tip. CI green on the archive
   (`1b1d4d4`). Next: candidate 4, install, live sessions (R11.9), publish.
+- November 11, 2026: the owner set shared calling as 2.1 scope (D33), with sticky caller IDs and up to 90 outbound
+  attempts per number. The two-profile checks passed on a disposable relay with replayed calls and in the Mac app.
+  [Local evidence](evidence/rebuild/2026-11-11-2.1-local.md). Next is R12.5, the hosted relay and live carrier test.
