@@ -1732,7 +1732,7 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       [Supabase function scheduling](https://supabase.com/docs/guides/functions/schedule-functions)
       Code and replay verified. The caller hearing the greeting over Telnyx is still a pilot check.
 
-- [ ] **R12.10 Prove the software locally before live calls.**
+- [x] **R12.10 Prove the software locally before live calls.**
       Run the tests for a fresh audio leg, the shared application’s routing, two profiles syncing distinct HubSpot
       fixtures, a rep disabled on the shared route, repeated and out-of-order events, and one callback task per
       call. Run the migrations on a disposable local Supabase stack. Verify attempts 90 and 91, a callback at the
@@ -1990,3 +1990,7 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 11, 2026: recorded the one-application rollout in Phase 12. The read-only Supabase check confirmed the
   October migration history, the missing pool schema and the older receiver. The next implementation steps are
   R12.5 and R12.6, aligning the migration filenames and fixing first-call audio for a new rep.
+- November 11, 2026: R12.5 to R12.7 and R12.9 implemented. R12.8 profile issuance and receiver exercised on
+  disposable Supabase. R12.10 exercised with two packaged 2.1.0 apps and signed fixtures on this Mac.
+  [Verification receipt](evidence/rebuild/2026-11-11-2.1-shared-application.md). Next: R12.11 needs an isolated
+  hosted target and approved test assets. R12.12 follows the pilot and signed release gate.
