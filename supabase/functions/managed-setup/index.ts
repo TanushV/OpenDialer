@@ -1,4 +1,4 @@
-import { createSetup } from "./setup.ts";
+import { createSetup, profileEndpoint } from "./setup.ts";
 const url = Deno.env.get("SUPABASE_URL")!;
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const headers = {apikey:key,Authorization:`Bearer ${key}`,"Content-Type":"application/json"};
@@ -6,8 +6,7 @@ async function api(path: string, options: RequestInit = {}) {
   return fetch(url+path,{...options,headers,signal:AbortSignal.timeout(10000)});
 }
 Deno.serve(createSetup({
-  url,
-  publicKey: "sb_publishable_302qvobB2fOlxbu6UZWAfA_X-J7WmJi",
+  ...profileEndpoint(key => Deno.env.get(key)),
   lookup: async hash => {
     const r=await api(`/rest/v1/relay_invitations?hash=eq.${hash}&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&select=workspace_id,label`);
     if (!r.ok) throw Error("lookup failed");

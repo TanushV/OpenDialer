@@ -17,7 +17,7 @@ import pytest
 from app import ops
 from app.calling import audio_leg
 from app.calling.state import transition
-from app.platform.db import get, update
+from app.platform.db import get, put, update
 from app.providers.telnyx import CarrierConfigurationError, TelnyxCarrier
 from app.telephony.recovery import COMMAND_RETRY_SECONDS, within_command_window
 from conftest import start
@@ -201,8 +201,6 @@ def test_fresh_rep_audio_uses_the_ready_relay_route(client, app, monkeypatch, mo
     intents = []
     if mode == "standalone":
         with service.db.transaction() as s:
-            from app.platform.db import put
-
             put(
                 s,
                 "number_inventory",
@@ -239,6 +237,11 @@ def test_fresh_rep_audio_uses_the_ready_relay_route(client, app, monkeypatch, mo
             return SimpleNamespace(execute=execute)
 
         monkeypatch.setattr(managed, "client", SimpleNamespace(rpc=rpc))
+    if mode == "shared-app":
+        # Re-importing a managed profile over an existing rep must replace its old audio identity.
+        with service.db.transaction() as s:
+            user = get(s, "users", profile["user_id"], scope)
+            update(user, sip_username="previous-rep", telephony_credential_id="previous-credential")
     seen = []
     checks = credential_transport()
 

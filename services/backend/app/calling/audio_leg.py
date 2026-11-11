@@ -58,13 +58,21 @@ def find(s, p, *, provider_id=None, leg_id=None, rep_id=None, active=False):
     return next((row for row in candidates if row.data["kind"] == "agent"), None)
 
 
-def setup(ctx, p, pool=None):
+def identity(data, config, *, managed=False):
+    """A managed profile's current SIP identity wins over an older workspace record."""
+    sip, credential = config.get("sip_username"), config.get("telephony_credential_id")
+    if managed and sip and credential:
+        return sip, credential
+    user = UserView.model_validate(data)
+    return user.sip_username or sip, user.telephony_credential_id or credential
+
+
+def setup(ctx, p, pool=None, *, managed=False):
     """(SIP name, credential, caller number) for the rep's leg, or the blocker that is missing."""
     conf = ctx.configs.read(workspace(p))
     with ctx.db.transaction(False) as s:
-        user = UserView.model_validate(scoped_get(s, p, "users", p["user_id"]).data)
-        sip = user.sip_username or conf.get("sip_username")
-        credential = user.telephony_credential_id or conf.get("telephony_credential_id")
+        user = scoped_get(s, p, "users", p["user_id"])
+        sip, credential = identity(user.data, conf, managed=managed)
         if not sip or not SIP_NAME.fullmatch(sip) or not credential:
             refuse([blocked("AUDIO_SETUP_MISSING")])
         if pool is not None:
@@ -173,12 +181,13 @@ async def create(ctx, p, managed=None):
         raise
     if carrier.instant_agent_legs:
         return {"agent_call_control_id": await asyncio.to_thread(_instant_leg, ctx, p)}
-    pool = managed.pool if managed and managed.enabled(workspace(p)) else None
+    from_profile = bool(managed and managed.enabled(workspace(p)))
+    pool = managed.pool if from_profile else None
     if pool is not None:
         managed.require_ready(workspace(p))
         if pool.shared_connection_id and carrier.connection_id != pool.shared_connection_id:
             refuse([blocked("AUDIO_SETUP_MISSING")])
-    sip, credential, phone = await asyncio.to_thread(setup, ctx, p, pool)
+    sip, credential, phone = await asyncio.to_thread(setup, ctx, p, pool, managed=from_profile)
     await verify_once(ctx, carrier, credential, sip)
     leg_id, owner = uid(), uid()
     leg, created = await asyncio.to_thread(_claim, ctx, p, leg_id, owner)

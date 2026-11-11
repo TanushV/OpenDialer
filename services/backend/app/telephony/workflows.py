@@ -14,6 +14,7 @@ from app.compliance.policy import authorize
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
 from app.platform.leases import owns_effect
 from app.service import dt, fail
+from app.telephony.callbacks import relay_control_wait
 from app.telephony.recovery import safe_stop, within_command_window
 
 KEYPAD_STATES = {"DIALING", "RINGING", "ANSWERED_UNCLASSIFIED", "HUMAN", "SCREENING"}
@@ -429,7 +430,14 @@ async def dispatch_controls(service, p, *, command_id=None):
         claimed = await asyncio.to_thread(ops._claim_control, service, p, command["id"])
         if not claimed:
             continue
-        command, _, _, target, _, _ = claimed
+        command, _, _, target, _, root = claimed
+        if answer_id := command.get("relay_answer_id"):
+            grant = await service.managed.claim_callback(p["tenant_id"], root)
+            if grant.get("answer_id") != answer_id:
+                await asyncio.to_thread(
+                    relay_control_wait, service, p, claimed, retry=grant.get("status") == "retry"
+                )
+                continue
         try:
             provider = await asyncio.to_thread(ops.carrier, service, p["tenant_id"])
             if command["action"] == "hangup":

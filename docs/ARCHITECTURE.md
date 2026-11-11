@@ -15,9 +15,11 @@ November 2026, version 2.1.0. The plan that produced this design, with its decis
   20 seconds, sooner when Realtime wakes it, and acknowledges each one after it is saved. Calling never depends on
   Realtime.
 
-In 2.1, separately provisioned computers can use one shared pool and one HubSpot portal. The relay supplies each
-computer's allowed numbers and segment. It stores sticky number bindings, outbound reservations and callback routing
-metadata. The desktop keeps lead names, scripts, notes and transcripts. See [relay provisioning](../supabase/README.md#shared-number-pool-21).
+In 2.1, separately provisioned computers can use one shared number pool, one Telnyx Call Control application and
+one HubSpot portal. Each computer gets a distinct SIP credential, relay workspace and HubSpot segment. The relay
+keeps each prospect's number, matches signed events to the workspace that placed the call, and gives a return call
+to that workspace. When the hosted fallback is enabled, it can play the greeting for an offline rep. The desktop
+keeps lead names, scripts, notes and transcripts. See [relay provisioning](../supabase/README.md#shared-number-pool-21).
 
 ## The calling core
 

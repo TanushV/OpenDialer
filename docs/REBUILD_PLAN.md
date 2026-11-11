@@ -1718,8 +1718,9 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       disabled for `telnyx-webhook` and `managed-setup`, which check the Telnyx signature and the operator-issued
       invitation respectively. The Supabase service key stays on the server.
       [Relay runbook](../supabase/README.md) · [Supabase function configuration](https://supabase.com/docs/guides/functions/function-configuration)
+      Profile generation and the receiver were exercised on disposable Supabase. The hosted deploy belongs to R12.11.
 
-- [ ] **R12.9 Play the greeting when the rep is offline (D29).**
+- [x] **R12.9 Play the greeting when the rep is offline (D29).**
       The relay queues incoming events for delivery after a reconnect. The desktop currently issues the greeting command.
       Add a durable claim for the original incoming call so the reachable desktop or a hosted fallback can handle it.
       Publish each rep’s WebRTC reachability to their scoped workspace and give an open desktop time to claim the
@@ -1729,6 +1730,7 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       secret. Use the recorded Telnyx webhook and durable retry state to recover from worker interruptions.
       [Current offline capability](../services/backend/app/administration.py) ·
       [Supabase function scheduling](https://supabase.com/docs/guides/functions/schedule-functions)
+      Code and replay verified. The caller hearing the greeting over Telnyx is still a pilot check.
 
 - [ ] **R12.10 Prove the software locally before live calls.**
       Run the tests for a fresh audio leg, the shared application’s routing, two profiles syncing distinct HubSpot
@@ -1748,7 +1750,7 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
 ```sh
 supabase db push --remote="$OPENDIALER_STAGING_REF" --dry-run --skip-vault
 supabase db push --remote="$OPENDIALER_STAGING_REF" --skip-vault
-supabase functions deploy telnyx-webhook managed-setup --remote="$OPENDIALER_STAGING_REF"
+supabase functions deploy telnyx-webhook managed-setup callback-fallback --remote="$OPENDIALER_STAGING_REF"
 ```
 
 | Pilot check | Pass condition |

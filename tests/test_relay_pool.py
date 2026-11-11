@@ -11,6 +11,7 @@ from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Barrier
+from time import monotonic
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -158,7 +159,7 @@ def receipt(sql, identity, event_type, payload, *, seat=A):
         "workspace_id": seat,
         "account_id": "account",
         "hash": identity,
-        "received_at": "2026-11-11T18:00:00Z",
+        "received_at": datetime.now(UTC).isoformat(),
         "event": {"id": identity, "event_type": event_type, "payload": payload},
     }
     return sql(f"set role service_role; select relay_receive({quote_json(event)});")
@@ -245,6 +246,105 @@ def shared_out(call, target, **payload):
 
 def event_owner(sql, event_id):
     return sql(f"select workspace_id from relay_events where event_id='{event_id}';")
+
+
+def test_shared_profile_activation_is_atomic_and_segment_scoped(shared_db):
+    sql = shared_db
+    rep = str(uuid4())
+    bad = str(uuid4())
+    sql(f"insert into auth.users values ('{rep}'),('{bad}');")
+    sql(f"""
+        insert into relay_invitations(hash,workspace_id,label,settings,routes,shared_pool_id,shared_segment_id)
+        values('good','{rep}','New rep',
+           '{{"telnyx_connection_id":"app-a","sip_username":"rep-new","telephony_credential_id":"cred-new"}}',
+           '[]','{POOL}','16'),
+        ('bad','{bad}','Duplicate SIP',
+           '{{"telnyx_connection_id":"app-a","sip_username":"rep-new","telephony_credential_id":"cred-bad"}}',
+           '[]','{POOL}','17');
+        set role service_role;
+        select relay_activate('good');
+        select relay_activate('good');
+    """)
+    pool = json.loads(sql("select relay_pool_snapshot();", seat=rep))
+    assert (pool["segment_id"], pool["shared_connection_id"]) == ("16", "app-a")
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero"):
+        sql("set role service_role; select relay_activate('bad');")
+    assert not sql(f"select id from relay_workspaces where id='{bad}';")
+    assert sql("select count(*) from relay_routes where connection_id='app-a';") == "1"
+
+
+def callback_claim(sql, seat, root):
+    return json.loads(
+        sql(
+            f"select relay_callback_claim('{root}','{seat}','{INSTALL}');",
+            seat=seat,
+        )
+    )
+
+
+def callback_job(sql):
+    return json.loads(sql("set role service_role; select relay_callback_take(1);"))
+
+
+def callback_result(sql, job, result):
+    return sql(f"""
+      set role service_role;
+      select relay_callback_finish({quote_json(job)},'{result}');
+    """)
+
+
+def test_hosted_fallback_and_desktop_cannot_both_claim_an_incoming_call(shared_db):
+    sql = shared_db
+    sql(f"update relay_private.number_pools set fallback_enabled=true where id='{POOL}';")
+    sql(f"select relay_exchange('{A}','{INSTALL}','[]','',true,'Configured rep greeting');", seat=A)
+    assert inbound(sql, "open") == [A, None]
+    assert callback_job(sql) == []
+    assert callback_claim(sql, B, "inbound-open") == {"status": "unavailable"}
+    desktop = callback_claim(sql, A, "inbound-open")
+    assert desktop["status"] == "desktop"
+    assert callback_claim(sql, A, "inbound-open") == desktop
+    sql("update relay_private.shared_callbacks set desktop_until=now()-interval '1 second';")
+    (job,) = callback_job(sql)
+    assert (job["action"], job["command_id"]) == ("answer", desktop["answer_id"])
+    assert callback_job(sql) == []
+    assert callback_claim(sql, A, "inbound-open")["status"] == "hosted"
+
+    # Lost HTTP result: a signed answer advances the same claim, so the worker won't answer again.
+    assert receipt(sql, "answered", "call.answered", {"call_control_id": "inbound-open"}) == "received"
+    (job,) = callback_job(sql)
+    assert (job["action"], job["greeting"]) == ("speak", "Configured rep greeting")
+    callback_result(sql, job, "ok")
+    assert callback_job(sql) == []
+    assert receipt(sql, "said", "call.speak.ended", {"call_control_id": "inbound-open"}) == "received"
+    (job,) = callback_job(sql)
+    assert job["action"] == "hangup"
+    callback_result(sql, job, "ok")
+    assert callback_job(sql) == []
+    assert (
+        sql("select count(*) from relay_events where event->>'relay_callback'='true' and event_id='open';")
+        == "1"
+    )
+
+
+def test_caller_already_gone_and_offline_fallback_retries(shared_db):
+    sql = shared_db
+    sql(f"update relay_private.number_pools set fallback_enabled=true where id='{POOL}';")
+    gone = {"call_control_id": "inbound-gone", "connection_id": "app-a"}
+    assert receipt(sql, "gone-before", "call.hangup", gone) == "pending"
+    assert inbound(sql, "gone") == [A, None]
+    assert callback_claim(sql, A, "inbound-gone")["status"] == "done"
+    assert callback_job(sql) == []
+    assert inbound(sql, "offline") == [A, None]
+    (job,) = callback_job(sql)
+    assert job["action"] == "answer"
+    callback_result(sql, job, "retry")
+    sql("update relay_private.shared_callbacks set next_at=now() where call_id='inbound-offline';")
+    (retry,) = callback_job(sql)
+    assert retry["command_id"] == job["command_id"]
+    callback_result(sql, job, "ok")  # A late completion from the old worker lease changes nothing.
+    assert callback_job(sql) == []
+    callback_result(sql, retry, "ended")
+    assert callback_job(sql) == []
 
 
 def test_shared_app_routes_two_reps_by_current_lease_and_verified_endpoints(shared_db):
@@ -338,6 +438,39 @@ def test_shared_audio_and_return_legs_never_spend_outbound_capacity(shared_db):
     assert (
         sql("select count(*) from relay_private.number_pool_attempts where submitted_at is not null;") == "1"
     )
+
+
+def test_shared_number_stays_sticky_when_a_rep_retries_and_reaches_attempt_ninety(shared_db):
+    sql = shared_db
+    assert shared_hold(sql, A, "first", PROSPECT)["phone"] == NUMBER
+    assert shared_submit(sql, A, "first", "a-first")["submitted"]
+    assert receipt(sql, "first-dial", "call.initiated", shared_out("a-first", PROSPECT)) == "received"
+    assert receipt(sql, "first-end", "call.hangup", {"call_control_id": "carrier-a-first"}) == "received"
+    assert shared_hold(sql, B, "no-carrier", PROSPECT)["phone"] == NUMBER
+    assert shared_submit(sql, B, "no-carrier", "b-unsent")["submitted"]
+    sql(f"select relay_pool_cancel('no-carrier',true,'{B}','{INSTALL}');", seat=B)
+    assert inbound(sql, "before-handoff") == [A, "a-first"]
+    sql(f"""
+      insert into relay_private.number_pool_attempts(
+        workspace_id,pool_id,ref,prospect,phone,expires_at,submitted_at,call_ref,ended_at
+      ) select '{A}','{POOL}','seed-'||g,'+1212555'||lpad(g::text,4,'0'),'{NUMBER}',
+        now(),now(),'seed-'||g,now() from generate_series(1,88) g;
+    """)
+    hold = json.loads(
+        sql(
+            f"select relay_pool_reserve('retry','{PROSPECT}','{SPARE}',false,'{B}','{INSTALL}');",
+            seat=B,
+        )
+    )
+    assert hold["phone"] == NUMBER
+    assert shared_submit(sql, B, "retry", "b-ninety")["submitted"]
+    assert receipt(sql, "ninetieth", "call.initiated", shared_out("b-ninety", PROSPECT)) == "received"
+    assert receipt(sql, "ninety-end", "call.hangup", {"call_control_id": "carrier-b-ninety"}) == "received"
+    assert (
+        receipt(sql, "late-old-answer", "call.answered", {"call_control_id": "carrier-a-first"}) == "received"
+    )
+    assert shared_hold(sql, A, "ninety-one", PROSPECT) == {"reason": "capacity", "phone": NUMBER}
+    assert inbound(sql, "at-ninety") == [B, "b-ninety"]
 
 
 def test_bindings_follow_the_prospect_and_only_confirmed_calls_change_routing(pool_db):
@@ -454,8 +587,13 @@ def test_pool_membership_and_segment_are_scoped_to_the_authenticated_workspace(p
         sql("select * from relay_private.number_pool_attempts;", seat=B)
 
 
-def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_callback(pool_db, tmp_path):
-    sql = pool_db
+@pytest.mark.parametrize("shared", [False, True], ids=["legacy", "one-application"])
+def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_callback(
+    request, tmp_path, shared
+):
+    sql = request.getfixturevalue("shared_db" if shared else "pool_db")
+    if shared:
+        sql(f"update relay_private.number_pools set fallback_enabled=true where id='{POOL}';")
     sql(f"update relay_private.number_pool_numbers set outbound_enabled=false where phone='{SPARE}';")
     second = "+14155550102"
     contacts = {"14": (PROSPECT, "Jordan"), "15": (second, "Casey")}
@@ -501,11 +639,18 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
             self.seat = seat
 
         def rpc(self, name, args):
-            assert name in {"relay_pool_reserve", "relay_pool_submit", "relay_pool_cancel"}
+            assert name in {
+                "relay_pool_reserve",
+                "relay_pool_submit",
+                "relay_pool_cancel",
+                "relay_callback_claim",
+            }
             values = ",".join(sql_string(v) if isinstance(v, str) else str(v).lower() for v in args.values())
 
             async def execute():
-                return SimpleNamespace(data=json.loads(sql(f"select {name}({values});", seat=self.seat)))
+                return SimpleNamespace(
+                    data=json.loads(sql(f"select {name}({values});", seat=self.seat) or "null")
+                )
 
             return SimpleNamespace(execute=execute)
 
@@ -561,6 +706,15 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
                 "realvalidito_api_secret": "fixture",
             },
         )
+        if shared:
+            service.managed.config = {
+                "workspace_id": seat,
+                "tenant_id": identity["tenant_id"],
+                "store_id": seat,
+            }
+            service.managed.installation = INSTALL
+            service.managed.last_exchange = monotonic()
+            service.managed.caught_up = True
         assert send("GET", "/v1/hubspot/lists")["lists"] == [{"id": segment, "name": f"Rep {segment}"}]
         send("POST", "/v1/hubspot/sync", {"list_id": segment, "list_name": f"Rep {segment}"})
         send("POST", "/v1/admin/jobs/run")
@@ -591,7 +745,10 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
             "connection_id": connection,
             "direction": "outgoing",
         }
-        assert receipt(sql, f"out-{segment}", "call.initiated", payload, seat=seat) == "received"
+        assert (
+            receipt(sql, f"out-{segment}", "call.initiated", payload, seat=A if shared else seat)
+            == "received"
+        )
         return SimpleNamespace(
             send=send,
             scope=identity["tenant_id"],
@@ -603,12 +760,17 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
 
     with ExitStack() as stack:
         a = desktop(stack, A, "14", "app-a")
-        b = desktop(stack, B, "15", "app-b")
+        b = desktop(stack, B, "15", "app-a" if shared else "app-b")
         for seat, rep in [(A, a), (B, b)]:
             rep.send("POST", f"/v1/calls/{rep.call['id']}/hangup")
             rep.send("POST", "/v1/rep/presence", {"status": "paused"})
             rep.send("POST", "/v1/rep/reachable", {"registered": True})
-            assert receipt(sql, f"ended-{seat}", "call.hangup", rep.payload, seat=seat) == "received"
+            assert (
+                receipt(sql, f"ended-{seat}", "call.hangup", rep.payload, seat=A if shared else seat)
+                == "received"
+            )
+            if shared:
+                sql(f"select relay_exchange('{seat}','{INSTALL}','[]','',true);", seat=seat)
         assert inbound(sql, "first-app", caller=PROSPECT) == [A, a.call["id"]]
         assert inbound(sql, "second-app", caller=second) == [B, b.call["id"]]
         sql(f"update relay_private.number_pool_numbers set daily_limit=2 where phone='{NUMBER}';")
@@ -616,7 +778,7 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
         for seat, rep, tag, name in [(A, a, "first-app", "Jordan"), (B, b, "second-app", "Casey")]:
             batch = json.loads(
                 sql(
-                    f"select relay_exchange('{uuid4()}','{uuid4()}');",
+                    f"select relay_exchange('{seat if shared else uuid4()}','{INSTALL if shared else uuid4()}');",
                     seat=seat,
                 )
             )
@@ -628,6 +790,25 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
             assert len(tasks) == 1 and tasks[0]["provider_id"] == f"inbound-{tag}"
             assert tasks[0]["lead_name"] == name and tasks[0]["routed_rep_id"]
             assert rep.send("GET", f"/v1/leads/{tasks[0]['lead_id']}/packet")["lead"]["name"] == name
+        if shared:
+            b.send("POST", "/v1/rep/reachable", {"registered": False})
+            sql(f"select relay_exchange('{B}','{INSTALL}','[]','',false);", seat=B)
+            assert inbound(sql, "closed-b", caller=second) == [B, b.call["id"]]
+            (job,) = callback_job(sql)
+            assert job["call_id"] == "inbound-closed-b"
+            callback_result(sql, job, "ended")
+            batch = json.loads(sql(f"select relay_exchange('{B}','{INSTALL}');", seat=B))
+            for _ in range(2):
+                b.client.portal.call(deliver, b.service, b.scope, batch["events"])
+                b.send("POST", "/v1/admin/jobs/run")
+                b.send("POST", "/v1/admin/control/run")
+            tasks = [
+                t
+                for t in b.send("GET", "/v1/workspace")["tasks"]
+                if t.get("provider_id") == "inbound-closed-b"
+            ]
+            assert len(tasks) == 1 and tasks[0]["lead_name"] == "Casey"
+            assert tasks[0]["route"] == "missed_offline" and tasks[0]["inbound_state"] == "ended"
 
         sql("update relay_private.number_pool_numbers set outbound_enabled=false;")
         a.service.managed.apply_pool_snapshot(

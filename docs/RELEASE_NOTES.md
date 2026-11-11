@@ -1,7 +1,7 @@
 # OpenDialer 2.1.0
 
-- **A shared number pool for reps.** Each computer uses its own calling profile and one assigned HubSpot segment. The pool remembers each prospect's caller ID across attempts and machines.
-- **Callbacks open the prospect.** A return call to a pool number rings the computer that placed the confirmed call from that number. The matched prospect and last outcome appear on the incoming call.
+- **A shared number pool for reps.** One Telnyx application serves the team. Each computer imports its own calling profile and syncs one HubSpot segment. The pool remembers each prospect's caller ID across attempts and machines.
+- **Callbacks open the prospect.** A return call rings the computer that placed the last confirmed call from that number. The matched prospect and last outcome appear on the incoming call. On a pool with hosted fallback enabled, an offline rep's callers hear the greeting and the rep sees a missed-call task after reconnecting.
 - **Up to 90 outbound attempts per number in 24 hours.** The shared pool applies the limit across reps. Incoming callbacks stay eligible at the outbound limit.
 
 Updating from 2.0.0 keeps the local workspace. The relay operator enables shared calling for each participating computer. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.

@@ -17,8 +17,8 @@ from app import ops
 from app.calling.blockers import CATALOG, blocked, refuse
 from app.calling.relay import after_exchange, after_failure
 from app.calling.state import TERMINAL
-from app.numbers.pool import PoolSnapshot, mirror_inventory
-from app.platform.db import MODELS
+from app.numbers.pool import PoolSnapshot, lease_params, mirror_inventory
+from app.platform.db import MODELS, rows
 from app.platform.secret_files import read_private, write_private
 from app.service import dt, fail
 
@@ -133,6 +133,7 @@ class ManagedConnection:
         self.numbers = set()
         self.pool: PoolSnapshot | None = None
         self.pool_checked = False
+        self.reachable_at = 0.0
         self.edit_lock = asyncio.Lock()
         self.speech_failed = False
         self.configuring = False
@@ -219,6 +220,26 @@ class ManagedConnection:
         self.pool = pool
         self.pool_checked = True
 
+    def publish_reachability(self, tenant_id, registered):
+        if self.enabled(tenant_id):
+            self.reachable_at = monotonic() if registered else 0.0
+            self.wake.set()
+
+    def callback_greeting(self):
+        with self.service.db.transaction(False) as session:
+            seller = next(iter(rows(session, "sellers", self.config["tenant_id"])), None)
+            return (seller.data.get("callback_routing") or {}).get("greeting", "") if seller else ""
+
+    async def claim_callback(self, tenant_id, root_id):
+        if not self.enabled(tenant_id) or not self.client or not (lease := lease_params(self)):
+            return {"status": "retry"}
+        try:
+            response = await self.client.rpc("relay_callback_claim", {"root_id": root_id, **lease}).execute()
+            return response.data
+        except Exception as error:
+            logging.getLogger(__name__).warning("Callback claim failed: %s", type(error).__name__)
+            return {"status": "retry"}
+
     async def settle_gap(self, batch, acknowledgements):
         """Clear the relay's delivery gap once nothing here is waiting on the missed events (see `after_exchange`).
 
@@ -269,6 +290,7 @@ class ManagedConnection:
 
     async def close(self):
         self.last_exchange = 0
+        self.reachable_at = 0.0
         if self.task:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
@@ -353,6 +375,12 @@ class ManagedConnection:
         self.wake.set()
 
     async def exchange(self, acknowledgements=()):
+        presence = {}
+        if self.pool and self.pool.shared_connection_id:
+            presence = {
+                "reachable": bool(self.reachable_at and monotonic() - self.reachable_at < 75),
+                "greeting": await asyncio.to_thread(self.callback_greeting),
+            }
         return (
             await self.client.rpc(
                 "relay_exchange",
@@ -361,6 +389,7 @@ class ManagedConnection:
                     "installation": self.installation,
                     "acknowledgements": list(acknowledgements),
                     "probe": "",
+                    **presence,
                 },
             ).execute()
         ).data

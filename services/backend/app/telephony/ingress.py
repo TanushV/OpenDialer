@@ -85,6 +85,7 @@ def _receive_webhook(service, tenant_id, event, body_hash, verified=False, recei
                     "received_at": received_at.isoformat(),
                     "occurred_at": event.get("occurred_at"),
                     "callback_call_id": event.get("callback_call_id") if verified else None,
+                    "relay_callback": bool(verified and event.get("relay_callback") is True),
                     "raw_expires_at": (received_at + timedelta(seconds=RAW_TTL_SECONDS)).isoformat(),
                 },
                 key=event["id"],
@@ -120,7 +121,18 @@ def _receive_webhook(service, tenant_id, event, body_hash, verified=False, recei
 
 
 async def process_webhook(service, tenant_id, receipt_id):
-    result = await asyncio.to_thread(ops._process_webhook, service, tenant_id, receipt_id)
+    def callback_root():
+        with service.db.transaction(False) as s:
+            row = get(s, "webhook_inbox", receipt_id, tenant_id)
+            if row and row.data["event_type"] == "call.initiated" and row.data.get("relay_callback"):
+                if row.data["status"] not in {"processed", "expired_raw", "ignored"}:
+                    return row.data["payload"]["call_control_id"]
+        return None
+
+    shared_pool = service.managed.pool and service.managed.pool.shared_connection_id
+    root = await asyncio.to_thread(callback_root) if shared_pool else None
+    claim = await service.managed.claim_callback(tenant_id, root) if root else None
+    result = await asyncio.to_thread(ops._process_webhook, service, tenant_id, receipt_id, claim)
     if control := result.pop("voicemail_control", None):
         principal, command_id = control
         await ops.dispatch_controls(service, principal, command_id=command_id)
@@ -129,7 +141,7 @@ async def process_webhook(service, tenant_id, receipt_id):
     return result
 
 
-def _process_webhook(service, tenant_id, receipt_id):
+def _process_webhook(service, tenant_id, receipt_id, callback_claim=None):
     owner = uid()
     with service.db.transaction() as s:
         query = select(MODELS["webhook_inbox"]).where(
@@ -149,6 +161,8 @@ def _process_webhook(service, tenant_id, receipt_id):
             lease_until=(service.clock() + timedelta(seconds=30)).isoformat(),
         )
         data = dict(receipt.data)
+        if callback_claim:
+            data["callback_claim"] = callback_claim
     payload, status = data["payload"], "processed"
     raw_writes = []
     try:

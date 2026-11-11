@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSetup } from './setup.ts';
+import { createSetup, profileEndpoint } from './setup.ts';
 const request = token => new Request('https://test/setup', {method:'POST',body:JSON.stringify({token})});
 test('missing and unknown invitations cannot create users', async () => {
   let created = 0;
@@ -26,4 +26,16 @@ test('failed activation never returns a working setup claim', async () => {
   const response=await handler(request('x'.repeat(48)));
   assert.equal(response.status,503);
   assert.ok(!(await response.text()).includes('private provider body'));
+});
+test('setup profiles use the target project URL and its publishable key', () => {
+  const env = {
+    SUPABASE_URL: 'http://internal-gateway:8000',
+    SUPABASE_PUBLISHABLE_KEYS: JSON.stringify({default:'sb_publishable_stage',other:'sb_publishable_other'}),
+    OPENDIALER_RELAY_PUBLIC_URL: 'https://stagestagestagestage.supabase.co',
+  };
+  assert.deepEqual(profileEndpoint(key => env[key]), {
+    url: env.OPENDIALER_RELAY_PUBLIC_URL, publicKey: 'sb_publishable_stage',
+  });
+  assert.throws(() => profileEndpoint(key => ({...env, OPENDIALER_RELAY_PUBLISHABLE_KEY:'sb_secret_no'})[key]));
+  assert.throws(() => profileEndpoint(key => ({...env, OPENDIALER_RELAY_PUBLIC_URL:undefined})[key]));
 });

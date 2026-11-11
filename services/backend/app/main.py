@@ -545,9 +545,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return ops.seed(service, p)
 
     @app.post("/v1/rep/reachable")
-    def rep_reachable(data: Reachable, p=Depends(principal)):
+    async def rep_reachable(data: Reachable, p=Depends(principal)):
         """D29: the open app says every 30 seconds whether its call client can ring; callbacks ring it then."""
-        return ops.reachable(service, p, data.registered)
+        saved = await asyncio.to_thread(ops.reachable, service, p, data.registered)
+        service.managed.publish_reachability(p["tenant_id"], data.registered)
+        return saved
 
     @app.post("/v1/rep/presence")
     async def presence(data: Presence, p=Depends(principal)):
@@ -963,8 +965,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
             conf = service.configs.read(p["tenant_id"])
             with db.transaction(False) as s:
                 user = ops.required(service, s, "users", p["user_id"], p)
-                credential = user.data.get("telephony_credential_id") or conf.get("telephony_credential_id")
-                sip = user.data.get("sip_username") or conf.get("sip_username")
+                sip, credential = audio_leg.identity(
+                    user.data, conf, managed=service.managed.enabled(p["tenant_id"])
+                )
             return provider, credential, sip
 
         provider, credential, sip = await asyncio.to_thread(context)

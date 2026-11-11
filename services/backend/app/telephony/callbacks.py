@@ -138,12 +138,40 @@ def _inbound_command(
         suffix=suffix,
     )
     update(command, inbound=True, after_command_id=after, inbound_attempt=attempt)
+    if (answer_id := task.data.get("relay_answer_id")) and (
+        not target or target == task.data["provider_id"] or action != "hangup"
+    ):
+        update(command, relay_answer_id=answer_id)
+        if action == "answer":
+            update(command, payload={**command.data["payload"], "command_id": answer_id})
     return command
 
 
 def _release_inbound_claim(service, s, task):
     s.execute(delete(ActiveClaim).where(ActiveClaim.call_id == task.id))
     s.flush()
+
+
+def relay_control_wait(service, p, claimed, *, retry):
+    """No carrier command was sent. Keep a transient relay failure retryable, or close a lost claim."""
+    command, task_id, _, _, owner, _ = claimed
+    with service.db.transaction() as s:
+        current = ops.required(service, s, "command_outbox", command["id"], p, lock=True)
+        if current.data.get("lease_owner") != owner:
+            return
+        update(
+            current,
+            status="pending" if retry else "cancelled",
+            sent_at=command.get("sent_at"),
+            lease_owner=None,
+            lease_until=None,
+            reason="relay_callback_unavailable",
+        )
+        if not retry:
+            task = ops.required(service, s, "followup_tasks", task_id, p, lock=True)
+            update(task, inbound_state="ended", route="missed_offline")
+            _release_inbound_claim(service, s, task)
+            emit(s, p["tenant_id"], "task.updated", task, service.clock())
 
 
 REACHABLE_SECONDS = 90
@@ -178,7 +206,11 @@ def _route_inbound(service, s, p, task, *, after=None):
     workspace_sip = service.configs.read(p["tenant_id"]).get("sip_username")
     candidates = []
     for user in ops.scoped(service, s, "users", p):
-        sip = user.data.get("sip_username") or workspace_sip
+        sip = (
+            workspace_sip
+            if task.data.get("relay_answer_id")
+            else user.data.get("sip_username") or workspace_sip
+        )
         if (
             user.id not in tried
             and sip
@@ -352,6 +384,9 @@ def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, rec
             else None
         )
         responsible = previous.data["rep_id"] if previous else None
+        shared = bool((receipt or {}).get("relay_callback"))
+        claim = (receipt or {}).get("callback_claim") or {}
+        answer_id = claim.get("answer_id") if claim.get("status") == "desktop" else None
         task = put(
             s,
             "followup_tasks",
@@ -377,6 +412,7 @@ def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, rec
                 "event_id": event_id,
                 "routing_config": ops.callback_config(service, s, p),
                 "inbound_verified": bool(receipt and receipt.get("signature_verified")),
+                "relay_answer_id": answer_id,
                 "routing_attempts": [],
                 "inbound_deadline": (
                     (dt((receipt or {}).get("received_at")) or service.clock()) + timedelta(seconds=40)
@@ -385,7 +421,7 @@ def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, rec
             key="callback:" + payload["call_control_id"],
             now=service.clock(),
         )
-        if dt(task.data["inbound_deadline"]) <= service.clock():
+        if (shared and not answer_id) or dt(task.data["inbound_deadline"]) <= service.clock():
             update(task, inbound_state="ended", route="missed_offline")
             emit(s, tenant_id, "task.updated", task, service.clock())
             return doc(task)

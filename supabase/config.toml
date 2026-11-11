@@ -4,3 +4,6 @@ verify_jwt = false
 
 [functions.managed-setup]
 verify_jwt = false
+
+[functions.callback-fallback]
+verify_jwt = false

@@ -21,6 +21,7 @@ class PoolSnapshot(BaseModel):
     id: str
     segment_id: str = Field(pattern=r"^[0-9]{1,40}$")
     shared_connection_id: str | None = None
+    offline_fallback: bool = False
     numbers: tuple[PoolNumber, ...]
 
     def number(self, phone):

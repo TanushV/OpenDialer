@@ -37,55 +37,87 @@ computer and reconcile calls, then restore its local data plus private managed c
 
 ## Shared number pool (2.1)
 
-Use two distinct 2.1 setup profiles with dedicated Telnyx applications and audio credentials. Apply the pool
-migration in staging and verify that each application can display the same account-owned caller ID while the
-number keeps its incoming route. The incoming application and its signature key must already have a
-`relay_routes` entry. Use its workspace as the default destination for an unknown caller.
+Use one Telnyx account, one Call Control application, one credential-based SIP connection, and one relay project
+per environment. Point that Call Control application at the relay's `/functions/v1/telnyx-webhook`. Its numbers
+keep that incoming route. Set its outbound voice profile and verify enough Telnyx channels for both simultaneous
+calls. On the SIP credential connection set `sip_uri_calling_preference=internal` and leave its outbound voice
+profile unset. Create a distinct **Telephony Credential** for each rep on that connection. The account API key
+can be the same for both reps; separate keys let the operator revoke them independently.
+[Telnyx contact center guide](https://developers.telnyx.com/docs/voice/webrtc/use-cases/contact-center).
 
-As the relay operator, add a row to `relay_private.number_pools` with the account ID. Add one
-`number_pool_members` row per workspace, using a distinct HubSpot segment ID for each rep. Add each existing
-number to `number_pool_numbers` with its fixed incoming connection ID. Set a smaller `daily_limit` for any
-number still ramping. The default and maximum are 90 outbound attempts in a rolling 24 hours. Pause outbound
-with `outbound_enabled=false` so old return calls still reach the rep. Keep the number and its incoming route
-registered until old callbacks have aged out.
+1. Deploy to the isolated pilot relay first. Use an approved number on a test Call Control application. Set
+   `OPENDIALER_RELAY_PUBLIC_URL` if the runtime's gateway URL differs from the project's public HTTPS URL.
+   Setup uses the project's default publishable key, or `OPENDIALER_RELAY_PUBLISHABLE_KEY` if explicitly set.
+   Service keys stay with the operator and on the relay.
+2. Create the first workspace and its application signing route using
+   [provision_rep.py](../scripts/provision_rep.py) with `--bootstrap-account` and `--signing-key` (the Telnyx Ed25519
+   public key). Use an already registered route instead if deliberately adopting a legacy workspace after the
+   pilot. The workspace behind that route is the default for a caller with no known history. Turning that rep off
+   does not turn off signing for the pool.
+3. Using the administrator connection for the target relay, create a row in `relay_private.number_pools` with a
+   new UUID, the account ID, and `shared_connection_id` set to the registered application. Add the first workspace
+   to `number_pool_members` with its HubSpot segment ID. Add the approved numbers to `number_pool_numbers` with the
+   same fixed connection ID. Leave the hosted fallback disabled until the worker is deployed.
+4. For the next rep, issue a separate profile on the same application. The invitation adds its workspace and segment
+   together. Each rep imports their own file in **Settings → Call connection**. A profile may carry the Telnyx account
+   key and HubSpot service key; otherwise enter them in Settings. Use the private transfer already approved for setup
+   files.
 
-The authenticated exchange supplies only the current profile's pool and segment. A rep's first successful
-reservation binds that prospect to a number. For a migration with existing bindings, seed the pool's bindings
-using confirmed assignments, or let each desktop offer its existing number on its first shared reservation.
-The relay records callback ownership when it sees a signed event for the submitted call. Ownership lasts
-with the binding, and both the inbound call and its transfer leg stay on that desktop. The desktop handles
-an active call and the greeting. The relay keeps a matched missed-call receipt for up to 30 days so an offline
-desktop can record it after reconnecting.
+```sh
+uv run python scripts/provision_rep.py \
+  --relay-ref "$OPENDIALER_STAGING_REF" --connection "$OPENDIALER_TELNYX_APP" \
+  --pool "$OPENDIALER_POOL_ID" --segment "$OPENDIALER_REP_SEGMENT" \
+  --credential "$OPENDIALER_REP_CREDENTIAL" --sip-user "$OPENDIALER_REP_SIP_USER" \
+  --label "Pilot rep B" --output "$OPENDIALER_PRIVATE_PROFILES/rep-b.json"
+```
 
-To check the second computer's audio, start a Test call in Settings to its approved test line. Call the
-displayed number back and answer on that computer. Test a paused desktop, a hidden window and a number at
-its outbound cap before making the pool available to live lists.
+Set `OPENDIALER_RELAY_ADMIN_KEY` in the operator's environment for that command. Optional
+`OPENDIALER_PROFILE_TELNYX_KEY` and `OPENDIALER_PROFILE_HUBSPOT_KEY` go only into the private file. No keys or profile
+files belong in Git. Give each computer its own setup file; importing the same file on two computers shares one lease.
+
+A prospect keeps the same caller ID across reps. Seed confirmed existing caller IDs and callback ownership before a
+production cutover, or let the first pooled reservation offer its existing local caller ID. Cap each number at up to
+90 outbound attempts in a rolling 24 hours. Internal audio legs, callbacks and transfers do not spend those attempts.
+Pausing outbound leaves the inbound route and callback history intact. The relay records which rep last called from
+that number when it sees a signed carrier event for a submitted call. A missed callback stays in the rep's inbox for
+up to 30 days. The app opens the locally matched prospect.
 
 ## Deploy and verify
 
-Apply migrations in order. Deploy `telnyx-webhook` and `managed-setup` with platform JWT verification disabled:
-they authenticate with Telnyx signatures and operator-issued invitations respectively. Both use the server-provided
-service-role environment variable; never export it into a caller profile. Set the publishable key in the setup
-function to the target project's public key when deploying another project.
+Use the CLI v3 remote target and compare the dry run with the local migration IDs. Apply the migrations before
+deploying Edge code. Use these commands against the pilot relay first:
+
+```sh
+supabase db push --remote="$OPENDIALER_STAGING_REF" --dry-run --skip-vault
+supabase db push --remote="$OPENDIALER_STAGING_REF" --skip-vault
+supabase functions deploy telnyx-webhook managed-setup callback-fallback --remote="$OPENDIALER_STAGING_REF"
+```
+
+The production URL stays the same when the receiver is redeployed after the pilot. The functions authenticate with
+the Telnyx signature, the operator invitation, or the worker token respectively, so platform JWT verification is off.
+
+For the hosted greeting, set Edge secrets `OPENDIALER_TELNYX_CALLBACK_KEY`, `OPENDIALER_TELNYX_ACCOUNT_ID` and a
+random `OPENDIALER_CALLBACK_WORKER_TOKEN` of at least 32 characters. The worker uses its account key only to check and
+control the original callback. Save the matching worker token and the project HTTPS function URL in Vault as
+`opendialer_callback_worker_token` and `opendialer_callback_worker_url`. Apply
+[enable_callback_worker.sql](operations/enable_callback_worker.sql) on that relay as administrator. The Cron job sends
+a wake only when the database has due work. Enable `number_pools.fallback_enabled` on the pilot pool after deployment.
+Use the [two-rep pilot checklist](../docs/REBUILD_PLAN.md#phase-12-shared-calling-in-21). For rollback, pause pooled
+outbound first. Keep the signing route and callback bindings in service while in-flight calls settle.
 
 ```sh
 node --test supabase/functions/*/*.test.mjs
+OPENDIALER_REQUIRE_RELAY_TESTS=1 uv run pytest -q tests/test_relay_pool.py
 ```
 
-`tests/isolation.sql` describes the earlier disposable two-user fixture. `tests/setup-retention.sql` runs rollback-only
-assertions against the provisioned Mac workspace. Neither creates production Auth users through SQL.
-
-New calls require a fresh private-channel probe, drained local controls and an exclusive 45-second lease. Probes
-and idle catch-up use RPC every 20 seconds, not Edge Function polling. After an unclean restart another consumer
-may wait for the old lease to expire. Pending payloads expire after 24 hours with a gap marker; acknowledgement
-immediately clears payloads, and dedupe/call mapping records expire after seven days. Hourly Cron performs cleanup.
-The service-only tables have no client RLS policies or grants intentionally. The generic leaked-password advisory
-remains at the Free project's default; profile passwords are generated random credentials, not human passwords.
+`tests/isolation.sql` and `tests/setup-retention.sql` cover legacy relay access and retention. New calls require a fresh
+relay connection and one exclusive 45-second installation lease. Realtime wakes the desktop; it also polls over
+HTTP. The desktop acknowledges events after saving them. Acknowledgement clears payloads; the relay keeps dedupe
+and call routing records for seven days. Private control tables are available only to server roles.
 
 ## Evidence boundary
 
 Real Supabase delivery, isolated accounts, credential refresh and imported connection settings are tested.
 Authenticated Telnyx/Soniox socket access was checked without sending audio. Browser audio checks use synthetic
 tracks. A purchased/owned number, real PSTN call, microphone/WebRTC hardware, Windows packaging, paid inference,
-actual provider charges and measured production usage remain separate live checks. Do not promise free-tier uptime
-or offline laptop call handling. See [the current evidence](../docs/evidence/lean/managed-integration-20261029.json).
+actual provider charges and measured production usage remain separate live checks. Hosted uptime and carrier audio while a laptop is offline need the live pilot. See [the current evidence](../docs/evidence/lean/managed-integration-20261029.json).

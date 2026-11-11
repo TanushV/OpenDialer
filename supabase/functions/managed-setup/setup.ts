@@ -5,6 +5,15 @@ type Services = {
   activate: (hash: string) => Promise<void>;
   url: string; publicKey: string;
 };
+export function profileEndpoint(env: (key: string) => string | undefined) {
+  const url = env("OPENDIALER_RELAY_PUBLIC_URL") ?? env("SUPABASE_URL");
+  const publicKey = env("OPENDIALER_RELAY_PUBLISHABLE_KEY") ??
+    JSON.parse(env("SUPABASE_PUBLISHABLE_KEYS") ?? "{}").default;
+  if (!url || !/^https:\/\/[a-z]{20}\.supabase\.co$/.test(url) ||
+      typeof publicKey !== "string" || !publicKey.startsWith("sb_publishable_"))
+    throw Error("Setup endpoint is not configured");
+  return {url, publicKey};
+}
 export function createSetup(service: Services) {
   return async (request: Request) => {
     if (request.method !== "POST") return new Response("Method not allowed", {status:405});

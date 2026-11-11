@@ -469,6 +469,14 @@ def preflight(service, p, *, full=True, deep=False):
     if service.managed.enabled(p["tenant_id"]):
         connected = service.managed.status()["connected"]
         for capability in capabilities:
+            if capability["id"] == "offline_callback" and (
+                service.managed.pool and service.managed.pool.offline_fallback
+            ):
+                capability.update(
+                    state="configured",
+                    reason_codes=["HOSTED_CALLBACK_GREETING_CONFIGURED"],
+                    remedy="Missed calls appear in Review. Test the greeting with the app closed.",
+                )
             if capability["id"] == "local_ingress":
                 capability.update(
                     state="software_verified" if connected else "degraded",
