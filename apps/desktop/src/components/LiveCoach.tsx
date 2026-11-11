@@ -27,7 +27,7 @@ function HelperStatus({ call }: { call: Call | null }) {
   );
 }
 
-/** The live helper: a tip while the prospect talks, and a private answer when the rep asks (F1 or a question). */
+/** Surface a prepared script response automatically or when the rep asks privately. */
 export function LiveCoach({
   call,
   onChange,
@@ -140,13 +140,11 @@ export function LiveCoach({
           <Sparkles size={15} /> Live helper
         </strong>
         <span className="fine">
-          {advice?.status === "streaming"
-            ? "Writing…"
-            : waiting
-              ? "Thinking with your call…"
-              : muted
-                ? "Automatic tips muted"
-                : "Tips follow what the prospect says"}
+          {waiting
+            ? "Choosing a script line…"
+            : muted
+              ? "Automatic tips muted"
+              : "Tips come from your script"}
         </span>
         <HelperStatus call={call} />
         <div className="helper-actions">
@@ -178,13 +176,7 @@ export function LiveCoach({
       </div>
       <div className="helper-primary" aria-live="polite">
         <div className="helper-advice">
-          <p>
-            {advice?.say_or_ask ||
-              (active
-                ? "Listening. Keep following your script."
-                : "Tips appear here during a call.")}
-          </p>
-          {advice?.script_part && (
+          {advice?.script_part ? (
             <div
               className="helper-script-part"
               data-testid="helper-script-part"
@@ -192,6 +184,13 @@ export function LiveCoach({
               <small>From your script · {advice.script_part.label}</small>
               <p>{advice.script_part.text}</p>
             </div>
+          ) : (
+            <p>
+              {advice?.say_or_ask ||
+                (active
+                  ? "Listening. Keep following your script."
+                  : "Tips appear here during a call.")}
+            </p>
           )}
         </div>
         {advice && (

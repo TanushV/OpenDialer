@@ -1,3 +1,4 @@
+import re
 from uuid import uuid4
 
 from app.providers.errors import CarrierNotSubmitted, UncertainCarrierResult  # noqa: F401 (older imports)
@@ -130,37 +131,18 @@ class SimulatedSummaryModel:
 
 
 class SimulatedCoach:
-    """Simulation's live helper model: a fixed reply to the last prospect line or private question; no network."""
+    """Select a script response locally using words from the last prospect line or private question."""
 
     def __init__(self):
         self.last_usage, self.last_request_id, self.last_provider = {"cost": 0}, "simulated", "Cerebras"
         self.last_model, self.first_text_ms = "simulated", 0.0
 
-    async def converse(self, messages, *, on_progress=None, quiet="", deadline_ms=8000):
+    async def converse(self, messages, *, quiet="", deadline_ms=8000):
         lines = messages[-1]["content"].splitlines()
         question = next((line.split(": ", 1)[1] for line in lines if line.startswith("Private question")), "")
         said = next((line.split(": ", 1)[1] for line in reversed(lines) if line.startswith("Prospect: ")), "")
-        # Pull up the first script part that shares a word with what was just said, else the first part.
-        parts = [line for line in lines if line[:1].isdigit() and ". " in line]
-        heard = {w.strip(".,?!").lower() for w in (question or said).split() if len(w) > 3}
-        chosen = next(
-            (
-                i
-                for i, line in enumerate(parts, 1)
-                if heard & {w.strip(".,?!:").lower() for w in line.split()}
-            ),
-            1 if parts else None,
-        )
-        head = f"Part: {chosen}\n" if chosen else ""
-        if question:
-            text = (
-                head
-                + f"Privately: {question.rstrip('?')}? Answer briefly, then ask how they handle it today."
-            )
-        elif said:
-            text = head + f"They said “{said[:80]}”. Acknowledge it, then ask one question about it."
-        else:
-            text = quiet
-        if on_progress is not None and text != quiet:
-            await on_progress(text)
-        return text
+        parts = [line for line in lines if re.match(r"^\d+\. ", line)]
+        heard = set(re.findall(r"[a-z]{4,}", (question or said).lower()))
+        overlap = [len(heard.intersection(re.findall(r"[a-z]{4,}", part.lower()))) for part in parts]
+        score = max(overlap, default=0)
+        return f"Part: {overlap.index(score) + 1}" if score else quiet

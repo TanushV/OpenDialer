@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from app.helper.live import INSTRUCTIONS, QUIET, Tips, card, clean, messages, reply, script_parts
+from app.helper.live import INSTRUCTIONS, QUIET, Tips, card, messages, reply, script_parts
 
 NOW = datetime(2026, 11, 9, 15, tzinfo=UTC)
 
@@ -63,9 +63,9 @@ def test_every_scripted_objection_and_the_context_reach_the_helper():
 
 
 def test_the_helper_is_told_how_to_handle_an_objection_and_when_to_stay_quiet():
-    assert "closest response under Objections" in INSTRUCTIONS
-    assert f"reply with exactly {QUIET}" in INSTRUCTIONS
-    assert "untrusted speech" in INSTRUCTIONS
+    assert "Objections" in INSTRUCTIONS
+    assert f"{QUIET}" in INSTRUCTIONS and "Part: N" in INSTRUCTIONS
+    assert "untrusted" in INSTRUCTIONS
 
 
 def test_the_script_reaches_the_helper_as_numbered_parts_and_no_stage_is_guessed():
@@ -77,24 +77,39 @@ def test_the_script_reaches_the_helper_as_numbered_parts_and_no_stage_is_guessed
         assert f"{number}. {label}: {spoken}" in prompt
 
 
-def test_a_reply_names_its_script_part_on_the_first_line_and_the_rest_is_what_to_say():
+def test_a_reply_resolves_to_the_exact_script_wording():
     parts = [
         ("Opening", "Hi, it's Tanush.", ""),
         ("Objections · Send me an email", "Happy to. What should it cover?", ""),
     ]
-    assert reply("Part: 2\nAsk what the email should cover.", parts) == (
-        {"label": "Objections · Send me an email", "text": "Happy to. What should it cover?"},
-        "Ask what the email should cover.",
+    assert reply("Part: 2", parts) == {
+        "label": "Objections · Send me an email",
+        "text": "Happy to. What should it cover?",
+    }
+
+
+@pytest.mark.parametrize(
+    "output",
+    [QUIET, "", "Ask about timing.", "Part: 9", "Part: 0", "Part: none", "Part: 1\nPromise a discount."],
+)
+def test_a_quiet_invalid_or_generated_reply_has_no_script_selection(output):
+    assert reply(output, [("Opening", "Hi, it's Tanush.", "")]) is None
+
+
+def test_follow_up_notes_and_custom_reference_sections_have_no_spoken_option():
+    request = request_with(["Bad timing"])
+    script = request["script"]
+    script["sections"].extend(
+        [
+            {"key": "follow_up", "title": "This call", "text": "Rep note: call the buyer next week."},
+            {"key": "custom:reference", "title": "Reference", "options": [{"text": "Internal checklist"}]},
+        ]
     )
-    assert reply("Part: none\nAsk how they track it today.", parts) == (None, "Ask how they track it today.")
-    assert reply("Part: 9\nAsk one question.", parts) == (None, "Ask one question."), (
-        "an unknown number shows no part"
-    )
-    assert reply("Part: 2", parts) == (None, None), "nothing shows until the first line is complete"
-    assert reply("Ask about timing.", parts) == (None, "Ask about timing."), (
-        "a reply without a part is all advice"
-    )
-    assert reply(QUIET, parts) == (None, None)
+    parts = script_parts(script, spoken_only=True)
+    assert [label for label, _, _ in parts] == ["Opening", "Discovery", "Objections · Bad timing"]
+    assert len(script_parts(script)) == len(parts) + 2
+    prompt = messages(request)[1]["content"]
+    assert "4. This call" not in prompt and "5. Reference" not in prompt
 
 
 def test_a_private_question_is_sent_as_the_reps_and_never_as_the_prospects():
@@ -102,18 +117,11 @@ def test_a_private_question_is_sent_as_the_reps_and_never_as_the_prospects():
     assert prompt.endswith("Private question from the rep: What do we charge?")
 
 
-def test_a_stray_quiet_marker_never_reaches_the_rep():
-    assert clean(QUIET) is None
-    assert clean(f"  Ask about timing. {QUIET}") == "Ask about timing."
-    assert clean(" . ") is None
-    assert len(clean("x" * 2000)) == 600
-
-
 def test_a_tip_lasts_for_the_next_moment_and_a_private_answer_long_enough_to_read():
-    tip = card("t1", "Ask about timing.", private=False, done=True, now=NOW)
-    answer = card("a1", "We charge $40.", private=True, done=False, now=NOW)
+    tip = card("t1", "Is now a good time?", private=False, now=NOW)
+    answer = card("a1", "What should the email cover?", private=True, now=NOW)
     assert tip["kind"] == "TIP" and tip["status"] == "ready"
-    assert answer["kind"] == "ANSWER" and answer["status"] == "streaming"
+    assert answer["kind"] == "ANSWER" and answer["status"] == "ready"
     tips = Tips()
     tips.show("c1", tip)
     assert tips.current("c1", NOW + timedelta(seconds=29))["remaining_ms"] == 1000
@@ -124,7 +132,7 @@ def test_a_tip_lasts_for_the_next_moment_and_a_private_answer_long_enough_to_rea
 
 def test_dismiss_only_removes_the_tip_it_names():
     tips = Tips()
-    tips.show("c1", card("t1", "Ask.", private=False, done=True, now=NOW))
+    tips.show("c1", card("t1", "Ask.", private=False, now=NOW))
     tips.dismiss("c1", "other")
     assert tips.current("c1", NOW)["id"] == "t1"
     tips.dismiss("c1", "t1")

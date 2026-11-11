@@ -1563,7 +1563,10 @@ Goal: finish the remaining surface and ship.
 
 Live helper and after-call:
 
-- [x] R10.1 Live helper: streamed tips and private help only; remove interpretation layers that nothing else uses.
+- [x] R10.1 Live helper: scripted tips and private help only; remove interpretation layers that nothing else uses.
+      November 11: automatic tips and private requests pick one spoken response from the call's prepared script.
+      The app validates the completed selection and displays the prepared wording verbatim. Phone screening shows
+      the prepared Screening line directly.
       November 10, after the owner's live calls: each tip now also pulls up the one script part that fits the moment
       (the model names it from the numbered script), shown under the tip; the word-matching "current stage" is gone
       from the live path. The live transcript that feeds it failed on every auto-dialed call (a WebKit audio engine
@@ -2009,3 +2012,6 @@ test assets and admin access before asking for anything. The signed rollout foll
   Phone values, number changes during calling, and phone write-back. The two-profile replay test used CRM leads
   through the normal queue. A rollback-only check on the existing Supabase relay confirmed separate callback inboxes
   at the outbound cap. [HubSpot phone verification](evidence/rebuild/2026-11-11-2.1-shared-application.md#hubspot-numbers-already-on-contacts).
+- November 11, 2026: automatic tips and private help now show the exact response chosen from the prepared
+  script. Phone screening uses the prepared Screening line. Backend acceptance tests and the local WebKit
+  Dialer replay passed.

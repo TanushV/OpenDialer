@@ -66,27 +66,28 @@ test("live events deliver helper tips and conversion recording without call poll
   await importLead(page, "Live events fixture", "+14155550706");
   await startDialing(page);
   await answer(page);
+  const line = "Happy to. What should it cover so it's worth opening?";
   await page
     .getByLabel("Simulation transcript")
-    .fill("The budget is not approved.");
+    .fill("Could you send me an email?");
   await page.getByRole("button", { name: "Add prospect turn" }).click();
   const strip = page.getByTestId("live-coaching-strip");
-  await expect(
-    strip.getByText("The budget is not approved.", { exact: false }),
-  ).toBeVisible();
+  const selected = strip.getByTestId("helper-script-part");
+  await expect(selected).toContainText(
+    "From your script · Objections · Send me an email",
+  );
+  await expect(selected.locator("p")).toHaveText(line);
   await page.getByRole("button", { name: "Private help", exact: true }).click();
   await page
     .getByLabel("Private helper question")
-    .fill("How do I answer budget?");
+    .fill("Which line should I use to send an email?");
   await page
     .getByRole("button", { name: "Ask privately", exact: true })
     .click();
   await expect(
     strip.getByText("Private answer", { exact: true }),
   ).toBeVisible();
-  await expect(
-    strip.getByText("How do I answer budget", { exact: false }),
-  ).toBeVisible();
+  await expect(selected.locator("p")).toHaveText(line);
   expect(sockets.some((url) => url.endsWith("/v1/live"))).toBeTruthy();
   await pauseCalling(page).click();
   await hangUp(page).click();

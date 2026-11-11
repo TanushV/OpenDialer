@@ -1850,7 +1850,7 @@ nav button.active svg {
   margin: 10px 0 0;
   line-height: 1.5;
 }
-/* The script part the helper pulled up: three lines at most, so the call view never moves much. */
+/* Keep long script responses readable without pushing the call controls away. */
 .helper-advice {
   min-width: 0;
 }
@@ -1862,10 +1862,10 @@ nav button.active svg {
 }
 .helper-script-part p {
   margin: 2px 0 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  max-height: 4.5em;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .helper-actions {
   flex-shrink: 0;

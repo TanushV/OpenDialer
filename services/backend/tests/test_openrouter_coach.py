@@ -118,7 +118,7 @@ async def test_the_provider_may_be_named_only_in_routing_metadata():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("finish", ["content_filter", None])
+@pytest.mark.parametrize("finish", ["content_filter", "length", None])
 async def test_an_unfinished_or_filtered_reply_is_a_failure(finish):
     text = (
         stream_frames(["Ask about timing."], finish=finish)

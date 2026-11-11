@@ -1,7 +1,6 @@
 """The live helper's model route (R10.1): OpenRouter, served only by Cerebras, with no retention or data collection.
 
-One streamed plain-text reply per turn. Partial text is offered as it grows, but only once the route is verified as
-Cerebras; a reply from any other provider is refused.
+One streamed selection per turn. The app receives the completed reply after the route is verified as Cerebras.
 """
 
 import asyncio
@@ -26,7 +25,7 @@ ROUTE = {
 RESPONSE_BYTES = 262144
 # Reasoning tokens count against the completion cap even with reasoning excluded from the response.
 MAX_COMPLETION_TOKENS = 4096
-# A streamed reply is shown as it grows, at most this often, never one write per token.
+# An optional progress callback runs at most this often.
 PROGRESS_SECONDS = 0.25
 PROGRESS_CHARS = 24
 
@@ -164,7 +163,7 @@ class OpenRouterCoach:
             raise RouteNotVerified("provider_unverified")
         if not is_cerebras(self.last_provider):
             raise RouteNotVerified("provider_mismatch")
-        if not state["done"] or state["finished"] not in {"stop", "length"}:
+        if not state["done"] or state["finished"] != "stop":
             raise InferenceError("Coach stream did not finish")
         return "".join(content)
 

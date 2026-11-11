@@ -373,7 +373,7 @@ test("a same-version stale help read cannot restore withdrawn guidance", async (
   }
 });
 
-test("a tip shows the script part it pulled up, and the call view keeps its keys in sight", async ({
+test("a tip shows the exact script wording once and keeps the call controls in sight", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1024, height: 720 });
@@ -381,6 +381,9 @@ test("a tip shows the script part it pulled up, and the call view keeps its keys
   await prepareSimulationCall(page, "Script part fixture", "+14155550885");
   const original = await firstCall(page);
   await answer(page);
+  const line = "Happy to send it. What should it cover so it's useful? "
+    .repeat(10)
+    .trim();
   await page.route(`**/v1/calls/${original.id}`, async (route) => {
     const response = await route.fetch();
     const body = await response.json();
@@ -389,12 +392,10 @@ test("a tip shows the script part it pulled up, and the call view keeps its keys
       kind: "TIP",
       private: false,
       status: "ready",
-      say_or_ask: "Ask what the email should cover, then offer two times.",
+      say_or_ask: line,
       script_part: {
         label: "Objections · Send me an email",
-        text: "Happy to send it. So it's useful, what should it cover: the time your team spends or the cost? ".repeat(
-          4,
-        ),
+        text: line,
       },
       remaining_ms: 60000,
     };
@@ -406,6 +407,9 @@ test("a tip shows the script part it pulled up, and the call view keeps its keys
   await expect(part).toContainText(
     "From your script · Objections · Send me an email",
   );
-  await expect(page.getByText("Ask what the email should cover")).toBeVisible();
+  await expect(part.locator("p")).toHaveText(line);
+  await expect(
+    page.getByTestId("live-coaching-strip").getByText(line, { exact: true }),
+  ).toHaveCount(1);
   await expect(hangUp(page)).toBeInViewport();
 });

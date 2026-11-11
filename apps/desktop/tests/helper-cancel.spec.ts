@@ -48,49 +48,51 @@ async function activeHelper(page: Page, coach?: Record<string, unknown>) {
       throw new Error("The injected helper call never appeared");
   }
   await help.click();
-  return () => {
-    coach = undefined;
-    delete call.coach;
+  return (next?: Record<string, unknown>) => {
+    coach = next;
+    if (next) call.coach = next;
+    else delete call.coach;
   };
 }
 
-test("a private answer shows as it is written and Cancel stays available until it is done", async ({
+test("private help stays cancellable until the selected script line is ready", async ({
   page,
 }) => {
+  const line = "Which part of the approval process should we clarify?";
   const coach = {
-    id: "streamed-private-answer",
+    id: "private-script-selection",
     kind: "ANSWER",
-    status: "streaming",
+    status: "ready",
     private: true,
-    say_or_ask: "Which part of the approval process should we clarify?",
+    say_or_ask: line,
+    script_part: { label: "Discovery", text: line },
     remaining_ms: 300000,
     expires_at: new Date(Date.now() + 300000).toISOString(),
   };
-  await activeHelper(page, coach);
+  const show = await activeHelper(page);
   let release!: () => void;
   const delayed = new Promise<void>((resolve) => {
     release = resolve;
   });
   await page.route("**/v1/calls/*/coach", async (route) => {
     await delayed;
-    coach.status = "ready";
+    show(coach);
     await route.fulfill({ json: { status: "shown" } });
   });
   try {
     await page
       .getByRole("button", { name: "Ask privately", exact: true })
       .click();
-    await expect(
-      page.getByText(coach.say_or_ask, { exact: true }),
-    ).toBeVisible();
-    await expect(page.getByText("Writing…", { exact: true })).toBeVisible();
+    const waiting = page.getByText("Choosing a script line…", { exact: true });
+    await expect(waiting).toBeVisible();
+    await expect(page.getByText(line, { exact: true })).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Cancel help", exact: true }),
     ).toBeEnabled();
     release();
-    await expect(page.getByText("Writing…", { exact: true })).toBeHidden();
+    await expect(waiting).toBeHidden();
     await expect(
-      page.getByText(coach.say_or_ask, { exact: true }),
+      page.getByTestId("helper-script-part").getByText(line, { exact: true }),
     ).toBeVisible();
   } finally {
     release();

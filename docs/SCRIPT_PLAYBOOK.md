@@ -26,6 +26,10 @@ requested for preparation. While that runs, the app displays the current base, n
 Formatting-only edits keep the generation identity and do not consume model work. Active calls retain the script
 frozen when they started. A job for superseded input cannot publish its script as current.
 
+During the call, Live helper uses the transcript or an F1 or typed private request to pick a response from that
+frozen script. It displays the prepared wording as written. Put spoken alternatives in the named spoken sections,
+such as Objections. The rep can read custom reference sections and the This call notes in the script.
+
 After saving, the editor tells you whether the edit needs a rewrite. **Prepared scripts** on the Script page shows
 the current master version, unique active lead count and ready/waiting/in-progress/failed results. If AI is disconnected
 or preparation is paused, it shows the action needed. Paused or removed contacts refresh after they become active again.

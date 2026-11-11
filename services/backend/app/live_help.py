@@ -1,7 +1,7 @@
 """The live helper wired to the store (R10.1). The rules live in `helper/live.py`.
 
-A turn reads the call's script, the lead, its research, earlier calls' summaries and the call so far, streams one reply
-into memory and tells the Dialer to re-read the call. It never writes the call, the lead or a task.
+A turn uses the call's script, lead context and dialogue to select a spoken response from the script.
+Only the resolved script wording is published to the Dialer. A turn never writes the call, the lead or a task.
 """
 
 import asyncio
@@ -134,15 +134,12 @@ def _prepare(service, p, call_id, question, automatic):
 
 
 def _publish(service, p, call_id, tip):
-    """Show `tip` (None clears it) and tell the Dialer to re-read the call."""
+    """Show a completed selection and tell the Dialer to re-read the call."""
     with service.db.transaction() as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         if not _live(service, s, p, call):
             return False
-        if tip is None:
-            service.tips.dismiss(call_id)
-        else:
-            service.tips.show(call_id, tip)
+        service.tips.show(call_id, tip)
         emit(s, p["tenant_id"], "coach.card_ready", call, service.clock())
         return True
 
@@ -166,10 +163,17 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
     if request is None:
         return {**result, "status": skipped}
     if automatic and live.screener(request["dialogue"]):
-        # R11.8: a fixed line, with no model call and no key needed.
-        tip = live.card(identity, live.SCREENER_TIP, private=False, done=True, now=service.clock())
-        await asyncio.to_thread(_publish, service, p, call_id, tip)
-        return {**result, "status": "shown"}
+        # R11.8: show the rendered screening line without a model or key.
+        screening = (request.get("script") or {}).get("screening_intro")
+        part = {"label": "Screening", "text": screening} if screening else None
+        tip = live.card(
+            identity, screening or live.SCREENER_TIP, private=False, now=service.clock(), part=part
+        )
+        published = await asyncio.to_thread(_publish, service, p, call_id, tip)
+        return {**result, "status": "shown" if published else "ended"}
+    parts = live.script_parts(request.get("script"), spoken_only=True)
+    if not parts:
+        return {**result, "status": "quiet"}
     coach = await asyncio.to_thread(provider, service, p)
     if coach is None:
         service.tips.status[call_id] = {"status": "paused", "reason": "not_configured"}
@@ -181,20 +185,9 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
         service.tips.status[call_id] = {"status": "paused", "reason": "budget"}
         return {**result, "status": "unavailable"}
 
-    parts = live.script_parts(request.get("script"))
-
-    async def progress(text):
-        part, shown = live.reply(text, parts)
-        if shown:
-            tip = live.card(identity, shown, private=private, done=False, now=service.clock(), part=part)
-            await asyncio.to_thread(_publish, service, p, call_id, tip)
-
-    async def run():
-        return await coach.converse(
-            live.messages(request), on_progress=progress, quiet=live.QUIET, deadline_ms=live.DEADLINE_MS
-        )
-
-    task = asyncio.create_task(run())
+    task = asyncio.create_task(
+        coach.converse(live.messages(request, parts=parts), quiet=live.QUIET, deadline_ms=live.DEADLINE_MS)
+    )
     service.tips.start(call_id, identity, task)
     text, status, unsent = None, "shown", False
     try:
@@ -211,18 +204,13 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
     finally:
         service.tips.finish(call_id, task)
         await asyncio.to_thread(_settle, service, p, coach, call_id, key, unsent)
-    if status == "cancelled":
-        await asyncio.to_thread(_withdraw, service, p, call_id, identity)
-        return {**result, "status": status}
-    if status == "unavailable":
-        await asyncio.to_thread(_withdraw, service, p, call_id, identity)
+    if status != "shown":
         return {**result, "status": status}
     service.tips.status[call_id] = {"status": "available"}
-    part, shown = live.reply(text, parts)
-    if shown is None:
-        await asyncio.to_thread(_withdraw, service, p, call_id, identity)
+    part = live.reply(text, parts)
+    if part is None:
         return {**result, "status": "quiet"}
-    tip = live.card(identity, shown, private=private, done=True, now=service.clock(), part=part)
+    tip = live.card(identity, part["text"], private=private, now=service.clock(), part=part)
     published = await asyncio.to_thread(_publish, service, p, call_id, tip)
     return {**result, "status": "shown" if published else "ended"}
 
@@ -241,13 +229,6 @@ def _settle(service, p, coach, call_id, key, unsent):
         )
     except Exception as exc:  # The ledger never decides whether the rep sees a tip.
         log.warning("Live helper usage was not recorded: %s", type(exc).__name__)
-
-
-def _withdraw(service, p, call_id, identity):
-    """A turn that ended without an answer takes back anything it showed while writing."""
-    current = service.tips.shown.get(call_id)
-    if current and current["id"] == identity and current["status"] == "streaming":
-        _publish(service, p, call_id, None)
 
 
 def cancel(service, p, call_id, request_id):

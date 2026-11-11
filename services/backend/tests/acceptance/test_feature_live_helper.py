@@ -11,6 +11,28 @@ from app import ops
 from journey import answered_by_human, call, get, post, run_jobs, start, wrap_up
 
 MARKER = "Our budget sentence must stay on this computer"
+BUDGET = "Is the budget set for this year?"
+TIMING = "Would next quarter be a better time?"
+EMAIL = "Happy to. What should the email cover?"
+SCRIPT = f"""# Opening
+Hi {{first_name}}, this is {{rep}} with {{seller}}.
+
+# Screening
+{{rep}} from {{seller}}, calling about customer follow-up.
+
+# Objections
+## Budget
+{BUDGET}
+
+## Timing
+{TIMING}
+
+## Send me an email
+{EMAIL}
+
+# Close
+Would a short call next week be useful?
+"""
 
 
 def chunk(ws, call_id, segment_id, text, *, side="remote", final=True, revision=1):
@@ -21,7 +43,13 @@ def chunk(ws, call_id, segment_id, text, *, side="remote", final=True, revision=
     )
 
 
+def save_helper_script(ws):
+    version = get(ws, "/v1/optimization/script")["base"]["version"]
+    post(ws, "/v1/admin/script/import", {"markdown": SCRIPT, "expected_version": version, "preview": False})
+
+
 def with_helper(ws):
+    save_helper_script(ws)
     call(ws, "PUT", "/v1/admin/settings", json={"openrouter_api_key": "test-openrouter"})
 
 
@@ -45,7 +73,7 @@ def test_a_tip_follows_what_the_prospect_says_and_leaves_after_its_moment(worksp
     live = tip_after_speech(ws, clock, call_id)
     tip = live["coach"]
     assert tip["kind"] == "TIP" and tip["status"] == "ready" and not tip["private"]
-    assert "We have no budget for this right now." in tip["say_or_ask"]
+    assert tip["say_or_ask"] == BUDGET
     assert live["helper_status"] == {"status": "available"}
     clock.now += timedelta(seconds=31)
     assert get(ws, f"/v1/calls/{call_id}")["coach"] is None, "A tip is for the next moment only"
@@ -77,12 +105,12 @@ def test_mute_stops_automatic_tips_but_a_private_question_is_still_answered(work
     )
     assert answer == {"request_id": request_id, "private": True, "status": "shown"}
     tip = get(ws, f"/v1/calls/{call_id}")["coach"]
-    assert tip["kind"] == "ANSWER" and tip["private"] and "How do I handle budget" in tip["say_or_ask"]
+    assert tip["kind"] == "ANSWER" and tip["private"] and tip["say_or_ask"] == BUDGET
     clock.now += timedelta(seconds=60)
     assert get(ws, f"/v1/calls/{call_id}")["coach"]["id"] == tip["id"], "An answer stays long enough to read"
     call(ws, "PATCH", f"/v1/calls/{call_id}/coach", json={"muted": False})
     chunk(ws, call_id, "s2", "Maybe next quarter.")
-    assert "Maybe next quarter." in tip_after_speech(ws, clock, call_id)["coach"]["say_or_ask"]
+    assert tip_after_speech(ws, clock, call_id)["coach"]["say_or_ask"] == TIMING
 
 
 def test_dismiss_removes_the_tip_and_cancel_reports_when_nothing_is_running(workspace, clock):
@@ -114,7 +142,7 @@ def test_the_tip_ends_with_the_call(workspace, clock):
     with_helper(ws)
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
-    chunk(ws, call_id, "s1", "Tell me more about pricing.")
+    chunk(ws, call_id, "s1", "Maybe next quarter.")
     assert tip_after_speech(ws, clock, call_id)["coach"]
     call(ws, "POST", f"/v1/calls/{call_id}/hangup")
     live = get(ws, f"/v1/calls/{call_id}")
@@ -162,25 +190,49 @@ def test_the_rep_can_delete_a_transcript_at_once(workspace):
     assert MARKER not in json.dumps(get(ws, f"/v1/calls/{call_id}/review"))
 
 
-def test_a_tip_pulls_up_the_script_part_that_fits_what_the_prospect_said(workspace, clock):
-    """Owner direction, November 10: the helper shows what to say and the most relevant part of the script."""
+def test_a_tip_shows_the_wording_of_the_matching_script_part(workspace, clock):
     ws = workspace
     with_helper(ws)
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
     chunk(ws, call_id, "s1", "Can you just send me an email about the pricing?")
     coach = tip_after_speech(ws, clock, call_id)["coach"]
-    assert coach["say_or_ask"].startswith("They said")
-    assert coach["script_part"]["label"] and coach["script_part"]["text"]
+    assert coach["say_or_ask"] == EMAIL
+    assert coach["script_part"] == {"label": "Objections · Send me an email", "text": EMAIL}
 
 
-def test_a_call_screener_gets_a_fixed_tip_without_a_model_or_key(workspace, clock):
-    """R11.8, live November 10: a phone's own screener answered a test call and the carrier heard a person. The rep
-    must say who they are and why they called; the helper says so at once, with no model call and no key."""
-    from app.helper import live as helper
+def test_automatic_and_private_help_never_show_free_form_model_text(workspace, clock, monkeypatch):
+    from app import live_help
+
+    class Selector:
+        responses = iter(["Tell them setup is free.", "Part: 1\nPromise them a discount."])
+
+        async def converse(self, messages, *, on_progress=None, **_):
+            text = next(self.responses)
+            if on_progress:
+                await on_progress(text)
+            return text
 
     ws = workspace
+    with_helper(ws)
+    monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
     call_id = start(ws)["id"]
+    answered_by_human(ws, call_id)
+    chunk(ws, call_id, "s1", "What is the price?")
+    assert tip_after_speech(ws, clock, call_id)["coach"] is None
+    answer = post(ws, f"/v1/calls/{call_id}/coach", {"question": "Can we offer a discount?"})
+    assert answer["status"] == "quiet"
+    assert get(ws, f"/v1/calls/{call_id}")["coach"] is None
+
+
+def test_a_call_screener_gets_the_saved_screening_line_without_a_model_or_key(workspace, clock):
+    """R11.8, live November 10: a phone's own screener answered a test call and the carrier heard a person. The rep
+    must say who they are and why they called; the helper says so at once, with no model call and no key."""
+    ws = workspace
+    save_helper_script(ws)
+    started = start(ws)
+    call_id = started["id"]
+    screening = started["script_snapshot"]["screening_intro"]
     answered_by_human(ws, call_id)
     chunk(
         ws,
@@ -189,10 +241,10 @@ def test_a_call_screener_gets_a_fixed_tip_without_a_model_or_key(workspace, cloc
         "Hi, if you record your name and reason for calling, I'll see if this person is available.",
     )
     tip = tip_after_speech(ws, clock, call_id)["coach"]
-    assert tip["say_or_ask"] == helper.SCREENER_TIP and tip["status"] == "ready"
+    assert tip["say_or_ask"] == screening and tip["status"] == "ready"
     clock.now += timedelta(seconds=5)
     chunk(ws, call_id, "r1", "Hi, it's Sam from Agite, calling about your sales team's CRM work.", side="rep")
-    assert tip_after_speech(ws, clock, call_id)["coach"]["say_or_ask"] == helper.SCREENER_TIP
+    assert tip_after_speech(ws, clock, call_id)["coach"]["say_or_ask"] == screening
 
 
 def test_screener_prompts_are_recognized_and_ordinary_lines_are_not():
