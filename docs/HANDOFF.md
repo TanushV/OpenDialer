@@ -1,5 +1,8 @@
 # OpenDialer testing handoff (CURRENT)
 
+> **For 2.0.0, read [HANDOFF_2.0.md](HANDOFF_2.0.md) first.** It lists every open issue and everything left to test.
+> The text below describes 1.0.1 (November 5) and earlier, including the trainer that 2.0.0 archived.
+
 > **Status: CURRENT — 1.0.1 installed**, November 5, 2026. Source `c3a12ea`,
 > [release receipt](evidence/lean/release-101-20261105.json), [completed follow-up](history/LIST_REMOVAL_PLAN.md).
 > Membership removal now selects actual sources and reports real changes. Remove list hides the list from active

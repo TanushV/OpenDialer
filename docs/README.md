@@ -21,6 +21,7 @@
 - [Calling completion plan](history/CALLING_COMPLETION_PLAN.md): November 2 scope, optional screening, manual calling, follow-up scripts, live conversation helper and setup fixes
 - [Development and tests](DEVELOPMENT.md)
 - [Current verification and remaining live gates](VALIDATION.md)
+- [2.0.0 handoff: open issues and everything left to test](HANDOFF_2.0.md)
 - [Current handoff](HANDOFF.md) and [code map](HANDOFF_AST.md)
 - [Release procedure](../deploy/runbooks/releases.md)
 - [Script learning and memory](SCRIPT_LEARNING.md)
