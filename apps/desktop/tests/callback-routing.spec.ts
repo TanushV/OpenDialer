@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures";
 import { openMoreSettings, openSettingRow } from "./navigation";
-import { isolatedSimulationWorkspace } from "./simulation";
+import { isolatedSimulationWorkspace, prepareIncomingCall } from "./simulation";
 
 test("a late duplicate callback routing read cannot erase a typed greeting", async ({
   page,
@@ -215,35 +215,10 @@ test("a callback rings from any page and the open app says it can take calls", a
     reachable.push(route.request().postDataJSON());
     await route.continue();
   });
-  let arrived = false;
-  await page.route("**/v1/workspace", async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
-    if (arrived)
-      data.tasks.push({
-        id: "ringing-anywhere",
-        version: 1,
-        inbound: true,
-        inbound_state: "ringing",
-        routed_rep_id: data.user.id,
-        callback_phone: "+14155550111",
-        lead_name: "Jordan Ellis",
-        lead_company: "Northstar Example",
-        lead_id: null,
-        status: "open",
-        due_at: null,
-        action: "Return call",
-        route: "rep",
-        routing_attempts: [
-          {
-            id: "ring-any",
-            rep_id: data.user.id,
-            state: "ringing",
-            provider_id: "leg-any",
-          },
-        ],
-      });
-    await route.fulfill({ response, json: data });
+  const arrive = await prepareIncomingCall(page, {
+    id: "ringing-anywhere",
+    state: "ringing",
+    prospect: { name: "Jordan Ellis", company: "Northstar Example" },
   });
   await page.goto("/");
   await expect(page.getByText("Opening your workspace…")).toBeHidden();
@@ -259,18 +234,12 @@ test("a callback rings from any page and the open app says it can take calls", a
   await expect.poll(() => reachable.length).toBeGreaterThan(0);
   expect(reachable[0]).toEqual({ registered: true });
   await openSettingRow(page, "hours");
-  arrived = true;
   const inbound = page.getByRole("region", {
     name: "Incoming call",
     exact: true,
   });
-  // Saving re-reads the workspace; a background re-read may bring the call first and replace the page.
-  await page
-    .getByRole("button", { name: "Save calling hours", exact: true })
-    .click({ timeout: 5_000 })
-    .catch(async (error) => {
-      if (!(await inbound.isVisible())) throw error;
-    });
+  await expect(inbound).toHaveCount(0);
+  await arrive();
   await expect(inbound).toBeVisible();
   await expect(inbound).toHaveAttribute("data-ringing", "true");
   await expect(inbound).toContainText("Jordan Ellis · Northstar Example");

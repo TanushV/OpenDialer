@@ -4,6 +4,7 @@ import {
   answer,
   finishCall,
   hangUp,
+  prepareIncomingCall,
   startCalling,
   startDialing,
   waitForPreparation,
@@ -77,38 +78,18 @@ test("settings show the per-list budget and expose only supported treatments", a
 test("inbound arrival exposes call controls while an admin page is open", async ({
   page,
 }) => {
-  await enter(page);
-  // Open Settings before the arrival can replace this page with the call controls.
-  await openSettingRow(page, "hours");
-  await page.route("**/v1/workspace", async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
-    data.tasks.push({
-      id: "incoming-from-settings",
-      version: 1,
-      inbound: true,
-      inbound_state: "connected",
-      routed_rep_id: data.user.id,
-      callback_phone: "+14155550111",
-      lead_id: null,
-      status: "open",
-      action: "Return call",
-      route: "responsible_rep",
-    });
-    await route.fulfill({ response, json: data });
+  const arrive = await prepareIncomingCall(page, {
+    id: "incoming-from-settings",
+    state: "connected",
   });
+  await enter(page);
+  await openSettingRow(page, "hours");
   const active = page.getByRole("region", {
     name: "Incoming call",
     exact: true,
   });
-  // Saving reloads the workspace. A background refresh can deliver the arrival first, which
-  // replaces this page with the call controls before the click lands; either way they show.
-  await page
-    .getByRole("button", { name: "Save calling hours", exact: true })
-    .click({ timeout: 5_000 })
-    .catch(async (error) => {
-      if (!(await active.isVisible())) throw error;
-    });
+  await expect(active).toHaveCount(0);
+  await arrive();
   await expect(active).toBeVisible();
   await expect(
     active.getByRole("button", { name: "Hang up", exact: true }),

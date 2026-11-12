@@ -1,6 +1,87 @@
 import { expect, type Page } from "@playwright/test";
 import { clickUntil, goTo } from "./navigation";
 
+/** Deliver a callback through the live workspace stream after the app is on the page under test. */
+export async function prepareIncomingCall(
+  page: Page,
+  call: {
+    id: string;
+    state: "ringing" | "connected";
+    prospect?: { name: string; company: string };
+  },
+) {
+  const session = page.waitForResponse(
+    (response) =>
+      response.ok() &&
+      response.request().method() === "POST" &&
+      /\/v1\/(setup|local\/session)$/.test(response.url()),
+  );
+  let arrived = false;
+  let deliver: ((tenantId: string) => void) | undefined;
+  await page.routeWebSocket("**/v1/live", (socket) => {
+    socket.onMessage((message) => {
+      const { after } = JSON.parse(String(message));
+      deliver = (tenantId) => {
+        const sequence = after + 1;
+        socket.send(
+          JSON.stringify({
+            cursor: sequence,
+            events: [
+              {
+                event_id: `arrival-${call.id}`,
+                sequence,
+                tenant_id: tenantId,
+                type: "task.updated",
+                entity_id: call.id,
+                entity_version: 1,
+                payload: {},
+              },
+            ],
+          }),
+        );
+      };
+    });
+  });
+  await page.route("**/v1/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    if (arrived)
+      data.tasks.push({
+        id: call.id,
+        version: 1,
+        inbound: true,
+        inbound_state: call.state,
+        routed_rep_id: data.user.id,
+        callback_phone: "+14155550111",
+        lead_name: call.prospect?.name,
+        lead_company: call.prospect?.company,
+        lead_id: null,
+        due_at: null,
+        status: "open",
+        action: "Return call",
+        route: "rep",
+        routing_attempts:
+          call.state === "ringing"
+            ? [
+                {
+                  id: `leg-${call.id}`,
+                  rep_id: data.user.id,
+                  state: "ringing",
+                  provider_id: `provider-${call.id}`,
+                },
+              ]
+            : [],
+      });
+    await route.fulfill({ response, json: data });
+  });
+  return async () => {
+    const { tenant_id } = await (await session).json();
+    await expect.poll(() => Boolean(deliver)).toBe(true);
+    arrived = true;
+    deliver?.(tenant_id);
+  };
+}
+
 /**
  * A configuration journey must not revoke evidence used by unrelated call tests. Every test
  * already has a fresh authority of its own (fixtures.ts), so this only confirms the simulation.
