@@ -1711,7 +1711,7 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       [Telnyx webhook delivery](https://developers.telnyx.com/docs/voice/programmable-voice/receiving-webhooks) ·
       [Telnyx transfer context](https://developers.telnyx.com/api-reference/call-commands/transfer-call)
 
-- [ ] **R12.8 Generate the rep profiles and deploy the webhook receiver.**
+- [x] **R12.8 Generate the rep profiles and deploy the webhook receiver.**
       An operator selects the shared application, approved numbers and outbound voice profile once. Configure the
       shared SIP connection for internal URI calling with its outbound voice profile unset. Each rep gets a Telnyx
       Telephony Credential under that connection, a relay workspace and a HubSpot segment. Use the existing managed
@@ -1722,8 +1722,8 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
       disabled for `telnyx-webhook` and `managed-setup`, which check the Telnyx signature and the operator-issued
       invitation respectively. The Supabase service key stays on the server.
       [Relay runbook](../supabase/README.md) · [Supabase function configuration](https://supabase.com/docs/guides/functions/function-configuration)
-      The receiver and setup function were deployed and tested with temporary profiles on the existing project.
-      Live pilot profiles still need their approved number and test segments.
+      The receiver and setup function were deployed on the existing project. Both live pilot workspaces are
+      connected with separate audio identities and assigned test segments.
 
 - [x] **R12.9 Play the greeting when the rep is offline (D29).**
       The relay queues incoming events for delivery after a reconnect. The desktop currently issues the greeting command.
@@ -1749,9 +1749,10 @@ revocation. Telnyx supports multiple audio credentials on one SIP connection.
 - [ ] **R12.11 Run the two-rep pilot on the existing relay.**
       On November 11 the owner approved deploying to the existing OpenDialer project before the live pilot.
       The migrations and functions are deployed. The Mac renewed its lease with all four registered numbers,
-      and temporary profiles passed signed routing checks on the hosted relay. Use a dedicated test Call Control
-      application on the same Telnyx account, one approved caller ID and two pilot profiles. Set up the callback
-      worker before the closed-app check. Record the results and timings under `docs/evidence/rebuild/`.
+      and temporary profiles passed signed routing checks on the hosted relay. The owner approved using the current
+      Call Control application with its existing Telnyx number assignments. Use the current Mac profile and a
+      second app instance with its own workspace and audio credential on the same Mac. Set up the callback worker
+      before the closed-app check. Record the results and timings under `docs/evidence/rebuild/`.
       [Supabase hosted targeting and dry runs](https://supabase.com/docs/guides/local-development/local-and-hosted-projects)
 
 ```sh
@@ -1778,7 +1779,8 @@ supabase functions deploy telnyx-webhook managed-setup callback-fallback --remot
 
 The operator completes the code, local tests, relay deployment, and any pilot preparation covered by
 existing access and approved test assets. Once the live run is ready, bundle any remaining inputs into one request.
-Use two approved destination phones, two HubSpot test segments and a second rep computer for the final audio check.
+Use two approved destination phones and two HubSpot test segments. The owner chose two isolated app instances on
+this Mac for the pilot. The live results identify the shared host.
 The owner chooses or approves the account-owned pilot caller number and authorizes the live test. Check available
 test assets and admin access before asking for anything. The signed rollout follows section 12A.
 
@@ -2015,3 +2017,10 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 11, 2026: automatic tips and private help now show the exact response chosen from the prepared
   script. Phone screening uses the prepared Screening line. Backend acceptance tests and the local WebKit
   Dialer replay passed.
+- November 11, 2026: built the signed 2.1 draft from `b4e867a` and installed it over the Mac's 2.0.0 app.
+  The original workspace reopened with its leads, call history and bindings. The second app uses the same
+  commit with a separate local bundle identifier. Both instances imported their assigned HubSpot test contacts
+  and held separate leases and audio credentials on the existing Telnyx route. The hosted pool uses all 11
+  existing number assignments and a 90-attempt cap. Both outbound starts waited for microphone access.
+  The relay received zero audio or prospect dials. The closed-app worker still needs its Edge secrets and schedule.
+  [Signed pilot receipt](evidence/rebuild/2026-11-11-2.1-shared-application.md#signed-pilot-on-two-mac-instances).
