@@ -78,7 +78,7 @@ export function InboundCall({
   }
   return (
     <section
-      className="card padded"
+      className="card padded incoming-call"
       aria-label="Incoming call"
       data-ringing={ringing ? "true" : "false"}
     >
@@ -93,6 +93,7 @@ export function InboundCall({
         {!connected && !accepted && (
           <>
             <button
+              className="primary"
               disabled={!canAccept || accepting}
               onClick={() =>
                 void run(async () => {
@@ -155,7 +156,7 @@ export function InboundCall({
         <p role="status">Routing needs review. The follow-up remains saved.</p>
       )}
       {matched && (
-        <section aria-label="Callback prospect">
+        <section className="incoming-prospect" aria-label="Callback prospect">
           <h3>{matched.lead.name}</h3>
           {matched.lead.company && <p>{matched.lead.company}</p>}
           {brief?.last_outcome && (

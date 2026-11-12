@@ -141,6 +141,7 @@ export function LeadsPage({
               }}
             />
             <button
+              className="text-button"
               aria-label="Search lead history"
               disabled={history.busy}
               onClick={() =>
@@ -173,109 +174,111 @@ export function LeadsPage({
         {history.query && history.cursor && (
           <p role="status">More records remain to search.</p>
         )}
-        <table>
-          <thead>
-            <tr>
-              <th>
-                <input
-                  type="checkbox"
-                  aria-label="Select all visible leads"
-                  checked={
-                    leads.length > 0 &&
-                    leads.every((lead) => selected.includes(lead.id))
-                  }
-                  onChange={(e) =>
-                    setSelected(
-                      e.target.checked ? leads.map((lead) => lead.id) : [],
-                    )
-                  }
-                />
-              </th>
-              <th>PERSON / COMPANY</th>
-              <th>PHONE</th>
-              <th>STATUS</th>
-              <th>CALL BY</th>
-              <th>ATTEMPTS</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {leads.map((lead) => (
-              <tr key={lead.id}>
-                <td>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>
                   <input
                     type="checkbox"
-                    aria-label={`Select ${lead.name}`}
-                    checked={selected.includes(lead.id)}
+                    aria-label="Select all visible leads"
+                    checked={
+                      leads.length > 0 &&
+                      leads.every((lead) => selected.includes(lead.id))
+                    }
                     onChange={(e) =>
                       setSelected(
-                        e.target.checked
-                          ? [...selected, lead.id]
-                          : selected.filter((id) => id !== lead.id),
+                        e.target.checked ? leads.map((lead) => lead.id) : [],
                       )
                     }
                   />
-                </td>
-                <td>
-                  <strong>{lead.name}</strong>
-                  <small>{lead.company || "Company not provided"}</small>
-                  <small>
-                    {leadLists(lead).map(listLabel).join(", ") || "No list"}
-                  </small>
-                </td>
-                <td>
-                  {lead.phone}
-                  {lead.number_label && (
-                    <small
-                      className={lead.number_hold ? "number-held" : undefined}
-                      title={lead.number_hold_reason ?? undefined}
-                    >
-                      {lead.number_hold
-                        ? `Not dialed · ${lead.number_hold_reason}`
-                        : lead.number_label}
-                    </small>
-                  )}
-                  {lead.trigger_label &&
-                    lead.trigger_label !== "No trigger found" && (
-                      <small>Why now: {lead.trigger_label}</small>
-                    )}
-                </td>
-                <td>
-                  <span
-                    className={`pill ${lead.suppressed ? "red" : lead.status === "preparing" ? "amber" : lead.outreach_hold ? "subtle" : "green"}`}
-                  >
-                    {lead.archived
-                      ? "Removed"
-                      : lead.dial_paused
-                        ? "Paused"
-                        : lead.suppressed
-                          ? "Suppressed"
-                          : lead.status === "preparing"
-                            ? "Being prepared"
-                            : lead.outreach_hold === "company_booked"
-                              ? "Company booked"
-                              : label(lead.status)}
-                  </span>
-                </td>
-                <td>{date(lead.coverage_due_at)}</td>
-                <td>{lead.attempt_count}</td>
-                <td>
-                  <button
-                    className="icon-button"
-                    aria-label={`Open lead ${lead.name}`}
-                    onClick={() =>
-                      void run(async () =>
-                        setPacket(await api(`/v1/leads/${lead.id}/packet`)),
-                      )
-                    }
-                  >
-                    <ChevronRight size={18} />
-                  </button>
-                </td>
+                </th>
+                <th>PERSON / COMPANY</th>
+                <th>PHONE</th>
+                <th>STATUS</th>
+                <th>CALL BY</th>
+                <th>ATTEMPTS</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {leads.map((lead) => (
+                <tr key={lead.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${lead.name}`}
+                      checked={selected.includes(lead.id)}
+                      onChange={(e) =>
+                        setSelected(
+                          e.target.checked
+                            ? [...selected, lead.id]
+                            : selected.filter((id) => id !== lead.id),
+                        )
+                      }
+                    />
+                  </td>
+                  <td>
+                    <strong>{lead.name}</strong>
+                    <small>{lead.company || "Company not provided"}</small>
+                    <small>
+                      {leadLists(lead).map(listLabel).join(", ") || "No list"}
+                    </small>
+                  </td>
+                  <td>
+                    {lead.phone}
+                    {lead.number_label && (
+                      <small
+                        className={lead.number_hold ? "number-held" : undefined}
+                        title={lead.number_hold_reason ?? undefined}
+                      >
+                        {lead.number_hold
+                          ? `Not dialed · ${lead.number_hold_reason}`
+                          : lead.number_label}
+                      </small>
+                    )}
+                    {lead.trigger_label &&
+                      lead.trigger_label !== "No trigger found" && (
+                        <small>Why now: {lead.trigger_label}</small>
+                      )}
+                  </td>
+                  <td>
+                    <span
+                      className={`pill ${lead.suppressed ? "red" : lead.status === "preparing" ? "amber" : lead.outreach_hold ? "subtle" : "green"}`}
+                    >
+                      {lead.archived
+                        ? "Removed"
+                        : lead.dial_paused
+                          ? "Paused"
+                          : lead.suppressed
+                            ? "Suppressed"
+                            : lead.status === "preparing"
+                              ? "Being prepared"
+                              : lead.outreach_hold === "company_booked"
+                                ? "Company booked"
+                                : label(lead.status)}
+                    </span>
+                  </td>
+                  <td>{date(lead.coverage_due_at)}</td>
+                  <td>{lead.attempt_count}</td>
+                  <td>
+                    <button
+                      className="icon-button"
+                      aria-label={`Open lead ${lead.name}`}
+                      onClick={() =>
+                        void run(async () =>
+                          setPacket(await api(`/v1/leads/${lead.id}/packet`)),
+                        )
+                      }
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {!leads.length && !history.cursor && history.ready && (
           <Empty
             text={
@@ -420,10 +423,15 @@ export function LeadsPage({
             aria-modal="true"
             aria-label="Lead packet"
           >
-            <button className="close-modal" onClick={() => setPacket(null)}>
-              Close
-            </button>
-            <h2>{packet.lead.name}</h2>
+            <div className="modal-heading">
+              <h2>{packet.lead.name}</h2>
+              <button
+                className="secondary small"
+                onClick={() => setPacket(null)}
+              >
+                Close
+              </button>
+            </div>
             <p>
               {packet.lead.company} · {packet.lead.phone}
             </p>
@@ -919,30 +927,32 @@ export function NumbersPage() {
             }
           />
         )}
-        <table>
-          <thead>
-            <tr>
-              <th>CALLER ID</th>
-              <th>REGION</th>
-              <th>LIFECYCLE</th>
-              <th>DAILY LIMIT</th>
-              <th>CAPACITY</th>
-              <th>ACTIONS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {history.items.map((number) => (
-              <NumberRow
-                key={number.id}
-                number={number}
-                onSaved={(saved) => {
-                  history.update(saved);
-                  void plan.load();
-                }}
-              />
-            ))}
-          </tbody>
-        </table>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>CALLER ID</th>
+                <th>REGION</th>
+                <th>LIFECYCLE</th>
+                <th>DAILY LIMIT</th>
+                <th>CAPACITY</th>
+                <th>ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.items.map((number) => (
+                <NumberRow
+                  key={number.id}
+                  number={number}
+                  onSaved={(saved) => {
+                    history.update(saved);
+                    void plan.load();
+                  }}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
         <HistoryMore history={history} label="Load more numbers" />
         {!history.items.length && (
           <Empty text="No numbers yet. Buy one above, or check your Telnyx numbers and add one." />

@@ -80,51 +80,53 @@ export function ReviewPage({
           <FollowupTasks />
         </section>
         <section className="card table-card">
-          <table>
-            <thead>
-              <tr>
-                <th>CONVERSATION</th>
-                <th>STARTED</th>
-                <th>OUTCOME</th>
-                <th>STATE</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {calls.map((c) => (
-                <tr key={c.id} data-call-id={c.id}>
-                  <td>
-                    <strong>
-                      {c.lead_name ||
-                        w.leads.find((l) => l.id === c.lead_id)?.name ||
-                        "Lead"}
-                    </strong>
-                    <small>
-                      {c.lead_company ||
-                        w.leads.find((l) => l.id === c.lead_id)?.company}
-                    </small>
-                  </td>
-                  <td>{date(c.started_at)}</td>
-                  <td>
-                    {c.outcome ? label(c.outcome) : "Awaiting confirmation"}
-                  </td>
-                  <td>
-                    <span className="pill subtle">{label(c.state)}</span>
-                  </td>
-                  <td>
-                    <button
-                      className="text-button"
-                      aria-label={`Review call ${c.lead_name || w.leads.find((l) => l.id === c.lead_id)?.name}`}
-                      onClick={() => void run(() => open(c.id))}
-                    >
-                      Review call
-                      <ChevronRight size={15} />
-                    </button>
-                  </td>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>CONVERSATION</th>
+                  <th>STARTED</th>
+                  <th>OUTCOME</th>
+                  <th>STATE</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {calls.map((c) => (
+                  <tr key={c.id} data-call-id={c.id}>
+                    <td>
+                      <strong>
+                        {c.lead_name ||
+                          w.leads.find((l) => l.id === c.lead_id)?.name ||
+                          "Lead"}
+                      </strong>
+                      <small>
+                        {c.lead_company ||
+                          w.leads.find((l) => l.id === c.lead_id)?.company}
+                      </small>
+                    </td>
+                    <td>{date(c.started_at)}</td>
+                    <td>
+                      {c.outcome ? label(c.outcome) : "Awaiting confirmation"}
+                    </td>
+                    <td>
+                      <span className="pill subtle">{label(c.state)}</span>
+                    </td>
+                    <td>
+                      <button
+                        className="text-button"
+                        aria-label={`Review call ${c.lead_name || w.leads.find((l) => l.id === c.lead_id)?.name}`}
+                        onClick={() => void run(() => open(c.id))}
+                      >
+                        Review call
+                        <ChevronRight size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <HistoryMore history={history} label="Load older calls" />
           {!calls.length && !history.cursor && (
             <Empty text="Your completed conversations will appear here." />

@@ -194,59 +194,65 @@ function SetupRow({
           ? row.detail
           : `${WORD[row.state]}: ${row.detail}`}
       </Status>
-      {field && row.state === "optional" && !adding && (
-        <Button onClick={() => setAdding(true)}>Add</Button>
-      )}
-      {field && (row.state !== "optional" || adding) && (
-        <form
-          className="setup-row-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void run(async () => {
-              await save(
-                Object.fromEntries(
-                  field.keys.map(([key]) => [key, values[key].trim()]),
-                ),
-              );
-              setValues({});
-            });
-          }}
-        >
-          {field.keys.map(([key, name]) => (
-            <input
-              key={key}
-              aria-label={
-                field.keys.length === 1 ? `New ${row.label}` : `New ${name}`
-              }
-              type={field.secret ? "password" : "tel"}
-              value={values[key] ?? ""}
-              placeholder={
-                row.state === "missing" || row.state === "optional"
-                  ? name
-                  : "Saved; type to replace"
-              }
-              onChange={(event) =>
-                setValues({ ...values, [key]: event.target.value })
-              }
-            />
-          ))}
-          <Button type="submit" disabled={!filled}>
-            Save and check
+      <div className="setup-row-controls">
+        {field && row.state === "optional" && !adding && (
+          <Button onClick={() => setAdding(true)}>Add</Button>
+        )}
+        {field && (row.state !== "optional" || adding) && (
+          <form
+            className="setup-row-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void run(async () => {
+                await save(
+                  Object.fromEntries(
+                    field.keys.map(([key]) => [key, values[key].trim()]),
+                  ),
+                );
+                setValues({});
+              });
+            }}
+          >
+            {field.keys.map(([key, name]) => (
+              <input
+                key={key}
+                aria-label={
+                  field.keys.length === 1 ? `New ${row.label}` : `New ${name}`
+                }
+                type={field.secret ? "password" : "tel"}
+                value={values[key] ?? ""}
+                placeholder={
+                  row.state === "missing" || row.state === "optional"
+                    ? name
+                    : "Saved; type to replace"
+                }
+                onChange={(event) =>
+                  setValues({ ...values, [key]: event.target.value })
+                }
+              />
+            ))}
+            <Button type="submit" disabled={!filled}>
+              Save and check
+            </Button>
+          </form>
+        )}
+        {testCall && (
+          <Button variant="primary" onClick={() => void testCall()}>
+            Test call
           </Button>
-        </form>
-      )}
+        )}
+        {/* A saved value is checked as it is, without typing it again. */}
+        {(row.state === "unchecked" || row.state === "failed") && (
+          <Button variant="text" onClick={() => void check()}>
+            {row.state === "failed" ? "Check again" : "Check"}
+          </Button>
+        )}
+      </div>
       {extra && <div className="setup-row-extra">{extra}</div>}
-      {row.id === "chatgpt" && <ResearchRoute />}
-      {testCall && (
-        <Button variant="primary" onClick={() => void testCall()}>
-          Test call
-        </Button>
-      )}
-      {/* A saved value is checked as it is, without typing it again. */}
-      {(row.state === "unchecked" || row.state === "failed") && (
-        <Button variant="text" onClick={() => void check()}>
-          {row.state === "failed" ? "Check again" : "Check"}
-        </Button>
+      {row.id === "chatgpt" && (
+        <div className="setup-row-extra">
+          <ResearchRoute />
+        </div>
       )}
     </div>
   );

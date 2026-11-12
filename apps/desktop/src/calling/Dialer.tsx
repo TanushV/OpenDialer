@@ -402,6 +402,8 @@ function ActionBar({ loop }: { loop: Loop }) {
   const [keypad, setKeypad] = useState(false);
   useEffect(() => setKeypad(false), [call?.id]);
   const suggested = call?.suggested_outcome?.code;
+  if ((phase.kind === "paused" && !phase.blocker) || phase.kind === "finished")
+    return null;
   return (
     <footer className="action-bar" aria-label="Call actions">
       {phase.kind === "paused" && phase.blocker && (

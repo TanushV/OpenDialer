@@ -14,8 +14,9 @@ export function HistoryMore({
   label: string;
 }) {
   const { run } = useWorkspace();
+  if (!history.items.length && !history.cursor) return null;
   return (
-    <div className="button-row">
+    <div className="history-more">
       {history.items.length > 0 && (
         <span className="fine">
           Showing {history.items.length}

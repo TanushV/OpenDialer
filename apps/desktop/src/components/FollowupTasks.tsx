@@ -280,7 +280,7 @@ export function FollowupTasks() {
   );
   return (
     <>
-      <label>
+      <label className="compact-field">
         Follow-up history
         <select
           value={history.filter}

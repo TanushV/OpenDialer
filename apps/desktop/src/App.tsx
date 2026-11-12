@@ -664,7 +664,9 @@ export function App() {
           <div className="workspace-label">
             <span className="avatar">{snapshot.seller.name.slice(0, 1)}</span>
             <span>
-              <strong>{snapshot.seller.name}</strong>
+              <strong title={snapshot.seller.name}>
+                {snapshot.seller.name}
+              </strong>
               <small>On this computer</small>
             </span>
             <ChevronRight size={14} />
@@ -709,7 +711,7 @@ export function App() {
                 {snapshot.user.name.slice(0, 1)}
               </span>
               <span>
-                <strong>{snapshot.user.name}</strong>
+                <strong title={snapshot.user.name}>{snapshot.user.name}</strong>
                 <small>On this computer</small>
               </span>
             </div>

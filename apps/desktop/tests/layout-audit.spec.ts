@@ -3,6 +3,7 @@ import {
   answer,
   finishCall,
   hangUp,
+  prepareIncomingCall,
   prepareSimulationCall,
 } from "./simulation";
 import { coveredBy, drift, noSidewaysScroll } from "./layout";
@@ -46,6 +47,107 @@ async function audit(page: Page, phase: string, name: string) {
   }
   return findings;
 }
+
+test.describe("compact desktop layout", () => {
+  test.use({ viewport: { width: 1024, height: 720 } });
+
+  const longName = "EnterpriseAccount".repeat(8);
+
+  test("idle Dialer and Leads keep long list names inside their controls", async ({
+    page,
+  }) => {
+    await page.route(/\/v1\/lists(?:\?|$)/, async (route) => {
+      const response = await route.fetch();
+      const data = await response.json();
+      if (data.lists.length) data.lists[0].name = longName;
+      await route.fulfill({ response, json: data });
+    });
+    await page.goto("/");
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Start calling Space" }),
+    ).toBeVisible();
+    await expect(page.locator(".action-bar")).toBeHidden();
+
+    const dialFrom = page.getByRole("region", { name: "Dial from" });
+    await dialFrom
+      .getByRole("checkbox", { name: "Dial from all active lists" })
+      .uncheck();
+    const check = dialFrom.getByRole("checkbox", {
+      name: `Dial list ${longName}`,
+    });
+    await expect(check).toBeVisible();
+    await expect
+      .poll(() =>
+        dialFrom.evaluate((card) => card.scrollWidth - card.clientWidth),
+      )
+      .toBe(0);
+
+    await page
+      .getByRole("navigation")
+      .getByRole("button", { name: "Leads", exact: true })
+      .click();
+    const filter = page.getByRole("combobox", { name: "Filter leads by list" });
+    await expect(
+      filter.locator("option").filter({ hasText: longName }),
+    ).toHaveCount(1);
+    const search = page.getByRole("textbox", { name: "Search leads" });
+    expect((await filter.boundingBox())!.width).toBeLessThan(350);
+    await expect(search).toBeVisible();
+    await page
+      .getByRole("checkbox", { name: "Select all visible leads" })
+      .check();
+    const bulk = page.getByRole("region", { name: "Selected lead actions" });
+    const action = (await bulk
+      .getByRole("combobox", { name: "Lead action" })
+      .boundingBox())!;
+    const apply = (await bulk
+      .getByRole("button", { name: "Apply to selected leads" })
+      .boundingBox())!;
+    expect(
+      Math.abs(action.y + action.height - apply.y - apply.height),
+    ).toBeLessThan(2);
+    await noSidewaysScroll(page);
+  });
+
+  test("an incoming call keeps the full caller name and controls within the card", async ({
+    page,
+  }) => {
+    const deliver = await prepareIncomingCall(page, {
+      id: "compact-layout",
+      state: "ringing",
+      prospect: { name: longName, company: longName },
+    });
+    await page.goto("/");
+    await page
+      .getByRole("button", { name: "Try a simulated workspace" })
+      .click();
+    await deliver();
+    const incoming = page.getByRole("region", { name: "Incoming call" });
+    await expect(incoming.getByText(longName, { exact: false })).toBeVisible();
+    await expect
+      .poll(() =>
+        incoming.evaluate((card) => card.scrollWidth - card.clientWidth),
+      )
+      .toBe(0);
+    const answerButton = incoming.getByRole("button", {
+      name: "Answer",
+      exact: true,
+    });
+    const declineButton = incoming.getByRole("button", {
+      name: "Decline",
+      exact: true,
+    });
+    await expect(answerButton).toBeInViewport();
+    await expect(declineButton).toBeInViewport();
+    expect((await answerButton.boundingBox())!.height).toBeGreaterThanOrEqual(
+      36,
+    );
+    await noSidewaysScroll(page);
+  });
+});
 
 for (const size of SIZES) {
   test(`Dialer phases hold their layout at ${size.width}x${size.height}`, async ({

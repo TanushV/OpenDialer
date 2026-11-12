@@ -102,9 +102,14 @@ export function ListsPage({
       <section className="card table-card" aria-label="Lead lists">
         <div className="table-toolbar">
           <h3>Your lists</h3>
-          <button onClick={() => void run(lists.reload)}>Refresh lists</button>
+          <button
+            className="secondary small"
+            onClick={() => void run(lists.reload)}
+          >
+            Refresh lists
+          </button>
         </div>
-        <label className="check">
+        <label className="list-visibility">
           <input
             type="checkbox"
             aria-label="Show removed lists"
@@ -154,6 +159,7 @@ export function ListsPage({
                     <div className="button-row">
                       {!list.archived && (
                         <button
+                          className="secondary small"
                           onClick={() =>
                             void run(() =>
                               edit(list.name, list.paused ? "resume" : "pause"),
@@ -164,6 +170,7 @@ export function ListsPage({
                         </button>
                       )}
                       <button
+                        className="secondary small"
                         onClick={() =>
                           void run(() =>
                             edit(
@@ -176,7 +183,7 @@ export function ListsPage({
                         {list.archived ? "Restore list" : "Remove list"}
                       </button>
                     </div>
-                    <details>
+                    <details className="list-rename">
                       <summary>Rename list</summary>
                       <input
                         aria-label={`New name for ${listLabel(list.name)}`}
@@ -187,6 +194,7 @@ export function ListsPage({
                         maxLength={120}
                       />
                       <button
+                        className="secondary small"
                         disabled={!names[list.name]?.trim()}
                         onClick={() =>
                           void run(() => edit(list.name, "rename"))
@@ -320,6 +328,7 @@ export function BulkLeadActions({
         </>
       )}
       <button
+        className="primary"
         disabled={
           !selected.length ||
           (action === "remove" && source === null) ||
@@ -378,85 +387,97 @@ export function DialLists({
     <section className="card dial-lists" aria-label="Dial from">
       <div className="table-toolbar">
         <strong>Dial from</strong>
-        <button onClick={() => void run(lists.reload)}>
+        <button
+          className="secondary small"
+          onClick={() => void run(lists.reload)}
+        >
           Refresh calling lists
         </button>
       </div>
-      <label className="check">
-        <input
-          type="checkbox"
-          aria-label="Dial from all active lists"
-          checked={names === null}
-          disabled={disabled}
-          onChange={(e) => void run(() => change(e.target.checked ? null : []))}
-        />
-        All active lists
-      </label>
-      {names !== null && (
-        <div className="button-row">
-          {lists.data?.lists
-            .filter((list) => !list.archived)
-            .map((list) => (
-              <label className="check" key={list.name}>
-                <input
-                  type="checkbox"
-                  aria-label={`Dial list ${listLabel(list.name)}`}
-                  checked={names.includes(list.name)}
-                  disabled={disabled || list.archived || list.paused}
-                  onChange={(e) =>
-                    void run(() =>
-                      change(
-                        e.target.checked
-                          ? [...names, list.name]
-                          : names.filter((name) => name !== list.name),
-                      ),
-                    )
+      <div className="dial-lists-body">
+        <label className="check">
+          <input
+            type="checkbox"
+            aria-label="Dial from all active lists"
+            checked={names === null}
+            disabled={disabled}
+            onChange={(e) =>
+              void run(() => change(e.target.checked ? null : []))
+            }
+          />
+          All active lists
+        </label>
+        {names !== null && (
+          <div className="dial-list-choices">
+            {lists.data?.lists
+              .filter((list) => !list.archived)
+              .map((list) => (
+                <label className="check" key={list.name}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Dial list ${listLabel(list.name)}`}
+                    checked={names.includes(list.name)}
+                    disabled={disabled || list.archived || list.paused}
+                    onChange={(e) =>
+                      void run(() =>
+                        change(
+                          e.target.checked
+                            ? [...names, list.name]
+                            : names.filter((name) => name !== list.name),
+                        ),
+                      )
+                    }
+                  />
+                  {listLabel(list.name)}
+                  {list.archived
+                    ? " · archived"
+                    : list.paused
+                      ? " · paused"
+                      : ""}
+                </label>
+              ))}
+          </div>
+        )}
+        {names?.length === 0 && (
+          <p role="status">Choose at least one list to dial.</p>
+        )}
+        {lists.error && <p role="alert">{lists.error}</p>}
+        {!!lists.data?.outside_callbacks.length && (
+          <details>
+            <summary>
+              Due callbacks outside this calling pool (
+              {lists.data.outside_callbacks.length})
+            </summary>
+            <p>
+              These are separate choices. Selecting one keeps your ordinary list
+              selection unchanged.
+            </p>
+            {lists.data.outside_callbacks.map((lead) => (
+              <div className="button-row" key={lead.id}>
+                <span>
+                  {lead.name} · {date(lead.due_at)}
+                  {lead.blocked ? " · paused or archived" : ""}
+                </span>
+                <button
+                  className="secondary small"
+                  disabled={disabled || lead.blocked}
+                  onClick={() =>
+                    void run(async () => {
+                      await callback(lead.id);
+                    })
                   }
-                />
-                {listLabel(list.name)}
-                {list.archived ? " · archived" : list.paused ? " · paused" : ""}
-              </label>
+                >
+                  Review callback for {lead.name}
+                </button>
+              </div>
             ))}
-        </div>
-      )}
-      {names?.length === 0 && (
-        <p role="status">Choose at least one list to dial.</p>
-      )}
-      {lists.error && <p role="alert">{lists.error}</p>}
-      {!!lists.data?.outside_callbacks.length && (
-        <details>
-          <summary>
-            Due callbacks outside this calling pool (
-            {lists.data.outside_callbacks.length})
-          </summary>
-          <p>
-            These are separate choices. Selecting one keeps your ordinary list
-            selection unchanged.
-          </p>
-          {lists.data.outside_callbacks.map((lead) => (
-            <div className="button-row" key={lead.id}>
-              <span>
-                {lead.name} · {date(lead.due_at)}
-                {lead.blocked ? " · paused or archived" : ""}
-              </span>
-              <button
-                disabled={disabled || lead.blocked}
-                onClick={() =>
-                  void run(async () => {
-                    await callback(lead.id);
-                  })
-                }
-              >
-                Review callback for {lead.name}
-              </button>
-            </div>
-          ))}
-        </details>
-      )}
-      <p className="fine">
-        No new outbound calls at or after 5 p.m. in the lead's local time.
-        Timing, holds, opt-outs and caller-ID selection still apply.
-      </p>
+          </details>
+        )}
+        <p className="fine">
+          No new outbound calls at or after 5 p.m. in the lead's local time.
+          Timing, holds, opt-outs and caller-ID selection still apply.
+        </p>
+      </div>
     </section>
   );
 }

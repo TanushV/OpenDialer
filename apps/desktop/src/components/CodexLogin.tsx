@@ -57,7 +57,7 @@ export function CodexLogin({
           </p>
         </>
       )}
-      <label>
+      <label className="secondary file-button">
         Import Codex login
         <input
           type="file"
