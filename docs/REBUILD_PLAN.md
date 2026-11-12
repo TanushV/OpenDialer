@@ -2028,3 +2028,9 @@ test assets and admin access before asking for anything. The signed rollout foll
   rep. Neither prospect call submitted: Test mode held the saved HubSpot phones for prospect screening. The
   regression and fix pin Test mode to the saved contact, preserve regular screening, and stop pending test
   dials when the session ends. Next: install the corrected signed candidate and run R12.11.
+- November 11, 2026: fixed the Mac callback browser test so the app receives a live event while Settings is
+  open. Local checks and Verify passed on `7cdbe3e`. Installed the corrected signed 2.1.0 draft over the primary
+  app and preserved its workspace. Rep B reached 8547 from the shared number and saved voicemail. macOS
+  rejected the primary app's previous microphone grant for the updated code signature, and the Mac locked
+  before the grant could be refreshed. The human audio, overlap and return-call checks in R12.11 remain open.
+  [Live receipt](evidence/rebuild/2026-11-11-2.1-shared-application.md#corrected-signed-build-and-first-shared-pool-call).
