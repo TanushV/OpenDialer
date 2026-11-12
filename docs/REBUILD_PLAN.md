@@ -2034,3 +2034,8 @@ test assets and admin access before asking for anything. The signed rollout foll
   rejected the primary app's previous microphone grant for the updated code signature, and the Mac locked
   before the grant could be refreshed. The human audio, overlap and return-call checks in R12.11 remain open.
   [Live receipt](evidence/rebuild/2026-11-11-2.1-shared-application.md#corrected-signed-build-and-first-shared-pool-call).
+- November 12, 2026: refreshed the primary app's microphone grant in System Settings. Both approved
+  calls reached Telnyx from the same pooled number. The first 1101 callback matched the primary prospect
+  and went to the greeting. The retry rang only the primary app, opened the correct prospect and was
+  answered there. The 8547 phone was unavailable for its return call. R12.11 stays open.
+  [Live callback receipt](evidence/rebuild/2026-11-11-2.1-shared-application.md#november-12-microphone-recovery-and-live-callbacks).
