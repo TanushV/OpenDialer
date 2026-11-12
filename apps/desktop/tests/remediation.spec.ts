@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
+import { uncovered } from "./layout";
 import { openMoreSettings } from "./navigation";
 import {
   answer,
@@ -50,10 +51,14 @@ for (const connected of [false]) {
     const strip = page.getByTestId("live-coaching-strip");
     await expect(strip).toBeVisible();
     await page.mouse.wheel(0, 1200);
+    const status = (await page
+      .getByRole("status", { name: "Call status" })
+      .boundingBox())!;
     const bounds = await strip.boundingBox();
     expect(bounds).not.toBeNull();
-    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y).toBeGreaterThanOrEqual(status.y + status.height);
     expect(bounds!.y + bounds!.height).toBeLessThan(400);
+    await uncovered(strip.getByRole("button", { name: "Private help" }));
     await expect(hangUp(page)).toBeInViewport();
     await pauseCalling(page).click();
     await hangUp(page).click();

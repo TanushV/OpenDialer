@@ -69,6 +69,9 @@ function StatusBar({
 }) {
   const { phase, packet, act } = loop;
   const lead = packet?.lead;
+  const identity = lead?.company
+    ? `${lead.name} · ${lead.company}`
+    : lead?.name;
   const paused = phase.kind === "paused";
   return (
     <header className="status-bar">
@@ -79,10 +82,9 @@ function StatusBar({
         aria-label="Call status"
       >
         <strong>{headline(phase)}</strong>
-        {lead && !paused && (
-          <span className="muted">
-            {lead.name}
-            {lead.company ? ` · ${lead.company}` : ""}
+        {identity && !paused && (
+          <span className="muted status-lead" title={identity}>
+            {identity}
           </span>
         )}
         {paused && phase.blocker && phase.blocker.fix !== "dialer" && (

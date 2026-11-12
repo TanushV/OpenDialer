@@ -1859,6 +1859,9 @@ nav button.active svg {
 }
 
 .live-coaching-strip {
+  position: sticky;
+  top: calc(var(--live-status-height) + 8px);
+  z-index: 15;
   background: #f7faf3;
   border: 1px solid #b8cbb1;
   border-radius: 12px;
@@ -2661,6 +2664,7 @@ details.transcript-card {
 
 /* Dialer: three fixed regions (R5.3). The status and action bars stay in view; the lead and script scroll. */
 .dialer {
+  --live-status-height: 70px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -2683,6 +2687,9 @@ details.transcript-card {
   top: 0;
   justify-content: space-between;
 }
+.dialer:has(.live-coaching-strip) .status-bar {
+  height: var(--live-status-height);
+}
 .status-bar > .ui-button {
   flex-shrink: 0;
 }
@@ -2693,6 +2700,11 @@ details.transcript-card {
 }
 .status-text strong {
   font-size: 18px;
+}
+.status-lead {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* The action bar is pinned to the window, so no phase change can move it (R5.3, R5.12). */
 .action-bar {
