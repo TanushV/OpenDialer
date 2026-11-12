@@ -477,3 +477,58 @@ def test_a_test_call_to_the_owners_hubspot_contact_is_written_to_hubspot(workspa
     assert get(ws, f"/v1/calls/{call['id']}")["is_test"] is True
     assert len(fakes.created_calls) == 1
     assert ("/crm/v3/objects/contacts/1", {"phone_status": "wrong_number"}) in fakes.writes
+
+
+@pytest.mark.parametrize("retry_scheduled", [False, True])
+def test_a_test_call_uses_the_saved_hubspot_phone_before_screening(
+    workspace, carrier, monkeypatch, clock, retry_scheduled
+):
+    from datetime import timedelta
+
+    from app import ops
+    from app.platform.db import update
+    from helpers import principal
+    from journey import reserve
+
+    ws = workspace
+    fakes = setup(ws, monkeypatch)
+    fakes.members = ["1"]
+    post(
+        ws,
+        "/v1/leads/import",
+        {
+            "campaign_id": ws["campaign_id"],
+            "list_name": "Test line",
+            "rows": [{"name": "Older CSV copy", "phone": A}],
+            "prepare": False,
+        },
+    )
+    post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+    ready(ws)
+    held = reserve(ws, list_names=["HubSpot list"])
+    assert held.status_code == 409 and "DNC_NOT_CHECKED" in held.text
+
+    # A previous Test session left the built-in test number in the Test line list.
+    client, headers = ws["client"], ws["headers"]
+    assert client.put("/v1/admin/settings", headers=headers, json={"test_phone": "+12038211101"}).is_success
+    post(ws, "/v1/settings/test-call")
+    assert client.put("/v1/admin/settings", headers=headers, json={"test_phone": A}).is_success
+    started = post(ws, "/v1/settings/test-call")
+    assert started["lead_id"] == crm_leads(ws)["1"]["id"]
+    if retry_scheduled:
+        # Maintenance can schedule a CRM lead again while the Test session is still armed.
+        service = client.app.state.service
+        with service.db.transaction() as s:
+            lead = ops.required(service, s, "leads", started["lead_id"], principal(ws))
+            update(lead, next_attempt_at=(clock.now + timedelta(days=1)).isoformat())
+
+    assert get(ws, "/v1/calling/readiness")["callable_now"] == 1
+    packet = reserve(ws)
+    assert packet.status_code == 200, packet.text
+    packet = packet.json()
+    assert packet["lead"]["id"] == started["lead_id"] and packet["lead"]["phone"] == A
+    call = post(
+        ws, "/v1/calls/start", {"reservation_id": packet["reservation_id"], "idempotency_key": "test"}
+    )
+    assert call["is_test"] and [dial["to"] for dial in carrier.dials] == [A]
+    assert crm_leads(ws)["1"]["number_hold"] == "DNC_NOT_CHECKED"

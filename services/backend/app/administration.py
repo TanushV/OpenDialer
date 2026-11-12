@@ -540,11 +540,18 @@ def database_integrity(service, *, deep=False):
 def _preflight_queue(service, s, p, campaign, numbers, screening, blockers, warnings):
     from app.optimization.numbering import select_number
     from app.scheduling.policy import queue_decision
+    from app.service import TEST_LIST
 
     lead_model = MODELS["leads"]
-    scope = (lead_model.tenant_id == p["tenant_id"], lead_model.seller_id == p["seller_id"])
-    total = s.scalar(select(func.count()).select_from(lead_model).where(*scope))
-    leads = list(s.scalars(select(lead_model).where(*scope).order_by(lead_model.id).limit(500)))
+    if ops.in_test_session(service, p):
+        p = {**p, "dial_lists": [TEST_LIST], "test_only": True}
+        lead = ops.test_candidate(service, s, p, ops.test_phone(service, p), campaign_id=campaign.id)
+        leads = [lead] if lead else []
+        total = len(leads)
+    else:
+        scope = (lead_model.tenant_id == p["tenant_id"], lead_model.seller_id == p["seller_id"])
+        total = s.scalar(select(func.count()).select_from(lead_model).where(*scope))
+        leads = list(s.scalars(select(lead_model).where(*scope).order_by(lead_model.id).limit(500)))
     ops._queue_context(service, s, p, campaign.id, leads)
     inventory = ops.inventory_evidence(service, s, p, fast=True)
     claims = s.info["active_claims"]
@@ -576,7 +583,11 @@ def _preflight_queue(service, s, p, campaign, numbers, screening, blockers, warn
         counts[key] += 1
         reasons.update(national["reason_codes"])
         decision = queue_decision(
-            context, lead.data, own_claim=own, endpoint_claimed=lead.data["endpoint_id"] in claimed
+            context,
+            lead.data,
+            own_claim=own,
+            endpoint_claimed=lead.data["endpoint_id"] in claimed,
+            now=service.clock(),
         )
         counts["dialable_queue_count"] += int(decision.allowed)
         # Would be dialable once the rep goes ready: their own presence is not a lead problem.

@@ -2024,3 +2024,7 @@ test assets and admin access before asking for anything. The signed rollout foll
   existing number assignments and a 90-attempt cap. Both outbound starts waited for microphone access.
   The relay received zero audio or prospect dials. The closed-app worker still needs its Edge secrets and schedule.
   [Signed pilot receipt](evidence/rebuild/2026-11-11-2.1-shared-application.md#signed-pilot-on-two-mac-instances).
+- November 11, 2026: macOS microphone access cleared and the hosted relay matched a separate audio leg to each
+  rep. Neither prospect call submitted: Test mode held the saved HubSpot phones for prospect screening. The
+  regression and fix pin Test mode to the saved contact, preserve regular screening, and stop pending test
+  dials when the session ends. Next: install the corrected signed candidate and run R12.11.

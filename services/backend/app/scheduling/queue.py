@@ -182,6 +182,7 @@ def _selection(service, s, p, campaign_id):
         campaign_id,
         tuple(p.get("dial_lists") or ()),
         p.get("callback_lead_id"),
+        p.get("test_only", False),
     )
     after, reasons = cursors.pop(key, (None, frozenset()))
     reasons = set(reasons)
@@ -202,9 +203,8 @@ def _selection(service, s, p, campaign_id):
     )
 
 
-def _selection_page(service, s, p, campaign_id, after):
-
-    now, model = service.clock(), MODELS["leads"]
+def _due_leads(s, p, campaign_id, after, now):
+    model = MODELS["leads"]
     # Exactly ix_leads_queue: promised callbacks (2), requested contact (1), then coverage
     # deadline order (overdue first). Only these top K rows are read and decrypted.
     page = []
@@ -219,7 +219,7 @@ def _selection_page(service, s, p, campaign_id, after):
                 ),
             )
         )
-    leads = list(
+    return list(
         s.scalars(
             select(model)
             .where(
@@ -234,6 +234,16 @@ def _selection_page(service, s, p, campaign_id, after):
             .limit(PAGE_SIZE)
         )
     )
+
+
+def _selection_page(service, s, p, campaign_id, after):
+    now = service.clock()
+    if p.get("test_only"):
+        # Normal retry dates must not hide the explicitly staged test phone.
+        lead = ops.test_candidate(service, s, p, ops.test_phone(service, p), campaign_id=campaign_id)
+        leads = [lead] if lead else []
+    else:
+        leads = _due_leads(s, p, campaign_id, after, now)
     ops._queue_context(service, s, p, campaign_id, leads)
     campaign = ops.required(service, s, "campaigns", campaign_id, p)
     ops._queue_presence(service, s, p)
@@ -415,6 +425,7 @@ def _claim_in(service, s, p, campaign_id, plan):
             "dial_scope": {
                 "dial_lists": p.get("dial_lists"),
                 "callback_lead_id": p.get("callback_lead_id"),
+                **({"test_only": True} if p.get("test_only") else {}),
             },
             "policy_id": campaign.data["policy_id"],
             "coaching_comparison": coach_comparison,

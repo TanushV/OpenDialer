@@ -14,11 +14,11 @@ from app.calling.blockers import refuse, test_line_refusal
 from app.calling.state import moved, transition
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, retry_seconds
-from app.lead_lists import memberships, set_memberships
+from app.lead_lists import in_list, memberships, set_memberships
 from app.leads import intake
 from app.leads.record import csv_fields, number_view
 from app.optimization.geography import plausible_zones
-from app.platform.config import LIMITS, TEST_LINES
+from app.platform.config import LIMITS
 from app.platform.ctx import Ctx
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, rows, uid, update
 from app.platform.errors import dt, fail  # noqa: F401 (other modules import these from here)
@@ -536,6 +536,7 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         and service.clock() < until
         and lead.data.get("pair_rep_id") in {None, p["user_id"]}
     )
+    own_test_line = ops.own_test_line(service, p, lead)
     return CallContext(
         now=service.clock(),
         continuing_call=active,
@@ -543,6 +544,7 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         outreach_hold=bool(
             lead.data.get("outreach_hold")
             or lead.data.get("conversion_goal_achieved")
+            or (p.get("test_only") and not own_test_line)
             or not ops.list_permitted(service, s, p, lead)
         )
         and not active,
@@ -592,7 +594,7 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         # Live calls carry the speech-to-text the live helper needs; nothing is recorded.
         permitted_permissions=set(config.get("permissions", []))
         | ({"transcription"} if "live" in config.get("permissions", []) else set()),
-        own_test_line=ops.own_test_line(service, p, lead),
+        own_test_line=own_test_line,
     )
 
 
@@ -688,11 +690,9 @@ def _expire_claims(service, s):
 
 
 def test_lines(service, p):
-    """The owner's test line, and the test phone typed in Settings (section 10)."""
-    from app.compliance.phone import normalize_phone
-
-    typed = normalize_phone(service.configs.read(p["tenant_id"]).get("test_phone") or "").e164
-    return TEST_LINES | ({typed} if typed else set())
+    """Only the test phone currently saved in Settings may be called in Test mode."""
+    phone = ops.test_phone(service, p)
+    return {phone} if phone else set()
 
 
 def test_phone(service, p):
@@ -720,6 +720,27 @@ def refuse_outside_test_line(service, p, lead):
     )
 
 
+def test_candidate(service, s, p, phone, *, campaign_id=None):
+    """Find the saved endpoint by index, preferring its HubSpot contact over a CSV copy."""
+    endpoint = ops._by_key(service, s, p, "phone_endpoints", phone)
+    if endpoint is None:
+        return None
+    model = MODELS["leads"]
+    scope = [
+        model.tenant_id == p["tenant_id"],
+        model.seller_id == p["seller_id"],
+        model.op_endpoint_id == endpoint.id,
+    ]
+    if campaign_id is not None:
+        scope += [model.op_campaign_id == campaign_id, in_list(model, TEST_LIST)]
+    return s.scalar(
+        select(model)
+        .where(*scope)
+        .order_by((model.data["source"].as_string() == "crm").desc(), model.created_at, model.id)
+        .limit(1)
+    )
+
+
 def start_test_session(service, p):
     """Test call: the saved test phone becomes the one callable lead, whatever state an older copy was in.
 
@@ -732,11 +753,7 @@ def start_test_session(service, p):
     with service.db.transaction(False) as s:
         campaign = next(iter(ops.scoped(service, s, "campaigns", p)), None)
         # R11.7: the owner's HubSpot test contact, when it has this number, is the one dialed, so its calls land there.
-        same = sorted(
-            (row for row in ops.scoped(service, s, "leads", p) if row.data.get("phone") == phone),
-            key=lambda row: row.data.get("source") != "crm",
-        )
-        existing = same[0] if same else None
+        existing = test_candidate(service, s, p, phone)
     if not campaign:
         fail(409, "Import a lead list first")
     if existing is None:
@@ -752,10 +769,9 @@ def start_test_session(service, p):
         )
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        lead = sorted(
-            (row for row in ops.scoped(service, s, "leads", p) if row.data.get("phone") == phone),
-            key=lambda row: row.data.get("source") != "crm",
-        )[0]
+        lead = test_candidate(service, s, p, phone)
+        if lead is None:
+            fail(409, "Test phone changed while preparing the call. Press Test call again.")
         set_memberships(lead, [TEST_LIST, *memberships(lead.data)])
         update(
             lead,

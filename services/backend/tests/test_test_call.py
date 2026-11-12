@@ -85,6 +85,21 @@ def test_saving_the_test_call_outcome_ends_the_test_session(workspace, app):
     assert ops.in_test_session(app.state.service, {"tenant_id": workspace["tenant_id"]}) is False
 
 
+def test_ending_test_mode_invalidates_its_pending_dial(workspace, carrier):
+    client, headers = workspace["client"], workspace["headers"]
+    save_phone(workspace, "+12025550199")
+    _, packet = start(workspace)
+    assert packet.status_code == 200, packet.text
+    assert client.delete("/v1/settings/test-call", headers=headers).status_code == 200
+    refused = client.post(
+        "/v1/calls/start",
+        headers=headers,
+        json={"reservation_id": packet.json()["reservation_id"], "idempotency_key": "ended-test"},
+    )
+    assert refused.status_code == 403 and "OUTREACH_HOLD" in refused.text
+    assert carrier.dials == []
+
+
 def test_a_test_session_without_a_test_phone_is_off(workspace, app):
     client, headers = workspace["client"], workspace["headers"]
     assert client.put("/v1/admin/settings", headers=headers, json={"test_session": True}).status_code == 409

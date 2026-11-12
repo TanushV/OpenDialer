@@ -16,7 +16,7 @@ def queue_decision(context, lead, *, own_claim=None, endpoint_claimed=False, by_
     if lead.get("status") != "eligible":
         reasons.append("LEAD_NOT_ELIGIBLE")
     hold = number_hold(lead, now)
-    if hold and not (by_hand and hold in BY_HAND):
+    if hold and not ((context.own_test_line and hold == "DNC_NOT_CHECKED") or (by_hand and hold in BY_HAND)):
         reasons.append(hold)
     if own_claim:
         reasons.append("LIVE_OBLIGATION" if own_claim.call_id else "RESERVATION_EXISTS")

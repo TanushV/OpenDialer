@@ -314,6 +314,7 @@ HOMES = {
     "suppress": "app.service",
     "suppressed": "app.service",
     "sync_numbers": "app.number_operations",
+    "test_candidate": "app.service",
     "test_lines": "app.service",
     "test_phone": "app.service",
     "testing_proposal": "app.optimization.script_lab",

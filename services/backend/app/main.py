@@ -573,7 +573,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
     async def next_lead(data: QueueNext, p=Depends(principal)):
         if ops.in_test_session(service, p):
             # A test session offers only the Test line list; dialing refuses any other number too.
-            return await pool_queue.reserve(service, p, data.campaign_id, [TEST_LIST], None)
+            return await pool_queue.reserve(
+                service, {**p, "test_only": True}, data.campaign_id, [TEST_LIST], None
+            )
         return await pool_queue.reserve(service, p, data.campaign_id, data.list_names, data.callback_lead_id)
 
     @app.get("/v1/blockers")
