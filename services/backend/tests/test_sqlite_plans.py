@@ -6,16 +6,12 @@ from sqlalchemy import create_engine, literal_column, select
 
 
 @pytest.mark.parametrize("reverse", [False, True])
-def test_open_calls_read_uses_the_partial_index(tmp_path, reverse):
+def test_open_calls_read_uses_the_partial_index(reverse):
     # Index creation order follows set iteration, which changes with each process's hash seed.
-    engine = create_engine(f"sqlite:///{tmp_path}/plans.db")
+    # This tests the planner, so index DDL need not sync a journal to disk on the CI runner.
+    engine = create_engine("sqlite://")
     table = MODELS["call_attempts"].__table__
     indexes = sorted(table.indexes, key=lambda index: index.name, reverse=reverse)
-    table.create(engine)
-    for index in indexes:
-        index.drop(engine)
-    for index in indexes:
-        index.create(engine)
     model = MODELS["call_attempts"]
     query = (
         select(model.id)
@@ -30,8 +26,12 @@ def test_open_calls_read_uses_the_partial_index(tmp_path, reverse):
     )
     compiled = query.compile(engine)
     with engine.begin() as connection:
+        table.create(connection)
+        for index in indexes:
+            index.drop(connection)
+        for index in indexes:
+            index.create(connection)
         plan_statistics(connection)
-    with engine.connect() as connection:
         plan = connection.exec_driver_sql(
             "EXPLAIN QUERY PLAN " + str(compiled), tuple(compiled.params.values())
         )
