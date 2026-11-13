@@ -102,12 +102,18 @@ test.describe("compact desktop layout", () => {
       exact: true,
     });
     await expect(total).toBeVisible();
-    const headerLines = await total.evaluate((cell) => {
-      const range = document.createRange();
-      range.selectNodeContents(cell);
-      return range.getClientRects().length;
-    });
-    expect(headerLines).toBe(1);
+    const textLines = (label: typeof total) =>
+      label.evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return range.getClientRects().length;
+      });
+    expect(await textLines(total)).toBe(1);
+    const removeList = listTable
+      .getByRole("button", { name: "Remove list", exact: true })
+      .first();
+    await expect(removeList).toBeVisible();
+    expect(await textLines(removeList)).toBe(1);
     await page
       .getByRole("checkbox", { name: "Select all visible leads" })
       .check();

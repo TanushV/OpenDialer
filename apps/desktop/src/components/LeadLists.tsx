@@ -155,7 +155,7 @@ export function ListsPage({
                   <td>{list.held}</td>
                   <td>{list.completed}</td>
                   <td>{list.callbacks_due}</td>
-                  <td>
+                  <td className="lead-list-actions">
                     <div className="button-row">
                       {!list.archived && (
                         <button
@@ -210,12 +210,12 @@ export function ListsPage({
           </table>
         </div>
         {visibleLists?.length === 0 && (
-          <p>
+          <p className="lead-lists-note">
             No active lists. Import a CSV in Leads or show removed lists to
             restore one.
           </p>
         )}
-        <p className="fine">
+        <p className="fine lead-lists-note">
           Callable now checks the current calling rules, excluding the rep's
           Ready/audio state. Counts can overlap when one contact belongs to
           several lists. Paused lists stop ordinary calls; their callbacks

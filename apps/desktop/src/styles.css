@@ -2540,6 +2540,20 @@ details.transcript-card {
   margin: 0;
   padding: 12px 22px;
 }
+.lead-list-actions {
+  min-width: 120px;
+}
+.lead-list-actions button,
+.list-rename > summary {
+  white-space: nowrap;
+}
+.lead-lists-note {
+  padding: 10px 22px 14px;
+}
+.lead-lists-note.fine {
+  margin: 0;
+  border-top: 1px solid #e9ede2;
+}
 .list-rename {
   margin-top: 8px;
 }
