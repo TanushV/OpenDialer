@@ -6,7 +6,6 @@ import {
   Layers3,
   RefreshCw,
   Search,
-  Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CallbackRouting } from "./CallbackRouting";
@@ -31,6 +30,7 @@ import { ScriptEditor } from "./ScriptEditor";
 import { TokenUsage } from "./TokenUsage";
 import { ScriptMemory } from "./ScriptMemory";
 import { ScriptReader } from "./ScriptReader";
+import { OpenFile } from "./OpenFile";
 
 export function LeadsPage({
   onNavigate,
@@ -344,22 +344,22 @@ export function LeadsPage({
               }
             />
           </label>
+          <p className="fine">
+            Use a lead export in <code>.csv</code> format with a name and phone
+            column.
+          </p>
           <div className="button-row">
-            <label className="secondary file-button">
-              <Upload size={15} />
-              Choose CSV file
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    setListName(file.name.replace(/\.csv$/i, "").slice(0, 120));
-                    void file.text().then(setCSV);
-                  }
-                }}
-              />
-            </label>
+            <OpenFile
+              label="Open lead list (.csv)"
+              accept=".csv,text/csv"
+              onOpen={(file) => {
+                void run(async () => {
+                  const text = await file.text();
+                  setListName(file.name.replace(/\.csv$/i, "").slice(0, 120));
+                  setCSV(text);
+                });
+              }}
+            />
             <button
               className="primary"
               disabled={!csv.trim()}
@@ -369,7 +369,6 @@ export function LeadsPage({
                     imported: number;
                     duplicates: number;
                     invalid: number;
-                    preparing: number;
                   }>(
                     "/v1/leads/import",
                     "POST",
@@ -377,7 +376,6 @@ export function LeadsPage({
                       campaign_id: w.campaign.id,
                       list_name: listName.trim(),
                       rows: parseCSV(csv),
-                      prepare: true,
                       ...(columnMap ? { column_map: columnMap } : {}),
                     },
                     { timeoutMs: LONG_REQUEST_MS },
@@ -389,11 +387,7 @@ export function LeadsPage({
                   await reloadLeads();
                   await lists.reload();
                   const count = `${report.imported} lead${report.imported === 1 ? "" : "s"} imported.`;
-                  notice(
-                    report.preparing
-                      ? `${count} Agents are researching them now.`
-                      : count,
-                  );
+                  notice(count);
                 })
               }
             >
@@ -834,8 +828,18 @@ function OwnedNumbers({
 }
 
 export function NumbersPage() {
-  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const { snapshot: w, api, run, refresh, notice, subscribe } = useWorkspace();
   const history = useHistory("numbers", w.numbers);
+  const latestHistory = useRef(history);
+  latestHistory.current = history;
+  useEffect(
+    () =>
+      subscribe((events) => {
+        if (events.some((event) => event.type === "number.updated"))
+          void latestHistory.current.load().catch(() => {});
+      }),
+    [subscribe],
+  );
   const [listName, setListName] = useState<string | null>(null);
   const plan = useNumbersSummary(listName);
   const inventory = plan.summary?.inventory;
@@ -957,7 +961,7 @@ export function NumbersPage() {
         </div>
         <HistoryMore history={history} label="Load more numbers" />
         {!history.items.length && (
-          <Empty text="No numbers yet. Buy one above, or check your Telnyx numbers and add one." />
+          <Empty text="Shared caller IDs appear here after your calling profile connects. Check Settings → Call connection if the list stays empty." />
         )}
       </section>
       <label className="card padded compact-field">

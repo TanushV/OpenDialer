@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../context";
 import { LONG_REQUEST_MS } from "../api/client";
+import { OpenFile } from "./OpenFile";
 
 export type LoginStatus = {
   connected: boolean;
@@ -57,56 +58,54 @@ export function CodexLogin({
           </p>
         </>
       )}
-      <label className="secondary file-button">
-        Import Codex login
-        <input
-          type="file"
-          accept=".json,application/json"
-          disabled={busy}
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (!file) return;
-            const current = ++generation.current;
-            setBusy(true);
-            setError("");
-            setSaved(false);
-            void (async () => {
+      <p className="fine">
+        Open the <code>auth.json</code> file from your own Codex login to
+        connect ChatGPT.
+      </p>
+      <OpenFile
+        label="Open Codex auth.json"
+        accept=".json,application/json"
+        disabled={busy}
+        onOpen={(file) => {
+          const current = ++generation.current;
+          setBusy(true);
+          setError("");
+          setSaved(false);
+          void (async () => {
+            try {
+              if (file.size > 65536)
+                throw new Error(
+                  "Choose a Codex auth.json file smaller than 64 KB.",
+                );
+              let credentials: unknown;
               try {
-                if (file.size > 65536)
-                  throw new Error(
-                    "Choose a Codex auth.json file smaller than 64 KB.",
-                  );
-                let credentials: unknown;
-                try {
-                  credentials = JSON.parse(await file.text());
-                } catch {
-                  throw new Error(
-                    "This is not a JSON login file. Choose Codex’s auth.json.",
-                  );
-                }
-                const value = await api<LoginStatus>(
-                  "/v1/inference/codex/import",
-                  "POST",
-                  credentials,
-                  { timeoutMs: LONG_REQUEST_MS },
+                credentials = JSON.parse(await file.text());
+              } catch {
+                throw new Error(
+                  "This is not a JSON login file. Choose Codex’s auth.json.",
                 );
-                if (current !== generation.current) return;
-                setStatus(value);
-                await onImported?.(value);
-                if (current === generation.current) setSaved(true);
-              } catch (reason) {
-                if (current !== generation.current) return;
-                setError(
-                  reason instanceof Error ? reason.message : String(reason),
-                );
-              } finally {
-                if (current === generation.current) setBusy(false);
               }
-            })();
-          }}
-        />
-      </label>
+              const value = await api<LoginStatus>(
+                "/v1/inference/codex/import",
+                "POST",
+                credentials,
+                { timeoutMs: LONG_REQUEST_MS },
+              );
+              if (current !== generation.current) return;
+              setStatus(value);
+              await onImported?.(value);
+              if (current === generation.current) setSaved(true);
+            } catch (reason) {
+              if (current !== generation.current) return;
+              setError(
+                reason instanceof Error ? reason.message : String(reason),
+              );
+            } finally {
+              if (current === generation.current) setBusy(false);
+            }
+          })();
+        }}
+      />
       {busy && <p role="status">Checking your login…</p>}
       {saved && (
         <p role="status">Codex login imported. Automatic refresh is enabled.</p>
@@ -160,10 +159,9 @@ export function CodexLogin({
           folder’s <code>.codex</code> directory (or your custom CODEX_HOME).
         </p>
         <p>
-          Keep this file private: it grants account access. In a shared
-          workspace it is sent to your OpenDialer server and belongs only to
-          your user. If your session is revoked, sign in again and import a
-          fresh file. Disconnect removes this app’s copy.
+          Keep this file private. It grants access to your ChatGPT account. If
+          your session is revoked, sign in again and import a fresh file.
+          Disconnect removes this app’s copy.
         </p>
       </details>
     </section>

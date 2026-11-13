@@ -195,6 +195,12 @@ def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_rela
             ],
         },
     )
+    assert managed.status()["numbers"] == 2
+    mirrored = get(ws, "/v1/workspace/numbers")["items"]
+    assert {row["phone"] for row in mirrored if row.get("shared_pool") == "team"} == {
+        "+12125550189",
+        chosen,
+    }
     requests = []
 
     class RPC:
@@ -211,6 +217,9 @@ def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_rela
     assert post(ws, "/v1/hubspot/sync", {"list_id": "88", "list_name": "Other rep"}, status=403)
     post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
     run_jobs(ws, rounds=3)
+    status = get(ws, "/v1/preparation")
+    assert not status["threads"]
+    assert next(row for row in status["lists"] if row["list_name"] == "HubSpot list")["unrequested"] == 1
     ready(ws)
     selected = post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"]})
     assert selected["lead"]["phone"] == A and selected["number"]["phone"] == chosen

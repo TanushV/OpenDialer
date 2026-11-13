@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useWorkspace } from "../context";
+import { OpenFile } from "./OpenFile";
 export interface ConnectionStatus {
   configured: boolean;
   connected: boolean;
   state: string;
   label?: string;
   numbers?: number;
+  shared_pool?: boolean;
 }
 /** R7.4: the connection reconnects by itself; the setup file is asked for only while it is down. */
 export const needsSetupFile = (status: ConnectionStatus | null) =>
@@ -45,10 +47,6 @@ export function ManagedConnection({
   return (
     <section className="card">
       <h3>Local calling connection</h3>
-      <p>
-        Import the setup file prepared for this computer. Your leads, scripts
-        and analysis stay here. No tunnel or separate cloud login is needed.
-      </p>
       {error && <p role="alert">{error}</p>}
       {status?.configured && (
         <p role="status">
@@ -56,20 +54,21 @@ export function ManagedConnection({
           {status.connected
             ? "Connected"
             : "Not ready — reconnect before calling"}
-          . {status.numbers ?? 0} verified numbers.
+          . {status.numbers ?? 0}{" "}
+          {status.shared_pool ? "shared caller IDs" : "registered numbers"}.
         </p>
       )}
       {needsSetupFile(status) && (
-        <label>
-          Import calling setup (.json)
-          <input
-            type="file"
+        <>
+          <p>
+            Use the <code>&lt;rep&gt;-calling-setup.json</code> file from your
+            own OpenDialer credentials ZIP.
+          </p>
+          <OpenFile
+            label="Open calling setup (.json)"
             accept=".json,application/json"
             disabled={busy}
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0];
-              event.currentTarget.value = "";
-              if (!file) return;
+            onOpen={(file) => {
               void run(async () => {
                 setBusy(true);
                 try {
@@ -77,10 +76,18 @@ export function ManagedConnection({
                     throw new Error(
                       "Choose the small calling setup JSON file.",
                     );
+                  let profile: unknown;
+                  try {
+                    profile = JSON.parse(await file.text());
+                  } catch {
+                    throw new Error(
+                      "Open the <rep>-calling-setup.json file from your credentials ZIP.",
+                    );
+                  }
                   const value = await api<ConnectionStatus>(
                     "/v1/admin/managed-connection",
                     "POST",
-                    JSON.parse(await file.text()),
+                    profile,
                   );
                   setStatus(value);
                   changed(value);
@@ -92,7 +99,7 @@ export function ManagedConnection({
               });
             }}
           />
-        </label>
+        </>
       )}
       {status?.configured && !status.connected && (
         <button

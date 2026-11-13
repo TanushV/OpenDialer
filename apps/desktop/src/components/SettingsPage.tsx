@@ -189,7 +189,7 @@ function ChatGptLogin({ settings }: { settings: AdminSettingsState }) {
           <small>
             {login?.connected
               ? `Connected${login.account?.email ? ` as ${login.account.email}` : ""}${login.account?.planType ? ` · ${login.account.planType} plan` : ""}. Research and scripts use GPT-6.1 Terra at maximum effort, included in your plan.`
-              : "Not connected. Leads are called with your script as written until it is."}
+              : "Connect your own ChatGPT login or use OpenRouter for script generation."}
           </small>
         </div>
         {login?.connected ? (
@@ -221,7 +221,7 @@ function ChatGptLogin({ settings }: { settings: AdminSettingsState }) {
           </button>
         ) : null}
       </div>
-      {!login?.connected && !login?.computer_login && (
+      {!login?.connected && (
         <CodexLogin
           compact
           onImported={async (value) => {

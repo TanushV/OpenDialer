@@ -45,6 +45,7 @@ def test_new_master_never_reuses_old_personalized_output(workspace):
     save_script(ws, SCRIPT.replace("Would Tuesday work?", "Could we review the new scope?"))
     stale = get(ws, f"/v1/leads/{identity}/packet")["script"]
     assert stale["fallback"] and not stale.get("written")
+    assert post(ws, "/v1/preparation/lists", {"list_name": "Playbook rewrites"})["marked"] == 1
     run_jobs(ws, 3)
     after = get(ws, f"/v1/leads/{identity}/packet")["script"]
     assert after["base_version"] > before["base_version"]
@@ -62,9 +63,13 @@ def test_script_save_reports_refresh_and_unique_progress(workspace):
     assert saved["refresh_required"] is True
     state = saved["preparation"]
     assert state["master_version"] == saved["version"]
-    assert state["summary"]["total"] == 1
     assert state["summary"]["ready"] == 0
-    assert state["summary"]["waiting"] + state["summary"]["working"] == 1
+    assert state["summary"]["waiting"] + state["summary"]["working"] == 0
+    shared = [
+        row for row in state["lists"] if row["list_name"] in {"Playbook rewrites", "Shared script progress"}
+    ]
+    assert len(shared) == 2 and all(row["unrequested"] == 1 for row in shared)
+    assert post(ws, "/v1/preparation/lists", {"list_name": "Shared script progress"})["marked"] == 1
     run_jobs(ws, 3)
     script = get(ws, f"/v1/leads/{identity}/packet")["script"]
     assert script["base_version"] == saved["version"]
@@ -293,6 +298,7 @@ def test_rewrite_after_a_call_accepts_an_ai_note_with_no_human_edit(workspace):
     assert get(ws, f"/v1/calls/{placed['id']}/review")["human_notes"] is None
     before = get(ws, f"/v1/leads/{identity}/packet")["script"]
     save_script(ws, SCRIPT.replace("Would Tuesday work?", "Could we review the new scope?"))
+    assert post(ws, "/v1/preparation/lists", {"list_name": "Playbook rewrites"})["marked"] == 1
     run_jobs(ws, 3)
     after = get(ws, f"/v1/leads/{identity}/packet")["script"]
     assert after["preparation_status"] == "ready"
@@ -336,5 +342,6 @@ def test_removed_list_does_not_reappear_in_shared_lead_preparation(workspace):
         json={"campaign_id": ws["campaign_id"], "list_name": "Playbook rewrites", "action": "archive"},
     )
     state = get(ws, "/v1/preparation")
-    assert state["summary"]["total"] == 1
-    assert {entry["list_name"] for entry in state["lists"]} == {"Keep preparation"}
+    rows = {entry["list_name"]: entry for entry in state["lists"]}
+    assert "Playbook rewrites" not in rows
+    assert rows["Keep preparation"]["total"] == 1

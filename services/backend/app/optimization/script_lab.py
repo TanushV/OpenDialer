@@ -709,7 +709,7 @@ def register_script_lab(app, service, principal, administrator):
                 ops.script_base(service, s, p, campaign)["template"]
             ) != template_version(template)
             adopted = ops.adopt_script_in(service, s, p, campaign, template, "markdown_upload")
-        # Prepared leads are rewritten in the background for the new script.
+        # Release work invalidated by the edit. The rep requests new scripts from Leads.
         ops.prepare_tick(service, p)
         return {
             **adopted,

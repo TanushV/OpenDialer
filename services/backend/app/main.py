@@ -137,7 +137,7 @@ class ImportLeads(Strict):
     campaign_id: str
     list_name: str = Field(default="", max_length=120)
     rows: list[dict] = Field(max_length=10000)
-    # The app asks for research and per-lead scripts before calling; API clients opt in.
+    # API clients can explicitly request scripts. The desktop starts them from the list.
     prepare: bool = False
     # Role -> {"column", "delimiter"}; omitted, the map is guessed from the headers (section 9).
     column_map: dict[str, dict[str, str | None]] | None = None

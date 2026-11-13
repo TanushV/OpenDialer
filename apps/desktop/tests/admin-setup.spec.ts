@@ -63,8 +63,8 @@ test("the ChatGPT row holds its login and the OpenRouter key has its own row", a
   await openSettings(page);
   const chatgpt = page.getByTestId("setup-chatgpt");
   await expect(chatgpt).toContainText("ChatGPT");
-  await expect(chatgpt.getByText("Import Codex login")).toBeVisible();
-  await expect(chatgpt.getByLabel("Import Codex login")).toBeAttached();
+  await expect(chatgpt.getByText("Open Codex auth.json")).toBeVisible();
+  await expect(chatgpt.getByLabel("Open Codex auth.json")).toBeAttached();
   await expect(chatgpt.getByLabel("Research uses")).toBeVisible();
   await expect(
     page.getByTestId("setup-openrouter").getByLabel("New OpenRouter key"),
@@ -325,7 +325,7 @@ test("advanced detail is one collapsed view and debug controls are gone", async 
   ).toHaveCount(0);
 });
 
-test("an imported list is researched and scripted before it can be called", async ({
+test("an imported list waits for the rep to start script generation", async ({
   page,
 }) => {
   await enter(page);
@@ -345,11 +345,12 @@ test("an imported list is researched and scripted before it can be called", asyn
   );
   await page.getByRole("button", { name: "Import leads" }).click();
   const body = (await imported).request().postDataJSON();
-  expect(body.prepare).toBe(true);
-  await expect(page.getByText(/Agents are researching them now/)).toBeVisible();
+  expect(body.prepare ?? false).toBe(false);
   const panel = page.getByRole("region", { name: "Lead preparation" });
-  await expect(panel.getByText(list)).toBeVisible();
-  await expect(panel.getByText(/1 of 1 ready to call/)).toBeVisible({
+  const preparation = panel.getByRole("listitem").filter({ hasText: list });
+  await expect(preparation).toContainText("1 awaiting generation");
+  await preparation.getByRole("button", { name: "Generate scripts" }).click();
+  await expect(preparation.getByText(/1 of 1 processed/)).toBeVisible({
     timeout: 30000,
   });
   await page.getByLabel("Search leads").fill("Dana Reyes");
@@ -459,7 +460,14 @@ test("managed setup import shows connection and hides tunnel fields", async ({
   await setUpAuthority(page);
   await enter(page);
   await openSettings(page);
-  await page.getByLabel("Import calling setup (.json)").setInputFiles({
+  await expect(page.getByText("<rep>-calling-setup.json")).toBeVisible();
+  const chooser = page.waitForEvent("filechooser");
+  await page
+    .getByRole("button", { name: "Open calling setup (.json)" })
+    .click();
+  await (
+    await chooser
+  ).setFiles({
     name: "caller.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify({ label: "Test caller" })),

@@ -117,7 +117,7 @@ test("remove from a chosen membership and recover an unassigned lead", async ({
   await expect(row(page, "Membership removal")).toBeVisible();
 });
 
-test("script save explains automatic refresh and formatting-only preservation", async ({
+test("script save offers manual refresh and preserves scripts on formatting-only edits", async ({
   page,
 }) => {
   await enter(page, "script-refresh-101");
@@ -133,11 +133,13 @@ test("script save explains automatic refresh and formatting-only preservation", 
   );
   await page.getByRole("button", { name: "Save script", exact: true }).click();
   await expect(
-    page.getByText(/Script saved\. Lead scripts refresh automatically/).first(),
+    page.getByText(/Script saved\. To refresh personalized scripts/).first(),
   ).toBeVisible();
   const progress = page.getByRole("region", { name: "Script refresh" });
   await expect(progress.getByText(/Master version/)).toBeVisible();
-  await expect(progress.getByText(/1 of 1 leads prepared/)).toBeVisible();
+  await expect(
+    progress.getByText(/No script refresh is pending/),
+  ).toBeVisible();
   const saved = await editor.inputValue();
   await editor.fill(saved.replace("\n# Close", "\n\n# Close"));
   await page.getByRole("button", { name: "Save script", exact: true }).click();

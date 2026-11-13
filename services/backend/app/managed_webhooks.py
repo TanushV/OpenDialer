@@ -152,7 +152,8 @@ class ManagedConnection:
             "state": self.state,
             "reason": None if connected else self.refusal(),
             "url": self.config.get("url", ""),
-            "numbers": len(self.numbers),
+            "numbers": len(self.pool.numbers) if self.pool is not None else len(self.numbers),
+            "shared_pool": self.pool is not None,
             "speech_failed": self.speech_failed,
             "speech_warning": (
                 "Speech was missing on a recent call. Calling continues; that call is marked as missing speech."

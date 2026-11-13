@@ -29,7 +29,7 @@ for (const connected of [false]) {
       });
     });
     await enter(page);
-    await page.getByLabel("Import Codex login").setInputFiles({
+    await page.getByLabel("Open Codex auth.json").setInputFiles({
       name: "invalid.json",
       mimeType: "application/json",
       buffer: Buffer.from("not JSON"),
@@ -38,7 +38,7 @@ for (const connected of [false]) {
       page.getByRole("region", { name: "Your Codex login" }).getByRole("alert"),
     ).toContainText("not a JSON login file");
     expect(imported).toBe(false);
-    await page.getByLabel("Import Codex login").setInputFiles({
+    await page.getByLabel("Open Codex auth.json").setInputFiles({
       name: "auth.json",
       mimeType: "application/json",
       buffer: Buffer.from(
@@ -57,7 +57,7 @@ for (const connected of [false]) {
     await page.getByRole("button", { name: "Disconnect ChatGPT" }).click();
     // The file input itself is hidden; its label is the visible picker.
     await expect(
-      page.getByText("Import Codex login", { exact: true }),
+      page.getByText("Open Codex auth.json", { exact: true }),
     ).toBeVisible();
   });
 }
@@ -86,7 +86,7 @@ test("a late status read cannot erase a successful Codex import", async ({
   );
   await enter(page);
   await pending;
-  await page.getByLabel("Import Codex login").setInputFiles({
+  await page.getByLabel("Open Codex auth.json").setInputFiles({
     name: "auth.json",
     mimeType: "application/json",
     buffer: Buffer.from("{}"),

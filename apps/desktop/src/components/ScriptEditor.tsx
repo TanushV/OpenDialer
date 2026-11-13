@@ -8,10 +8,10 @@ export const TRIGGERS = `# Triggers
 - new_funding: New funding (180 days, B)
 - expansion: Expansion or new market (180 days, B)
 - leaner_team: Layoffs or a leaner team (180 days, B)`;
-import { Check, FileUp, Sparkles } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 import { useWorkspace } from "../context";
 import type { ScriptError, ScriptTemplate } from "../types";
-import type { PreparationStatus } from "./PreparationPanel";
+import { OpenFile } from "./OpenFile";
 import { readNewest, useNewestAnswer } from "../state/newest";
 
 type Base = { version: number; template: ScriptTemplate | null };
@@ -219,7 +219,6 @@ export function ScriptEditor() {
       try {
         const result = await api<{
           refresh_required: boolean;
-          preparation: PreparationStatus;
         }>("/v1/admin/script/import", "POST", {
           markdown: text,
           expected_version: startedFrom ?? base.version,
@@ -227,15 +226,9 @@ export function ScriptEditor() {
         });
         edited.current = false;
         await load();
-        const message = !result.refresh_required
-          ? "Script saved. Formatting-only edit; prepared scripts kept."
-          : !result.preparation.ai_connected
-            ? "Script saved. Connect AI in Settings to refresh lead scripts."
-            : result.preparation.paused_until
-              ? "Script saved. Refresh is paused; resume preparation below."
-              : result.preparation.summary.total === 0
-                ? "Script saved. New leads will use this version."
-                : "Script saved. Lead scripts refresh automatically for this version.";
+        const message = result.refresh_required
+          ? "Script saved. To refresh personalized scripts, choose Generate scripts on a list in Leads."
+          : "Script saved. Formatting-only edit; prepared scripts kept.";
         setSavedFeedback(message);
         notice(message);
       } finally {
@@ -281,25 +274,22 @@ export function ScriptEditor() {
             </span>
           )}
         </div>
+        <p className="fine">
+          Open your base calling script as a Markdown <code>.md</code> file.
+        </p>
         <div className="button-row">
-          <label className="secondary file-button">
-            <FileUp size={15} />
-            Open .md file
-            <input
-              type="file"
-              accept=".md,.markdown,.txt,text/plain,text/markdown"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file)
-                  void run(async () => {
-                    if (file.size > 40000)
-                      throw new Error("Keep the script under 40 KB.");
-                    edited.current = true;
-                    setText(await file.text());
-                  });
-              }}
-            />
-          </label>
+          <OpenFile
+            label="Open calling script (.md)"
+            accept=".md,.markdown,.txt,text/plain,text/markdown"
+            onOpen={(file) => {
+              void run(async () => {
+                if (file.size > 40000)
+                  throw new Error("Keep the script under 40 KB.");
+                edited.current = true;
+                setText(await file.text());
+              });
+            }}
+          />
           {!/^#\s+triggers\s*$/im.test(text) && (
             <button
               className="secondary"

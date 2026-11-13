@@ -93,13 +93,16 @@ export async function isolatedSimulationWorkspace(page: Page, name: string) {
   await expect(page.locator('[aria-label="Call status"]')).toBeAttached();
 }
 
-/** Imported leads are researched and scripted before they can be called; wait for that. */
+/** Wait for any explicitly started preparation to finish. */
 export async function waitForPreparation(page: Page) {
   const panel = page.getByRole("region", { name: "Lead preparation" });
   await expect(panel).toBeVisible();
-  await expect(panel.getByText(/in progress|waiting/)).toHaveCount(0, {
-    timeout: 30000,
-  });
+  await expect(panel.getByText(/\b\d+ (?:in progress|waiting)\b/)).toHaveCount(
+    0,
+    {
+      timeout: 30000,
+    },
+  );
 }
 
 /**

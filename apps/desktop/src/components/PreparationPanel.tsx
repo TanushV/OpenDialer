@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bot, Pause, Play } from "lucide-react";
 import { date, useWorkspace } from "../context";
+import { LONG_REQUEST_MS } from "../api/client";
 import { readNewest, useNewestAnswer } from "../state/newest";
 
 interface ListProgress {
@@ -11,6 +12,7 @@ interface ListProgress {
   failed: number;
   working: number;
   waiting: number;
+  unrequested: number;
   spent_usd: number;
   budget_usd: number;
   skipped_leads: { name: string; reason: string }[];
@@ -24,6 +26,7 @@ export interface PreparationStatus {
     failed: number;
     working: number;
     waiting: number;
+    unrequested: number;
   };
   lists: ListProgress[];
   threads: { id: string; status: string; leads: number }[];
@@ -47,6 +50,7 @@ export function PreparationPanel({
 }) {
   const { api, run, notice, subscribe, snapshot } = useWorkspace();
   const [status, setStatus] = useState<PreparationStatus | null>(null);
+  const [starting, setStarting] = useState(false);
   const [draft, setDraft] = useState<PreparationStatus["settings"] | null>(
     null,
   );
@@ -102,7 +106,7 @@ export function PreparationPanel({
           <p className="muted small">
             {compact
               ? `Master version ${status.master_version}. ${status.summary.ready} of ${status.summary.total} leads prepared for the current script.`
-              : "Before a lead can be called, an AI agent researches it and writes its script from yours."}
+              : "Choose a list to research and personalize. Until then, callable leads use your base script."}
           </p>
         </div>
         {status.threads.length > 0 && (
@@ -138,7 +142,7 @@ export function PreparationPanel({
       {status.has_script && !status.ai_connected && (
         <div className="info-note">
           <p>
-            Connect ChatGPT in Settings so agents can research your leads. Until
+            Connect ChatGPT or OpenRouter in Settings to generate scripts. Until
             then, leads are called with your script as written.
           </p>
           <button className="secondary" onClick={() => onNavigate("Settings")}>
@@ -169,7 +173,7 @@ export function PreparationPanel({
       {!compact &&
         (lists.length === 0 ? (
           <p className="muted">
-            Import a list below. Its leads are researched and scripted first.
+            Import a CSV or sync a HubSpot list to generate scripts for it.
           </p>
         ) : (
           <ul className="prep-lists">
@@ -183,7 +187,7 @@ export function PreparationPanel({
                   <div className="prep-row">
                     <strong>{list.list_name || "Unnamed list"}</strong>
                     <span className="fine">
-                      {done} of {list.total} ready to call
+                      {done} of {list.total} processed
                     </span>
                   </div>
                   <div
@@ -206,10 +210,42 @@ export function PreparationPanel({
                       : ""}
                     {list.working ? ` · ${list.working} in progress` : ""}
                     {list.waiting ? ` · ${list.waiting} waiting` : ""}
+                    {list.unrequested
+                      ? ` · ${list.unrequested} awaiting generation`
+                      : ""}
                     {list.spent_usd > 0
                       ? ` · ${money(list.spent_usd)} of ${money(list.budget_usd)} AI budget`
                       : ""}
                   </p>
+                  {(list.unrequested > 0 || list.failed > 0) && (
+                    <button
+                      className="secondary small"
+                      disabled={
+                        starting || !status.has_script || !status.ai_connected
+                      }
+                      onClick={() =>
+                        void run(async () => {
+                          setStarting(true);
+                          try {
+                            const { marked } = await api<{ marked: number }>(
+                              "/v1/preparation/lists",
+                              "POST",
+                              { list_name: list.list_name },
+                              { timeoutMs: LONG_REQUEST_MS },
+                            );
+                            await load();
+                            notice(
+                              `${marked} leads queued for script generation.`,
+                            );
+                          } finally {
+                            setStarting(false);
+                          }
+                        })
+                      }
+                    >
+                      Generate scripts
+                    </button>
+                  )}
                   {list.skipped_leads?.length > 0 && (
                     <details className="prep-skipped">
                       <summary>

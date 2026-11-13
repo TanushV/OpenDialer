@@ -152,12 +152,13 @@ def test_imported_lists_are_researched_and_scripted_before_they_can_be_called(wo
     assert script["picks"]["close"] == ["close-1"]
 
 
-def test_a_script_change_rewrites_prepared_leads_without_blocking_calls(workspace):
+def test_a_script_change_waits_for_each_list_to_request_new_scripts(workspace):
     ws = workspace
     save_script(ws)
     ids = [
         lead["id"] for lead in import_leads(ws, leads("Edit", 2), list_name="Edits", prepare=True)["leads"]
     ]
+    other = import_leads(ws, leads("Other", 1), list_name="Other", prepare=True)["leads"][0]["id"]
     run_jobs(ws, rounds=3)
     before = get(ws, f"/v1/leads/{ids[0]}/packet")["script"]
     save_script(ws, SCRIPT.replace("Would Tuesday work?", "Does Tuesday suit you?"))
@@ -166,7 +167,12 @@ def test_a_script_change_rewrites_prepared_leads_without_blocking_calls(workspac
     assert before["written"] and not after.get("written") and after["fallback"]
     assert after["preparation_status"] == "stale" and lead_row(ws, ids[0])["status"] == "eligible"
     run_jobs(ws, rounds=3)
+    assert get(ws, f"/v1/leads/{ids[0]}/packet")["script"]["preparation_status"] == "stale"
+    assert post(ws, "/v1/preparation/lists", {"list_name": "Edits"})["marked"] == 2
+    assert post(ws, "/v1/preparation/lists", {"list_name": "Edits"})["marked"] == 0
+    run_jobs(ws, rounds=3)
     assert get(ws, f"/v1/leads/{ids[0]}/packet")["script"]["preparation_status"] == "ready"
+    assert get(ws, f"/v1/leads/{other}/packet")["script"]["preparation_status"] == "stale"
 
 
 def test_unprepared_leads_can_be_released_to_call_with_the_base_script(workspace):

@@ -83,7 +83,7 @@ test("open a Markdown script file, see it parsed, and keep readable wording", as
   await expect(
     page.getByRole("region", { name: "Script memory", exact: true }),
   ).toBeHidden();
-  await page.getByLabel("Open .md file").setInputFiles({
+  await page.getByLabel("Open calling script (.md)").setInputFiles({
     name: "sales.md",
     mimeType: "text/markdown",
     buffer: Buffer.from(

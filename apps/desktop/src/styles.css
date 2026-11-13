@@ -1458,13 +1458,6 @@ nav button.active svg {
 .import-card p {
   font-size: 11px;
 }
-.file-button {
-  margin: 0;
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  cursor: pointer;
-}
 .number-summary {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

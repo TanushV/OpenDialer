@@ -31,6 +31,61 @@ test("a number pauses and resumes from its own row, with no review form", async 
     await expect(page.getByRole("button", { name: gone })).toHaveCount(0);
 });
 
+test("the numbers table reloads when the relay adds a shared caller ID", async ({
+  page,
+}) => {
+  const phone = "+16285550191";
+  let deliver: ((tenantId: string) => void) | undefined;
+  let pooled = false;
+  const session = page.waitForResponse(
+    (response) =>
+      response.ok() &&
+      response.request().method() === "POST" &&
+      /\/v1\/(setup|local\/session)$/.test(response.url()),
+  );
+  await page.routeWebSocket("**/v1/live", (socket) => {
+    socket.onMessage((message) => {
+      const sequence = JSON.parse(String(message)).after + 1;
+      deliver = (tenantId) =>
+        socket.send(
+          JSON.stringify({
+            cursor: sequence,
+            events: [
+              {
+                sequence,
+                type: "number.updated",
+                tenant_id: tenantId,
+                event_id: "new-pool-number",
+              },
+            ],
+          }),
+        );
+    });
+  });
+  await page.route("**/v1/workspace/numbers?**", async (route) => {
+    const response = await route.fetch();
+    const history = await response.json();
+    if (pooled)
+      history.items.push({
+        id: "pooled-number",
+        phone,
+        region: "628",
+        shared_pool: "rep-pool",
+        daily_limit: 90,
+        outbound_ready: true,
+      });
+    await route.fulfill({ response, json: history });
+  });
+  await enterSimulation(page);
+  await page.getByRole("button", { name: "Numbers", exact: true }).click();
+  await expect.poll(() => Boolean(deliver)).toBe(true);
+  pooled = true;
+  deliver?.((await (await session).json()).tenant_id);
+  await expect(page.getByRole("row").filter({ hasText: phone })).toContainText(
+    "Shared pool",
+  );
+});
+
 test("the number health window saves under Advanced", async ({ page }) => {
   await enterSimulation(page);
   await openMoreSettings(page, "Number limits");

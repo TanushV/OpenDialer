@@ -1,6 +1,6 @@
 """Per-lead preparation before calling: agent threads research each lead and write its script.
 
-Importing or preparing a list marks its leads `preparing`; the queue never offers them until their
+Starting preparation marks unprepared leads `preparing`; the queue never offers them until their
 thread closes. A minute tick packs open leads into threads (one company per thread where possible,
 `leads_per_agent` leads each) and keeps at most `agents_at_once` threads queued or running.
 """
@@ -107,7 +107,7 @@ def lead_script_base(service, s, p, lead):
     return ops.script_base(service, s, p, ops.required(service, s, "campaigns", lead.data["campaign_id"], p))
 
 
-def preparation_key(service, s, p, lead):
+def preparation_key(service, s, p, lead, generation=None):
     """What a prepared script depends on: the base script, the lead's row and the script memory."""
     campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
     base = ops.script_base(service, s, p, campaign)
@@ -116,9 +116,18 @@ def preparation_key(service, s, p, lead):
             template_version(base["template"]),
             lead.data.get("row") or {k: lead.data.get(k) for k in ("name", "company", "domain")},
             campaign.data.get("script_memory_key"),
-            lead.data.get("rewrite_generation"),
+            generation or lead.data.get("rewrite_generation"),
         ]
     )
+
+
+def requested_preparation(service, s, p, lead):
+    key = lead.data.get("preparation_request_key")
+    if key is None or key != preparation_key(service, s, p, lead):
+        return False
+    state = lead.data.get("preparation") or {}
+    expires = state.get("expires_at")
+    return not (state.get("status") in {"ready", "skipped"} and expires and dt(expires) <= service.clock())
 
 
 def agent_route(service, p):
@@ -427,20 +436,18 @@ def request_preparation_in(service, s, p, leads):
     """Mark leads to be prepared before they can be called. Returns how many were marked."""
     marked = 0
     for lead in leads:
-        state = lead.data.get("preparation") or {}
-        if lead.data.get("status") not in {"eligible", "preparing"}:
+        if not ops.preparation_permitted(service, s, p, lead):
             continue
-        if lead.data.get("prepare_requested") and state.get("status") != "failed":
-            continue  # Already requested; a failed lead is asked again with fresh attempts.
-        if ops.suppressed(service, s, p, lead.data["phone"]):
-            continue  # An opted-out number is never researched or scripted.
+        state = ops.preparation_state(service, s, p, lead)
+        if state["status"] in {"ready", "skipped"} or (
+            requested_preparation(service, s, p, lead) and state["status"] != "failed"
+        ):
+            continue
         update(
             lead,
-            prepare_requested=True,
-            status="preparing" if state.get("status") not in {"ready", "skipped"} else lead.data["status"],
-            preparation={**state, "status": "queued", "attempts": 0, "next_attempt_at": None}
-            if state.get("status") not in {"ready", "skipped"}
-            else state,
+            preparation_request_key=ops.preparation_key(service, s, p, lead),
+            status="preparing" if state["status"] != "stale" else lead.data["status"],
+            preparation={**state, "status": "queued", "attempts": 0, "next_attempt_at": None},
         )
         marked += 1
     return marked
@@ -527,7 +534,7 @@ def rewrite_scripts(
                 lead,
                 rewrite_generation=generation,
                 refresh_research=refresh_research,
-                prepare_requested=True,
+                preparation_request_key=ops.preparation_key(service, s, p, lead, generation),
                 preparation={
                     **(lead.data.get("preparation") or {}),
                     "status": "queued",
@@ -543,12 +550,14 @@ def rewrite_scripts(
 
 def prepare_list(service, p, list_name=None, lead_ids=None):
     """Prepare a whole list (or the given leads) before calling."""
+    from app.service import fail
+
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
         if not ops.lead_script_base_ready(service, s, p):
-            from app.service import fail
-
             fail(409, "Add your script before preparing leads")
+        if not ops.agent_route(service, p):
+            fail(409, "Connect ChatGPT or OpenRouter before generating scripts")
         model = MODELS["leads"]
         query = select(model).where(
             model.tenant_id == p["tenant_id"],
@@ -584,11 +593,17 @@ def release_list(service, p, list_name):
             select(model).where(
                 model.tenant_id == p["tenant_id"],
                 model.seller_id == p["seller_id"],
-                model.op_status == "preparing",
+                model.op_status.in_(["eligible", "preparing"]),
+                model.data["preparation_request_key"].as_string().is_not(None),
             )
         ):
-            if list_name in memberships(lead.data) and lead.id not in pending:
-                update(lead, status="eligible", prepare_requested=False)
+            if (
+                list_name in memberships(lead.data)
+                and lead.id not in pending
+                and requested_preparation(service, s, p, lead)
+                and needs_preparation(ops.preparation_state(service, s, p, lead), service.clock())
+            ):
+                update(lead, status="eligible", preparation_request_key=None)
                 released += 1
         return {"released": released}
 
@@ -605,26 +620,30 @@ def prepare_tick(service, p, finishing=None):
             return {"queued": 0, "paused_until": paused}
         config = ops.preparation_settings(service, s, p)["preparation"]
         room = config["agents_at_once"] - ops.running_threads(service, s, p, finishing)
-        if room <= 0 or not ops.lead_script_base_ready(service, s, p):
-            return {"queued": 0}
         pending = ops.pending_preparation(service, s, p, finishing)
         model = MODELS["leads"]
         now = service.clock()
         candidates = []
+        if room <= 0 or not ops.lead_script_base_ready(service, s, p):
+            return {"queued": 0}
         for status in ("preparing", "eligible"):
             if len(candidates) >= room * config["leads_per_agent"]:
                 break
-            for lead in s.scalars(
-                select(model)
-                .where(
-                    model.tenant_id == p["tenant_id"],
-                    model.seller_id == p["seller_id"],
-                    model.op_status == status,
-                )
-                .order_by(model.created_at, model.id)
-                .limit(2000)
-            ):
-                if lead.id in pending or not lead.data.get("prepare_requested"):
+            query = select(model).where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_status == status,
+            )
+            if status == "eligible":
+                query = query.where(model.data["preparation_request_key"].as_string().is_not(None))
+            for lead in s.scalars(query.order_by(model.created_at, model.id).limit(2000)):
+                if not requested_preparation(service, s, p, lead):
+                    # Old automatically queued work and work invalidated by edits need a fresh request.
+                    if status == "preparing":
+                        update(lead, status="eligible")
+                        emit(s, p["tenant_id"], "lead.updated", lead, now)
+                    continue
+                if lead.id in pending:
                     continue
                 if not ops.preparation_permitted(service, s, p, lead):
                     continue
@@ -681,21 +700,24 @@ def preparation_status(service, p):
     with service.db.transaction(False) as s:
         model = MODELS["leads"]
         lists, now = {}, service.clock()
-        summary = dict.fromkeys(("total", "ready", "skipped", "failed", "working", "waiting"), 0)
+        summary = dict.fromkeys(
+            ("total", "ready", "skipped", "failed", "working", "waiting", "unrequested"), 0
+        )
         pending = ops.pending_preparation(service, s, p)
         for lead in s.scalars(
             select(model).where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
         ):
-            if not lead.data.get("prepare_requested"):
-                continue
             if not ops.preparation_permitted(service, s, p, lead):
                 continue
             state = ops.preparation_state(service, s, p, lead)
+            requested = requested_preparation(service, s, p, lead)
             category = (
                 "working"
-                if lead.id in pending
+                if requested and lead.id in pending
                 else state["status"]
                 if state["status"] in {"ready", "skipped"}
+                else "unrequested"
+                if not requested
                 else "failed"
                 if state["status"] == "failed" and not retry_due(state, now)
                 else "waiting"
@@ -716,22 +738,16 @@ def preparation_status(service, p):
                         "failed": 0,
                         "working": 0,
                         "waiting": 0,
+                        "unrequested": 0,
                         "skipped_leads": [],
                     },
                 )
                 entry["total"] += 1
-                if lead.id in pending:
-                    entry["working"] += 1
-                elif state["status"] in {"ready", "skipped"}:
-                    entry[state["status"]] += 1
-                    if state["status"] == "skipped" and len(entry["skipped_leads"]) < 20:
-                        entry["skipped_leads"].append(
-                            {"name": lead.data.get("name", ""), "reason": state.get("reason", "")}
-                        )
-                elif state["status"] == "failed" and not retry_due(state, now):
-                    entry["failed"] += 1
-                else:
-                    entry["waiting"] += 1
+                entry[category] += 1
+                if category == "skipped" and len(entry["skipped_leads"]) < 20:
+                    entry["skipped_leads"].append(
+                        {"name": lead.data.get("name", ""), "reason": state.get("reason", "")}
+                    )
         seller = ops.required(service, s, "sellers", p["seller_id"], p)
         paused = seller.data.get("preparation_paused_until")
         config = ops.preparation_settings(service, s, p)["preparation"]
@@ -793,6 +809,11 @@ def claim_thread(service, p, lead_ids):
             lead = ops.required(service, s, "leads", lead_id, p)
             s.refresh(lead, with_for_update=True)
             if not ops.preparation_permitted(service, s, p, lead):
+                continue
+            if not requested_preparation(service, s, p, lead):
+                if lead.data.get("status") == "preparing":
+                    update(lead, status="eligible")
+                    emit(s, p["tenant_id"], "lead.updated", lead, service.clock())
                 continue
             lease = lead.data.get("preparation_lease") or {}
             if lease.get("expires_at") and dt(lease["expires_at"]) > service.clock():
@@ -1101,8 +1122,12 @@ def finish_thread(service, p, owner, claimed, work, failure, *, release=False, r
                     status="eligible" if lead.data["status"] == "preparing" else lead.data["status"]
                 )
                 changes["preparation"] = {**state, "status": "missing", "error": failure}
+                changes["preparation_request_key"] = None
             elif current_key != item["key"]:
-                changes["preparation"] = {**state, "status": "stale"}
+                if not requested_preparation(service, s, p, lead):
+                    changes["preparation"] = {**state, "status": "stale"}
+                    if lead.data["status"] == "preparing":
+                        changes["status"] = "eligible"
             elif work and alias in work.done:
                 changes.update(trigger_changes(work, alias, rejected))
                 script = ops.store_prepared_in(service, s, p, lead, work, alias, rejected, review)
