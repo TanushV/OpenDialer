@@ -1,3 +1,9 @@
+# OpenDialer 2.1.3
+
+- **Use saved HubSpot numbers.** OpenDialer uses Treg to find a number when the contact has no usable saved number. It runs do-not-call screening on HubSpot numbers before calling.
+
+Updating from 2.0.0 through 2.1.2 keeps your workspace. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.1.2
 
 - **Open your saved workspace automatically.** OpenDialer uses the workspace on this computer and reconnects if the local service restarts. Entering a rep name for scripts is optional.

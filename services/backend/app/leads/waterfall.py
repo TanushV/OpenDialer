@@ -1,7 +1,7 @@
 """The number waterfall for CRM leads (D19, section 9A), ported from the outside runner's agreed rules.
 
 Per contact:
-  1. A number already on the CRM record goes straight to the checks.
+  1. A usable number on the CRM record skips the waterfall and goes to do-not-call screening.
   2. LeadOcean, then AI Ark, then Tomba, with a 10-cent stop on the stage.
   3. Wiza last, outside the stop, only when nothing was accepted. A miss is free.
 Per number:
@@ -19,6 +19,8 @@ import json
 import re
 import uuid
 from datetime import datetime, timedelta
+
+from app.leads.hubspot_sync import dialable_phone
 
 LEADOCEAN, AIARK, TOMBA = "leadocean.people.phone.find", "aiark.people.phone.find", "tomba.people.phone.find"
 FINDERS = [LEADOCEAN, AIARK, TOMBA]
@@ -333,9 +335,15 @@ class Waterfall:
         result = {"checks": [], "notes": []}
         tried = set(self.ledger.get("wrong_numbers", []))
         accepted = None
-        existing = normalize(contact.get("existing_phone")) if contact.get("existing_phone") else None
-        if existing:
-            accepted = await self.try_numbers(contact, [existing], "crm", result, tried)
+        existing = dialable_phone(contact.get("existing_phone"))
+        if existing and existing not in tried:
+            return {
+                **result,
+                "status": "unconfirmed",
+                "phone": existing,
+                "finder": "crm",
+                "spent_micro": self.spent(),
+            }
         for endpoint in FINDERS:
             if accepted:
                 break

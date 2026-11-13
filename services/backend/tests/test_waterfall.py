@@ -148,18 +148,19 @@ def test_a_plus_one_number_outside_the_us_never_reaches_trestle():
     assert result["checks"][0]["verdict"] == "not_us_format" and result["phone"] == B
 
 
-def test_a_crm_number_goes_straight_to_trestle():
-    fake = Fake(numbers={A: trestle()})
-    result, _ = run(fake, {**CONTACT, "existing_phone": A})
-    assert (result["status"], result["finder"]) == ("confirmed", "crm")
-    assert fake.log == [w.FORMAT, w.TRESTLE]
+def test_a_saved_crm_number_skips_treg_even_with_no_spend_room():
+    fake = Fake()
+    result, _ = run(fake, {**CONTACT, "existing_phone": A}, room=0)
+    assert (result["status"], result["phone"], result["finder"]) == ("unconfirmed", A, "crm")
+    assert fake.log == []
 
 
-def test_a_rejected_crm_number_falls_through_to_the_finders():
-    fake = Fake({LEAD: lead_hit(A, B)}, {A: trestle(False), B: trestle()})
-    result, _ = run(fake, {**CONTACT, "existing_phone": A})
+@pytest.mark.parametrize("phone", [A, "not a number", "+442079460000"])
+def test_an_unusable_crm_number_falls_through_to_the_finders(phone):
+    fake = Fake({LEAD: lead_hit(B)}, {B: trestle()})
+    result, _ = run(fake, {**CONTACT, "existing_phone": phone}, ledger={"wrong_numbers": [A]})
     assert (result["phone"], result["finder"]) == (B, "leadocean")
-    assert fake.log.count(w.TRESTLE) == 2, "The CRM number is not paid for twice"
+    assert fake.log == [LEAD, w.FORMAT, w.TRESTLE]
 
 
 def test_ten_cent_stop_skips_the_next_finder_but_wiza_still_runs():

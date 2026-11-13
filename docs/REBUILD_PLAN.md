@@ -54,7 +54,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D16 | One intake path: CSV or HubSpot produces a row, the column map reads it, and everything after that ignores the source. | Owner approved |
 | D17 | HubSpot: a list picks who is called and the app picks the order. The app writes native call records, opt-outs and `phone_status`. No universal writeback layer; HubSpot's call record is the shared format, so other dialers such as Nooks need no adapter. | Owner approved; creating CSV leads in HubSpot only on their first connected call is an assumption the owner may veto |
 | D18 | Build the number check with Trestle through Treg. No paid live-line check and no paid namesake lookups. See section 9A. | Owner decision, November 6; this replaces the earlier test-rule result that kept the live-line check |
-| D19 | The number waterfall is LeadOcean, AI Ark, Tomba, then Wiza, with Trestle on every number. For leads pulled from the CRM it runs inside the app. Leads that come from outside the app (CSV) are taken as they are: no Trestle, no finder and no other check. The outside runner stays for building CSV lists. Blitz joins first after its reset. | Owner decision, November 7; replaces "runs outside the app" |
+| D19 | When a CRM lead lacks a usable saved number, the app uses LeadOcean, AI Ark, Tomba, then Wiza and checks the results through Trestle. A usable CRM number goes directly to RealValidito screening. CSV leads skip the waterfall and screening. The outside runner stays for building CSV lists. Blitz joins first after its reset. | Owner decision, November 7, updated November 13 to use Treg only for missing numbers |
 | D23 | Leads pulled from the CRM get a RealValidito do-not-call check (federal, state and TCPA litigator) before they can be dialed. Any hit is suppressed. CSV leads are not checked. | Owner decision, November 7; replaces the DoNotCallDNC key |
 | D25 | Withdrawn by D27. Several reps call at once as seats. Each seat is one rep on one Mac with its own app, SQLite file, relay workspace, Telnyx Call Control application, telephony credential and API key, on the one Telnyx account. HubSpot's contact owner decides which seat calls a contact; a seat syncs only its owner's contacts, so no live lock is needed. One HubSpot Service Key, one Treg token and one RealValidito key serve every seat. A CSV file belongs to one seat. No app login: the Mac's own login protects a seat. See section 9C. | Owner decision, November 8; the Telnyx account is Verified (checked in the portal November 8) |
 | D27 | One user only. Seats (D25), the shared number pool (D26), "Calls for", team calling, roles, passwords and sign-out are gone; every member of the chosen HubSpot list is synced whoever owns it. Section 9C and L21 to L24 are withdrawn. | Owner decision, November 10 ("We don't need this multi user") |
@@ -470,13 +470,13 @@ check was dropped, on a small sample; `wrong_party` and failed calls are the che
 
 Two homes, one set of rules:
 
-- **CRM leads, inside the app.** `leads/waterfall.py` runs these steps on every lead pulled from HubSpot, as a job after sync.
+- **CRM leads, inside the app.** A job after sync checks whether the lead needs a number and then runs the waterfall if needed.
   It ports the rules and the 20 offline tests from the outside runner.
 - **CSV leads, outside the app.** `phone-waterfall/sets/agite-us-leadership-noblitz-2026-11-06/run_waterfall.py` builds the
   CSV. The app imports those rows as they are and runs no Trestle, finder or other check on them. It still reads a mapped
   `DEAD` column, which is free.
 
-1. A number already on the row or in the CRM goes straight to step 3.
+1. Use a locally validated CRM phone or mobile number and proceed to RealValidito screening. Run the waterfall if both are unusable or the selected number was marked wrong.
 2. LeadOcean, then AI Ark, then Tomba. Never go past 10¢ on this stage.
 3. Free format check. Malformed and non-US numbers are rejected without paying Trestle.
 4. Trestle. Yes means use it and stop. Blank means use it marked Unconfirmed and stop. No, invalid or grade F means try the
@@ -1414,6 +1414,7 @@ Waterfall and do-not-call on CRM leads (D19, D23), tests first:
       number goes straight to Trestle; a repeat sync pays nothing; a changed CRM number is rechecked; the list limit stops the
       job and says so; no token or a Treg outage never blocks a lead that has a CRM number; a CRM number is never overwritten.
       Done November 8 (`test_waterfall.py`, 24 tests).
+      Updated November 13: a usable saved phone or mobile number skips Treg and goes to RealValidito screening.
 - [x] R9B.15 Failing do-not-call tests over recorded RealValidito responses: each of `federal_dnc`, `state_dnc` and
       `tcpa_litigator` suppresses with its reason; `invalid` marks Bad; batches of at most 1,000; results expire after 30
       days; no key, error 603 or 604, or an outage leaves "DNC not checked" and blocks auto-dial with a named fix; a sync never

@@ -434,6 +434,8 @@ async def waterfall_job(service, p, lead_id, *, revision=None):
         ledger = dict(lead.data.get("waterfall") or {})
         contact = _contact(lead.data)
     existing_phone = contact["existing_phone"]
+    if existing_phone in ledger.get("wrong_numbers", []):
+        existing_phone = None
     token = config(service, p).get("treg_token")
     if not token or room is None:
         # No token or no spend limit: a CRM number dials as Unconfirmed; with none, the lead waits (section 9A).

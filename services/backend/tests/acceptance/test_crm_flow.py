@@ -11,7 +11,7 @@ import httpx
 import pytest
 from journey import get, post, ready, run_jobs
 
-A = "+12125550101"  # On the CRM record; Trestle confirms it.
+A = "+12125550101"  # Already on the CRM record.
 B = "+12125550102"  # Found by LeadOcean for the contact with no number; on the federal do-not-call list.
 C = "+12125550103"  # Saved by the rep in HubSpot.
 
@@ -236,12 +236,16 @@ def test_a_hubspot_list_syncs_checks_numbers_and_do_not_call_then_logs_the_call(
     leads = crm_leads(ws)
     assert set(leads) == {"1", "3"}
     ann, cy = leads["1"], leads["3"]
-    assert (ann["number_status"], ann["number_hold"], ann["dnc"]["status"]) == ("confirmed", None, "checked")
+    assert (ann["number_status"], ann["number_hold"], ann["dnc"]["status"]) == (
+        "unconfirmed",
+        None,
+        "checked",
+    )
     assert (cy["phone"], cy["number_source"]) == (B, "leadocean")
     assert cy["suppressed"] and cy["dnc"]["lists"] == ["federal"]
     run_jobs(ws, rounds=2)
     writes = dict(fakes.writes)
-    assert writes["/crm/v3/objects/contacts/1"] == {"phone_status": "confirmed"}
+    assert writes["/crm/v3/objects/contacts/1"] == {"phone_status": "unconfirmed"}
     assert writes["/crm/v3/objects/contacts/3"]["opendialer_opt_out"] == "true"
     assert any(
         path == "/crm/v3/objects/contacts/3" and props.get("phone") == B for path, props in fakes.writes
@@ -269,9 +273,7 @@ def test_an_unusable_hubspot_phone_uses_the_saved_mobile_and_reformatting_keeps_
     lead = crm_leads(ws)["1"]
     assert (lead["phone"], lead["number_source"], lead["number_hold"]) == (C, "crm", None)
     assert lead["dnc"]["phone"] == C
-    assert all(
-        ".find" not in path and "reveal" not in path for host, path in fakes.calls if host == "treg.to"
-    )
+    assert not any(host == "treg.to" for host, _ in fakes.calls)
     assert all("phone" not in props and "mobilephone" not in props for _, props in fakes.writes)
 
     previous_requests = [path for host, path in fakes.calls if host == "treg.to"]

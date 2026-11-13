@@ -28,9 +28,9 @@ export function HubSpotLists({ onSynced }: { onSynced: () => Promise<void> }) {
       <div>
         <h2>Sync a HubSpot list</h2>
         <p className="muted">
-          Every contact on the list is synced. Numbers are checked (about 6¢ a
-          contact) and each number gets a do-not-call check before it can be
-          dialed.
+          OpenDialer syncs every contact and looks up a number only when there
+          is no usable saved number. Each number gets a do-not-call check before
+          it can be dialed.
         </p>
       </div>
       <div>
@@ -71,7 +71,7 @@ export function HubSpotLists({ onSynced }: { onSynced: () => Promise<void> }) {
             </Field>
             <Field
               label="Spend limit for number checks (USD)"
-              hint={`About ${Math.floor(Number(limit) / 0.06) || 0} contacts at 6¢ each`}
+              hint={`About ${Math.floor(Number(limit) / 0.06) || 0} contacts that need a number at 6¢ each`}
             >
               <input
                 inputMode="decimal"
