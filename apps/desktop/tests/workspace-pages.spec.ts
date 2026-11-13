@@ -114,6 +114,32 @@ test("lead search continues beyond an empty bounded page without hiding older le
   ).toBeVisible();
 });
 
+test("the Leads table reloads when the workspace connection gets a new session", async ({
+  page,
+}) => {
+  await enter(page);
+  const loaded = page.getByRole("button", { name: /^Open lead / }).first();
+  await goTo(page, "Leads");
+  await expect(loaded).toBeVisible();
+  let rejected = false;
+  await page.route("**/v1/workspace/leads?**", (route) => {
+    if (!rejected) {
+      rejected = true;
+      return route.fulfill({
+        status: 401,
+        json: { detail: "Expired session" },
+      });
+    }
+    return route.continue();
+  });
+  const renewed = page.waitForResponse(
+    (response) => response.url().endsWith("/v1/local/session") && response.ok(),
+  );
+  await page.getByRole("button", { name: "Search lead history" }).click();
+  await renewed;
+  await expect(loaded).toBeVisible();
+});
+
 test("call history loads older named calls independently of the workspace lead preview", async ({
   page,
 }) => {

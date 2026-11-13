@@ -68,7 +68,7 @@ export function LeadsPage({
   useEffect(() => {
     setSelected([]);
     void run(() => history.load(false, query, leadView));
-  }, [filterList, leadView]);
+  }, [api, filterList, leadView]);
   useEffect(() => {
     if (
       leadView === "active" &&
