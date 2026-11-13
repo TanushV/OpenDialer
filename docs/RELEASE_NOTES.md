@@ -1,3 +1,10 @@
+# OpenDialer 2.1.1
+
+- **Cleaner desktop layout.** Controls line up across Dialer, Leads, Review, Numbers, Script and Settings. Long names wrap, wide tables scroll within their panels, and call actions stay visible while you work.
+- **Clearer number limits.** Numbers explains how new standalone numbers ramp up and how the shared pool counts outbound attempts. Incoming callbacks do not count against the shared outbound limit.
+
+Updating from 2.0.0 or 2.1.0 keeps your workspace. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.1.0
 
 - **A shared number pool for reps.** One Telnyx application serves the team. Each computer imports its own calling profile and syncs one HubSpot segment. The pool remembers each prospect's caller ID across attempts and machines.

@@ -172,6 +172,7 @@
     padding: 15px 20px;
     background: #fcfdf9;
     border-bottom: 1px solid #e9ede2;
+    overflow-wrap: normal;
   }
   td {
     font-size: 11px;
@@ -2516,6 +2517,10 @@ details.transcript-card {
 .table-scroll {
   max-width: 100%;
   overflow-x: auto;
+}
+.table-phone {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .history-more {
   display: flex;

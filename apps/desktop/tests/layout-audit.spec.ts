@@ -96,6 +96,18 @@ test.describe("compact desktop layout", () => {
     const search = page.getByRole("textbox", { name: "Search leads" });
     expect((await filter.boundingBox())!.width).toBeLessThan(350);
     await expect(search).toBeVisible();
+    const listTable = page.getByRole("region", { name: "Lead lists" });
+    const total = listTable.getByRole("columnheader", {
+      name: "TOTAL",
+      exact: true,
+    });
+    await expect(total).toBeVisible();
+    const headerLines = await total.evaluate((cell) => {
+      const range = document.createRange();
+      range.selectNodeContents(cell);
+      return range.getClientRects().length;
+    });
+    expect(headerLines).toBe(1);
     await page
       .getByRole("checkbox", { name: "Select all visible leads" })
       .check();

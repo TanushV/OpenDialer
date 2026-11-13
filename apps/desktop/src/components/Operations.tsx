@@ -226,7 +226,7 @@ export function LeadsPage({
                     </small>
                   </td>
                   <td>
-                    {lead.phone}
+                    <span className="table-phone">{lead.phone}</span>
                     {lead.number_label && (
                       <small
                         className={lead.number_hold ? "number-held" : undefined}
@@ -861,8 +861,10 @@ export function NumbersPage() {
         <div>
           <h1>Numbers &amp; callbacks</h1>
           <p>
-            A new number starts at 15 real calls a day and rises to 60 as you
-            use it. No fake calls are made.
+            New standalone numbers start at up to 15 outbound attempts a day and
+            can rise to 90 with use. Shared numbers allow up to 90 outbound
+            attempts per rolling 24 hours. Incoming callbacks do not count
+            toward that limit.
           </p>
         </div>
       </div>
@@ -1082,7 +1084,7 @@ function NumberRow({
   return (
     <tr>
       <td>
-        <strong>{number.phone}</strong>
+        <strong className="table-phone">{number.phone}</strong>
         <small>
           {number.outbound_ready
             ? "Ready to dial"
