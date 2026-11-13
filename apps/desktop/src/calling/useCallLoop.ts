@@ -60,6 +60,8 @@ export function useCallLoop(visible: boolean) {
   // The rep's own Start and Pause decide the screen at once; a workspace re-read that left before the
   // server saw them must not swap Pause for "Calling stops" and back (a click in between was lost).
   const [started, setStarted] = useState<boolean | null>(null);
+  const testPhone = w.test_phone ?? null;
+  const testRun = useRef(false);
   const calling = (started ?? w.user.presence.status === "ready") && !held;
   const callingRef = useRef(calling);
   callingRef.current = calling;
@@ -445,7 +447,11 @@ export function useCallLoop(visible: boolean) {
     try {
       // The server's blockers, not this render's snapshot, say whether the audio leg needs renewing.
       const found = await readBlockers();
-      if (found.some((b) => !SELF_CLEARING.has(b.code)) || local.length) return;
+      const blocked = local[0] ?? found.find((b) => !SELF_CLEARING.has(b.code));
+      if (blocked) {
+        if (testRun.current) throw new Error(blocked.message);
+        return;
+      }
       if (found.some((b) => b.code === "REP_AUDIO_NOT_READY")) {
         await withConnecting(connectAudio);
         if (await pausedMeanwhile(false)) return;
@@ -456,12 +462,14 @@ export function useCallLoop(visible: boolean) {
           () =>
             api<Reservation>("/v1/queue/next", "POST", {
               campaign_id: w.campaign.id,
-              list_names: dialLists(),
+              list_names: testRun.current ? null : dialLists(),
+              test_only: testRun.current,
             }),
           { onWaiting: () => {} },
         );
       } catch (error) {
         if (error instanceof ApiError && error.code === "NO_ELIGIBLE_LEADS") {
+          if (testRun.current) throw error;
           // The queue says why nobody can be called; the Dialer shows that, not a generic line.
           setFinished({ next_eligible_at: null, reason: error.message });
           return;
@@ -473,12 +481,13 @@ export function useCallLoop(visible: boolean) {
       setPacket(await api<Packet>(`/v1/leads/${next.lead.id}/packet`));
       // Pause pressed while the lead was reserved or loading: no call is placed and the lead is given back.
       if (await pausedMeanwhile(true)) return;
-      setCall(
-        await api<Call>("/v1/calls/start", "POST", {
-          reservation_id: next.reservation_id,
-          idempotency_key: next.reservation_id,
-        }),
-      );
+      const placed = await api<Call>("/v1/calls/start", "POST", {
+        reservation_id: next.reservation_id,
+        idempotency_key: next.reservation_id,
+      });
+      // The visible phase can still be the no-call render when the request returns.
+      callRef.current = placed;
+      setCall(placed);
       setMuted(false);
     } finally {
       busy.current = false;
@@ -501,17 +510,25 @@ export function useCallLoop(visible: boolean) {
     await syncOptouts();
     if (journal.current.blocksCalling)
       throw new Error("Sync the pending opt-out before calling.");
+    testRun.current = Boolean(testPhone);
     pausing.current = false;
     setHeld(false);
     setFinished(null);
-    await withConnecting(connectAudio);
-    if (await pausedMeanwhile(false)) return;
-    setStarted(true);
-    callingRef.current = true;
-    await refresh();
-    if (await pausedMeanwhile(false)) return;
-    callingRef.current = true;
-    await nextOrPause();
+    try {
+      await withConnecting(connectAudio);
+      if (await pausedMeanwhile(false)) return;
+      setStarted(true);
+      callingRef.current = true;
+      await refresh();
+      if (await pausedMeanwhile(false)) return;
+      callingRef.current = true;
+      await nextCall();
+    } catch (error) {
+      await pauseCalling().catch(() => {});
+      if (testRun.current)
+        setTestError(error instanceof Error ? error.message : String(error));
+      else throw error;
+    }
   }
   /**
    * Pause pressed while a step was still answering wins over that step. Its "paused" may have reached the server
@@ -542,6 +559,14 @@ export function useCallLoop(visible: boolean) {
       await api("/v1/queue/release", "POST", {});
       await telephony.current.releaseIdleAgent();
     }
+    await refresh();
+  }
+  const [testError, setTestError] = useState("");
+  async function endTest() {
+    await pauseCalling();
+    await api("/v1/settings/test-call", "DELETE");
+    setTestError("");
+    testRun.current = false;
     await refresh();
   }
   async function hangup() {
@@ -705,7 +730,7 @@ export function useCallLoop(visible: boolean) {
       return;
     }
     if ((phase.kind === "saved" || phase.kind === "skipped") && !editing) {
-      if (call?.is_test) {
+      if (call?.is_test || testRun.current) {
         // A test call is one call: stop here rather than count down to a prospect (live check, November 10).
         void run(async () => {
           await pauseCalling();
@@ -732,7 +757,12 @@ export function useCallLoop(visible: boolean) {
   }, [syncOptouts]);
 
   const act = {
-    start: () => run(startCalling),
+    start: () =>
+      run(async () => {
+        setTestError("");
+        await startCalling();
+      }),
+    endTest: () => run(endTest),
     pause: () => run(pauseCalling),
     skip: () => run(skip),
     stay: () => run(stay),
@@ -761,6 +791,8 @@ export function useCallLoop(visible: boolean) {
     audioStatus,
     inbound,
     returnProvider,
+    testPhone,
+    testError,
     listsKey,
     stopping,
     callbackReview,

@@ -4,7 +4,7 @@ The owner pressed Test call with +12038211101 saved and got "No one left to call
 archived lead, so it never joined the Test line list, and at 3 AM Eastern the calling window refused it anyway.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app import ops
 from conftest import ready
@@ -40,6 +40,65 @@ def test_a_test_call_reaches_the_rep_outside_calling_hours(workspace, clock):
     assert packet.json()["lead"]["phone"] == PHONE
 
 
+def test_the_test_phone_can_be_called_again_even_if_its_crm_record_is_stale(workspace, app, carrier, clock):
+    from app.platform.db import update
+    from helpers import principal
+
+    service = app.state.service
+    client, headers = workspace["client"], workspace["headers"]
+    save_phone(workspace)
+    _, packet = start(workspace)
+    assert packet.status_code == 200, packet.text
+    with service.db.transaction() as s:
+        lead = ops.required(service, s, "leads", packet.json()["lead"]["id"], principal(workspace))
+        update(
+            lead,
+            source="crm",
+            crm_synced_at=(clock.now - timedelta(days=2)).isoformat(),
+            conversion_goal_achieved=True,
+            attempt_count=8,
+            last_attempt_at=clock.now.isoformat(),
+            next_attempt_at=(clock.now + timedelta(days=1)).isoformat(),
+        )
+    client.post("/v1/queue/release", headers=headers)
+    clock.now = datetime(2026, 10, 15, 1, 0, tzinfo=UTC)
+    for index in range(2):
+        _, packet = start(workspace)
+        assert packet.status_code == 200, packet.text
+        assert packet.json()["lead"]["phone"] == PHONE
+        dial = client.post(
+            "/v1/calls/start",
+            headers=headers,
+            json={"reservation_id": packet.json()["reservation_id"], "idempotency_key": f"repeat-{index}"},
+        )
+        assert dial.status_code == 200, dial.text
+        assert "time_limit_secs" not in carrier.dials[-1]
+        ended = client.post(
+            "/v1/simulation/event",
+            headers=headers,
+            json={
+                "event_id": f"no-answer-{index}",
+                "call_id": dial.json()["id"],
+                "event_type": "call.hangup",
+                "payload": {"hangup_cause": "no_answer"},
+            },
+        )
+        assert ended.status_code == 200, ended.text
+        assert not ops.in_test_session(service, principal(workspace))
+
+
+def test_a_stale_test_request_cannot_fall_through_to_prospects(workspace):
+    client, headers = workspace["client"], workspace["headers"]
+    ready(workspace)
+    refused = client.post(
+        "/v1/queue/next",
+        headers=headers,
+        json={"campaign_id": workspace["campaign_id"], "test_only": True},
+    )
+    assert refused.status_code == 409, refused.text
+    assert "Test call" in refused.text
+
+
 def test_a_test_call_revives_an_archived_lead_with_the_same_number(workspace, app):
     client, headers = workspace["client"], workspace["headers"]
     imported = client.post(
@@ -69,6 +128,21 @@ def test_a_test_call_revives_an_archived_lead_with_the_same_number(workspace, ap
     started, packet = start(workspace)
     assert packet.status_code == 200, packet.text
     assert packet.json()["lead"]["id"] == started["lead_id"] == lead.id
+    assert packet.json()["lead"]["archived"] is True
+
+
+def test_the_test_line_list_is_excluded_from_normal_calling(workspace):
+    client, headers = workspace["client"], workspace["headers"]
+    save_phone(workspace, "+12025550199")
+    assert client.post("/v1/settings/test-call", headers=headers).is_success
+    assert client.delete("/v1/settings/test-call", headers=headers).is_success
+    ready(workspace)
+    response = client.post(
+        "/v1/queue/next",
+        headers=headers,
+        json={"campaign_id": workspace["campaign_id"], "list_names": ["Test line"]},
+    )
+    assert response.status_code == 409, response.text
 
 
 def test_saving_the_test_call_outcome_ends_the_test_session(workspace, app):

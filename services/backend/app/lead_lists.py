@@ -10,6 +10,8 @@ from app.optimization.geography import normalize_state
 from app.optimization.numbering import select_number, timestamp
 from app.platform.db import MODELS, audit, doc, emit, update
 
+TEST_LIST = "Test line"
+
 
 def memberships(lead):
     return list(lead["list_names"]) if "list_names" in lead else [lead.get("list_name", "")]
@@ -53,12 +55,14 @@ def preparation_budget_scope(service, p, name):
 
 def list_permitted(service, s, p, lead):
     value = lead.data
+    if ops.own_test_line(service, p, lead):
+        return True
     if value.get("archived") or value.get("dial_paused"):
         return False
     campaign = ops.required(service, s, "campaigns", value["campaign_id"], p)
     catalog = campaign.data.get("lists", {})
-    names = memberships(value)
-    if (pool := service.managed.pool) is not None and not ops.own_test_line(service, p, lead):
+    names = [name for name in memberships(value) if name != TEST_LIST]
+    if (pool := service.managed.pool) is not None:
         names = [
             name
             for name in names
@@ -119,6 +123,7 @@ def list_summary(service, p, list_names=None):
                 ),
             }
             for name in names
+            if name != TEST_LIST
         }
         outside = []
         policy = ops.required(service, s, "policy_versions", campaign.data["policy_id"], p).data
@@ -142,6 +147,8 @@ def list_summary(service, p, list_names=None):
             allocation = select_number(doc(lead), inventory, bound_id=bindings.get(lead.id))
             number = numbers.get(allocation["number_id"])
             for name in memberships(value):
+                if name == TEST_LIST:
+                    continue
                 row = result[name]
                 row["total"] += 1
                 row["preparing"] += value.get("status") == "preparing"

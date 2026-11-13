@@ -894,7 +894,16 @@ def save_disposition(service, p, call_id, data, *, source="rep_reported"):
             crm.on_outcome(service, s, p, call, lead, outcome)
             emit(s, p["tenant_id"], "call.updated", call, service.clock())
         receipt = identity[2] or ops.local_edit_receipt(service, s, p, identity, call)
-        return ops._disposition_result(service, s, p, call, lead, receipt, task, callback_review, tasks)
+        result = ops._disposition_result(service, s, p, call, lead, receipt, task, callback_review, tasks)
+    if (
+        not correcting_confirmed
+        and call.data.get("dial_scope", {}).get("test_only")
+        and ops.in_test_session(service, p)
+    ):
+        # Carrier outcomes and rep outcomes both end the one-call session.
+        ops.presence(service, p, {"status": "paused", "telephony_ready": False})
+        ops.end_test_session(service, p)
+    return result
 
 
 def _wrapup_note(service, s, p, call, canonical, outcome):

@@ -2,6 +2,7 @@
 
 - **Check GitHub for signed updates.** Settings shows the installed desktop version, the result of the update check, and a link to the latest downloads for Mac, Windows and Ubuntu.
 - **Get a suggestion after the prospect finishes speaking.** The live helper waits for a finalized prospect turn and a brief pause. It uses the call so far and the last script section delivered to pick a line from the prepared script.
+- **Test your phone at any hour.** Test Call uses your saved test phone, even if its HubSpot record is stale or its outreach is complete. The Dialer shows the test destination and stops after that call. Leads omits the internal Call by date.
 
 Updating from 1.0.x through 2.1.4 keeps your workspace. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
 

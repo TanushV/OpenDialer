@@ -24,9 +24,11 @@ def _time(value):
 
 
 def deadline(call):
-    """When the call's current state runs out. Answered calls are bounded by the call time limit from its start."""
+    """When the call's current state runs out. A connected test call is polled until the carrier ends it."""
     seconds, _ = TIMEOUTS[call.state]
     if call.state in ANSWERED:
+        if call.provider_id and call.dial_scope.get("test_only"):
+            return datetime.max.replace(tzinfo=UTC)
         start = _time(call.started_at) or _time(call.state_at)
         seconds = call.max_call_seconds or MAX_CALL_SECONDS
     else:

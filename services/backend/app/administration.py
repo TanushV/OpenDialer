@@ -538,9 +538,9 @@ def database_integrity(service, *, deep=False):
 
 
 def _preflight_queue(service, s, p, campaign, numbers, screening, blockers, warnings):
+    from app.lead_lists import TEST_LIST
     from app.optimization.numbering import select_number
     from app.scheduling.policy import queue_decision
-    from app.service import TEST_LIST
 
     lead_model = MODELS["leads"]
     if ops.in_test_session(service, p):

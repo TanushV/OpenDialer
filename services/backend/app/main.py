@@ -21,14 +21,14 @@ from sqlalchemy.orm.exc import StaleDataError
 from app import ops
 from app.calling import audio_leg, detection, pool_queue, timeline
 from app.compliance.operating import DNCAuthorization, bind_operating_api
-from app.lead_lists import memberships
+from app.lead_lists import TEST_LIST, memberships
 from app.numbers import pool
 from app.platform.config import Settings
 from app.platform.db import Database, Event, audit, doc, put, rows, update
 from app.preparation.templates import PreparationPolicy
 from app.rep_workflows import MeetingEdit, OutreachEdit, TaskEdit
 from app.scheduling.models import ContactRole, OutcomeCode
-from app.service import TEST_LIST, AppState, fail
+from app.service import AppState, fail
 from app.telephony.callbacks import CallbackRoutingEdit
 
 
@@ -95,6 +95,7 @@ class QueueNext(Strict):
     campaign_id: str
     list_names: list[str] | None = Field(default=None, max_length=200)
     callback_lead_id: str | None = None
+    test_only: bool = False
 
 
 class ListEdit(Strict):
@@ -576,6 +577,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
             return await pool_queue.reserve(
                 service, {**p, "test_only": True}, data.campaign_id, [TEST_LIST], None
             )
+        if data.test_only:
+            fail(409, "The test session ended. Use Test call in Settings to call your test phone again.")
         return await pool_queue.reserve(service, p, data.campaign_id, data.list_names, data.callback_lead_id)
 
     @app.get("/v1/blockers")
@@ -683,13 +686,7 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/calls/{call_id}/disposition")
     def disposition(call_id: str, data: Disposition, p=Depends(principal)):
-        saved = ops.save_disposition(service, p, call_id, data.model_dump(mode="json"))
-        if saved.get("is_test") and ops.in_test_session(service, p):
-            # A test call is one call: once its outcome is saved the session ends and calling pauses, so the
-            # loop never moves straight on to a prospect (live check, November 10).
-            ops.end_test_session(service, p)
-            ops.presence(service, p, {"status": "paused", "telephony_ready": False})
-        return saved
+        return ops.save_disposition(service, p, call_id, data.model_dump(mode="json"))
 
     @app.post("/v1/leads/{lead_id}/meeting")
     def report_meeting(lead_id: str, data: MeetingEdit, p=Depends(principal)):

@@ -525,7 +525,11 @@ test("Test call limits calling to the test phone, and the session ends with that
   const placed = page.waitForResponse(
     (r) => r.url().endsWith("/v1/calls/start") && r.ok(),
   );
-  await page.getByRole("button", { name: /^Start calling/ }).click();
+  await expect(page.getByRole("status", { name: "Call status" })).toContainText(
+    "Test call",
+  );
+  await expect(page.getByRole("region", { name: "Dial from" })).toHaveCount(0);
+  await page.getByRole("button", { name: /^Call test phone/ }).click();
   await expect(page.getByTestId("lead-name")).toHaveText("Your test phone");
   // Pause once the call is placed: a Pause before that rightly places no call.
   await placed;
@@ -621,7 +625,7 @@ test("a saved test call pauses calling instead of counting down to a prospect", 
   await row.getByLabel("New Test phone").fill("+1 202 555 0188");
   await row.getByRole("button", { name: "Save and check" }).click();
   await row.getByRole("button", { name: "Test call", exact: true }).click();
-  await page.getByRole("button", { name: /^Start calling/ }).click();
+  await page.getByRole("button", { name: /^Call test phone/ }).click();
   await expect(page.getByTestId("lead-name")).toHaveText("Your test phone");
   await answer(page);
   await hangUp(page).click();

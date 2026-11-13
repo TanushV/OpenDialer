@@ -66,7 +66,7 @@ def _held_reservation(service, s, p, reservation_id, now):
     return reservation, claim, ReservationView.model_validate(reservation.data)
 
 
-def _dial_payload(service, scope, call_id, phone, caller, agent):
+def _dial_payload(service, scope, call_id, phone, caller, agent, *, test_only):
     return {
         "to": phone,
         "from": caller,
@@ -75,7 +75,7 @@ def _dial_payload(service, scope, call_id, phone, caller, agent):
         "answering_machine_detection": "premium",
         "timeout_secs": service.configs.read(scope).get("outbound_ring_seconds", 40),
         "prevent_double_bridge": True,
-        "time_limit_secs": service.settings.max_call_seconds,
+        **({} if test_only else {"time_limit_secs": service.settings.max_call_seconds}),
         "command_id": call_id,
         "client_state": base64.b64encode(
             json.dumps({"call_id": call_id, SCOPE_KEY: scope}).encode()
@@ -112,6 +112,7 @@ def _prepare_call(service, p, data):
         number = ops.required(service, s, "number_inventory", reservation.data["number_id"], p)
         service.managed.require_number(workspace(p), number.data)
         scoped_p = {**p, **held.dial_scope}
+        test_only = bool(held.dial_scope.get("test_only"))
         decision = authorize(ops.context(service, s, scoped_p, lead, number))
         ops.record_decision(service, s, p, lead, decision)
         if not decision.allowed:
@@ -141,7 +142,7 @@ def _prepare_call(service, p, data):
                 "state": "AUTHORIZED",
                 "state_at": now.isoformat(),
                 "started_at": now.isoformat(),
-                "max_call_seconds": service.settings.max_call_seconds,
+                "max_call_seconds": None if test_only else service.settings.max_call_seconds,
                 "provider_id": None,
                 "outcome": None,
                 "transcript_version": 0,
@@ -157,7 +158,13 @@ def _prepare_call(service, p, data):
         # The persistent agent leg carries the rep's own speech stream for this call.
         update(call, agent_provider_id=agent)
         payload = _dial_payload(
-            service, workspace(p), call.id, lead.data["phone"], number.data["phone"], agent
+            service,
+            workspace(p),
+            call.id,
+            lead.data["phone"],
+            number.data["phone"],
+            agent,
+            test_only=test_only,
         )
         put(
             s,

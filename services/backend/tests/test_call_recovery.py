@@ -29,6 +29,18 @@ def test_answered_calls_run_to_the_call_time_limit_from_their_start():
     assert next_step({**call, "started_at": at(3601)}, NOW) == "hangup.requested"
 
 
+def test_connected_test_calls_keep_polling_past_the_outreach_duration():
+    call = {
+        "state": "HUMAN",
+        "state_at": at(7300),
+        "started_at": at(7310),
+        "provider_id": "v3:test",
+        "dial_scope": {"test_only": True},
+    }
+    assert next_step(call, NOW) == "poll"
+    assert due_at(call, last_check=NOW) == NOW + timedelta(seconds=POLL_SECONDS)
+
+
 def test_calls_without_a_carrier_reference_wait_for_their_limit():
     assert next_step({"state": "AUTHORIZED", "state_at": at(5)}, NOW) is None
     assert next_step({"state": "AUTHORIZED", "state_at": at(31)}, NOW) == "dial.unconfirmed"

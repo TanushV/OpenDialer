@@ -2052,3 +2052,6 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 13, 2026: the 2.1.2 Mac app found public release 2.1.4 through its native updater. For 2.1.5, update
   checks display their result and a direct release link. The live helper coalesces finalized prospect segments across
   a one-second pause, discards selections superseded by new speech, and uses the last delivered script section.
+- November 13, 2026: test calls use a dedicated Dialer action for the saved test phone. Prospect hours, retry spacing,
+  outreach holds, and stale CRM data do not gate it. The carrier's own call duration ceiling still applies. Either
+  a carrier or rep outcome ends the test session and pauses calling. Removed the internal Call by date from Leads.

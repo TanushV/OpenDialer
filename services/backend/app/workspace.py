@@ -325,6 +325,7 @@ def snapshot(service, p):
         current = {
             "mode": "local",
             "simulation": service.settings.simulation,
+            "test_phone": ops.test_phone(service, p) if ops.in_test_session(service, p) else None,
             "seller": doc(ops.required(service, s, "sellers", p["seller_id"], p)),
             "campaign": doc(campaign),
             "policy": {**doc(policy), "local_end_hour": min(17, policy.data.get("local_end_hour", 17))},

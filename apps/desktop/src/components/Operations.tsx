@@ -196,7 +196,6 @@ export function LeadsPage({
                 <th>PERSON / COMPANY</th>
                 <th>PHONE</th>
                 <th>STATUS</th>
-                <th>CALL BY</th>
                 <th>ATTEMPTS</th>
                 <th />
               </tr>
@@ -259,7 +258,6 @@ export function LeadsPage({
                                 : label(lead.status)}
                     </span>
                   </td>
-                  <td>{date(lead.coverage_due_at)}</td>
                   <td>{lead.attempt_count}</td>
                   <td>
                     <button

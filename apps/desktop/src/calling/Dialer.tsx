@@ -67,7 +67,7 @@ function StatusBar({
   loop: Loop;
   onNavigate?: (page: string) => void;
 }) {
-  const { phase, packet, act } = loop;
+  const { phase, packet, act, testPhone } = loop;
   const lead = packet?.lead;
   const identity = lead?.company
     ? `${lead.name} · ${lead.company}`
@@ -81,7 +81,11 @@ function StatusBar({
         aria-live="polite"
         aria-label="Call status"
       >
-        <strong>{headline(phase)}</strong>
+        <strong>
+          {paused && testPhone && !phase.blocker
+            ? "Test call"
+            : headline(phase)}
+        </strong>
         {identity && !paused && (
           <span className="muted status-lead" title={identity}>
             {identity}
@@ -104,14 +108,21 @@ function StatusBar({
       {loop.stopping ? (
         <span className="muted">Calling stops after this call</span>
       ) : paused ? (
-        <Button
-          variant="primary"
-          kbd="Space"
-          disabled={!!phase.blocker}
-          onClick={() => void act.start()}
-        >
-          Start calling
-        </Button>
+        <>
+          {testPhone && (
+            <Button variant="text" onClick={() => void act.endTest()}>
+              End test session
+            </Button>
+          )}
+          <Button
+            variant="primary"
+            kbd="Space"
+            disabled={!!phase.blocker}
+            onClick={() => void act.start()}
+          >
+            {testPhone ? "Call test phone" : "Start calling"}
+          </Button>
+        </>
       ) : (
         <Button variant="secondary" kbd="P" onClick={() => void act.pause()}>
           Pause
@@ -123,7 +134,7 @@ function StatusBar({
 
 function Body({ loop }: { loop: Loop }) {
   const { snapshot: w } = useWorkspace();
-  const { phase, packet, call, telephony } = loop;
+  const { phase, packet, call, telephony, testPhone, testError } = loop;
   const between = phase.kind === "paused" || phase.kind === "finished";
   return (
     <>
@@ -164,10 +175,17 @@ function Body({ loop }: { loop: Loop }) {
       {phase.kind === "paused" && (
         <>
           <AudioCheck telephony={telephony.current} />
-          <ListChoice listsKey={loop.listsKey} />
+          {testPhone ? (
+            <p className="muted">
+              This test calls {testPhone}. You can test at any hour.
+            </p>
+          ) : (
+            <ListChoice listsKey={loop.listsKey} />
+          )}
+          {testPhone && testError && <p role="alert">{testError}</p>}
         </>
       )}
-      {between && <DueTasks />}
+      {between && !testPhone && <DueTasks />}
       {(phase.kind === "talking" || phase.kind === "voicemail_final") &&
         call && <LiveCoach call={call} onChange={loop.act.reload} />}
       {loop.editing && call && (
@@ -222,7 +240,8 @@ function Body({ loop }: { loop: Loop }) {
           </section>
         </div>
       ) : (
-        between && (
+        between &&
+        !testPhone && (
           <p className="muted empty-lead">
             {phase.kind === "finished" ? (
               (phase.reason ??

@@ -103,7 +103,7 @@ export function SetupRows({
       {testSession && (
         <Panel className="setup-status blocked">
           <strong>
-            Test session on: Start calling dials only your test phone.
+            Test session on. Open the Dialer to call your test phone.
           </strong>{" "}
           <Button
             onClick={() =>
@@ -138,9 +138,7 @@ export function SetupRows({
                   run(async () => {
                     await api("/v1/settings/test-call", "POST");
                     await Promise.all([refresh(), reload()]);
-                    notice(
-                      "Test session on. Press Start calling to call your test phone.",
-                    );
+                    notice("Press Call test phone in the Dialer.");
                     onTestCall();
                   })
               : undefined

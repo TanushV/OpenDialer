@@ -21,8 +21,8 @@ Settings shows one row per thing to set, and a status at the top: **Ready to cal
    OpenRouter can run research and scripts if ChatGPT is unavailable.
 4. **OpenRouter key.** Paste it and click **Save and check**. It powers live tips and the after-call summary.
 5. **Calling hours** are edited in their row (8 AM to 5 PM in each lead's time zone by default).
-6. **Test phone.** Type your own number and click **Save and check**, then **Test call**: the Dialer dials your phone
-   right away, at any hour. Save that call's outcome and normal calling returns.
+6. **Test phone.** Type your own number and click **Save and check**, then **Test call**. Select **Call test phone** in
+   the Dialer at any hour. When the outcome is saved, the Dialer returns to Start calling.
 7. **HubSpot.** Shared profiles each have an assigned HubSpot segment. The setup can supply the **HubSpot Service Key**
    and the **Treg token**, which is used to look up numbers on contacts without a usable saved phone. Add the
    **RealValidito key and secret** in Settings to screen HubSpot contacts before calling.

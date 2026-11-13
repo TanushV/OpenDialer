@@ -59,12 +59,16 @@ test("a delayed helper read cannot bring back a previous call after the next one
   const pending = new Promise<void>((resolve) => {
     arrived = resolve;
   });
-  await page.route(`**/v1/calls/${original.id}`, async (route) => {
-    const response = await route.fetch();
-    arrived();
-    await delayed;
-    await route.fulfill({ response });
-  });
+  await page.route(
+    `**/v1/calls/${original.id}`,
+    async (route) => {
+      const response = await route.fetch();
+      arrived();
+      await delayed;
+      await route.fulfill({ response });
+    },
+    { times: 1 },
+  );
   try {
     await page.keyboard.press("F1");
     await pending;
@@ -73,7 +77,6 @@ test("a delayed helper read cannot bring back a previous call after the next one
       r.url().endsWith("/v1/calls/start"),
     );
     await saveOutcome(page, "not_interested");
-    await page.getByRole("button", { name: /^Dial now/ }).click();
     const current = await (await next).json();
     expect(current.id).not.toBe(original.id);
     release();

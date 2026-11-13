@@ -14,6 +14,7 @@ from datetime import timedelta
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from app import ops
 from app.calling.blockers import blocked, refuse
 from app.calling.records import AgentLeg, NumberView, UserView, presence_of
 from app.numbers.pool import request
@@ -215,7 +216,7 @@ async def create(ctx, p, managed=None):
             {
                 "to": target,
                 "from": phone,
-                "time_limit_secs": ctx.settings.max_call_seconds,
+                **({} if ops.in_test_session(ctx, p) else {"time_limit_secs": ctx.settings.max_call_seconds}),
                 "command_id": leg_id,
                 "client_state": base64.b64encode(state.encode()).decode(),
             }

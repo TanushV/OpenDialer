@@ -421,19 +421,26 @@ test("an unavailable local workspace reconnects without asking the rep to sign i
   await emptyQueue(page);
   let available = false;
   let renewals = 0;
-  await page.route("**/v1/workspace", (route) =>
-    available
-      ? route.continue()
-      : route.fulfill({ status: 401, json: { detail: "Expired session" } }),
-  );
-  await page.route("**/v1/local/session", (route) => {
+  let authorization = "";
+  await page.route("**/v1/workspace", (route) => {
+    // An old token remains expired after the local service can issue a new one.
+    if (
+      authorization &&
+      route.request().headers().authorization === authorization
+    )
+      return route.continue();
+    return route.fulfill({ status: 401, json: { detail: "Expired session" } });
+  });
+  await page.route("**/v1/local/session", async (route) => {
     renewals++;
-    return available
-      ? route.continue()
-      : route.fulfill({
-          status: 503,
-          json: { detail: "Local service unavailable" },
-        });
+    if (!available)
+      return route.fulfill({
+        status: 503,
+        json: { detail: "Local service unavailable" },
+      });
+    const response = await route.fetch();
+    authorization = `Bearer ${(await response.json()).access_token}`;
+    await route.fulfill({ response });
   });
   await startCalling(page).click();
   await expect(
@@ -446,10 +453,12 @@ test("an unavailable local workspace reconnects without asking the rep to sign i
     0,
   );
   available = true;
+  await expect
+    .poll(() => renewals, { timeout: 20_000 })
+    .toBeGreaterThanOrEqual(2);
   await expect(
     page.getByText("OpenDialer couldn’t reconnect", { exact: false }),
-  ).toHaveCount(0);
-  expect(renewals).toBe(2);
+  ).toHaveCount(0, { timeout: 20_000 });
   await expect(startCalling(page).or(pauseCalling(page))).toBeVisible();
 });
 

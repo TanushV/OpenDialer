@@ -14,7 +14,7 @@ from app.calling.blockers import refuse, test_line_refusal
 from app.calling.state import moved, transition
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext, retry_seconds
-from app.lead_lists import in_list, memberships, set_memberships
+from app.lead_lists import TEST_LIST, in_list, memberships, set_memberships
 from app.leads import intake
 from app.leads.record import csv_fields, number_view
 from app.optimization.geography import plausible_zones
@@ -27,8 +27,6 @@ from app.platform.security import ConfigStore, Sessions
 from app.privacy import event_metadata
 from app.providers.carrier import carrier_factory
 from app.providers.simulated import SimulatedCarrier
-
-TEST_LIST = "Test line"
 
 
 class AppState:
@@ -542,13 +540,19 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         continuing_call=active,
         authorization_reconciled=not seller.data.get("restore_hold", False),
         outreach_hold=bool(
-            lead.data.get("outreach_hold")
-            or lead.data.get("conversion_goal_achieved")
-            or (p.get("test_only") and not own_test_line)
+            (
+                not own_test_line
+                and (
+                    lead.data.get("outreach_hold")
+                    or lead.data.get("conversion_goal_achieved")
+                    or p.get("test_only")
+                )
+            )
             or not ops.list_permitted(service, s, p, lead)
         )
         and not active,
-        callback_owner_matches=active
+        callback_owner_matches=own_test_line
+        or active
         or not lead.data.get("callback_due_at")
         or lead.data.get("callback_owner_id") in {None, p["user_id"]},
         endpoint_valid=bool(
@@ -742,11 +746,7 @@ def test_candidate(service, s, p, phone, *, campaign_id=None):
 
 
 def start_test_session(service, p):
-    """Test call: the saved test phone becomes the one callable lead, whatever state an older copy was in.
-
-    An existing lead with that number (archived, paused, called before, on another list) is put back on the
-    Test line list and made due now; otherwise it is created. The session ends when the test call is saved.
-    """
+    """Stage the rep's test phone without changing any existing contact's outreach status."""
     phone = ops.test_phone(service, p)
     if not phone:
         fail(409, "Type your phone number in Test phone first")
@@ -772,24 +772,9 @@ def start_test_session(service, p):
         lead = test_candidate(service, s, p, phone)
         if lead is None:
             fail(409, "Test phone changed while preparing the call. Press Test call again.")
-        set_memberships(lead, [TEST_LIST, *memberships(lead.data)])
-        update(
-            lead,
-            archived=False,
-            dial_paused=False,
-            # An older copy may still be held (a delivery test, a goal review): the rep's own phone is always
-            # callable in a test session; only an opt-out still stops it.
-            outreach_hold=None,
-            status="eligible",
-            next_attempt_at=None,
-            pair_opened_at=None,
-            due_at=None,
-        )
-        campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p, lock=True)
-        catalog = dict(campaign.data.get("lists", {}))
-        catalog[TEST_LIST] = {**catalog.get(TEST_LIST, {}), "archived": False, "paused": False}
-        update(campaign, lists=catalog)
-        emit(s, p["tenant_id"], "lead.updated", lead, service.clock())
+        if TEST_LIST not in memberships(lead.data):
+            set_memberships(lead, [*memberships(lead.data), TEST_LIST])
+            emit(s, p["tenant_id"], "lead.updated", lead, service.clock())
         lead_id = lead.id
     service.configs.write(p["tenant_id"], {"test_session": True})
     return {"test_session": True, "lead_id": lead_id, "phone": phone}
