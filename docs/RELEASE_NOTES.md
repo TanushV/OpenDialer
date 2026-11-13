@@ -1,3 +1,10 @@
+# OpenDialer 2.1.2
+
+- **Open your saved workspace automatically.** OpenDialer uses the workspace on this computer and reconnects if the local service restarts. Entering a rep name for scripts is optional.
+- **Includes the 2.1 desktop changes.** The update includes the layout fixes, shared caller IDs and callbacks routed to the rep who called. Each rep still imports their calling profile once on their computer.
+
+Updating from 2.0.0 through 2.1.1 keeps your workspace. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.1.1
 
 - **Cleaner desktop layout.** Controls line up across Dialer, Leads, Review, Numbers, Script and Settings. Long names wrap, wide tables scroll within their panels, and call actions stay visible while you work.
