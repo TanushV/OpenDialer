@@ -712,10 +712,15 @@ def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, 
 
         if call.data["state"] in TERMINAL | {"ENDING"}:
             ops.enqueue_aftercall(service, s, p, call)
-        elif segment.get("side") == "remote":
+        elif (
+            segment.get("side") == "remote"
+            and not segment.get("system_audio")
+            and not result.get("duplicate")
+            and segment.get("text", "").strip()
+        ):
             from app import live_help
 
-            live_help.queue(service, s, p, call)
+            live_help.queue(service, s, p, call, result["transcript_version"])
     model = MODELS["transcript_segments"]
     row = s.scalar(
         select(model).where(

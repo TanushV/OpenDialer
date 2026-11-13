@@ -24,6 +24,48 @@ test("app updates explain the 0.4.0 fresh workspace", async ({ page }) => {
   await expect(page.getByText(/old data stays untouched/)).toBeVisible();
 });
 
+test("update checks replace stale results and give a public download fallback", async ({
+  page,
+}) => {
+  await enter(page);
+  await page.evaluate(() => {
+    let checks = 0;
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      value: {
+        invoke: async (command: string, args?: { timeout?: number }) => {
+          if (command !== "plugin:updater|check") return;
+          checks++;
+          if (checks === 2 || !args?.timeout)
+            throw new Error("Network timeout");
+          if (checks === 3) return null;
+          return { rid: 1, version: "99.0.0", body: "Ready to install" };
+        },
+      },
+    });
+  });
+  const card = await openMoreSettings(page, "App updates");
+  const check = card.getByRole("button", { name: "Check for updates" });
+  await check.click();
+  await expect(
+    card.getByRole("heading", { name: "Version 99.0.0" }),
+  ).toBeVisible();
+  await check.click();
+  await expect(card.getByRole("status")).toContainText(
+    "Could not check for updates",
+  );
+  await expect(
+    card.getByRole("button", { name: "Install signed update" }),
+  ).toHaveCount(0);
+  await expect(
+    card.getByRole("link", { name: "Latest release on GitHub" }),
+  ).toHaveAttribute(
+    "href",
+    "https://github.com/TanushV/OpenDialer/releases/latest",
+  );
+  await check.click();
+  await expect(card.getByRole("status")).toContainText("up to date");
+});
+
 test("lead search continues beyond an empty bounded page without hiding older leads", async ({
   page,
 }) => {

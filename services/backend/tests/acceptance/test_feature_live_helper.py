@@ -3,6 +3,7 @@
 Nothing else: it saves no outcome, task or interpretation. Transcripts are kept 30 days (D7, R10.5).
 """
 
+import asyncio
 import json
 from datetime import timedelta
 from uuid import uuid4
@@ -55,7 +56,7 @@ def with_helper(ws):
 
 def tip_after_speech(ws, clock, call_id):
     """Let the debounced helper job run, as the background lane does, and read the call as the Dialer does."""
-    clock.now += timedelta(milliseconds=400)
+    clock.now += timedelta(seconds=1)
     run_jobs(ws)
     return get(ws, f"/v1/calls/{call_id}")
 
@@ -199,6 +200,74 @@ def test_a_tip_shows_the_wording_of_the_matching_script_part(workspace, clock):
     coach = tip_after_speech(ws, clock, call_id)["coach"]
     assert coach["say_or_ask"] == EMAIL
     assert coach["script_part"] == {"label": "Objections · Send me an email", "text": EMAIL}
+
+
+def test_automatic_selection_waits_for_the_whole_prospect_turn(workspace, clock, monkeypatch):
+    from app import live_help
+    from app.helper import live
+
+    requests = []
+
+    class Selector:
+        async def converse(self, messages, **_):
+            requests.append(messages[1]["content"])
+            return "Part: 1"
+
+    with_helper(workspace)
+    monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
+    started = start(workspace)
+    call_id = started["id"]
+    answered_by_human(workspace, call_id)
+    _, prepared_opening, _ = live.script_parts(started["script_snapshot"], spoken_only=True)[0]
+    chunk(workspace, call_id, "r1", prepared_opening, side="rep")
+    clock.now += timedelta(milliseconds=1)
+
+    chunk(workspace, call_id, "s1", "I had a look last quarter.")
+    clock.now += timedelta(milliseconds=500)
+    run_jobs(workspace)
+    assert requests == []
+
+    chunk(workspace, call_id, "s2", "We were waiting", final=False)
+    clock.now += timedelta(seconds=2)
+    run_jobs(workspace)
+    assert requests == []
+
+    chunk(workspace, call_id, "s2", "We were waiting for the budget.", revision=2)
+    chunk(workspace, call_id, "s2", "We were waiting for the budget.", revision=3)
+    clock.now += timedelta(seconds=1)
+    run_jobs(workspace, rounds=2)
+    assert len(requests) == 1
+    assert "I had a look last quarter." in requests[0]
+    assert "We were waiting for the budget." in requests[0]
+    assert "Last script section delivered: opening" in requests[0]
+    assert get(workspace, f"/v1/calls/{call_id}")["coach"]["say_or_ask"] == prepared_opening
+
+    chunk(workspace, call_id, "s3", "Maybe next quarter.")
+    chunk(workspace, call_id, "r3", "What are you planning?", side="rep", final=False)
+    clock.now += timedelta(seconds=1)
+    run_jobs(workspace)
+    assert len(requests) == 1
+
+
+def test_automatic_result_is_discarded_if_speech_resumes_during_selection(workspace, clock, monkeypatch):
+    from app import live_help
+
+    with_helper(workspace)
+    call_id = start(workspace)["id"]
+    answered_by_human(workspace, call_id)
+
+    class Selector:
+        async def converse(self, messages, **_):
+            await asyncio.to_thread(chunk, workspace, call_id, "s2", "There is one other thing", final=False)
+            return "Part: 1"
+
+    monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
+    chunk(workspace, call_id, "s1", "Maybe next quarter.")
+    clock.now += timedelta(seconds=1)
+    run_jobs(workspace)
+    live = get(workspace, f"/v1/calls/{call_id}")
+    assert live["helper_status"] == {"status": "available"}
+    assert live["coach"] is None
 
 
 def test_automatic_and_private_help_never_show_free_form_model_text(workspace, clock, monkeypatch):

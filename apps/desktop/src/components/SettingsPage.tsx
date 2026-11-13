@@ -21,6 +21,7 @@ import {
   ApiError,
   LONG_REQUEST_MS,
   native,
+  openSource,
   assertNoPendingOptouts,
 } from "../api/client";
 import { label, useWorkspace } from "../context";
@@ -752,13 +753,41 @@ function MoreSettings({ settings }: { settings: AdminSettingsState }) {
   );
 }
 function UpdateSettings() {
-  const { snapshot: w, session, api, run, notice } = useWorkspace();
-  const [updateInfo, setUpdateInfo] = useState<{
-    version: string;
-    body: string;
-  } | null>(null);
+  const { snapshot: w, session, api, run } = useWorkspace();
+  const [desktopVersion, setDesktopVersion] = useState<string>();
+  const [update, setUpdate] = useState<Update | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
-  const update = useRef<Update | null>(null);
+  const [status, setStatus] = useState("");
+  const releaseUrl = "https://github.com/TanushV/OpenDialer/releases/latest";
+  const desktop = native();
+  useEffect(() => {
+    if (desktop)
+      void import("@tauri-apps/api/app")
+        .then(({ getVersion }) => getVersion())
+        .then(setDesktopVersion)
+        .catch(() => undefined);
+  }, [desktop]);
+  useEffect(() => () => void update?.close().catch(() => undefined), [update]);
+
+  async function checkForUpdates() {
+    setUpdateBusy(true);
+    setUpdate(null);
+    setStatus("Checking GitHub for updates…");
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const result = await check({
+        timeout: 15_000,
+        headers: { "Cache-Control": "no-cache" },
+      });
+      setUpdate(result);
+      setStatus(result ? "" : "OpenDialer is up to date.");
+    } catch (reason) {
+      setStatus(`Could not check for updates. ${message(reason)}`);
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
+
   return (
     <section className="card padded update-card">
       <span className="eyebrow">SIGNED APP UPDATES</span>
@@ -774,9 +803,9 @@ function UpdateSettings() {
           <Download size={22} />
         </span>
         <div>
-          <strong>OpenDialer {w.readiness.version}</strong>
+          <strong>OpenDialer {desktopVersion || w.readiness.version}</strong>
           <small>
-            {native()
+            {desktop
               ? "Native desktop application"
               : "Browser development session"}
           </small>
@@ -784,26 +813,8 @@ function UpdateSettings() {
       </div>
       <button
         className="primary"
-        disabled={updateBusy || !native()}
-        onClick={() =>
-          void run(async () => {
-            setUpdateBusy(true);
-            try {
-              const { check } = await import("@tauri-apps/plugin-updater");
-              update.current = await check();
-              if (update.current)
-                setUpdateInfo({
-                  version: update.current.version,
-                  body:
-                    update.current.body ||
-                    "A signed OpenDialer update is available.",
-                });
-              else notice("You are running the current release.");
-            } finally {
-              setUpdateBusy(false);
-            }
-          })
-        }
+        disabled={updateBusy || !desktop}
+        onClick={() => void checkForUpdates()}
       >
         {updateBusy ? (
           <LoaderCircle className="spin" size={16} />
@@ -812,39 +823,61 @@ function UpdateSettings() {
         )}
         Check for updates
       </button>
-      {!native() && (
+      <p className="fine">
+        <a
+          href={releaseUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(event) => {
+            if (!desktop) return;
+            event.preventDefault();
+            void run(() => openSource(releaseUrl));
+          }}
+        >
+          Latest release on GitHub
+        </a>
+      </p>
+      <p role="status" className="fine" hidden={!status}>
+        {status}
+      </p>
+      {!desktop && (
         <p className="fine">
           Signed updates install only in the desktop application.
         </p>
       )}
-      {updateInfo && (
+      {update && (
         <div className="info-note">
-          <h3>Version {updateInfo.version}</h3>
-          <p>{updateInfo.body}</p>
+          <h3>Version {update.version}</h3>
+          <p>{update.body || "A signed OpenDialer update is available."}</p>
           <button
             className="primary"
             disabled={updateBusy}
             onClick={() =>
-              void run(async () => {
-                assertNoPendingOptouts(session.tenant_id);
-                const status = await api<{
-                  can_disconnect: boolean;
-                  reasons: string[];
-                }>("/v1/quiescence");
-                if (!status.can_disconnect)
-                  throw new Error(
-                    `Finish pending work before updating: ${status.reasons.join(", ")}`,
-                  );
+              void (async () => {
                 setUpdateBusy(true);
+                setStatus("Preparing to install…");
                 try {
-                  await update.current?.downloadAndInstall();
-                  notice(
-                    "Update installed. Quit and reopen OpenDialer to use the new version.",
-                  );
+                  assertNoPendingOptouts(session.tenant_id);
+                  const readiness = await api<{
+                    can_disconnect: boolean;
+                    reasons: string[];
+                  }>("/v1/quiescence");
+                  if (!readiness.can_disconnect)
+                    throw new Error(
+                      `Finish pending work before updating: ${readiness.reasons.join(", ")}`,
+                    );
+                  setStatus("Downloading and verifying the signed update…");
+                  await update.downloadAndInstall(undefined, {
+                    timeout: 180_000,
+                  });
+                  setUpdate(null);
+                  setStatus("Update installed. Quit and reopen OpenDialer.");
+                } catch (reason) {
+                  setStatus(`Could not install the update. ${message(reason)}`);
                 } finally {
                   setUpdateBusy(false);
                 }
-              })
+              })()
             }
           >
             <ArrowDownToLine size={16} />

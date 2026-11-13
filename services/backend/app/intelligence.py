@@ -268,7 +268,8 @@ async def run_jobs(service, tenant_id=None, queues=None):
             elif lane == "live_coach":
                 from app import live_help
 
-                await live_help.turn(service, p, job["payload"]["call_id"], automatic=True)
+                if (version := job["payload"].get("transcript_version")) is not None:
+                    await live_help.turn(service, p, job["payload"]["call_id"], transcript_version=version)
             elif lane == "crm":
                 from app import crm
 

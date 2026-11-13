@@ -38,12 +38,17 @@ def provider(service, p):
     )
 
 
-def queue(service, s, p, call, delay_ms=live.DEBOUNCE_MS):
-    """A final segment arrived on a live call: one automatic turn shortly after, coalesced with any already queued."""
+def queue(service, s, p, call, transcript_version, delay_ms=live.DEBOUNCE_MS):
+    """Coalesce final prospect segments and pin the selection to the speech that triggered it."""
     service.jobs.coalesce_live_in(
         s,
         "live_coach",
-        {"call_id": call.id, "seller_id": p["seller_id"], "user_id": call.data["rep_id"]},
+        {
+            "call_id": call.id,
+            "seller_id": p["seller_id"],
+            "user_id": call.data["rep_id"],
+            "transcript_version": transcript_version,
+        },
         f"coach:{call.id}",
         tenant_id=p["tenant_id"],
         priority=100,
@@ -102,7 +107,7 @@ def request_in(service, s, p, call, question):
             }
         )
     dialogue = [
-        {"side": r.get("side"), "text": r.get("text", "")}
+        {"side": r.get("side"), "text": r["text"], "script_section": r.get("script_section")}
         for r in ops.transcript_rows(service, s, p, call.id)
         if r.get("is_final") and not r.get("system_audio") and r.get("text")
     ][-live.DIALOGUE :]
@@ -115,62 +120,80 @@ def request_in(service, s, p, call, question):
         "research": [f for f in facts if f],
         "earlier_calls": earlier,
         "dialogue": dialogue,
+        "script_section": next(
+            (r["script_section"] for r in reversed(dialogue) if r["script_section"]), None
+        ),
         "previous": shown.get("say_or_ask") if shown else None,
         "question": question,
     }
 
 
-def _prepare(service, p, call_id, question, automatic):
+def _same_turn(call, transcript_version):
+    return transcript_version is None or transcript_version == call.data["transcript_version"]
+
+
+def _prepare(service, p, call_id, question, transcript_version):
     with service.db.transaction(False) as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         if not _live(service, s, p, call):
             return None, "ended"
-        if automatic and call.data.get("coach_preferences", {}).get("muted"):
-            return None, "muted"
+        if (status := _automatic_skip(call, transcript_version)) is not None:
+            return None, status
         request = request_in(service, s, p, call, question)
-        if automatic and not any(d["side"] == "remote" for d in request["dialogue"]):
+        dialogue = request["dialogue"]
+        if transcript_version is not None and (not dialogue or dialogue[-1]["side"] != "remote"):
             return None, "quiet"
         return request, None
 
 
-def _publish(service, p, call_id, tip):
+def _automatic_skip(call, transcript_version):
+    if not _same_turn(call, transcript_version):
+        return "quiet"
+    if transcript_version is not None and call.data.get("coach_preferences", {}).get("muted"):
+        return "muted"
+    return None
+
+
+def _publish(service, p, call_id, tip, transcript_version):
     """Show a completed selection and tell the Dialer to re-read the call."""
     with service.db.transaction() as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         if not _live(service, s, p, call):
-            return False
+            return "ended"
+        if (status := _automatic_skip(call, transcript_version)) is not None:
+            return status
         service.tips.show(call_id, tip)
         emit(s, p["tenant_id"], "coach.card_ready", call, service.clock())
-        return True
+        return "shown"
 
 
-def _requeue(service, p, call_id):
+def _requeue(service, p, call_id, transcript_version):
     with service.db.transaction() as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
-        if call.data["state"] not in TERMINAL | {"ENDING"}:
-            queue(service, s, p, call, live.BUSY_RETRY_MS)
+        if _same_turn(call, transcript_version) and _live(service, s, p, call):
+            queue(service, s, p, call, transcript_version, live.BUSY_RETRY_MS)
 
 
-async def turn(service, p, call_id, question=None, request_id=None, *, automatic=False):
+async def turn(service, p, call_id, question=None, request_id=None, *, transcript_version=None):
     """One helper turn. Returns its status: shown, quiet, busy, muted, unavailable, cancelled or ended."""
-    private = not automatic
+    private = transcript_version is None
     identity = request_id or uid()
     result = {"request_id": identity, "private": private}
-    if automatic and service.tips.busy(call_id):
-        await asyncio.to_thread(_requeue, service, p, call_id)
+    if not private and service.tips.busy(call_id):
+        await asyncio.to_thread(_requeue, service, p, call_id, transcript_version)
         return {**result, "status": "busy"}
-    request, skipped = await asyncio.to_thread(_prepare, service, p, call_id, question, automatic)
+    request, skipped = await asyncio.to_thread(_prepare, service, p, call_id, question, transcript_version)
     if request is None:
         return {**result, "status": skipped}
-    if automatic and live.screener(request["dialogue"]):
+    if not private and live.screener(request["dialogue"]):
         # R11.8: show the rendered screening line without a model or key.
         screening = (request.get("script") or {}).get("screening_intro")
         part = {"label": "Screening", "text": screening} if screening else None
         tip = live.card(
             identity, screening or live.SCREENER_TIP, private=False, now=service.clock(), part=part
         )
-        published = await asyncio.to_thread(_publish, service, p, call_id, tip)
-        return {**result, "status": "shown" if published else "ended"}
+        status = await asyncio.to_thread(_publish, service, p, call_id, tip, transcript_version)
+        return {**result, "status": status}
     parts = live.script_parts(request.get("script"), spoken_only=True)
     if not parts:
         return {**result, "status": "quiet"}
@@ -211,8 +234,8 @@ async def turn(service, p, call_id, question=None, request_id=None, *, automatic
     if part is None:
         return {**result, "status": "quiet"}
     tip = live.card(identity, part["text"], private=private, now=service.clock(), part=part)
-    published = await asyncio.to_thread(_publish, service, p, call_id, tip)
-    return {**result, "status": "shown" if published else "ended"}
+    status = await asyncio.to_thread(_publish, service, p, call_id, tip, transcript_version)
+    return {**result, "status": status}
 
 
 def _settle(service, p, coach, call_id, key, unsent):
