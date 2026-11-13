@@ -58,6 +58,18 @@ type View =
   | "Settings";
 // Background events (lead prep, jobs, syncs) can arrive several a second; one re-read covers a burst of them.
 const EVENT_REFRESH_MS = 500;
+const LOCAL_RECONNECT_MS = 5_000;
+
+function openLocalSession(runtime: Runtime) {
+  return request<Session>(
+    runtime.url,
+    null,
+    "/v1/local/session",
+    "POST",
+    {},
+    { "X-Local-Token": runtime.local_token },
+  );
+}
 
 const navigation = [
   { title: "Dialer", icon: Phone },
@@ -91,7 +103,7 @@ export function App() {
   }, []);
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   // R4.10: the shell restarts a backend that stopped unexpectedly; follow it to its new address.
-  // The session token lives in the workspace database, so it stays valid across the restart.
+  // A restart invalidates the in-memory session. The new runtime can issue a new one.
   useEffect(() => {
     if (!native()) return;
     let stop: (() => void) | undefined;
@@ -133,7 +145,7 @@ export function App() {
     setView("Review");
   }, []);
   const [offline, setOffline] = useState(false);
-  // An authentication failure is not an outage: it needs a new session.
+  // A rejected local session needs a new token from the service on this computer.
   const [expired, setExpired] = useState(false);
   const [startup, setStartup] = useState(true);
   const [working, setWorking] = useState(false);
@@ -152,31 +164,50 @@ export function App() {
   snapshotRef.current = snapshot;
   // The newest event cursor, even when a re-read changed nothing shown and the snapshot was kept.
   const cursorRef = useRef(snapshot?.event_cursor);
-  // Sessions issued by an automatic renewal; one of these expiring stops retrying.
+  // Renew immediately once, then wait between attempts if the new token is also rejected.
   const renewed = useRef(new WeakSet<Session>());
-  const sessionExpired = useCallback(async (rejected: Session) => {
-    const current = authority.current;
-    if (current.session !== rejected || !current.runtime) return;
-    if (current.runtime.local_token && !renewed.current.has(rejected)) {
-      try {
-        const token = await request<Session>(
-          current.runtime.url,
-          null,
-          "/v1/local/session",
-          "POST",
-          {},
-          { "X-Local-Token": current.runtime.local_token },
-        );
-        if (authority.current.session !== rejected) return;
-        renewed.current.add(token);
-        setSession(token);
+  const renewal = useRef<{ runtime: Runtime; session: Session } | null>(null);
+  const sessionExpired = useCallback(
+    async (rejected: Session, retry = false) => {
+      const { runtime, session } = authority.current;
+      if (session !== rejected || !runtime) return;
+      if (
+        renewal.current?.runtime === runtime &&
+        renewal.current.session === rejected
+      )
         return;
-      } catch {
-        /* Fall through to an explicit sign-in. */
+      const stillCurrent = () =>
+        authority.current.session === rejected &&
+        authority.current.runtime === runtime;
+      if (runtime.local_token && (retry || !renewed.current.has(rejected))) {
+        const attempt = { runtime, session: rejected };
+        renewal.current = attempt;
+        renewed.current.add(rejected);
+        try {
+          const token = await openLocalSession(runtime);
+          if (!stillCurrent()) return;
+          renewed.current.add(token);
+          authority.current = { runtime, session: token };
+          setSession(token);
+          return;
+        } catch {
+          /* Keep the workspace on screen while the local service recovers. */
+        } finally {
+          if (renewal.current === attempt) renewal.current = null;
+        }
       }
-    }
-    if (authority.current.session === rejected) setExpired(true);
-  }, []);
+      if (stillCurrent()) setExpired(true);
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!expired || !session || !runtime?.local_token) return;
+    const timer = setInterval(
+      () => void sessionExpired(session, true),
+      LOCAL_RECONNECT_MS,
+    );
+    return () => clearInterval(timer);
+  }, [expired, runtime, session, sessionExpired]);
   const api = useCallback(
     async <T,>(
       path: string,
@@ -185,7 +216,7 @@ export function App() {
       options?: RequestOptions,
     ): Promise<T> => {
       if (!runtime || !session)
-        throw new Error("Sign in to a workspace first.");
+        throw new Error("Open your local workspace first.");
       const cacheable = !method || method === "GET";
       const packetMatch = path.match(/^\/v1\/leads\/([^/]+)\/packet$/);
       const analysisMatch = path.match(/^\/v1\/calls\/([^/]+)\/analysis$/);
@@ -299,32 +330,19 @@ export function App() {
     void (async () => {
       try {
         const saved = loadSession();
-        if (native() && !saved) {
-          setStartup(false);
-          return;
-        }
-        {
-          const local = await localRuntime(saved?.simulation ?? false);
-          setRuntime(local);
-          const health = await waitForRuntime(local);
-          if (health.initialized) {
-            const token = await request<Session>(
+        const local = await localRuntime(saved?.simulation ?? false);
+        setRuntime(local);
+        const health = await waitForRuntime(local);
+        if (health.initialized) {
+          const token = await openLocalSession(local);
+          setSnapshot(
+            await request<Workspace>(
               local.url,
-              null,
-              "/v1/local/session",
-              "POST",
-              {},
-              { "X-Local-Token": local.local_token },
-            );
-            setSession(token);
-            setSnapshot(
-              await request<Workspace>(
-                local.url,
-                token.access_token,
-                "/v1/workspace",
-              ),
-            );
-          }
+              token.access_token,
+              "/v1/workspace",
+            ),
+          );
+          setSession(token);
         }
       } catch (e) {
         setToast({
@@ -398,15 +416,7 @@ export function App() {
       setRuntime(local);
       const health = await waitForRuntime(local);
       let token: Session;
-      if (health.initialized)
-        token = await request(
-          local.url,
-          null,
-          "/v1/local/session",
-          "POST",
-          {},
-          { "X-Local-Token": local.local_token },
-        );
+      if (health.initialized) token = await openLocalSession(local);
       else
         token = await request(
           local.url,
@@ -418,7 +428,9 @@ export function App() {
             campaign_name: simulation
               ? "A better next conversation"
               : "My first campaign",
-            name: simulation ? "Alex Morgan" : form.name || "Local operator",
+            name: simulation
+              ? "Alex Morgan"
+              : form.name.trim() || "Local operator",
           },
           { "X-Local-Token": local.local_token },
         );
@@ -442,11 +454,6 @@ export function App() {
       setSnapshot(first);
     });
     setWorking(false);
-  }
-  /** The authority rejected this session; sign in again to the same server. */
-  async function signInAgain() {
-    setExpired(false);
-    await beginLocal(runtime?.simulation ?? false);
   }
   const configureCredential = useCallback<
     WorkspaceContext["configureCredential"]
@@ -638,8 +645,8 @@ export function App() {
                   />
                 </label>
                 <label>
-                  Your name
-                  <input {...field("name")} required placeholder="Your name" />
+                  Your name (optional, used in scripts)
+                  <input {...field("name")} placeholder="Your name" />
                 </label>
                 <button className="primary wide" disabled={working}>
                   Create local workspace
@@ -730,7 +737,7 @@ export function App() {
               />
               <span>
                 {expired
-                  ? "Session expired"
+                  ? "Reconnecting workspace"
                   : offline
                     ? "Offline cache"
                     : "Local workspace"}
@@ -761,17 +768,17 @@ export function App() {
           <div className="page-body">
             {expired && (
               <div className="alert" role="alert">
-                Session expired. Sign in again to continue; saved notes and
-                pending opt-outs stay on this computer.
-                <button onClick={() => void run(signInAgain)}>
-                  Sign in again
+                OpenDialer couldn’t reconnect to the local workspace. It will
+                try again automatically.
+                <button onClick={() => void sessionExpired(session, true)}>
+                  Retry connection
                 </button>
               </div>
             )}
             {offline && !expired && (
               <div className="alert">
-                The shared authority is unavailable. Cached scripts and notes
-                remain readable. New calling requires the authority to
+                The local workspace service is unavailable. Cached scripts and
+                notes remain readable. New calling requires the service to
                 reconnect.
               </div>
             )}

@@ -1,4 +1,4 @@
-import { expect, test, type Page, AUTHORITY } from "./fixtures";
+import { expect, test, type Page, AUTHORITY, setUpAuthority } from "./fixtures";
 import {
   addDetail,
   answer,
@@ -382,40 +382,69 @@ test("a rejected session renews once instead of reporting the authority offline"
   await expect(page.getByText("Session expired")).toHaveCount(0);
 });
 
-test("a session that cannot renew asks the rep to sign in again", async ({
+test("a desktop opens its saved workspace without a browser session flag", async ({
+  page,
+}) => {
+  await setUpAuthority(page);
+  await page.addInitScript((url) => {
+    Object.assign(window, {
+      __TAURI_INTERNALS__: {
+        transformCallback: () => 1,
+        invoke: async (command: string) => {
+          if (command === "backend_config")
+            return { url, local_token: "e2e-local-token", simulation: false };
+          if (command === "plugin:event|listen") return 1;
+        },
+      },
+      __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => {} },
+    });
+  }, AUTHORITY);
+  await page.goto("/");
+  await expect(
+    page.getByRole("navigation").getByRole("button", { name: "Dialer" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Start a local workspace" }),
+  ).toHaveCount(0);
+});
+
+test("an unavailable local workspace reconnects without asking the rep to sign in", async ({
   page,
 }) => {
   await enter(page);
   if (await pauseCalling(page).isVisible()) await pauseCalling(page).click();
   await emptyQueue(page);
-  const reject = async (route: import("@playwright/test").Route) => {
-    if (
-      await page.evaluate(
-        () => document.body.dataset.testSignInClicked === "yes",
-      )
-    )
-      return route.continue();
-    return route.fulfill({
-      status: 401,
-      json: { detail: "Revoked or expired session" },
-    });
-  };
-  await page.route("**/v1/workspace", reject);
-  await page.route("**/v1/local/session", reject);
+  let available = false;
+  let renewals = 0;
+  await page.route("**/v1/workspace", (route) =>
+    available
+      ? route.continue()
+      : route.fulfill({ status: 401, json: { detail: "Expired session" } }),
+  );
+  await page.route("**/v1/local/session", (route) => {
+    renewals++;
+    return available
+      ? route.continue()
+      : route.fulfill({
+          status: 503,
+          json: { detail: "Local service unavailable" },
+        });
+  });
   await startCalling(page).click();
   await expect(
-    page.getByRole("alert").filter({ hasText: "Session expired" }),
+    page
+      .getByRole("alert")
+      .filter({ hasText: "OpenDialer couldn’t reconnect" }),
   ).toBeVisible();
-  await expect(page.getByText("Offline cache")).toHaveCount(0);
-  const signIn = page.getByRole("button", { name: "Sign in again" });
-  // Background renewal must keep failing until the rep actually clicks.
-  await signIn.evaluate((button) =>
-    button.addEventListener("click", () => {
-      document.body.dataset.testSignInClicked = "yes";
-    }),
+  expect(renewals).toBe(1);
+  await expect(page.getByRole("button", { name: "Sign in again" })).toHaveCount(
+    0,
   );
-  await signIn.click();
-  await expect(page.getByText("Session expired")).toHaveCount(0);
+  available = true;
+  await expect(
+    page.getByText("OpenDialer couldn’t reconnect", { exact: false }),
+  ).toHaveCount(0);
+  expect(renewals).toBe(2);
   await expect(startCalling(page).or(pauseCalling(page))).toBeVisible();
 });
 
