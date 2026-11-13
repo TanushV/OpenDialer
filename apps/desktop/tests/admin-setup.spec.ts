@@ -506,7 +506,12 @@ test("Test call limits calling to the test phone, and the session ends with that
   await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   const row = page.getByTestId("setup-test_phone");
-  await row.getByLabel("New Test phone").fill("+1 202 555 0199");
+  const phone = row.getByLabel("New Test phone");
+  // Focus the offscreen field with a click before typing. WebKit's fill can
+  // leave it empty when it is below the scrollport.
+  await phone.click();
+  await phone.pressSequentially("+1 202 555 0199");
+  await expect(phone).toHaveValue("+1 202 555 0199");
   await row.getByRole("button", { name: "Save and check" }).click();
   await row.getByRole("button", { name: "Test call", exact: true }).click();
   const placed = page.waitForResponse(
