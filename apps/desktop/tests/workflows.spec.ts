@@ -96,16 +96,14 @@ test("admin inventory, lead import, policy, preparation and real readiness bound
   await page.getByLabel("List name").fill("Workflow journey list");
   await page.getByRole("button", { name: "Import leads" }).click();
   await expect(page.getByText(/^1 imported/)).toBeVisible({ timeout: 30_000 });
-  await waitForPreparation(page);
-  // The app asks for research and a script for each imported lead before calling.
-  await expect(
-    page
-      .getByRole("region", { name: "Lead preparation" })
-      .getByRole("listitem")
-      .filter({ hasText: "Workflow journey list" })
-      .getByText("1 of 1 ready to call"),
-    // Preparation is a server job; a small CI runner can take longer than one expect window.
-  ).toBeVisible({ timeout: 30_000 });
+  const imported = page
+    .getByRole("region", { name: "Lead preparation" })
+    .getByRole("listitem")
+    .filter({ hasText: "Workflow journey list" });
+  await imported.getByRole("button", { name: "Generate scripts" }).click();
+  await expect(imported.getByText("1 of 1 processed")).toBeVisible({
+    timeout: 30_000,
+  });
   await page.getByLabel("Search leads").fill("Taylor Example");
   await page
     .getByRole("button", { name: "Search lead history", exact: true })

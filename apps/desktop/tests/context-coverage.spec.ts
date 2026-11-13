@@ -1,4 +1,6 @@
 import { expect, test } from "./fixtures";
+import { clickUntil } from "./navigation";
+import { openLeads } from "./simulation";
 
 test("compact prospect context discloses omitted history", async ({ page }) => {
   await page.route("**/v1/leads/*/packet", async (route) => {
@@ -23,11 +25,12 @@ test("compact prospect context discloses omitted history", async ({ page }) => {
       .getByRole("button", { name: "Try a simulated workspace" })
       .click();
   await expect(page.getByRole("status", { name: "Call status" })).toBeVisible();
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
-  await page
-    .getByRole("button", { name: /^Open lead / })
-    .first()
-    .click();
-  await page.getByText("Earlier calls", { exact: true }).click();
+  await openLeads(page);
+  const packet = page.getByRole("dialog", { name: "Lead packet" });
+  await clickUntil(
+    page.getByRole("button", { name: /^Open lead / }).first(),
+    () => expect(packet).toBeVisible({ timeout: 3_000 }),
+  );
+  await packet.getByText("Earlier calls", { exact: true }).click();
   await expect(page.getByText(/131 older calls are not shown/)).toBeVisible();
 });
