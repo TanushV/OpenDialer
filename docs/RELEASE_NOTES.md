@@ -1,3 +1,13 @@
+# OpenDialer 2.1.4
+
+- **Install on Ubuntu.** The `.deb` targets Ubuntu 24.04 LTS on 64-bit Intel and AMD.
+- **Open the right setup file.** File buttons name the calling profile, Codex login, Markdown script and lead CSV they accept.
+- **See shared caller IDs after connecting.** The Numbers page refreshes when your rep profile receives the existing pool.
+- **Generate scripts per list.** Import contacts or save the base script, then select **Generate scripts** on a list in Leads when you want personalized scripts.
+- **Keep saved HubSpot numbers.** Treg looks up a phone when the contact has no usable saved number. HubSpot contacts go through do-not-call screening before dialing.
+
+Updating from 1.0.x through 2.1.3 keeps your workspace. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.1.3
 
 - **Install on Linux.** The x86-64 Debian package targets Ubuntu 24.04 LTS and uses the same calling profile setup as Mac and Windows.

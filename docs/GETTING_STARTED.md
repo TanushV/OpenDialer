@@ -6,7 +6,7 @@ From install to your first call. Each step names the page and the button.
 
 Download the Mac `.dmg`, Windows `.exe`, or Linux `_amd64.deb` from the [latest release](https://github.com/TanushV/OpenDialer/releases/latest).
 The Linux package targets Ubuntu 24.04 LTS on 64-bit Intel or AMD. From the download folder, run
-`sudo apt install ./OpenDialer_2.1.3_amd64.deb` using the filename you downloaded, then open **OpenDialer** from the app menu.
+`sudo apt install ./OpenDialer_2.1.4_amd64.deb` using the filename you downloaded, then open **OpenDialer** from the app menu.
 On any platform, choose **Start a local workspace**. Your data stays on this computer.
 
 ## 2. Settings

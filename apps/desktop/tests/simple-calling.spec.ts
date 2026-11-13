@@ -195,7 +195,8 @@ for (const pause of [false, true]) {
       await page.waitForTimeout(2500);
       expect(starts).toBe(1);
     } else {
-      await expect.poll(() => starts).toBe(2);
+      // The next call follows the seven-second mailbox hold and the queue countdown.
+      await expect.poll(() => starts, { timeout: 30_000 }).toBe(2);
       await finishCall(page);
     }
   });
