@@ -46,6 +46,17 @@
       "entitlements": "Entitlements.plist",
       "signingIdentity": "-"
     },
+    "linux": {
+      "deb": {
+        "depends": [
+          "ca-certificates",
+          "gstreamer1.0-nice",
+          "gstreamer1.0-plugins-bad",
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-pulseaudio"
+        ]
+      }
+    },
     "resources": {
       "../../../LICENSE": "licenses/LICENSE",
       "../../../THIRD_PARTY_NOTICES.md": "licenses/THIRD_PARTY_NOTICES.md"

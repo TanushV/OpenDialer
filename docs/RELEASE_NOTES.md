@@ -1,5 +1,6 @@
 # OpenDialer 2.1.3
 
+- **Install on Linux.** The x86-64 Debian package targets Ubuntu 24.04 LTS and uses the same calling profile setup as Mac and Windows.
 - **Use saved HubSpot numbers.** OpenDialer uses Treg to find a number when the contact has no usable saved number. It runs do-not-call screening on HubSpot numbers before calling.
 
 Updating from 2.0.0 through 2.1.2 keeps your workspace. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.

@@ -536,13 +536,38 @@ impl Drop for CallbackActivity {
 pub fn run() {
     #[cfg(target_os = "macos")]
     let _callback_activity = CallbackActivity::begin();
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "linux")]
+    let builder = builder.on_permission_request(|webview, kind| {
+        use tauri::webview::{PermissionKind, PermissionResponse};
+        // WebKitGTK needs an application handler. Give only the bundled Dialer access to audio.
+        if matches!(kind, PermissionKind::Microphone)
+            && webview.label() == "main"
+            && webview
+                .url()
+                .is_ok_and(|url| url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        {
+            PermissionResponse::Allow
+        } else {
+            PermissionResponse::Deny
+        }
+    });
+    let app = builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .manage(LocalBackend::default())
         .manage(KeepAwake::default())
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            if let Some(window) = app.get_webview_window("main") {
+                use webkit2gtk::{SettingsExt, WebViewExt};
+                window.with_webview(|webview| {
+                    if let Some(settings) = webview.inner().settings() {
+                        settings.set_enable_webrtc(true);
+                    }
+                })?;
+            }
             // The updater clears the resource table before it launches an installer and exits,
             // which runs this guard.
             let backend = app.state::<LocalBackend>().inner().clone();

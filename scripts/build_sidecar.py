@@ -162,8 +162,10 @@ def main(argv=None):
 
 def bundle_codex(triple, suffix):
     """Copy the npm-lockfile-pinned native runtime; no Node dependency on the user's PC."""
+    # Codex ships static Linux executables even when the Tauri host uses glibc.
+    vendor_target = triple.replace("-linux-gnu", "-linux-musl")
     candidates = list(
-        (root / "apps/desktop/node_modules/@openai").glob(f"codex-*/vendor/{triple}/bin/codex{suffix}")
+        (root / "apps/desktop/node_modules/@openai").glob(f"codex-*/vendor/{vendor_target}/bin/codex{suffix}")
     )
     if len(candidates) != 1:
         raise SystemExit("Run npm ci in apps/desktop to install the pinned Codex runtime for this platform")

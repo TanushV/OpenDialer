@@ -1,4 +1,4 @@
-"""Collect the verified Mac and Windows artifacts and create the one update manifest installed copies read (D2)."""
+"""Collect the verified desktop packages and create their shared update manifest (D2)."""
 
 import argparse
 import hashlib
@@ -17,7 +17,7 @@ version = json.loads((root / "apps/desktop/src-tauri/tauri.conf.json").read_text
 args.output.mkdir(parents=True, exist_ok=True)
 files = {}
 for path in args.artifacts.rglob("*"):
-    if path.is_file() and (path.name.endswith((".dmg", ".exe", ".msi", ".tar.gz", ".sig"))):
+    if path.is_file() and (path.name.endswith((".dmg", ".exe", ".msi", ".deb", ".tar.gz", ".sig"))):
         if path.name in files:
             raise SystemExit("Artifact filename collision: " + path.name)
         destination = args.output / path.name
@@ -45,8 +45,13 @@ if exe:
     platforms["windows-x86_64-nsis"] = entry(exe)
 if msi:
     platforms["windows-x86_64-msi"] = entry(msi)
+deb = next((name for name in files if name.endswith("_amd64.deb")), None)
+if deb:
+    platforms["linux-x86_64-deb"] = entry(deb)
 if not archive or not dmg or not exe:
     raise SystemExit("Signed Mac and Windows artifacts are both required for this release")
+if not deb:
+    raise SystemExit("The signed Linux x86-64 package is required for this release")
 # The updater shows each bullet's bold headline from this release's notes, then the upgrade paragraph after them.
 release_notes = (root / "docs/RELEASE_NOTES.md").read_text().split("\n# ", 1)[0]
 headlines = "".join(

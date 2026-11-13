@@ -39,7 +39,12 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
 
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
-    for name in ("OpenDialer.app.tar.gz", "OpenDialer_1.0.2_aarch64.dmg", "OpenDialer_1.0.2_x64-setup.exe"):
+    for name in (
+        "OpenDialer.app.tar.gz",
+        "OpenDialer_1.0.2_aarch64.dmg",
+        "OpenDialer_1.0.2_x64-setup.exe",
+        "OpenDialer_1.0.2_amd64.deb",
+    ):
         (artifacts / name).write_bytes(b"test artifact")
         (artifacts / (name + ".sig")).write_text("test signature")
     output = tmp_path / "output"
@@ -56,6 +61,10 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
     )
     manifest = json.loads((output / "latest.json").read_text())
     assert {"darwin-aarch64", "windows-x86_64", "windows-x86_64-nsis"} <= set(manifest["platforms"])
+    linux = manifest["platforms"]["linux-x86_64-deb"]
+    assert linux["url"].endswith("/OpenDialer_1.0.2_amd64.deb")
+    assert linux["signature"] == "test signature"
+    assert "OpenDialer_1.0.2_amd64.deb" in (output / "SHA256SUMS.txt").read_text()
     notes = manifest["notes"]
     # The updater shows this release's headlines, not an earlier release's.
     release_notes = (ROOT / "docs/RELEASE_NOTES.md").read_text()
@@ -72,13 +81,13 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
     assert "re-import" in notes
 
 
-def test_a_release_needs_both_systems(tmp_path):
+def test_a_release_needs_all_desktop_packages(tmp_path):
     import subprocess
     import sys
 
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
-    for name in ("OpenDialer.app.tar.gz", "OpenDialer_1.0.2_aarch64.dmg"):
+    for name in ("OpenDialer.app.tar.gz", "OpenDialer_1.0.2_aarch64.dmg", "OpenDialer_1.0.2_x64-setup.exe"):
         (artifacts / name).write_bytes(b"test artifact")
         (artifacts / (name + ".sig")).write_text("test signature")
     done = subprocess.run(  # noqa: S603 - fixed repository script and disposable test paths
@@ -93,7 +102,7 @@ def test_a_release_needs_both_systems(tmp_path):
         capture_output=True,
         text=True,
     )
-    assert done.returncode and "Windows" in done.stderr
+    assert done.returncode and "Linux" in done.stderr
 
 
 def test_signed_installer_updates_do_not_ship_unused_zip_extraction():

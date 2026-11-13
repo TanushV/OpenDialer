@@ -164,4 +164,41 @@ jobs:
           components: clippy, rustfmt
       - run: uv run python scripts/build_sidecar.py
       - run: uv run python scripts/check.py run sidecars rust
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xvfb xauth xdotool
+      - uses: astral-sh/setup-uv@v6
+        id: uv
+        continue-on-error: true
+        with:
+          version: '0.10.12'
+      - if: steps.uv.outcome == 'failure'
+        run: pipx install uv==0.10.12
+      - run: uv sync --frozen --python 3.12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - run: npm ci && npm run build
+        working-directory: apps/desktop
+      - run: uv run python scripts/build_sidecar.py
+      - run: uv run python scripts/check.py run sidecars rust
+      - name: Build the Linux package
+        run: npm run tauri build -- --ci --bundles deb --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        working-directory: apps/desktop
+      - name: Install and launch the Linux package
+        run: |
+          sudo apt-get install -y ./apps/desktop/src-tauri/target/release/bundle/deb/*_amd64.deb
+          /usr/bin/opendialer-codex --version
+          xvfb-run -a dbus-run-session -- uv run python scripts/smoke_linux.py /usr/bin/opendialer-desktop
 

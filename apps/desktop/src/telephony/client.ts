@@ -4,10 +4,10 @@ import type { Call } from "@telnyx/webrtc/lib/src/Modules/Verto/webrtc/Call";
 const providerId = (call: Call | null) => call?.telnyxIDs?.telnyxCallControlId;
 const ended = (call: Call) => ["hangup", "destroy"].includes(call.state);
 
-/** How long macOS may hold the microphone request (its permission prompt) before calling stops and says why. */
+/** How long a microphone permission prompt can hold calling before the Dialer says why it stopped. */
 export const MICROPHONE_WAIT_MS = 30_000;
 export const MICROPHONE_BLOCKED =
-  "OpenDialer cannot use the microphone. Click Allow if macOS is asking, or turn OpenDialer on in System Settings > Privacy & Security > Microphone, then press Start calling.";
+  "OpenDialer cannot use the microphone. Allow access if prompted, or check your system’s microphone settings, then press Start calling.";
 
 /** The microphone, or a plain refusal: never an endless wait on a permission prompt nobody answers (G10). */
 export async function microphone(waitMs: number): Promise<MediaStream> {

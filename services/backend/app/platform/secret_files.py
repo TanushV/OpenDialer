@@ -47,15 +47,18 @@ def file_lock(path):
 
 @lru_cache(maxsize=1)
 def native_key():
-    if sys.platform not in {"darwin", "win32"}:
+    if sys.platform == "win32":
+        data = Path(os.environ["LOCALAPPDATA"])
+    elif sys.platform == "darwin":
+        data = Path.home() / "Library/Application Support"
+    elif sys.platform == "linux" and os.environ.get("OPENDIALER_DESKTOP_LAUNCH") == "1":
+        xdg_data = Path(os.environ.get("XDG_DATA_HOME", ""))
+        data = xdg_data if xdg_data.is_absolute() else Path.home() / ".local/share"
+    else:
         raise SecretStorageError(
             "Set OPENDIALER_SECRET_KEY_FILE (or OPENDIALER_SECRET_KEY) to a persistent Fernet key for this server."
         )
-    directory = (
-        Path(os.environ["LOCALAPPDATA"]) / "OpenDialer" / "Security"
-        if sys.platform == "win32"
-        else Path.home() / "Library/Application Support/OpenDialer/Security"
-    )
+    directory = data / "OpenDialer/Security"
     with _KEY_LOCK, file_lock(directory / "key.lock"):
         path = directory / "storage-key.json"
         if not path.exists():

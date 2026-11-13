@@ -114,8 +114,18 @@ def test_unavailable_key_store_never_converts_plaintext_or_falls_back(tmp_path, 
     assert path.read_text() == '{"key":"old-private-value"}'
 
 
-@pytest.mark.parametrize("platform", ["darwin", "win32"])
-def test_desktop_key_is_private_persistent_and_never_requests_os_credentials(tmp_path, monkeypatch, platform):
+@pytest.mark.parametrize(
+    ("platform", "xdg_data", "relative_key"),
+    [
+        ("darwin", None, "Library/Application Support/OpenDialer/Security/storage-key.json"),
+        ("win32", None, "OpenDialer/Security/storage-key.json"),
+        ("linux", None, ".local/share/OpenDialer/Security/storage-key.json"),
+        ("linux", "xdg-data", "xdg-data/OpenDialer/Security/storage-key.json"),
+    ],
+)
+def test_desktop_key_is_private_persistent_and_never_requests_os_credentials(
+    tmp_path, monkeypatch, platform, xdg_data, relative_key
+):
     from pathlib import Path
 
     from app.platform import secret_files
@@ -123,6 +133,11 @@ def test_desktop_key_is_private_persistent_and_never_requests_os_credentials(tmp
     monkeypatch.delenv("OPENDIALER_SECRET_KEY")
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("OPENDIALER_DESKTOP_LAUNCH", "1")
+    if xdg_data:
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / xdg_data))
+    else:
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     def forbidden():
@@ -136,11 +151,7 @@ def test_desktop_key_is_private_persistent_and_never_requests_os_credentials(tmp
         secret_files.native_key.cache_clear()
         assert secret_files.read_private(path) == {"secret": "disposable-native-fixture"}
         assert b"disposable-native-fixture" not in path.read_bytes()
-        key = tmp_path / (
-            "OpenDialer/Security/storage-key.json"
-            if platform == "win32"
-            else "Library/Application Support/OpenDialer/Security/storage-key.json"
-        )
+        key = tmp_path / relative_key
         assert key.is_file()
         if os.name != "nt":
             assert key.stat().st_mode & 0o777 == 0o600
@@ -194,6 +205,7 @@ def test_server_missing_key_preserves_legacy_files(tmp_path, monkeypatch):
     original = b"OPENDIALER-SECRET-1\n" + secret_files.cipher().encrypt(b'{"secret":"server"}')
     path.write_bytes(original)
     monkeypatch.delenv("OPENDIALER_SECRET_KEY")
+    monkeypatch.delenv("OPENDIALER_DESKTOP_LAUNCH", raising=False)
     monkeypatch.setattr(sys, "platform", "linux")
     secret_files.native_key.cache_clear()
     with pytest.raises(secret_files.SecretStorageError):

@@ -9,7 +9,7 @@ It supersedes the "every feature stays" and "both modes" rules of [LEAN_PLAN.md]
 
 ## 1. TLDR
 
-- Make OpenDialer a small, single-user dialer for Mac and Windows that is simple enough for bugs to show up in the code and tests.
+- Make OpenDialer a small dialer for Mac, Windows and Linux that is simple enough for bugs to show up in the code and tests.
 - In 2.1, each rep has a desktop profile and a HubSpot segment. The existing relay shares sticky caller IDs across
   profiles and routes callbacks to the desktop that called (D33).
 - Keep the working integrations: Telnyx, speech, ChatGPT agent, relay and signed releases.
@@ -33,7 +33,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | # | Decision | Status |
 |---|---|---|
 | D1 | Remove hosted mode, PostgreSQL, teams and roles. One user, one Mac, one SQLite file. A team is several such Macs (D25). | Approved; clarified November 8 |
-| D2 | Mac and Windows. The Windows build came out in R2.1 and returns in Phase 9D, after the calling core is settled on Mac, with the same features, seats and pool. One SQLite file per computer on either system. | Owner decision, November 8; replaces "Mac only" |
+| D2 | Mac, Windows and Linux. The Windows build came out in R2.1 and returned in Phase 9D. The first Linux package targets Ubuntu 24.04 LTS x86-64. Each computer uses its own SQLite workspace and can join the shared pool. | Owner decisions, November 8 and November 13 |
 | D3 | StatML stays and must actually learn. Repair it rather than cut it. | Owner decision |
 | D4 | Coaching goes. The live helper stays, plus one AI after-call summary with a suggested outcome, because follow-up scripts read that summary. | Owner decision; the summary is an assumption the owner may veto |
 | D5 | Auto-dial replaces manual-only dialing. One call at a time, with the rep present. | Owner decision; see risk R1 |
@@ -890,7 +890,7 @@ Measured on this Mac, November 7, 2026, from `730a80d`. The Mac is shared, so th
 |---|---|---|
 | Local | `check.py` fast and full, plus package when needed | Every commit and every push, on this Mac |
 | Verify | `check.py full` plus both sidecars starting up: lint, types, size caps, code-rule bans, backend on SQLite, frontend, replay and property tests, HubSpot contract tests, WebKit browser and layout audit, Mac shell | Every push to `main` |
-| Release | Check that Verify passed on this exact commit, then build signed Mac artifacts and a draft release | Manual start, on the owner's OK |
+| Release | Check that Verify passed on this exact commit, then build signed Mac, Windows and Linux artifacts and a draft release | Manual start, on the owner's OK |
 | Publish | Owner approves the draft | Manual |
 | Install | Signed updater on this Mac | Manual, only on an explicit owner request |
 
@@ -2040,3 +2040,6 @@ test assets and admin access before asking for anything. The signed rollout foll
   and went to the greeting. The retry rang only the primary app, opened the correct prospect and was
   answered there. The 8547 phone was unavailable for its return call. R12.11 stays open.
   [Live callback receipt](evidence/rebuild/2026-11-11-2.1-shared-application.md#november-12-microphone-recovery-and-live-callbacks).
+- November 13, 2026: added the Ubuntu 24.04 LTS x86-64 desktop package to 2.1.3 (D2). Verify installs the `.deb`,
+  opens its window and checks the frozen backend on a fresh workspace. The signed release includes the Linux package
+  and its update signature. Linux carrier audio remains a separate live check.

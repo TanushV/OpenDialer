@@ -6,8 +6,8 @@ November 2026, version 2.1.0. The plan that produced this design, with its decis
 ## One computer, one rep, one file
 
 - **Desktop shell** (`apps/desktop/src-tauri`, Rust and Tauri): starts the backend as a private sidecar on localhost,
-  keeps the computer awake while the rep is calling, and installs signed updates. Mac and Windows build from the same
-  code.
+  keeps the computer awake while the rep is calling on Mac and Windows, and installs signed updates. Mac, Windows and
+  Linux build from the same code. The Linux package uses WebKitGTK on Ubuntu 24.04 LTS x86-64.
 - **Screens** (`apps/desktop/src`, React): the Dialer, Leads, Review, Numbers, Script and Settings.
 - **Backend** (`services/backend/app`, Python and FastAPI): the rep's calling decisions and data. One SQLite file per rep, in the
   app's data folder. Saved keys are encrypted with a private key file beside it.
@@ -97,8 +97,8 @@ names the script part the call ended in, and Review shows where answered calls e
 ## Releases
 
 `main` must pass the fast check on commit and the full check (backend, frontend, Rust, WebKit browser suite) on push.
-A signed build only comes from a commit whose CI passed; each release carries the Mac app, the Windows installers and
-an update manifest. Installed data is kept across updates.
+A signed build only comes from a commit whose CI passed. Each release carries the Mac app, Windows installers, the Linux
+Debian package and an update manifest. Installed data is kept across updates.
 
 ## What is still old code
 

@@ -13,7 +13,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
-# Updates use signed EXE/MSI on Windows and the native tar.gz bundle on macOS.
+# Updates use signed EXE/MSI, macOS tar.gz, and Linux .deb files.
 # Do not compile the unused Windows ZIP compatibility extractor.
 tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-opener = "2"
@@ -24,6 +24,8 @@ url = "2"
 # Already locked through tauri-plugin-shell; used only to terminate the owned SSH process group.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2", features = ["v2_38"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.5"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSObject", "NSProcessInfo", "NSString"] }

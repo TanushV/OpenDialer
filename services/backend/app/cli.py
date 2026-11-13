@@ -148,6 +148,7 @@ def main():
     if launch:
         # Launcher-provided secrets win, and are never passed on through the environment.
         os.environ.pop("OPENDIALER_LOCAL_TOKEN", None)
+        os.environ["OPENDIALER_DESKTOP_LAUNCH"] = "1"
         overrides.update(launch)
     settings = Settings(**overrides)
     settings.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)

@@ -1,6 +1,6 @@
 # OpenDialer
 
-A desktop dialer for one rep per computer, on Mac or Windows. Import a CSV or sync a HubSpot list, paste your call script
+A desktop dialer for one rep per computer, on Mac, Windows or Linux. Import a CSV or sync a HubSpot list, paste your call script
 once, and an AI agent researches each lead and writes that lead's version of your script. Press Start calling and the
 app dials lead after lead, skips voicemail, shows the script and live tips while you talk, and writes a summary with a
 suggested outcome when the call ends.
@@ -14,6 +14,7 @@ suggested outcome when the call ends.
 | --- | --- | --- |
 | Apple Silicon Mac, macOS 14 or newer | `OpenDialer_<version>_aarch64.dmg` | Open it and drag OpenDialer to Applications. |
 | Windows PC, 64-bit | `OpenDialer_<version>_x64-setup.exe` | Run it and follow the prompts. Windows may warn once: the installer is not publisher-signed yet. |
+| Ubuntu 24.04 LTS, 64-bit Intel or AMD | `OpenDialer_<version>_amd64.deb` | Install the downloaded file with `sudo apt install ./OpenDialer_<version>_amd64.deb` and open OpenDialer from the app menu. |
 
 The app updates itself: **Settings → More settings → Workspace and app updates → Check for updates**. Your leads,
 script, numbers and saved keys are kept across updates.
@@ -55,7 +56,7 @@ inputs and thousands of randomized runs. See [How it works](docs/ARCHITECTURE.md
   deleted; delete one sooner from Review. An opt-out deletes that call's transcript.
 - Saved keys are encrypted on this computer, with no Keychain or password prompts.
 - Automated tests cover software behavior. Real carrier calls, audio hardware and provider accounts need your own check.
-- Hardware: Apple Silicon Mac or 64-bit Windows, 8 GB RAM, a headset and a stable connection.
+- Hardware: Apple Silicon Mac, 64-bit Windows or Ubuntu 24.04 LTS x86-64, 8 GB RAM, a headset and a stable connection.
 
 ## More
 

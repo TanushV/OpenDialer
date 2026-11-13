@@ -230,11 +230,11 @@ export function useCallLoop(visible: boolean) {
     if (!w.simulation) {
       if (!telephony.current.registered) {
         setAudioStatus("Checking microphone and registering…");
-        // macOS may be asking for the microphone; say so instead of waiting silently.
+        // The OS may be asking for the microphone. Say so instead of waiting silently.
         const waiting = setTimeout(
           () =>
             setAudioStatus(
-              "Waiting for the microphone. If macOS asks, click Allow.",
+              "Waiting for the microphone. If prompted, click Allow.",
             ),
           4_000,
         );
