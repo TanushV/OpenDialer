@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { openSettingRow } from "./navigation";
+import { clickUntil, openSettingRow } from "./navigation";
 import {
   answer,
   callStatus,
@@ -214,12 +214,15 @@ test("skipped leads show the agent's reason in the list progress and the lead", 
     .filter({ hasText: "Skipped reasons list" });
   await row.getByText("Why one lead was skipped").click();
   await expect(row.getByText(reason)).toBeVisible();
-  await page
-    .getByRole("button", { name: /^Open lead / })
-    .first()
-    .click();
+  const packet = page.getByRole("dialog", { name: "Lead packet" });
+  await clickUntil(
+    page.getByRole("button", { name: /^Open lead / }).first(),
+    () => expect(packet).toBeVisible({ timeout: 3_000 }),
+  );
   await expect(
-    page.getByText(`The agent skipped this lead: ${reason}`, { exact: false }),
+    packet.getByText(`The agent skipped this lead: ${reason}`, {
+      exact: false,
+    }),
   ).toBeVisible();
 });
 

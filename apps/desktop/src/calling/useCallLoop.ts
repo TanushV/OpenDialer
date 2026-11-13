@@ -522,12 +522,13 @@ export function useCallLoop(visible: boolean) {
       await refresh();
       if (await pausedMeanwhile(false)) return;
       callingRef.current = true;
-      await nextCall();
+      if (testRun.current) await nextCall();
+      else await nextOrPause();
     } catch (error) {
-      await pauseCalling().catch(() => {});
-      if (testRun.current)
+      if (testRun.current) {
+        await pauseCalling().catch(() => {});
         setTestError(error instanceof Error ? error.message : String(error));
-      else throw error;
+      } else throw error;
     }
   }
   /**
