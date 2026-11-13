@@ -12,6 +12,7 @@ import {
   startCalling,
 } from "./simulation";
 import { zonedInstant } from "../src/state/zones";
+import { clickUntil } from "./navigation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -155,7 +156,11 @@ test("review notes start empty and the AI summary stays read-only", async ({
     "+14155550602",
   );
   await answer(page);
-  await pauseCalling(page).click();
+  await clickUntil(pauseCalling(page), () =>
+    expect(page.getByText("Calling stops after this call")).toBeVisible({
+      timeout: 3_000,
+    }),
+  );
   await hangUp(page).click();
   await saveOutcome(page, "not_interested");
   await expect(startCalling(page)).toBeVisible();
