@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { AUTHORITY, expect, test, type Page } from "./fixtures";
 import { openMoreSettings } from "./navigation";
 import {
   answer,
@@ -32,6 +32,50 @@ async function firstCall(page: Page) {
   await startCalling(page).click();
   return await (await started).json();
 }
+
+test("renewed interest gets a script tip despite a brief rep transcript update", async ({
+  page,
+}) => {
+  await enter(page);
+  const placed = await firstCall(page);
+  await answer(page);
+  const session = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
+  const headers = {
+    authorization: `Bearer ${(await session.json()).access_token}`,
+  };
+  const base = placed.script_snapshot;
+  const closing = base.closing_question;
+  const helper = page.getByTestId("live-coaching-strip");
+
+  async function speech(text: string, side: string, isFinal = true) {
+    const accepted = await page.request.post(
+      `${AUTHORITY}/v1/calls/${placed.id}/transcript`,
+      {
+        headers,
+        data: {
+          segment_id: crypto.randomUUID(),
+          revision: 1,
+          side,
+          text,
+          is_final: isFinal,
+        },
+      },
+    );
+    expect(accepted.ok()).toBeTruthy();
+  }
+
+  await speech("Sorry, I'm not interested.", "remote");
+  const finalTranscriptAt = performance.now();
+  await speech(`Actually, yes. ${closing}`, "remote");
+  await speech("Mm-hm.", "rep", false);
+  await expect(helper.getByTestId("helper-script-part")).toContainText(closing);
+  console.log(
+    `Prospect final transcript submission to visible tip: ${Math.round(performance.now() - finalTranscriptAt)} ms`,
+  );
+});
 
 const settle = (page: Page) =>
   page.evaluate(

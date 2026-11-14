@@ -4,12 +4,12 @@ import os
 import sys
 import tempfile
 import time
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "services/backend"))
 import uvicorn
+from app.cli import simulation_clock
 from app.main import create_app
 from app.platform.config import Settings
 from cryptography.fernet import Fernet
@@ -32,12 +32,7 @@ with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
         # Browser-test workers serve their frontends on their own ports (apps/desktop/tests/fixtures.ts).
         settings.allowed_origins = [*settings.allowed_origins, *origins.split(",")]
 
-    began = time.monotonic()
-
-    def clock():
-        return datetime(2026, 10, 14, 18, tzinfo=UTC) + timedelta(seconds=time.monotonic() - began)
-
-    app = create_app(settings, clock=clock)
+    app = create_app(settings, clock=simulation_clock())
     if slow_log := os.environ.get("OPENDIALER_E2E_SLOW_LOG"):
         # Diagnosis only: requests slower than a second, with their path, to find what a browser test waits on.
         @app.middleware("http")

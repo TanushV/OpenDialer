@@ -80,10 +80,11 @@ def test_a_tip_follows_what_the_prospect_says_and_leaves_after_its_moment(worksp
     assert get(ws, f"/v1/calls/{call_id}")["coach"] is None, "A tip is for the next moment only"
 
 
-def test_without_an_openrouter_key_the_helper_is_off_and_says_why(workspace, clock):
+def test_without_an_openrouter_key_the_live_provider_is_off_and_says_why(workspace, clock, app, monkeypatch):
     ws = workspace
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
+    monkeypatch.setattr(app.state.settings, "simulation", False)
     chunk(ws, call_id, "s1", "We have no budget for this right now.")
     live = tip_after_speech(ws, clock, call_id)
     assert live["coach"] is None
@@ -225,10 +226,10 @@ def test_automatic_selection_waits_for_the_whole_prospect_turn(workspace, clock,
     chunk(workspace, call_id, "s1", "I had a look last quarter.")
     clock.now += timedelta(milliseconds=500)
     run_jobs(workspace)
-    assert requests == []
+    assert requests == [], "The latest finalized prospect segment has not settled yet"
 
     chunk(workspace, call_id, "s2", "We were waiting", final=False)
-    clock.now += timedelta(seconds=2)
+    clock.now += timedelta(milliseconds=250)
     run_jobs(workspace)
     assert requests == []
 
@@ -244,12 +245,14 @@ def test_automatic_selection_waits_for_the_whole_prospect_turn(workspace, clock,
 
     chunk(workspace, call_id, "s3", "Maybe next quarter.")
     chunk(workspace, call_id, "r3", "What are you planning?", side="rep", final=False)
+    chunk(workspace, call_id, "r3", "What are you planning?", side="rep", revision=2)
     clock.now += timedelta(seconds=1)
     run_jobs(workspace)
-    assert len(requests) == 1
+    assert len(requests) == 2
+    assert "Maybe next quarter." in requests[-1] and "What are you planning?" in requests[-1]
 
 
-def test_automatic_result_is_discarded_if_speech_resumes_during_selection(workspace, clock, monkeypatch):
+def test_automatic_result_is_shown_if_speech_resumes_during_selection(workspace, clock, monkeypatch):
     from app import live_help
 
     with_helper(workspace)
@@ -267,7 +270,41 @@ def test_automatic_result_is_discarded_if_speech_resumes_during_selection(worksp
     run_jobs(workspace)
     live = get(workspace, f"/v1/calls/{call_id}")
     assert live["helper_status"] == {"status": "available"}
+    assert live["coach"]["say_or_ask"] == get(workspace, f"/v1/calls/{call_id}")["script_snapshot"]["opener"]
+
+
+def test_renewed_interest_gets_a_tip_with_a_new_mic_update(workspace, clock):
+    save_helper_script(workspace)
+    call_id = start(workspace)["id"]
+    answered_by_human(workspace, call_id)
+    chunk(workspace, call_id, "decline", "Sorry, I am not interested.")
+    assert tip_after_speech(workspace, clock, call_id)["coach"] is None
+
+    chunk(workspace, call_id, "return", "Actually, I am interested. Maybe next quarter.")
+    clock.now += timedelta(milliseconds=300)
+    chunk(workspace, call_id, "mic", "I hear", side="rep", final=False)
+    live = tip_after_speech(workspace, clock, call_id)
+    assert live["coach"]["say_or_ask"] == TIMING
+
+
+def test_hangup_during_selection_keeps_the_tip_off(workspace, clock, monkeypatch):
+    from app import live_help
+
+    ws = workspace
+    with_helper(ws)
+    call_id = start(ws)["id"]
+    answered_by_human(ws, call_id)
+
+    class Selector:
+        async def converse(self, messages, **_):
+            await asyncio.to_thread(call, ws, "POST", f"/v1/calls/{call_id}/hangup")
+            return "Part: 1"
+
+    monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
+    chunk(ws, call_id, "s1", "Maybe next quarter.")
+    live = tip_after_speech(ws, clock, call_id)
     assert live["coach"] is None
+    assert live["state"] in {"ENDING", "ENDED", "FINALIZED"}
 
 
 def test_automatic_and_private_help_never_show_free_form_model_text(workspace, clock, monkeypatch):

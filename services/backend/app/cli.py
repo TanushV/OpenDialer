@@ -5,8 +5,9 @@ import signal
 import sys
 import threading
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import monotonic
 
 from app.platform import migrate
 from app.platform.config import Settings
@@ -181,6 +182,12 @@ def prepare_store(settings, source):
         raise MigrationFailed(f"{busy} Your data was not moved.") from None
 
 
+def simulation_clock():
+    began = monotonic()
+    start = datetime(2026, 10, 14, 18, tzinfo=UTC)
+    return lambda: start + timedelta(seconds=monotonic() - began)
+
+
 def run(args, settings, watch_stdin):
     from app.platform.logfile import configure
 
@@ -196,7 +203,7 @@ def run(args, settings, watch_stdin):
 
     from app.main import create_app
 
-    clock = (lambda: datetime(2026, 10, 14, 18, 0, tzinfo=UTC)) if settings.simulation else None
+    clock = simulation_clock() if settings.simulation else None
     app = create_app(settings, clock=clock)
     if args.command == "migrate":
         app.state.db.engine.dispose()

@@ -5,8 +5,10 @@ would exit on launch. The package smoke test started the sidecar with its own ar
 """
 
 import re
+from datetime import timedelta
 from pathlib import Path
 
+from app import cli
 from app.cli import parser
 
 LIB = Path(__file__).resolve().parents[3] / "apps/desktop/src-tauri/src/lib.rs"
@@ -30,3 +32,11 @@ def test_the_shell_passes_only_arguments_the_backend_accepts():
     parsed = parser().parse_args(filled)
     assert parsed.command == "serve"
     assert {"--migrate-from", "--simulation"} <= set(args)
+
+
+def test_simulation_clock_advances_for_delayed_helper_jobs(monkeypatch):
+    ticks = iter((50.0, 50.0, 51.25))
+    monkeypatch.setattr(cli, "monotonic", lambda: next(ticks))
+    clock = cli.simulation_clock()
+    start = clock()
+    assert clock() - start == timedelta(seconds=1.25)

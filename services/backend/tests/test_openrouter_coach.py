@@ -165,11 +165,17 @@ def test_model_and_provider_settings_are_secure_and_do_not_erase_other_provider_
 
 def test_a_simulated_workspace_never_constructs_a_paid_coach(workspace, app):
     from app import live_help
+    from app.providers.simulated import SimulatedCoach
 
     client, headers = workspace["client"], workspace["headers"]
     p = {"tenant_id": workspace["tenant_id"]}
     service = app.state.service
-    assert live_help.provider(service, p) is None  # No key: no helper.
-    client.put("/v1/admin/settings", headers=headers, json={"openrouter_api_key": "test-only-never-use"})
     assert service.settings.simulation
-    assert type(live_help.provider(service, p)).__name__ == "SimulatedCoach"
+    assert isinstance(live_help.provider(service, p), SimulatedCoach)
+    settings = "/v1/admin/settings"
+    assert client.put(
+        settings, headers=headers, json={"openrouter_api_key": "test-only-never-use"}
+    ).is_success
+    assert isinstance(live_help.provider(service, p), SimulatedCoach)
+    assert client.put(settings, headers=headers, json={"coach_provider": "static"}).is_success
+    assert live_help.provider(service, p) is None

@@ -9,12 +9,13 @@ import logging
 from datetime import timedelta
 
 import httpx
+from sqlalchemy import select
 
 from app import ops
 from app.calling.state import TERMINAL
 from app.helper import live
 from app.platform.config import PROVIDER_DEFAULTS
-from app.platform.db import MODELS, doc, emit, uid
+from app.platform.db import MODELS, Job, doc, emit, uid
 from app.providers.inference import InferenceResult
 
 log = logging.getLogger(__name__)
@@ -23,12 +24,14 @@ log = logging.getLogger(__name__)
 def provider(service, p):
     """The coach model, or None without an OpenRouter key. Simulation answers with a fixed local model."""
     conf = service.configs.read(p["tenant_id"])
-    if not conf.get("openrouter_api_key") or conf.get("coach_provider") == "static":
+    if conf.get("coach_provider") == "static":
         return None
     if service.settings.simulation:
         from app.providers.simulated import SimulatedCoach
 
         return SimulatedCoach()
+    if not conf.get("openrouter_api_key"):
+        return None
     from app.providers.openrouter import OpenRouterCoach
 
     return OpenRouterCoach(
@@ -39,7 +42,7 @@ def provider(service, p):
 
 
 def queue(service, s, p, call, transcript_version, delay_ms=live.DEBOUNCE_MS):
-    """Coalesce final prospect segments and pin the selection to the speech that triggered it."""
+    """Coalesce finalized prospect speech into the next scheduled selection."""
     service.jobs.coalesce_live_in(
         s,
         "live_coach",
@@ -130,40 +133,28 @@ def request_in(service, s, p, call, question):
     }
 
 
-def _same_turn(call, transcript_version):
-    return transcript_version is None or transcript_version == call.data["transcript_version"]
-
-
-def _prepare(service, p, call_id, question, transcript_version):
+def _prepare(service, p, call_id, question, *, automatic):
     with service.db.transaction(False) as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         if not _live(service, s, p, call):
             return None, "ended"
-        if (status := _automatic_skip(call, transcript_version)) is not None:
-            return None, status
-        request = request_in(service, s, p, call, question)
-        dialogue = request["dialogue"]
-        if transcript_version is not None and (not dialogue or dialogue[-1]["side"] != "remote"):
-            return None, "quiet"
-        return request, None
+        if automatic and _muted(call):
+            return None, "muted"
+        return request_in(service, s, p, call, question), None
 
 
-def _automatic_skip(call, transcript_version):
-    if not _same_turn(call, transcript_version):
-        return "quiet"
-    if transcript_version is not None and call.data.get("coach_preferences", {}).get("muted"):
-        return "muted"
-    return None
+def _muted(call):
+    return call.data.get("coach_preferences", {}).get("muted", False)
 
 
-def _publish(service, p, call_id, tip, transcript_version):
+def _publish(service, p, call_id, tip, *, automatic):
     """Show a completed selection and tell the Dialer to re-read the call."""
     with service.db.transaction() as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         if not _live(service, s, p, call):
             return "ended"
-        if (status := _automatic_skip(call, transcript_version)) is not None:
-            return status
+        if automatic and _muted(call):
+            return "muted"
         service.tips.show(call_id, tip)
         emit(s, p["tenant_id"], "coach.card_ready", call, service.clock())
         return "shown"
@@ -172,7 +163,10 @@ def _publish(service, p, call_id, tip, transcript_version):
 def _requeue(service, p, call_id, transcript_version):
     with service.db.transaction() as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
-        if _same_turn(call, transcript_version) and _live(service, s, p, call):
+        job = s.scalar(select(Job).where(Job.tenant_id == p["tenant_id"], Job.key == f"coach:{call_id}"))
+        # When private help is in flight, preserve any prospect turn already queued behind it.
+        newest = job is not None and job.payload.get("transcript_version") == transcript_version
+        if newest and _live(service, s, p, call) and not _muted(call):
             queue(service, s, p, call, transcript_version, live.BUSY_RETRY_MS)
 
 
@@ -184,7 +178,7 @@ async def turn(service, p, call_id, question=None, request_id=None, *, transcrip
     if not private and service.tips.busy(call_id):
         await asyncio.to_thread(_requeue, service, p, call_id, transcript_version)
         return {**result, "status": "busy"}
-    request, skipped = await asyncio.to_thread(_prepare, service, p, call_id, question, transcript_version)
+    request, skipped = await asyncio.to_thread(_prepare, service, p, call_id, question, automatic=not private)
     if request is None:
         return {**result, "status": skipped}
     if not private and live.screener(request["dialogue"]):
@@ -194,7 +188,7 @@ async def turn(service, p, call_id, question=None, request_id=None, *, transcrip
         tip = live.card(
             identity, screening or live.SCREENER_TIP, private=False, now=service.clock(), part=part
         )
-        status = await asyncio.to_thread(_publish, service, p, call_id, tip, transcript_version)
+        status = await asyncio.to_thread(_publish, service, p, call_id, tip, automatic=not private)
         return {**result, "status": status}
     parts = live.script_parts(request.get("script"), spoken_only=True)
     if not parts:
@@ -236,7 +230,7 @@ async def turn(service, p, call_id, question=None, request_id=None, *, transcrip
     if part is None:
         return {**result, "status": "quiet"}
     tip = live.card(identity, part["text"], private=private, now=service.clock(), part=part)
-    status = await asyncio.to_thread(_publish, service, p, call_id, tip, transcript_version)
+    status = await asyncio.to_thread(_publish, service, p, call_id, tip, automatic=not private)
     return {**result, "status": status}
 
 

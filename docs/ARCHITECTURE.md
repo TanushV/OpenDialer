@@ -77,8 +77,9 @@ hiding a defect.
   OpenRouter's no-retention route takes over when it is unavailable. Each lead gets a trigger ("why now"), checked
   against the page it came from.
 - **Live helper** (`helper/live.py`, wired in `live_help.py`) sends numbered spoken responses from the call's script.
-  It uses the latest transcript, or a private request via F1 or a typed question, to pick one response. The app checks
-  the completed selection and displays the prepared wording verbatim. The helper skips a turn when no response fits.
+  Finalized prospect speech queues a selection after a one-second pause. Rep speech can add context while a selection
+  is pending. The rep can also ask for a line via F1 or a typed question. The app checks the model's selection and shows
+  the prepared wording verbatim while the call is active. The model can leave the helper quiet when no response fits.
   One streamed request per turn runs on OpenRouter through Cerebras with no retention. A tip lasts 30 seconds in
   memory (a private selection lasts 5 minutes). Phone screening uses the prepared Screening line without a model request.
 - **After the call** (`aftercall/summary.py`): one request over the whole transcript returns a summary, a suggested

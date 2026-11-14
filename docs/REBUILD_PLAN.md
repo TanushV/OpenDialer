@@ -2066,3 +2066,6 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 13, 2026: 2.1.8 uses Markdown order, follows the rep's speech in the Dialer, and exports call statistics by the
   frozen script structure (D36). Simulated transcripts exercise tangents, manual scrolling, returns to earlier sections
   and a custom section renamed between calls.
+- November 13, 2026: later transcript updates no longer discard a pending helper selection. Finalized prospect speech
+  still queues the helper after a one-second pause. Hangup, mute and opt-outs stop automatic tips. The desktop simulation
+  now runs delayed helper jobs on an advancing clock and uses a local selector without a provider key.
