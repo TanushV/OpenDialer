@@ -67,12 +67,15 @@ function StatusBar({
   loop: Loop;
   onNavigate?: (page: string) => void;
 }) {
-  const { phase, packet, act, testPhone } = loop;
+  const { phase, packet, act, testPhone, testList, testError } = loop;
   const lead = packet?.lead;
   const identity = lead?.company
     ? `${lead.name} · ${lead.company}`
     : lead?.name;
   const paused = phase.kind === "paused";
+  const test = testPhone || testList;
+  const target =
+    phase.kind === "finished" ? FIX_PAGE[phase.fix ?? ""] : undefined;
   return (
     <header className="status-bar">
       <div
@@ -82,14 +85,27 @@ function StatusBar({
         aria-label="Call status"
       >
         <strong>
-          {paused && testPhone && !phase.blocker
-            ? "Test call"
+          {paused && test && !phase.blocker
+            ? testError || (testList ? "Test list" : "Test call")
             : headline(phase)}
         </strong>
-        {identity && !paused && (
+        {paused && !test && !phase.blocker && (
+          <Readiness onNavigate={onNavigate} />
+        )}
+        {identity && !paused && phase.kind !== "finished" && (
           <span className="muted status-lead" title={identity}>
             {identity}
           </span>
+        )}
+        {phase.kind === "finished" && (
+          <div className="muted">
+            {phase.nextAction}
+            {target && onNavigate && (
+              <Button variant="text" onClick={() => onNavigate(target)}>
+                Open {target}
+              </Button>
+            )}
+          </div>
         )}
         {paused && phase.blocker && phase.blocker.fix !== "dialer" && (
           <span className="muted">
@@ -109,7 +125,7 @@ function StatusBar({
         <span className="muted">Calling stops after this call</span>
       ) : paused ? (
         <>
-          {testPhone && (
+          {test && (
             <Button variant="text" onClick={() => void act.endTest()}>
               End test session
             </Button>
@@ -120,7 +136,11 @@ function StatusBar({
             disabled={!!phase.blocker}
             onClick={() => void act.start()}
           >
-            {testPhone ? "Call test phone" : "Start calling"}
+            {testList
+              ? "Run test list"
+              : testPhone
+                ? "Call test phone"
+                : "Start calling"}
           </Button>
         </>
       ) : (
@@ -134,8 +154,9 @@ function StatusBar({
 
 function Body({ loop }: { loop: Loop }) {
   const { snapshot: w } = useWorkspace();
-  const { phase, packet, call, telephony, testPhone, testError } = loop;
+  const { phase, packet, call, telephony, testPhone, testList } = loop;
   const between = phase.kind === "paused" || phase.kind === "finished";
+  const testing = testList || testPhone;
   return (
     <>
       {loop.inbound && (
@@ -175,17 +196,28 @@ function Body({ loop }: { loop: Loop }) {
       {phase.kind === "paused" && (
         <>
           <AudioCheck telephony={telephony.current} />
-          {testPhone ? (
+          {testList ? (
+            <section className="card padded" aria-label="Test destinations">
+              <p>
+                Run test list dials these phones once each. You can test at any
+                hour.
+              </p>
+              <ul>
+                {testList.phones.map((phone) => (
+                  <li key={phone}>{phone}</li>
+                ))}
+              </ul>
+            </section>
+          ) : testPhone ? (
             <p className="muted">
               This test calls {testPhone}. You can test at any hour.
             </p>
           ) : (
             <ListChoice listsKey={loop.listsKey} />
           )}
-          {testPhone && testError && <p role="alert">{testError}</p>}
         </>
       )}
-      {between && !testPhone && <DueTasks />}
+      {between && !testing && <DueTasks />}
       {(phase.kind === "talking" || phase.kind === "voicemail_final") &&
         call && <LiveCoach call={call} onChange={loop.act.reload} />}
       {loop.editing && call && (
@@ -239,19 +271,7 @@ function Body({ loop }: { loop: Loop }) {
             <ScriptReader script={packet.script} />
           </section>
         </div>
-      ) : (
-        between &&
-        !testPhone && (
-          <p className="muted empty-lead">
-            {phase.kind === "finished" ? (
-              (phase.reason ??
-              "Everyone eligible has been called for now. New leads and callbacks start by themselves.")
-            ) : (
-              <Readiness />
-            )}
-          </p>
-        )
-      )}
+      ) : null}
       {import.meta.env.DEV && w.simulation && call && isActiveCall(call) && (
         <SimulationTools callId={call.id} />
       )}
@@ -624,10 +644,12 @@ interface ReadinessCheck {
   blockers: { code: string }[];
   callable_now: number;
   why_none: string | null;
+  fix?: string;
+  next_action?: string;
 }
 
 /** R9E.5: while paused, what Start would do, checked every minute so a problem shows before Start. */
-function Readiness() {
+function Readiness({ onNavigate }: { onNavigate?: (page: string) => void }) {
   const { api } = useWorkspace();
   const [check, setCheck] = useState<ReadinessCheck | null>(null);
   useEffect(() => {
@@ -643,18 +665,19 @@ function Readiness() {
       window.clearInterval(timer);
     };
   }, [api]);
-  if (!check || check.blockers.length)
-    return (
-      <>
-        Press Start calling. Each lead and its script appear here as the call
-        starts.
-      </>
-    );
+  if (!check || check.blockers.length) return null;
+  const target = FIX_PAGE[check.fix ?? ""];
   return (
-    <span data-testid="readiness">
+    <div className="muted" data-testid="readiness">
       {check.callable_now
-        ? `Ready: ${check.callable_now} ${check.callable_now === 1 ? "lead" : "leads"} can be called now. Press Start calling.`
+        ? `${check.callable_now} ${check.callable_now === 1 ? "lead" : "leads"} can be called now.`
         : check.why_none}
-    </span>
+      {check.next_action && <div>{check.next_action}</div>}
+      {target && onNavigate && (
+        <Button variant="text" onClick={() => onNavigate(target)}>
+          Open {target}
+        </Button>
+      )}
+    </div>
   );
 }

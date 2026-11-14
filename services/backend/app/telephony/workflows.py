@@ -208,7 +208,15 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
                     ops._keep_callback_promise(service, s, p, call, lead)
             if event_type == "call.answered" and call.data["state"] not in TERMINAL | {"ENDING"}:
                 decision = authorize(
-                    ops.context(service, s, p, lead, number, permission="transcription", active=True)
+                    ops.context(
+                        service,
+                        s,
+                        {**p, **(call.data.get("dial_scope") or {})},
+                        lead,
+                        number,
+                        permission="transcription",
+                        active=True,
+                    )
                 )
                 if decision.allowed:
                     ops.start_transcription_in(service, s, p, call)
@@ -372,7 +380,15 @@ def _claim_control(service, p, command_id):
             if (
                 call.data["state"] in TERMINAL
                 or not authorize(
-                    ops.context(service, s, p, lead, number, permission=permission, active=True)
+                    ops.context(
+                        service,
+                        s,
+                        {**p, **(call.data.get("dial_scope") or {})},
+                        lead,
+                        number,
+                        permission=permission,
+                        active=True,
+                    )
                 ).allowed
             ):
                 update(current, status="cancelled")

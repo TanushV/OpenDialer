@@ -37,7 +37,14 @@ export interface ScreenInput {
   blockers: Blocker[];
   call: ScreenCall | null;
   /** The queue has no one to call now; the next eligible time when known. */
-  finished: { next_eligible_at: string | null; reason?: string } | null;
+  finished: QueueStatus | null;
+}
+
+export interface QueueStatus {
+  next_eligible_at: string | null;
+  reason?: string;
+  fix?: string;
+  nextAction?: string;
 }
 
 export type Phase =
@@ -56,7 +63,7 @@ export type Phase =
     }
   | { kind: "saved"; outcome: string; countdown_ms: number }
   | { kind: "skipped"; outcome: string; countdown_ms: number }
-  | { kind: "finished"; next_eligible_at: string | null; reason?: string };
+  | ({ kind: "finished" } & QueueStatus);
 
 export type PhaseKind = Phase["kind"];
 
@@ -123,6 +130,7 @@ export function screen(input: ScreenInput): Phase {
   // Pausing or a blocker stops the loop before any countdown runs.
   if (!input.calling || input.blockers.length)
     return { kind: "paused", blocker: input.blockers[0] ?? null };
+  if (input.finished) return { kind: "finished", ...input.finished };
   if (call?.outcome) {
     // No answer, busy, a skipped mailbox or a carrier failure: nobody to talk about, so a shorter wait.
     const skipped = CARRIER_OUTCOMES.has(call.outcome);
@@ -138,12 +146,6 @@ export function screen(input: ScreenInput): Phase {
           countdown_ms: SAVED_COUNTDOWN_MS,
         };
   }
-  if (input.finished)
-    return {
-      kind: "finished",
-      next_eligible_at: input.finished.next_eligible_at,
-      reason: input.finished.reason,
-    };
   return { kind: "dialing", ringing: false };
 }
 
@@ -205,7 +207,7 @@ export function keys(phase: Phase): Record<string, Action> {
     case "skipped":
       return { Space: "dial_now", KeyP: "pause" };
     case "finished":
-      return {};
+      return { KeyP: "pause" };
     default:
       return unreachable(phase);
   }
@@ -241,7 +243,7 @@ export function headline(phase: Phase): string {
     case "skipped":
       return "Skipped. Next call in a moment";
     case "finished":
-      return "No one left to call right now";
+      return phase.reason || "No one left to call right now";
     default:
       return unreachable(phase);
   }

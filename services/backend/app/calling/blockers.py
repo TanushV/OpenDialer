@@ -81,7 +81,7 @@ CATALOG = {
         "dialer",
     ),
     "TEST_SESSION_TEST_LINE_ONLY": (
-        "A test session dials only your own test line. Turn test sessions off in Settings to call leads.",
+        "A test session dials only its saved test phones. End the test session in the Dialer to call leads.",
         "settings",
     ),
     "TELNYX_CALL_LIMIT_REACHED": (
@@ -125,7 +125,7 @@ EXITS = {
     ),
     "CALLER_NUMBER_PAUSED": Exit(control="Numbers: Resume outbound, or ask the pool operator to resume it"),
     "PENDING_LOCAL_OPTOUTS": Exit(by_itself_within=60),
-    "TEST_SESSION_TEST_LINE_ONLY": Exit(control="Settings: End test session"),
+    "TEST_SESSION_TEST_LINE_ONLY": Exit(control="Dialer: End test session"),
     "TELNYX_CALL_LIMIT_REACHED": Exit(by_itself_within=60),
     "REP_AUDIO_NOT_READY": Exit(by_itself_within=30, control="Dialer: Check audio"),
 }

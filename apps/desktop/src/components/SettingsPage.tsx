@@ -29,6 +29,7 @@ import { useNewestAnswer } from "../state/newest";
 import { limits, options, useDefinitions } from "../state/definitions";
 import type { Policy } from "../types";
 import { SetupRows } from "../settings/SetupRows";
+import { TestListSettings } from "../settings/TestListSettings";
 
 type BudgetData = {
   per_list_usd: number;
@@ -106,6 +107,7 @@ function AdminSettings({ onNavigate }: { onNavigate: (view: View) => void }) {
           hours: <CallingWindow />,
         }}
       />
+      <TestListSettings onNavigate={onNavigate} />
       {!settings.data && (
         <section className="card padded">
           <p role="status">

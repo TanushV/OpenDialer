@@ -71,6 +71,47 @@ function countStarts(page: Page) {
   return seen;
 }
 
+test("the Dialer shows the queue's exact blocker and next action in the status bar", async ({
+  page,
+}) => {
+  await page.route("**/v1/calling/readiness", (route) =>
+    route.fulfill({
+      json: {
+        blockers: [],
+        callable_now: 0,
+        why_none: "HubSpot leads are waiting for do-not-call screening.",
+        fix: "settings",
+      },
+    }),
+  );
+  await enter(page);
+  const status = callStatus(page);
+  await expect(status).toContainText(
+    "HubSpot leads are waiting for do-not-call screening.",
+  );
+  await expect(
+    status.getByRole("button", { name: "Open Settings" }),
+  ).toBeVisible();
+  await page.route("**/v1/queue/next", (route) =>
+    route.fulfill({
+      status: 409,
+      json: {
+        detail: {
+          code: "NO_ELIGIBLE_LEADS",
+          message: "The shared caller ID reached its outbound limit.",
+          fix: "numbers",
+        },
+      },
+    }),
+  );
+  await startCalling(page).click();
+  await expect(status).toContainText(
+    "The shared caller ID reached its outbound limit.",
+  );
+  await status.getByRole("button", { name: "Open Numbers" }).click();
+  await expect(page.locator(".breadcrumb strong")).toHaveText("Numbers");
+});
+
 test("at 1024x720 the helper, script opener, hang-up and opt-out stay visible and focus survives a live update", async ({
   page,
 }) => {

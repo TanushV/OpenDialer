@@ -316,6 +316,7 @@ HOMES = {
     "sync_numbers": "app.number_operations",
     "test_candidate": "app.service",
     "test_lines": "app.service",
+    "test_list_run": "app.test_list",
     "test_phone": "app.service",
     "testing_proposal": "app.optimization.script_lab",
     "transcript": "app.privacy",
@@ -359,4 +360,5 @@ def _bundle():  # pragma: no cover
     import app.telephony.recovery  # noqa: F401
     import app.telephony.recovery_actions  # noqa: F401
     import app.telephony.workflows  # noqa: F401
+    import app.test_list  # noqa: F401
     import app.workspace  # noqa: F401

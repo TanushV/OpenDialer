@@ -7,6 +7,8 @@ export class ApiError extends Error {
     public readonly status: number,
     /** The authority's stable refusal code, when it sent one. */
     public readonly code?: string,
+    public readonly fix?: string,
+    public readonly nextAction?: string,
   ) {
     super(message);
   }
@@ -20,7 +22,13 @@ const ACTIONABLE: Record<string, string> = {
   TELEPHONY_CREDENTIAL_MISCONFIGURED:
     "Telnyx credential needs SIP URI calling set to internal, see Settings.",
 };
-type Detail = { code: string; message?: string; reasons?: string[] };
+type Detail = {
+  code: string;
+  message?: string;
+  reasons?: string[];
+  fix?: string;
+  next_action?: string;
+};
 function refusal(detail: unknown, status: number) {
   if (typeof detail === "string")
     return new ApiError(ACTIONABLE[detail] ?? detail, status);
@@ -34,11 +42,13 @@ function refusal(detail: unknown, status: number) {
     if (fields.length) return new ApiError(fields.join("; "), status);
   }
   if (detail && typeof detail === "object" && !Array.isArray(detail)) {
-    const { code, message, reasons } = detail as Detail;
+    const { code, message, reasons, fix, next_action } = detail as Detail;
     return new ApiError(
       ACTIONABLE[code] ?? message ?? `${code}: ${reasons?.join(", ") ?? ""}`,
       status,
       code,
+      fix,
+      next_action,
     );
   }
   return new ApiError(`Request failed (${status})`, status);

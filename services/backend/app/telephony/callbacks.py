@@ -378,6 +378,41 @@ def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, rec
                 previous = None
         else:
             previous = None
+        if lead is None and len(leads) > 1:
+            # A test-list copy can share an endpoint with an outreach contact. Prefer the
+            # actual last call on this caller ID; keep arbitrary duplicate contacts unresolved.
+            calls = MODELS["call_attempts"]
+            matched = s.scalar(
+                select(calls)
+                .where(
+                    calls.tenant_id == tenant_id,
+                    calls.seller_id == number.seller_id,
+                    calls.op_endpoint_id == endpoints[0].id,
+                    calls.op_number_id == number.id,
+                    calls.op_provider_id.is_not(None),
+                )
+                .order_by(calls.created_at.desc(), calls.id.desc())
+                .limit(1)
+            )
+            if matched and matched.data.get("dial_scope", {}).get("test_run_id"):
+                candidate = get(s, "leads", matched.data["lead_id"], tenant_id)
+                if candidate and candidate.seller_id == number.seller_id:
+                    lead, previous = candidate, matched
+            elif any(row.data.get("test_list_contact") for row in leads):
+                ordinary = list(
+                    s.scalars(
+                        select(model)
+                        .where(
+                            model.tenant_id == tenant_id,
+                            model.seller_id == p["seller_id"],
+                            model.op_endpoint_id == endpoints[0].id,
+                            model.data["test_list_contact"].as_boolean().is_not(True),
+                        )
+                        .limit(2)
+                    )
+                )
+                if len(ordinary) == 1:
+                    lead = ordinary[0]
         previous = previous or (
             next(iter(ops.lead_records(service, s, p, "call_attempts", lead.id, limit=1, newest=True)), None)
             if lead
@@ -402,7 +437,7 @@ def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, rec
                 "called_phone": number.data["phone"],
                 "callback_phone": payload.get("from"),
                 "lead_id": lead.id if lead else None,
-                "ambiguous": len(leads) > 1,
+                "ambiguous": lead is None and len(leads) > 1,
                 "previous_call_id": previous.id if previous else None,
                 "responsible_rep_id": responsible,
                 "owner_id": responsible,

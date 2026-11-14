@@ -80,7 +80,10 @@ def company_key(lead):
 def preparation_permitted(service, s, p, lead):
     return (
         lead.data.get("status") in {"eligible", "preparing"}
-        and ops.list_permitted(service, s, p, lead)
+        and (
+            (lead.data.get("test_list_contact") and not lead.data.get("archived"))
+            or ops.list_permitted(service, s, p, lead)
+        )
         and not ops.suppressed(service, s, p, lead.data["phone"])
     )
 
@@ -570,6 +573,7 @@ def prepare_list(service, p, list_name=None, lead_ids=None):
             lead
             for lead in s.scalars(query)
             if list_name is None or lead_ids is not None or list_name in memberships(lead.data)
+            if not lead.data.get("test_list_contact") or not lead.data.get("archived")
         ]
         marked = ops.request_preparation_in(service, s, p, leads)
         update(ops.required(service, s, "sellers", p["seller_id"], p), preparation_user_id=p["user_id"])

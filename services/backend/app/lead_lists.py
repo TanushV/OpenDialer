@@ -55,6 +55,8 @@ def preparation_budget_scope(service, p, name):
 
 def list_permitted(service, s, p, lead):
     value = lead.data
+    if value.get("test_list_contact"):
+        return False
     if ops.own_test_line(service, p, lead):
         return True
     if value.get("archived") or value.get("dial_paused"):
@@ -123,12 +125,14 @@ def list_summary(service, p, list_names=None):
                 ),
             }
             for name in names
-            if name != TEST_LIST
+            if name != TEST_LIST and not catalog.get(name, {}).get("test_list")
         }
         outside = []
         policy = ops.required(service, s, "policy_versions", campaign.data["policy_id"], p).data
         for lead in leads:
             value = lead.data
+            if value.get("test_list_contact"):
+                continue
             due = timestamp(value.get("callback_due_at"))
             callback = bool(due and due <= service.clock())
             selected_p = {**p, "dial_lists": list_names}
@@ -147,7 +151,7 @@ def list_summary(service, p, list_names=None):
             allocation = select_number(doc(lead), inventory, bound_id=bindings.get(lead.id))
             number = numbers.get(allocation["number_id"])
             for name in memberships(value):
-                if name == TEST_LIST:
+                if name not in result:
                     continue
                 row = result[name]
                 row["total"] += 1
@@ -205,6 +209,8 @@ def manage_list(service, p, body):
         if not leads and name not in catalog:
             fail(404, "List not found")
         state = dict(catalog.get(name, {}))
+        if state.get("test_list"):
+            fail(409, "Use Settings to manage the test list.")
         if action == "rename":
             new = (body.get("name") or "").strip()
             if not new:
@@ -272,6 +278,8 @@ def bulk_leads(service, p, body):
             ops.required(service, s, "leads", identity, p, lock=True)
             for identity in dict.fromkeys(body["lead_ids"])
         ]
+        if action != "location" and any(lead.data.get("test_list_contact") for lead in leads):
+            fail(409, "Use Settings to manage the test list.")
         requested = len(leads)
         if action == "remove":
             name = body["list_name"].strip()
@@ -305,6 +313,8 @@ def bulk_leads(service, p, body):
                 )
                 if action != "remove":
                     campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p, lock=True)
+                    if campaign.data.get("lists", {}).get(name, {}).get("test_list"):
+                        fail(409, "Use Settings to manage the test list.")
                     update(campaign, lists={name: {}, **campaign.data.get("lists", {})})
             emit(s, p["tenant_id"], "lead.updated", lead, service.clock())
         audit(

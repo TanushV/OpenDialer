@@ -316,7 +316,7 @@ def suppressed(service, s, p, phone):
     return any(r.data["phone"] == phone and r.data.get("active", True) and r not in s.deleted for r in cache)
 
 
-def import_leads(service, p, body):
+def import_leads(service, p, body, *, session=None):
     from app.optimization.geography import AREA_STATES, normalize_state
     from app.preparation.workflows import company_key
 
@@ -332,13 +332,19 @@ def import_leads(service, p, body):
         fail(422, {"code": "COLUMN_MAP_INVALID", "errors": problems})
     result["column_map"] = column_map
     now = service.clock()
-    with service.db.transaction() as s:
+    test_list = bool(body.get("test_list"))
+    with service.db.transaction(session=session) as s:
         campaign = ops.required(service, s, "campaigns", body["campaign_id"], p)
         name = body.get("list_name", "").strip()
-        update(campaign, lists={name: {}, **campaign.data.get("lists", {})})
+        catalog = campaign.data.get("lists", {})
+        if not test_list and catalog.get(name, {}).get("test_list"):
+            fail(409, "Use Settings to edit the test list.")
+        update(campaign, lists={name: {"test_list": True} if test_list else {}, **catalog})
         endpoints = {r.data["phone"]: r for r in ops.scoped(service, s, "phone_endpoints", p)}
         existing = {
-            (r.data["campaign_id"], r.data["endpoint_id"]): r for r in ops.scoped(service, s, "leads", p)
+            (r.data["campaign_id"], r.data["endpoint_id"]): r
+            for r in ops.scoped(service, s, "leads", p)
+            if bool(r.data.get("test_list_contact")) == test_list
         }
         for index, raw in enumerate(body["rows"]):
             phone = normalize_phone(str(raw.get("phone", "")))
@@ -377,6 +383,18 @@ def import_leads(service, p, body):
                 )
                 names = list(dict.fromkeys([*memberships(duplicate.data), body.get("list_name", "").strip()]))
                 update(duplicate, list_names=names)
+                if test_list:
+                    fields = intake.read(raw, column_map)
+                    update(
+                        duplicate,
+                        **fields,
+                        archived=False,
+                        status="eligible",
+                        name=str(raw["name"])[:200],
+                        company=str(raw.get("company", ""))[:200],
+                        domain=str(raw.get("domain", ""))[:250].lower(),
+                        company_key=company_key(raw),
+                    )
                 emit(s, p["tenant_id"], "lead.updated", duplicate, service.clock())
                 result["leads"].append(doc(duplicate))
                 continue
@@ -427,13 +445,14 @@ def import_leads(service, p, body):
                     "requested_contact": bool(raw.get("requested_contact", False)),
                     "imported_at": now.isoformat(),
                     "synthetic": service.settings.simulation,
+                    **({"test_list_contact": True} if test_list else {}),
                     **csv_fields(),
                     "signals": fields["signals"],
                     "profile": fields["profile"],
                     "number_source": fields["number_source"],
                     "live_status": fields["live_status"],
                 },
-                key=body["campaign_id"] + ":" + endpoint.id,
+                key=("test-list:" if test_list else "") + body["campaign_id"] + ":" + endpoint.id,
                 now=now,
             )
             existing[(body["campaign_id"], endpoint.id)] = lead
@@ -534,21 +553,27 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         and service.clock() < until
         and lead.data.get("pair_rep_id") in {None, p["user_id"]}
     )
-    own_test_line = ops.own_test_line(service, p, lead)
+    from app import test_list
+
+    test_run = user.data.get("test_run")
+    own_test_line = (
+        test_list.permits(test_run, p, lead)
+        if p.get("test_run_id") or test_run or lead.data.get("test_list_contact")
+        else ops.own_test_line(service, p, lead)
+    )
     return CallContext(
         now=service.clock(),
         continuing_call=active,
         authorization_reconciled=not seller.data.get("restore_hold", False),
         outreach_hold=bool(
-            (
-                not own_test_line
-                and (
-                    lead.data.get("outreach_hold")
-                    or lead.data.get("conversion_goal_achieved")
-                    or p.get("test_only")
-                )
+            not own_test_line
+            and (
+                lead.data.get("outreach_hold")
+                or lead.data.get("conversion_goal_achieved")
+                or p.get("test_only")
+                or test_run
+                or not ops.list_permitted(service, s, p, lead)
             )
-            or not ops.list_permitted(service, s, p, lead)
         )
         and not active,
         callback_owner_matches=own_test_line
@@ -734,6 +759,7 @@ def test_candidate(service, s, p, phone, *, campaign_id=None):
         model.tenant_id == p["tenant_id"],
         model.seller_id == p["seller_id"],
         model.op_endpoint_id == endpoint.id,
+        model.data["test_list_contact"].as_boolean().is_not(True),
     ]
     if campaign_id is not None:
         scope += [model.op_campaign_id == campaign_id, in_list(model, TEST_LIST)]
@@ -751,6 +777,10 @@ def start_test_session(service, p):
     if not phone:
         fail(409, "Type your phone number in Test phone first")
     with service.db.transaction(False) as s:
+        from app import test_list
+
+        if test_list.test_list_run(service, s, p):
+            fail(409, "End the test list in the Dialer before starting a single test call.")
         campaign = next(iter(ops.scoped(service, s, "campaigns", p)), None)
         # R11.7: the owner's HubSpot test contact, when it has this number, is the one dialed, so its calls land there.
         existing = test_candidate(service, s, p, phone)

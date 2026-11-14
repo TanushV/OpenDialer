@@ -211,12 +211,14 @@ async def create(ctx, p, managed=None):
             managed.wake.set()
             refuse([blocked(managed.connection_code(workspace(p)) or "AUDIO_SETUP_MISSING")])
     state = json.dumps({"agent_leg_id": leg_id, SCOPE_KEY: workspace(p)})
+    with ctx.db.transaction(False) as s:
+        testing = ops.in_test_session(ctx, p) or ops.test_list_run(ctx, s, p)
     try:
         receipt = await carrier.dial(
             {
                 "to": target,
                 "from": phone,
-                **({} if ops.in_test_session(ctx, p) else {"time_limit_secs": ctx.settings.max_call_seconds}),
+                **({} if testing else {"time_limit_secs": ctx.settings.max_call_seconds}),
                 "command_id": leg_id,
                 "client_state": base64.b64encode(state.encode()).decode(),
             }

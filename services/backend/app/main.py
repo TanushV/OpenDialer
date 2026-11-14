@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
-from app import ops
+from app import ops, test_list
 from app.calling import audio_leg, detection, pool_queue, timeline
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.lead_lists import TEST_LIST, memberships
@@ -96,6 +96,11 @@ class QueueNext(Strict):
     list_names: list[str] | None = Field(default=None, max_length=200)
     callback_lead_id: str | None = None
     test_only: bool = False
+    test_run_id: str | None = Field(default=None, max_length=36)
+
+
+class TestListUpload(Strict):
+    rows: list[dict] = Field(max_length=test_list.MAX_CONTACTS)
 
 
 class ListEdit(Strict):
@@ -572,6 +577,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/queue/next")
     async def next_lead(data: QueueNext, p=Depends(principal)):
+        run = await asyncio.to_thread(
+            test_list.scope_for_queue, service, p, data.campaign_id, data.test_run_id
+        )
+        if run:
+            return await pool_queue.reserve(
+                service,
+                {**p, "test_only": True, "test_run_id": run["id"]},
+                data.campaign_id,
+                [test_list.NAME],
+                None,
+            )
         if ops.in_test_session(service, p):
             # A test session offers only the Test line list; dialing refuses any other number too.
             return await pool_queue.reserve(
@@ -631,9 +647,31 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return ops.start_test_session(service, p)
 
     @app.delete("/v1/settings/test-call")
-    def end_test_call(p=Depends(administrator)):
-        ops.end_test_session(service, p)
+    async def end_test_call(p=Depends(administrator)):
+        def end():
+            with db.transaction() as s:
+                db.authorize_stream(s, p)
+                user = ops.required(service, s, "users", p["user_id"], p, lock=True)
+                if user.data.get("test_run"):
+                    test_list.close(service, s, p, user)
+                    return ops.release_unused_reservation_in(service, s, p)
+            ops.end_test_session(service, p)
+
+        if released := await asyncio.to_thread(end):
+            await pool.cancel(service.managed, released)
         return {"test_session": False}
+
+    @app.get("/v1/settings/test-list")
+    def settings_test_list(p=Depends(administrator)):
+        return test_list.view(service, p)
+
+    @app.put("/v1/settings/test-list")
+    def replace_test_list(data: TestListUpload, p=Depends(administrator)):
+        return test_list.replace(service, p, data.rows)
+
+    @app.post("/v1/settings/test-list/start")
+    def start_test_list(p=Depends(administrator)):
+        return test_list.start(service, p)
 
     @app.get("/v1/calling/voicemail-report")
     def voicemail_report(p=Depends(principal)):

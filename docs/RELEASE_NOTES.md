@@ -1,3 +1,10 @@
+# OpenDialer 2.1.6
+
+- **Run a multi-number test list.** Save a CSV in Settings, optionally generate personalized scripts for it in Leads, then run it in the Dialer. The Dialer works through each test phone once per run at any hour and pauses when the list is finished.
+- **See why calling is waiting.** The main Dialer status shows the queue's reason and the next step for issues such as calling hours, screening and caller-ID availability.
+
+Updating from 1.0.x through 2.1.5 keeps your workspace. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.1.5
 
 - **Check GitHub for signed updates.** Settings shows the installed desktop version, the result of the update check, and a link to the latest downloads for Mac, Windows and Ubuntu.

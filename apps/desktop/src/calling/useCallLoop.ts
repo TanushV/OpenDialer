@@ -18,6 +18,7 @@ import {
   type Blocker,
   type Intent,
   type Phase,
+  type QueueStatus,
 } from "./screen";
 
 /** One key saves an outcome (R5.7). `wrong_party` stops dialing that number. */
@@ -61,7 +62,9 @@ export function useCallLoop(visible: boolean) {
   // server saw them must not swap Pause for "Calling stops" and back (a click in between was lost).
   const [started, setStarted] = useState<boolean | null>(null);
   const testPhone = w.test_phone ?? null;
-  const testRun = useRef(false);
+  const testList = w.test_run ?? null;
+  const testRun = useRef(Boolean(testPhone || testList));
+  const testRunId = useRef<string | null>(testList?.id ?? null);
   const calling = (started ?? w.user.presence.status === "ready") && !held;
   const callingRef = useRef(calling);
   callingRef.current = calling;
@@ -71,10 +74,7 @@ export function useCallLoop(visible: boolean) {
   callRef.current = call;
   const [packet, setPacket] = useState<Packet | null>(null);
   const [blockers, setBlockers] = useState<Blocker[]>([]);
-  const [finished, setFinished] = useState<{
-    next_eligible_at: string | null;
-    reason?: string;
-  } | null>(null);
+  const [finished, setFinished] = useState<QueueStatus | null>(null);
   const [muted, setMuted] = useState(false);
   const [editing, setEditing] = useState(false);
   // A saved callback whose time a person already handled names the task to review.
@@ -464,14 +464,27 @@ export function useCallLoop(visible: boolean) {
               campaign_id: w.campaign.id,
               list_names: testRun.current ? null : dialLists(),
               test_only: testRun.current,
+              test_run_id: testRunId.current,
             }),
           { onWaiting: () => {} },
         );
       } catch (error) {
+        if (error instanceof ApiError && error.code === "TEST_LIST_COMPLETE") {
+          await pauseCalling();
+          testRunId.current = null;
+          testRun.current = false;
+          notice(error.message);
+          return;
+        }
         if (error instanceof ApiError && error.code === "NO_ELIGIBLE_LEADS") {
           if (testRun.current) throw error;
           // The queue says why nobody can be called; the Dialer shows that, not a generic line.
-          setFinished({ next_eligible_at: null, reason: error.message });
+          setFinished({
+            next_eligible_at: null,
+            reason: error.message,
+            fix: error.fix,
+            nextAction: error.nextAction,
+          });
           return;
         }
         throw error;
@@ -510,7 +523,8 @@ export function useCallLoop(visible: boolean) {
     await syncOptouts();
     if (journal.current.blocksCalling)
       throw new Error("Sync the pending opt-out before calling.");
-    testRun.current = Boolean(testPhone);
+    testRunId.current = testList?.id ?? null;
+    testRun.current = Boolean(testPhone || testList);
     pausing.current = false;
     setHeld(false);
     setFinished(null);
@@ -568,6 +582,7 @@ export function useCallLoop(visible: boolean) {
     await api("/v1/settings/test-call", "DELETE");
     setTestError("");
     testRun.current = false;
+    testRunId.current = null;
     await refresh();
   }
   async function hangup() {
@@ -719,6 +734,10 @@ export function useCallLoop(visible: boolean) {
       await nextCall();
     } catch (error) {
       await pauseCalling().catch(() => {});
+      if (testRun.current) {
+        setTestError(error instanceof Error ? error.message : String(error));
+        return;
+      }
       throw error;
     }
   }
@@ -731,7 +750,10 @@ export function useCallLoop(visible: boolean) {
       return;
     }
     if ((phase.kind === "saved" || phase.kind === "skipped") && !editing) {
-      if (call?.is_test || testRun.current) {
+      if (
+        (call?.is_test || testRun.current) &&
+        !call?.dial_scope?.test_run_id
+      ) {
         // A test call is one call: stop here rather than count down to a prospect (live check, November 10).
         void run(async () => {
           await pauseCalling();
@@ -793,6 +815,7 @@ export function useCallLoop(visible: boolean) {
     inbound,
     returnProvider,
     testPhone,
+    testList,
     testError,
     listsKey,
     stopping,

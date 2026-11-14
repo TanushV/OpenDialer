@@ -105,4 +105,8 @@ async def reserve(service, p, campaign_id, names, callback):
         "capacity": "The shared caller number is paused or at its outbound limit. Check Numbers or call later.",
         "unavailable": "The shared number pool could not be reached. Try again when call events reconnect.",
     }.get(result.reason, "The shared caller number reservation expired. Start calling again.")
-    require(Situation(queue="none"), {"code": "NO_ELIGIBLE_LEADS", "message": message})
+    fix = {"capacity": "numbers", "unavailable": "settings"}.get(result.reason)
+    require(
+        Situation(queue="none"),
+        {"code": "NO_ELIGIBLE_LEADS", "message": message, **({"fix": fix} if fix else {})},
+    )

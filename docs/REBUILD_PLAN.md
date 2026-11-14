@@ -65,6 +65,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D32 | No voicemail feature: the skip at detection stays; the rep speaks into a voicemail by pressing Stay or on the last attempt. No recorded drop. | Owner, November 10 ("we just let the rep speak into the voicemail normally"; "keep skip") |
 | D33 | In 2.1, reps share one Telnyx Call Control application, one SIP connection and a number pool. Each rep has a private computer profile, a WebRTC audio credential and one HubSpot segment. Each prospect keeps the same caller ID, and return calls ring the computer that placed the last confirmed call from the dialed number. The rolling 24-hour limit is at most 90 outbound attempts per number. Inbound callbacks use no outbound capacity. | Owner, November 11. Phase 12 specifies the rollout. |
 | D34 | The rep starts personalized scripts for a chosen list in Leads. Importing contacts and saving the base script leave new generation idle. HubSpot number checks still run after sync. | Owner, November 13 |
+| D35 | Settings saves one repeatable list of approved test phones per workspace. The rep starts the list explicitly from the Dialer, which pauses at the end. Test calls use the normal audio, script and caller ID flow without prospect calling hours, retry spacing or the app's call timer. | Owner, November 13 |
 | D26 | Withdrawn by D27. One shared number pool. Any seat can call from any pool number. The relay picks the number for each call (local area code first, then least used today) and counts daily use across all seats, so the per-number cap holds for the team. Pool numbers sit on one shared incoming route, and a callback rings the seat that last called that prospect, or goes to voicemail and a task on that seat. | Owner decision, November 8; that a Call Control dial may present any number on the account is confirmed in L23 |
 
 Open owner inputs:
@@ -2055,3 +2056,6 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 13, 2026: test calls use a dedicated Dialer action for the saved test phone. Prospect hours, retry spacing,
   outreach holds, and stale CRM data do not gate it. The carrier's own call duration ceiling still applies. Either
   a carrier or rep outcome ends the test session and pauses calling. Removed the internal Call by date from Leads.
+- November 13, 2026: 2.1.6 adds the Settings test list (D35), manual script generation for it, and queue reasons and
+  next actions in the Dialer status. The test list has its own contacts and call history. Its dials retain caller-ID
+  availability and opt-out checks.

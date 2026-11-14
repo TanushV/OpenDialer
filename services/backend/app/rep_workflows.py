@@ -848,7 +848,8 @@ def save_disposition(service, p, call_id, data, *, source="rep_reported"):
                 },
             )
         endpoint = None
-        if outcome in NUMBER_STOPS:
+        test_run = bool(call.data.get("dial_scope", {}).get("test_run_id"))
+        if outcome in NUMBER_STOPS and (not test_run or outcome == "opt_out"):
             # Journal the denial before any wrap-up mutation or receipt can
             # commit. A rollback retains the journal and recovery hold.
             endpoint_id = call.data.get("endpoint_id") or lead.data["endpoint_id"]
@@ -876,9 +877,10 @@ def save_disposition(service, p, call_id, data, *, source="rep_reported"):
             ops._apply_outcome(service, s, p, call, lead, canonical, source, edit_version, endpoint=endpoint)
             tasks = ops.lead_records(service, s, p, "followup_tasks", lead.id)  # One scan serves the save.
             task, callback_review = ops._wrapup_callbacks(service, s, p, call, lead, canonical, source, tasks)
-            ops._wrapup_meeting(
-                service, s, p, call, lead, outcome, meeting, correcting_confirmed, correcting_meeting
-            )
+            if not test_run:
+                ops._wrapup_meeting(
+                    service, s, p, call, lead, outcome, meeting, correcting_confirmed, correcting_meeting
+                )
             ops._outcome_record(service, s, p, call, lead, canonical, source)
             if {outcome, previous_outcome} & GOAL_OUTCOMES or lead.data.get("status") == "converted":
                 # Only an outcome that can change goal completion is reconciled in the
@@ -892,12 +894,17 @@ def save_disposition(service, p, call_id, data, *, source="rep_reported"):
             from app import crm
 
             crm.on_outcome(service, s, p, call, lead, outcome)
+            if test_run:
+                from app import test_list
+
+                test_list.complete_call(service, s, p, call)
             emit(s, p["tenant_id"], "call.updated", call, service.clock())
         receipt = identity[2] or ops.local_edit_receipt(service, s, p, identity, call)
         result = ops._disposition_result(service, s, p, call, lead, receipt, task, callback_review, tasks)
     if (
         not correcting_confirmed
         and call.data.get("dial_scope", {}).get("test_only")
+        and not test_run
         and ops.in_test_session(service, p)
     ):
         # Carrier outcomes and rep outcomes both end the one-call session.

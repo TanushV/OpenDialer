@@ -8,9 +8,10 @@ from datetime import timedelta
 from sqlalchemy import and_, delete, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 
-from app import ops
+from app import ops, test_list
 from app.calling.decide import Situation, require
 from app.compliance.policy import authorize
+from app.lead_lists import TEST_LIST, active_membership, in_list
 from app.optimization.numbering import select_number, timestamp
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
 from app.scheduling.models import FEATURE_SCHEMA_VERSION, company_group
@@ -148,6 +149,7 @@ def _company_contacted(service, s, p, lead, claims, now):
         )
     else:
         siblings = [sibling for sibling in siblings if sibling.id != lead.id]
+    siblings = [sibling for sibling in siblings if not sibling.data.get("test_list_contact")]
     if not siblings:
         return False
     if {c.lead_id for c in claims} & {sibling.id for sibling in siblings}:
@@ -183,6 +185,7 @@ def _selection(service, s, p, campaign_id):
         tuple(p.get("dial_lists") or ()),
         p.get("callback_lead_id"),
         p.get("test_only", False),
+        p.get("test_run_id"),
     )
     after, reasons = cursors.pop(key, (None, frozenset()))
     reasons = set(reasons)
@@ -192,6 +195,8 @@ def _selection(service, s, p, campaign_id):
         if plan:
             return plan
         if complete:
+            if not reasons and not p.get("test_only") and _has_future_attempt(service, s, p, campaign_id):
+                reasons.add("NOT_DUE")
             require(Situation(queue="none"), ops.no_lead_detail(service, s, p, reasons))
         after = last
     cursors[key] = (after, frozenset(reasons))
@@ -200,6 +205,45 @@ def _selection(service, s, p, campaign_id):
     require(
         Situation(queue="scanning"),
         {"code": "QUEUE_SCAN_CONTINUES", "reasons": sorted(reasons), "retryable": True},
+    )
+
+
+def _has_future_attempt(service, s, p, campaign_id):
+    model = MODELS["leads"]
+    catalog = ops.required(service, s, "campaigns", campaign_id, p).data.get("lists", {})
+    paused = {name for name, values in catalog.items() if values.get("paused") or values.get("archived")}
+    names = p.get("dial_lists")
+    if pool := service.managed.pool:
+        allowed = {
+            name
+            for name, values in catalog.items()
+            if (values.get("crm") or {}).get("list_id") == pool.segment_id
+        }
+        names = allowed if names is None else set(names) & allowed
+    excluded = paused | {TEST_LIST}
+    membership = (
+        active_membership(model, excluded)
+        if names is None
+        else or_(False, *(in_list(model, name) for name in set(names) - excluded))
+    )
+    return (
+        s.scalar(
+            select(model.id)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_campaign_id == campaign_id,
+                model.op_status == "eligible",
+                model.op_due_at > service.clock(),
+                model.data["test_list_contact"].as_boolean().is_not(True),
+                model.data["archived"].as_boolean().is_not(True),
+                model.data["dial_paused"].as_boolean().is_not(True),
+                membership,
+                *([model.id == p["callback_lead_id"]] if p.get("callback_lead_id") else []),
+            )
+            .limit(1)
+        )
+        is not None
     )
 
 
@@ -226,6 +270,7 @@ def _due_leads(s, p, campaign_id, after, now):
                 model.tenant_id == p["tenant_id"],
                 model.seller_id == p["seller_id"],
                 model.op_campaign_id == campaign_id,
+                model.data["test_list_contact"].as_boolean().is_not(True),
                 model.op_status == "eligible",
                 or_(model.op_due_at <= now, model.op_due_at.is_(None)),
                 *page,
@@ -238,7 +283,10 @@ def _due_leads(s, p, campaign_id, after, now):
 
 def _selection_page(service, s, p, campaign_id, after):
     now = service.clock()
-    if p.get("test_only"):
+    if p.get("test_run_id"):
+        run = test_list.test_list_run(service, s, p)
+        leads = [row for row in test_list.contacts(s, p, campaign_id) if test_list.permits(run, p, row)]
+    elif p.get("test_only"):
         # Normal retry dates must not hide the explicitly staged test phone.
         lead = ops.test_candidate(service, s, p, ops.test_phone(service, p), campaign_id=campaign_id)
         leads = [lead] if lead else []
@@ -287,8 +335,10 @@ def _selection_page(service, s, p, campaign_id, after):
         if not ops._hold_in_flight(service, p, lead.id):
             denied.append("CANDIDATE_IN_FLIGHT")
             return False
-        if not ops.own_test_line(service, p, lead) and ops._company_contacted(
-            service, s, p, lead, claims, now
+        if (
+            not p.get("test_only")
+            and not ops.own_test_line(service, p, lead)
+            and ops._company_contacted(service, s, p, lead, claims, now)
         ):
             denied.append("COMPANY_CONTACTED_TODAY")
             ops._release_in_flight(service, p, [lead.id])
@@ -426,6 +476,7 @@ def _claim_in(service, s, p, campaign_id, plan):
                 "dial_lists": p.get("dial_lists"),
                 "callback_lead_id": p.get("callback_lead_id"),
                 **({"test_only": True} if p.get("test_only") else {}),
+                **({"test_run_id": p["test_run_id"]} if p.get("test_run_id") else {}),
             },
             "policy_id": campaign.data["policy_id"],
             "coaching_comparison": coach_comparison,

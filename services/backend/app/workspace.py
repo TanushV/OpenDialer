@@ -322,10 +322,12 @@ def snapshot(service, p):
             ops._label_leads(service, s, p, extra)
             present = {item["id"] for item in pages[section]["items"]}
             pages[section]["items"] += [item for item in extra if item["id"] not in present]
+        run = user.data.get("test_run")
         current = {
             "mode": "local",
             "simulation": service.settings.simulation,
             "test_phone": ops.test_phone(service, p) if ops.in_test_session(service, p) else None,
+            "test_run": {"id": run["id"], "phones": sorted(run["remaining"].values())} if run else None,
             "seller": doc(ops.required(service, s, "sellers", p["seller_id"], p)),
             "campaign": doc(campaign),
             "policy": {**doc(policy), "local_end_hour": min(17, policy.data.get("local_end_hour", 17))},

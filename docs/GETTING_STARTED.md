@@ -6,7 +6,7 @@ From install to your first call. Each step names the page and the button.
 
 Download the Mac `.dmg`, Windows `.exe`, or Linux `_amd64.deb` from the [latest release](https://github.com/TanushV/OpenDialer/releases/latest).
 The Linux package targets Ubuntu 24.04 LTS on 64-bit Intel or AMD. From the download folder, run
-`sudo apt install ./OpenDialer_2.1.5_amd64.deb` using the filename you downloaded, then open **OpenDialer** from the app menu.
+`sudo apt install ./OpenDialer_2.1.6_amd64.deb` using the filename you downloaded, then open **OpenDialer** from the app menu.
 On any platform, choose **Start a local workspace**. Your data stays on this computer.
 
 ## 2. Settings
@@ -26,6 +26,12 @@ Settings shows one row per thing to set, and a status at the top: **Ready to cal
 7. **HubSpot.** Shared profiles each have an assigned HubSpot segment. The setup can supply the **HubSpot Service Key**
    and the **Treg token**, which is used to look up numbers on contacts without a usable saved phone. Add the
    **RealValidito key and secret** in Settings to screen HubSpot contacts before calling.
+8. **Test list.** Under **Test list**, select **Open test list CSV** and choose a CSV with a `phone` column and up to
+   50 approved test phones. Add `name`, `company`, and `domain` for personalized scripts. Click **Save test list**.
+   To prepare scripts, open **Leads → Research and scripts** and choose **Generate scripts** for **Test calls**.
+   Back in Settings, select **Open test list in Dialer**, then **Run test list**. The Dialer calls each test phone
+   once per run and pauses when it finishes. Begin another run from Settings. Calling hours, retry spacing and the
+   app's call timer are lifted for the test list. Carrier limits and opt-outs still apply.
 
 ## 3. Numbers
 
@@ -73,5 +79,5 @@ calls (with transcripts kept 30 days, deletable) and **What it has learned**.
 
 ## When something is blocked
 
-Every block names its reason. If it says it clears by itself, wait; if it does not within the stated time, the app
-repairs it, and if that fails it shows **Reconnect**. Anything else names the page and the control that fixes it.
+Read the reason and next step in the Dialer's status bar. For example, **Open Numbers** shows caller-ID availability,
+and **Open Settings** takes you to screening setup. The Dialer retries while calling stays on.

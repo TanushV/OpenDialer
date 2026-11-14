@@ -147,7 +147,7 @@ def _prepare_call(service, p, data):
                 "outcome": None,
                 "transcript_version": 0,
                 "synthetic": _replay(service, p),
-                "is_test": lead.data["phone"] in TEST_LINES or ops.in_test_session(service, p),
+                "is_test": test_only or lead.data["phone"] in TEST_LINES or ops.in_test_session(service, p),
                 "transcription_source": "direct" if service.managed.enabled(workspace(p)) else "webhook",
             },
             key=data["idempotency_key"],

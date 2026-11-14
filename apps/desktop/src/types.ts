@@ -164,7 +164,7 @@ export interface Coach {
 export interface Call {
   /** A call to the rep's own test phone: excluded from learning, and calling pauses after it. */
   is_test?: boolean;
-  dial_scope?: { test_only?: boolean };
+  dial_scope?: { test_only?: boolean; test_run_id?: string };
   /** R10.2: the one-request after-call summary, once written. */
   aftercall?: {
     status: "ready" | "failed" | "no_speech" | "unavailable";
@@ -448,6 +448,7 @@ export interface HistoryPage<T> {
 }
 export interface Workspace {
   test_phone?: string | null;
+  test_run?: { id: string; phones: string[] } | null;
   /** Latest live-event sequence reflected by this snapshot. */
   event_cursor?: number;
   quiescence?: { can_disconnect: boolean; reasons: string[] };

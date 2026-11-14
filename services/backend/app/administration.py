@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy import func, or_, select, text
 
-from app import ops
+from app import ops, test_list
 from app.calling import audio_leg
 from app.calling.blockers import Facts, mark_stuck
 from app.calling.blockers import blockers as dial_gate
@@ -29,6 +29,20 @@ NUMBER_BLOCKERS = {
     "CALLER_NUMBER_PAUSED",
 }
 NUMBER_REASONS = {"NUMBER_UNHEALTHY", "NUMBER_NOT_AUTHORIZED"}
+QUEUE_FIXES = {
+    "CRM_SYNC_STALE": "leads",
+    "DNC_NOT_CHECKED": "settings",
+    "SCREENING_PENDING": "settings",
+    "REGISTRY_NOT_CLEARED_FOR_ENDPOINT": "settings",
+    "TIMEZONE_UNCERTAIN": "leads",
+    "NUMBER_BAD": "attention",
+    "NEEDS_NUMBER": "attention",
+    "NO_VALID_NUMBER": "attention",
+    "NUMBER_CONFLICT": "attention",
+    "NUMBER_DEAD": "attention",
+    "ATTEMPT_LIMIT": "leads",
+    "OUTREACH_HOLD": "leads",
+}
 NO_LEADS = (
     "No one to call right now. Leads still being researched show on the Leads page; "
     "others may be outside calling hours or already called today."
@@ -40,8 +54,7 @@ REGISTRY_REASONS = {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"}
 WHY_NOBODY = [
     (
         {"OUTSIDE_CALLING_WINDOW"},
-        "Everyone left is outside calling hours (8 AM to 5 PM in each lead's time zone). "
-        "Calling picks up by itself when their hours open.",
+        "Everyone left is outside calling hours in their time zone.",
     ),
     (
         {"TIMEZONE_UNCERTAIN"},
@@ -49,7 +62,7 @@ WHY_NOBODY = [
     ),
     (
         {"NOT_DUE", "CADENCE_LIMIT"},
-        "The rest were called recently and wait at least a day before the next try.",
+        "Some leads are waiting for their next scheduled attempt.",
     ),
     (
         {"COMPANY_CONTACTED_TODAY"},
@@ -61,7 +74,10 @@ WHY_NOBODY = [
         {"NUMBER_CONFLICT", "NUMBER_BAD", "NUMBER_DEAD", "NO_VALID_NUMBER", "NEEDS_NUMBER"},
         "Some leads have no usable number. Review shows them.",
     ),
-    ({"DNC_NOT_CHECKED"}, "Some HubSpot leads wait for the do-not-call check."),
+    (
+        {"DNC_NOT_CHECKED"},
+        "HubSpot leads are waiting for do-not-call screening. Check RealValidito in Settings.",
+    ),
     ({"CRM_SYNC_STALE"}, "Some HubSpot leads wait for their list to sync. Sync it in Leads."),
     (
         {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"},
@@ -512,19 +528,24 @@ def preflight(service, p, *, full=True, deep=False):
 def calling_readiness(service, p):
     """R9E.5: what pressing Start would do now. Run while idle, so a problem shows before Start, not after."""
     check = ops.preflight(service, p, full=True)
+    screening = check.get("screening") or {}
+    callable_now = screening.get("callable_when_ready_count", 0)
+    reasons = set(screening.get("queue_reason_codes") or []) - SETUP_REASONS
     with service.db.transaction(False) as s:
         found = [
             b.detail()
             for b in ops.dial_blockers_in(service, s, p, rep=False, integrity_ok=check["integrity_ok"])
         ]
-    screening = check.get("screening") or {}
-    callable_now = screening.get("callable_when_ready_count", 0)
-    reasons = set(screening.get("queue_reason_codes") or []) - SETUP_REASONS
+        detail = no_lead_detail(service, s, p, reasons) if not callable_now else {}
     return {
         "blockers": found,
         "callable_now": callable_now,
         "inspected": screening.get("inspected_count", 0),
-        "why_none": None if callable_now else why_nobody(reasons),
+        "why_none": detail.get("message"),
+        "fix": detail.get("fix"),
+        "next_action": "Start calling to wait for the queue, or return later."
+        if detail.get("next_action")
+        else None,
         "checked_at": service.clock().isoformat(),
     }
 
@@ -543,13 +564,21 @@ def _preflight_queue(service, s, p, campaign, numbers, screening, blockers, warn
     from app.scheduling.policy import queue_decision
 
     lead_model = MODELS["leads"]
-    if ops.in_test_session(service, p):
+    if run := test_list.test_list_run(service, s, p):
+        p = {**p, "dial_lists": [test_list.NAME], "test_only": True, "test_run_id": run["id"]}
+        leads = [lead for lead in test_list.contacts(s, p, campaign.id) if test_list.permits(run, p, lead)]
+        total = len(leads)
+    elif ops.in_test_session(service, p):
         p = {**p, "dial_lists": [TEST_LIST], "test_only": True}
         lead = ops.test_candidate(service, s, p, ops.test_phone(service, p), campaign_id=campaign.id)
         leads = [lead] if lead else []
         total = len(leads)
     else:
-        scope = (lead_model.tenant_id == p["tenant_id"], lead_model.seller_id == p["seller_id"])
+        scope = (
+            lead_model.tenant_id == p["tenant_id"],
+            lead_model.seller_id == p["seller_id"],
+            lead_model.data["test_list_contact"].as_boolean().is_not(True),
+        )
         total = s.scalar(select(func.count()).select_from(lead_model).where(*scope))
         leads = list(s.scalars(select(lead_model).where(*scope).order_by(lead_model.id).limit(500)))
     ops._queue_context(service, s, p, campaign.id, leads)
@@ -633,7 +662,9 @@ def number_setup_blocker(service, s, p, numbers):
             return "CALLER_NUMBER_PAUSED"
         return (
             None
-            if ops.workspace_test_passed(service, s, p) or ops.in_test_session(service, p)
+            if ops.workspace_test_passed(service, s, p)
+            or ops.in_test_session(service, p)
+            or test_list.test_list_run(service, s, p)
             else ("CALLER_NUMBER_CALLBACK_TEST_REQUIRED")
         )
     active = [n for n in numbers if n.data.get("lifecycle") != "retired_callback_only"]
@@ -653,6 +684,11 @@ def no_lead_detail(service, s, p, reasons):
     """The refusal for Next call: the plain reason nobody can be called, most useful first."""
     detail = {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons), "message": why_nobody(reasons)}
     if not set(reasons) & NUMBER_REASONS:
+        fix = next((QUEUE_FIXES[r] for r in QUEUE_FIXES if r in reasons), None)
+        if fix or not reasons:
+            detail["fix"] = fix or "leads"
+        if set(reasons) & TIMING_REASONS and not fix:
+            detail["next_action"] = "Keep calling on to retry, or pause and return later."
         return detail
     # Number setup itself is a blocker (`dial_blockers_in`) checked before the queue runs; here a
     # number exists but none is free for these leads now.
@@ -660,6 +696,7 @@ def no_lead_detail(service, s, p, reasons):
         "No eligible caller number is available now. Check assigned numbers, active calls, "
         "and daily limits in Numbers."
     )
+    detail["fix"] = "numbers"
     if set(reasons) - NUMBER_REASONS:
         detail["message"] += " Other leads may be outside calling hours or already called today."
     return detail

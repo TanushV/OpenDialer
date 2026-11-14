@@ -502,6 +502,44 @@ test("a settings row turns green only after its check and says what it powers", 
   await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
 });
 
+test("Settings imports a test CSV and the Dialer calls only those destinations", async ({
+  page,
+}) => {
+  await enter(page);
+  await openSettings(page);
+  const testList = page.getByRole("region", { name: "Test list" });
+  await testList.getByLabel("Open test list CSV").setInputFiles({
+    name: "pilot.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(
+      "name,phone,company\nTest Alice,+12025550198,Pilot\nTest Bob,+12025550199,Pilot",
+    ),
+  });
+  await testList.getByRole("button", { name: "Save test list" }).click();
+  await expect(testList.getByText("2 test phones")).toBeVisible();
+  await testList
+    .getByRole("button", { name: "Open test list in Dialer" })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Test destinations" }),
+  ).toContainText("+12025550198");
+  await expect(
+    page.getByRole("region", { name: "Test destinations" }),
+  ).toContainText("+12025550199");
+  await page.getByRole("button", { name: /^Run test list/ }).click();
+  for (let i = 0; i < 2; i++) {
+    await answer(page);
+    await hangUp(page).click();
+    await saveOutcome(page, "not_interested");
+  }
+  await expect(
+    page.getByText("Test list complete.", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /^Start calling/ }),
+  ).toBeVisible();
+});
+
 test("Test call limits calling to the test phone, and the session ends with that call", async ({
   page,
 }) => {

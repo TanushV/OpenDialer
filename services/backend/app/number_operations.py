@@ -10,7 +10,7 @@ import httpx
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
-from app import ops
+from app import ops, test_list
 from app.compliance.phone import normalize_phone
 from app.optimization.numbering import assess_number_health, number_ready
 from app.platform.db import MODELS, audit, doc, emit, put, uid, update
@@ -288,7 +288,9 @@ def number_readiness_in(service, s, p, number):
             "configuration_errors": [] if entry else ["shared_pool_unavailable"],
             "workspace_test_passed": tested,
             "outbound_ready": bool(
-                entry and entry.outbound_enabled and (tested or ops.in_test_session(service, p))
+                entry
+                and entry.outbound_enabled
+                and (tested or ops.in_test_session(service, p) or test_list.test_list_run(service, s, p))
             ),
         }
     errors = []

@@ -192,6 +192,7 @@ def test_an_empty_queue_says_why(workspace, clock):
     detail = r.json()["detail"]
     assert detail["code"] == "NO_ELIGIBLE_LEADS"
     assert detail["message"].startswith("Everyone left is outside calling hours"), detail
+    assert detail["next_action"] == "Keep calling on to retry, or pause and return later."
 
 
 def test_readiness_says_how_many_can_be_called_or_why_none(workspace, clock):
