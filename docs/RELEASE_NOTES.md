@@ -1,3 +1,10 @@
+# OpenDialer 2.1.7
+
+- **See why calling is waiting.** When several things block the queue, the status shows the reason for its fix button first, followed by other reasons such as calling hours or retry spacing.
+- **Run a multi-number test list.** Save a CSV in Settings, optionally generate personalized scripts for it in Leads, then run it in the Dialer at any hour.
+
+Updating from 1.0.x through 2.1.6 keeps your workspace. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.1.6
 
 - **Run a multi-number test list.** Save a CSV in Settings, optionally generate personalized scripts for it in Leads, then run it in the Dialer. The Dialer works through each test phone once per run at any hour and pauses when the list is finished.

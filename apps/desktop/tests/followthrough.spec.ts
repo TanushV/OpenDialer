@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { openDetails } from "./navigation";
 import {
   addDetail,
   answer,
@@ -62,7 +63,11 @@ for (const connected of [false]) {
       })
       .first()
       .click();
-    await page.getByText("Correct confirmed outcome", { exact: true }).click();
+    await openDetails(
+      page.locator("details").filter({
+        has: page.getByText("Correct confirmed outcome", { exact: true }),
+      }),
+    );
     await expect(page.getByLabel("Disposition")).toHaveValue("meeting_held");
     await expect(page.getByLabel("Who did you speak with?")).toHaveValue(
       "right_party",

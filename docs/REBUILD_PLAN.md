@@ -2059,3 +2059,6 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 13, 2026: 2.1.6 adds the Settings test list (D35), manual script generation for it, and queue reasons and
   next actions in the Dialer status. The test list has its own contacts and call history. Its dials retain caller-ID
   availability and opt-out checks.
+- November 13, 2026: the signed 2.1.6 release installed through the Mac updater and reopened the existing workspace.
+  Its packaged backend ran both test destinations in simulation. The signed Ubuntu package installed and opened on
+  Ubuntu 24.04. The 2.1.7 follow-up puts the reason that matches the fix button first when the queue has several blockers.

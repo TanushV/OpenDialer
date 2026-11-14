@@ -29,20 +29,6 @@ NUMBER_BLOCKERS = {
     "CALLER_NUMBER_PAUSED",
 }
 NUMBER_REASONS = {"NUMBER_UNHEALTHY", "NUMBER_NOT_AUTHORIZED"}
-QUEUE_FIXES = {
-    "CRM_SYNC_STALE": "leads",
-    "DNC_NOT_CHECKED": "settings",
-    "SCREENING_PENDING": "settings",
-    "REGISTRY_NOT_CLEARED_FOR_ENDPOINT": "settings",
-    "TIMEZONE_UNCERTAIN": "leads",
-    "NUMBER_BAD": "attention",
-    "NEEDS_NUMBER": "attention",
-    "NO_VALID_NUMBER": "attention",
-    "NUMBER_CONFLICT": "attention",
-    "NUMBER_DEAD": "attention",
-    "ATTEMPT_LIMIT": "leads",
-    "OUTREACH_HOLD": "leads",
-}
 NO_LEADS = (
     "No one to call right now. Leads still being researched show on the Leads page; "
     "others may be outside calling hours or already called today."
@@ -53,52 +39,53 @@ REGISTRY_REASONS = {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"}
 # Why nobody can be called, in the order a rep can act on it. The first reason present is shown, then the rest briefly.
 WHY_NOBODY = [
     (
-        {"OUTSIDE_CALLING_WINDOW"},
-        "Everyone left is outside calling hours in their time zone.",
-    ),
-    (
-        {"TIMEZONE_UNCERTAIN"},
-        "Some leads have no known time zone, so they are not called. Add a state or time zone in Leads.",
-    ),
-    (
-        {"NOT_DUE", "CADENCE_LIMIT"},
-        "Some leads are waiting for their next scheduled attempt.",
-    ),
-    (
-        {"COMPANY_CONTACTED_TODAY"},
-        "Some companies were already called today; their other contacts wait until tomorrow.",
-    ),
-    ({"ATTEMPT_LIMIT"}, "Some leads reached their most attempts and are not called again."),
-    ({"OUTREACH_HOLD"}, "Some leads are paused, removed, on a paused list, or already booked."),
-    (
-        {"NUMBER_CONFLICT", "NUMBER_BAD", "NUMBER_DEAD", "NO_VALID_NUMBER", "NEEDS_NUMBER"},
-        "Some leads have no usable number. Review shows them.",
+        {"CRM_SYNC_STALE"},
+        "Some HubSpot leads need a sync before calling.",
+        "leads",
     ),
     (
         {"DNC_NOT_CHECKED"},
         "HubSpot leads are waiting for do-not-call screening. Check RealValidito in Settings.",
+        "settings",
     ),
-    ({"CRM_SYNC_STALE"}, "Some HubSpot leads wait for their list to sync. Sync it in Leads."),
     (
-        {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"},
-        "Some leads wait for do-not-call screening.",
+        {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING", "STATE_REGISTRY_MISSING"},
+        "Some leads wait for do-not-call screening. Check screening setup in Settings.",
+        "settings",
     ),
+    (
+        {"TIMEZONE_UNCERTAIN"},
+        "Some leads need a state or time zone to determine their calling hours.",
+        "leads",
+    ),
+    (
+        {"NUMBER_CONFLICT", "NUMBER_BAD", "NUMBER_DEAD", "NO_VALID_NUMBER", "NEEDS_NUMBER"},
+        "Some leads have no usable number. Review shows which leads need attention.",
+        "attention",
+    ),
+    (
+        {"OUTSIDE_CALLING_WINDOW"},
+        "Some leads are outside calling hours in their time zone.",
+        None,
+    ),
+    (
+        {"NOT_DUE", "CADENCE_LIMIT"},
+        "Some leads are waiting for their next scheduled attempt.",
+        None,
+    ),
+    (
+        {"COMPANY_CONTACTED_TODAY"},
+        "Some companies were already called today; their other contacts wait until tomorrow.",
+        None,
+    ),
+    ({"ATTEMPT_LIMIT"}, "Some leads reached their attempt limit.", None),
+    ({"OUTREACH_HOLD"}, "Some leads are paused, removed, on a paused list, or already booked.", "leads"),
     (
         {"INTERNAL_SUPPRESSION", "WRONG_PARTY", "INVALID_ENDPOINT"},
         "Some leads opted out or have a wrong number.",
+        None,
     ),
 ]
-
-
-def why_nobody(reasons):
-    reasons = set(reasons)
-    found = [text for codes, text in WHY_NOBODY if codes & reasons]
-    if not found:
-        return (
-            "No lead is ready to call. Leads still being researched show on the Leads page; import a list or "
-            "sync a HubSpot list to add more."
-        )
-    return " ".join(found[:3])
 
 
 NO_LEAD_DUE_NOW = "No lead is inside calling hours and due right now; the queue offers them when they are."
@@ -682,23 +669,27 @@ def number_setup_blocker(service, s, p, numbers):
 
 def no_lead_detail(service, s, p, reasons):
     """The refusal for Next call: the plain reason nobody can be called, most useful first."""
-    detail = {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons), "message": why_nobody(reasons)}
-    if not set(reasons) & NUMBER_REASONS:
-        fix = next((QUEUE_FIXES[r] for r in QUEUE_FIXES if r in reasons), None)
-        if fix or not reasons:
-            detail["fix"] = fix or "leads"
-        if set(reasons) & TIMING_REASONS and not fix:
-            detail["next_action"] = "Keep calling on to retry, or pause and return later."
-        return detail
-    # Number setup itself is a blocker (`dial_blockers_in`) checked before the queue runs; here a
-    # number exists but none is free for these leads now.
-    detail["message"] = (
-        "No eligible caller number is available now. Check assigned numbers, active calls, "
-        "and daily limits in Numbers."
-    )
-    detail["fix"] = "numbers"
-    if set(reasons) - NUMBER_REASONS:
-        detail["message"] += " Other leads may be outside calling hours or already called today."
+    reasons = set(reasons)
+    found = [(text, fix) for codes, text, fix in WHY_NOBODY if codes & reasons]
+    if reasons & NUMBER_REASONS:
+        found.insert(
+            0,
+            (
+                "No eligible caller number is available now. Check assigned numbers, active calls, and daily limits.",
+                "numbers",
+            ),
+        )
+    if reasons == {"OUTSIDE_CALLING_WINDOW"}:
+        found = [("Everyone left is outside calling hours in their time zone.", None)]
+    if not found:
+        found = [("No lead is ready to call. Check lead preparation or sync a list in Leads.", "leads")]
+    primary = next((reason for reason in found if reason[1]), found[0])
+    messages = [primary[0], *(text for text, fix in found if (text, fix) != primary)]
+    detail = {"code": "NO_ELIGIBLE_LEADS", "reasons": sorted(reasons), "message": " ".join(messages[:3])}
+    if primary[1]:
+        detail["fix"] = primary[1]
+    elif reasons & TIMING_REASONS:
+        detail["next_action"] = "Keep calling on to retry, or pause and return later."
     return detail
 
 

@@ -7,6 +7,7 @@ archived lead, so it never joined the Test line list, and at 3 AM Eastern the ca
 from datetime import UTC, datetime, timedelta
 
 from app import ops
+from app.administration import no_lead_detail
 from conftest import ready
 from helpers import finish
 
@@ -193,6 +194,14 @@ def test_an_empty_queue_says_why(workspace, clock):
     assert detail["code"] == "NO_ELIGIBLE_LEADS"
     assert detail["message"].startswith("Everyone left is outside calling hours"), detail
     assert detail["next_action"] == "Keep calling on to retry, or pause and return later."
+
+
+def test_mixed_queue_reasons_keep_the_reason_for_the_fix_visible():
+    mixed = {"OUTSIDE_CALLING_WINDOW", "NOT_DUE", "ATTEMPT_LIMIT", "DNC_NOT_CHECKED"}
+    detail = no_lead_detail(None, None, None, mixed)
+    assert detail["fix"] == "settings"
+    assert detail["message"].startswith("HubSpot leads are waiting for do-not-call screening.")
+    assert "outside calling hours" in detail["message"]
 
 
 def test_readiness_says_how_many_can_be_called_or_why_none(workspace, clock):
