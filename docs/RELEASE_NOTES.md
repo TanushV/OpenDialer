@@ -1,3 +1,11 @@
+# OpenDialer 2.1.8
+
+- **Keep the Markdown script in order.** The preview and Dialer preserve your headings and option order, including custom sections.
+- **Follow the rep's speech.** The Dialer highlights the last confidently matched line and scrolls inside the script panel, including after a manual scroll.
+- **Export call statistics.** Review downloads the call outcomes, observed talk paths, script structures and stage statistics for the scripts actually used.
+
+Updating from 1.0.x through 2.1.7 keeps your workspace. Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and old data stays untouched. macOS may ask for microphone access again. Updating from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.1.7
 
 - **See why calling is waiting.** When several things block the queue, the status shows the reason for its fix button first, followed by other reasons such as calling hours or retry spacing.

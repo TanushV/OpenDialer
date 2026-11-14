@@ -65,6 +65,8 @@ def test_starter_and_full_script_parse_into_sections_options_and_blocks():
         "offers",
         "objections",
         "close",
+        "facts",
+        "never_say",
     ]
     opening = template["sections"][0]
     assert [o["id"] for o in opening["options"]] == ["opening-1", "opening-2"] and opening["pick"] == [1, 1]
@@ -110,7 +112,7 @@ def test_fields_blocks_and_cards_are_validated():
         for e in errors(SCRIPT.replace("# Offers\n", "# Offers\nLoose text\n"))
     )
     named = parse_markdown(SCRIPT.replace("# Close\n", "# Close\n## Ask\n"))
-    assert named["sections"][-1]["options"][0]["title"] == "Ask"
+    assert next(s for s in named["sections"] if s["key"] == "close")["options"][0]["title"] == "Ask"
 
 
 def test_render_uses_picks_and_written_text_and_falls_back_cleanly():
@@ -138,9 +140,9 @@ def test_render_uses_picks_and_written_text_and_falls_back_cleanly():
     }
     script = render(template, lead=lead, seller="Peak Roofing", rep="Sam", picks=picks, written=written)
     assert script["opener"].endswith("You just added two buildings on Elm Street.")
-    assert script["discovery_questions"] == ["How old is the building?", "When was the roof last inspected?"]
-    assert [o["title"] for o in script["offers"]] == ["Maintenance plan", "Free inspection"]
-    assert [c["tags"] for c in script["objection_cards"]] == [["Send an email"], ["Not interested"]]
+    assert script["discovery_questions"] == ["When was the roof last inspected?", "How old is the building?"]
+    assert [o["title"] for o in script["offers"]] == ["Free inspection", "Maintenance plan"]
+    assert [c["tags"] for c in script["objection_cards"]] == [["Not interested"], ["Send an email"]]
     unpicked = [o for o in script["sections"][2]["options"] if not o["picked"]]
     assert [o["id"] for o in unpicked] == ["discovery-2", "discovery-3"]
 
@@ -199,7 +201,8 @@ def test_one_section_can_be_replaced_for_script_tests():
     template = parse_markdown(SCRIPT)
     assert section_markdown(template, "close") == "Would Tuesday or Thursday work for a 15-minute call?"
     changed = parse_markdown(replace_section(template, "close", "- Does Tuesday work?\n- Or Thursday?"))
-    assert [o["text"] for o in changed["sections"][-1]["options"]] == ["Does Tuesday work?", "Or Thursday?"]
+    close = next(s for s in changed["sections"] if s["key"] == "close")
+    assert [o["text"] for o in close["options"]] == ["Does Tuesday work?", "Or Thursday?"]
     with pytest.raises(ValueError):
         replace_section(template, "gatekeeper", "Who handles roofs?")
 
@@ -210,7 +213,10 @@ def test_follow_up_and_voicemail_are_optional_plain_wording_kept_off_the_first_c
     )
     assert template["follow_up"] == "Offer the review again."
     assert template["voicemail"] == "Hi {first_name}, {rep} here."
-    assert "follow_up" not in {section["key"] for section in template["sections"]}
+    assert [(s["key"], s["spoken"]) for s in template["sections"][-2:]] == [
+        ("follow_up", False),
+        ("voicemail", False),
+    ]
     assert "follow_up" not in parse_markdown(STARTER)
     with pytest.raises(ScriptError) as error:
         parse_markdown(STARTER + "\n# Voicemail\n{{ write one }} and {nickname}\n")
@@ -225,7 +231,8 @@ def test_a_triggers_section_is_read_by_code_and_never_spoken():
 
     template = parse_markdown(STARTER + "\n" + default_section())
     assert template["triggers"] == list(DEFAULT_RULES)
-    assert all(section["key"] != "triggers" for section in template["sections"])
+    assert template["sections"][-1]["key"] == "triggers"
+    assert template["sections"][-1]["spoken"] is False
     assert "triggers" not in template["context"]
     assert "triggers" not in parse_markdown(STARTER)
 

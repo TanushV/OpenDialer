@@ -447,6 +447,27 @@ fn open_source(app: tauri::AppHandle, value: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn save_registry_csv(app: tauri::AppHandle, csv: String) -> Result<String, String> {
+    save_export(app, "caller-registry", "csv", csv.into_bytes()).await
+}
+
+#[tauri::command]
+async fn save_call_statistics(
+    app: tauri::AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<String, String> {
+    let bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) if bytes.starts_with(b"PK\x03\x04") => bytes.clone(),
+        _ => return Err("Expected a call statistics ZIP".into()),
+    };
+    save_export(app, "call-statistics", "zip", bytes).await
+}
+
+async fn save_export(
+    app: tauri::AppHandle,
+    name: &'static str,
+    extension: &'static str,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
     use tauri_plugin_opener::OpenerExt;
 
     let exports = app
@@ -456,8 +477,8 @@ async fn save_registry_csv(app: tauri::AppHandle, csv: String) -> Result<String,
         .join("Exports");
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::create_dir_all(&exports).map_err(|err| err.to_string())?;
-        let path = exports.join(format!("opendialer-caller-registry-{}.csv", Uuid::new_v4()));
-        std::fs::write(&path, csv).map_err(|err| err.to_string())?;
+        let path = exports.join(format!("opendialer-{name}-{}.{extension}", Uuid::new_v4()));
+        std::fs::write(&path, bytes).map_err(|err| err.to_string())?;
         // A failed Finder/Explorer reveal does not undo the local export.
         let _ = app.opener().reveal_item_in_dir(&path);
         Ok(path.to_string_lossy().into_owned())
@@ -578,7 +599,8 @@ pub fn run() {
             backend_config,
             keep_awake,
             open_source,
-            save_registry_csv
+            save_registry_csv,
+            save_call_statistics
         ])
         .build(tauri::generate_context!())
         .expect("OpenDialer could not start");

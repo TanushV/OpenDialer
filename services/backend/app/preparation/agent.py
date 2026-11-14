@@ -196,10 +196,12 @@ def script_outline(template):
     instructions = {block["id"]: block["instruction"] for block in template["blocks"]}
     outline = []
     for section in template["sections"]:
+        if section.get("spoken") is False:
+            continue
         outline.append(
             {
                 "section": section["key"],
-                "pick": section["pick"] or ("order all" if section["key"] == "objections" else None),
+                "pick": section["pick"],
                 "options": [
                     {
                         "id": option["id"],
@@ -439,9 +441,7 @@ class SimulatedAgent:
             picks, written = [], []
             for section in context["script"]:
                 ids = [option["id"] for option in section["options"]]
-                if section["pick"] == "order all":
-                    picks.append({"section": section["section"], "ids": ids})
-                elif section["pick"]:
+                if section["pick"]:
                     chosen = (
                         ids[: section["pick"][1]]
                         if section["section"] in {"discovery", "offers"}

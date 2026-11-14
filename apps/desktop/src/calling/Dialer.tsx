@@ -50,7 +50,7 @@ export function Dialer({
       </ErrorBoundary>
       <div className="dialer-body">
         <ErrorBoundary>
-          <Body loop={loop} />
+          <Body loop={loop} visible={visible} />
         </ErrorBoundary>
       </div>
       <ErrorBoundary>
@@ -152,9 +152,13 @@ function StatusBar({
   );
 }
 
-function Body({ loop }: { loop: Loop }) {
+function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
   const { snapshot: w } = useWorkspace();
   const { phase, packet, call, telephony, testPhone, testList } = loop;
+  const script =
+    (call?.lead_id === packet?.lead.id && call?.script_snapshot) ||
+    packet?.script;
+  const position = visible && isActiveCall(call) ? call?.script_position : null;
   const between = phase.kind === "paused" || phase.kind === "finished";
   const testing = testList || testPhone;
   return (
@@ -228,7 +232,7 @@ function Body({ loop }: { loop: Loop }) {
           onSaved={loop.act.saved}
         />
       )}
-      {packet ? (
+      {packet && script ? (
         <div className="lead-and-script">
           <section className="card lead-card" aria-label="Lead">
             <h2 data-testid="lead-name">{packet.lead.name}</h2>
@@ -260,15 +264,17 @@ function Body({ loop }: { loop: Loop }) {
           >
             <div className="card-eyebrow">
               <span>Script</span>
-              <span
-                className={`pill ${packet.script.fallback ? "subtle" : "green"}`}
-              >
-                {packet.script.fallback
+              <span className={`pill ${script.fallback ? "subtle" : "green"}`}>
+                {script.fallback
                   ? "Your script as written"
                   : "Written for this lead"}
               </span>
             </div>
-            <ScriptReader script={packet.script} />
+            <ScriptReader
+              key={call?.id ?? packet.lead.id}
+              script={script}
+              position={position}
+            />
           </section>
         </div>
       ) : null}

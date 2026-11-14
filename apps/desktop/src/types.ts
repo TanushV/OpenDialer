@@ -229,6 +229,8 @@ export interface Call {
   transcript_version: number;
   provider_id: string | null;
   transcript?: Segment[];
+  script_snapshot?: Script;
+  script_position?: { key: string; sequence: number } | null;
   coach?: Coach | null;
   /** Why the live helper is quiet, when it is: no key, budget or a route failure. */
   helper_status?: {
@@ -253,6 +255,8 @@ export interface ScriptOption {
 export interface ScriptSection {
   key?: string;
   title: string;
+  spoken?: boolean;
+  purpose?: string;
   /** Older call snapshots carry plain text instead of options. */
   text?: string;
   options?: ScriptOption[];
@@ -264,7 +268,9 @@ export interface ScriptTemplate {
   sections: {
     key: string;
     title: string;
-    shape: string;
+    shape?: string;
+    spoken?: boolean;
+    text?: string;
     options: ScriptOption[];
     pick: [number, number] | null;
   }[];

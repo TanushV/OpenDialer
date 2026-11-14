@@ -61,14 +61,15 @@ def test_a_summary_that_could_not_be_written_is_written_again_on_retry(workspace
 
 
 def test_review_shows_the_script_stage_where_answered_calls_end(workspace):
-    """D31, R11.6: stage drop-off, the one learning view kept after StatML was archived."""
+    """Review uses observed rep speech even when the summary names a different stage."""
     from journey import wrap_up
 
     ws = workspace
     use_summary_model(ws)
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
-    chunk(ws, call_id, "r1", "Hi, quick question before you go.", side="rep")
+    snapshot = get(ws, f"/v1/calls/{call_id}")["script_snapshot"]
+    chunk(ws, call_id, "r1", snapshot["opener"], side="rep")
     chunk(ws, call_id, "s1", "Not interested, thanks.")
     call(ws, "POST", f"/v1/calls/{call_id}/hangup")
     run_jobs(ws)
@@ -78,6 +79,6 @@ def test_review_shows_the_script_stage_where_answered_calls_end(workspace):
     report = get(ws, "/v1/review/drop-off")
     assert report["answered"] == 1 and report["placed"] == 1
     rows = {row["stage"]: row for row in report["stages"]}
-    ended_in = rows[ended["ended_at_part"]["stage"]]
+    ended_in = rows["Opening"]
     assert ended_in["calls"] == 1 and ended_in["outcomes"] == {"not_interested": 1}
     assert sum(row["calls"] for row in report["stages"]) == 1 and len(rows) > 1

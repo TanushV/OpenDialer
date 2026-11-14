@@ -17,7 +17,13 @@ from app import ops
 from app.lead_lists import budget_scope, memberships
 from app.platform.db import MODELS, Job, doc, emit, put, uid, update
 from app.preparation.agent import INSTRUCTIONS, TOOLS, SimulatedAgent, ThreadWork, simulated_page
-from app.preparation.templates import PreparationPolicy, fill_fields, render, template_version
+from app.preparation.templates import (
+    PreparationPolicy,
+    fill_fields,
+    render,
+    restore_source_order,
+    template_version,
+)
 from app.service import dt
 
 # A failing provider costs at most this many attempts per lead and input, then the lead is
@@ -102,7 +108,9 @@ def script_base(service, s, p, campaign):
     stored = campaign.data.get("script") or {}
     template = stored.get("template")
     if template and template.get("format") == 2:
-        return {k: stored.get(k) for k in ("version", "template", "adopted_at", "source")}
+        if not template.get("source_order") and template.get("markdown"):
+            template = restore_source_order(template["markdown"]) or template
+        return {**{k: stored.get(k) for k in ("version", "adopted_at", "source")}, "template": template}
     return {"version": stored.get("version", 0), "template": None, "adopted_at": None, "source": None}
 
 

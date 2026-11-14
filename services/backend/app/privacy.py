@@ -365,14 +365,32 @@ def paraphrased(text, segments):
     return True
 
 
-def script_section_of(segment, script):
-    """Which section of the call's script a rep line delivered, decided while its text exists."""
-    if segment.get("side") != "rep" or not segment.get("is_final") or not script:
+def script_section_of(service, s, p, call, segment):
+    """Keep match metadata alongside the transcript revision that supports it."""
+    if segment.get("side") != "rep" or not segment.get("is_final") or segment.get("system_audio"):
+        return {"script_section": None, "section_score": None}
+    script = call.data.get("script_snapshot")
+    if not script:
         return {}
-    from app.optimization.script_learning import match_section
+    from app.platform.db import MODELS
+    from app.script_follow import match, sequence
 
-    key, score = match_section(segment.get("text", ""), script)
-    return {"script_section": key, "section_score": score}
+    model = MODELS["transcript_segments"]
+    rows = ops.context_rows(
+        service,
+        s,
+        p,
+        "transcript_segments",
+        call.id,
+        model.data["is_final"].as_boolean().is_(True),
+        model.data["segment_id"].as_string() != segment["segment_id"],
+        model.ctx_expires_at > service.clock(),
+        limit=8,
+    )
+    earlier = sequence([row.data for row in rows] + [segment])
+    earlier = earlier[: next(i for i, row in enumerate(earlier) if row is segment)]
+    key, score = match(script, segment, earlier)
+    return {"script_section": key, "section_score": score, "script_match_version": 1}
 
 
 def persistent_document(kind, data):
@@ -408,6 +426,7 @@ def persistent_document(kind, data):
                 "word_count",
                 "script_section",
                 "section_score",
+                "script_match_version",
             }
         }
     if kind in {"provider_events", "webhook_inbox"}:
@@ -533,6 +552,8 @@ def transcript_rows(service, s, p, call_id, *, metadata=None):
                 {
                     **item,
                     "script_section": row.data.get("script_section"),
+                    "section_score": row.data.get("section_score"),
+                    "transcript_version": row.data.get("transcript_version", 0),
                     "raw_remaining_ms": service.raw.remaining_ms(key) or 0,
                 }
             )
@@ -630,7 +651,16 @@ def _accept_transcript(service, p, call_id, segment, received_at, *, session=Non
                 "transcript_version": call.data.get("transcript_version", 0) + 1,
                 "question_count": segment.get("text", "").count("?"),
                 "word_count": len(segment.get("text", "").split()),
-                **script_section_of(segment, call.data.get("script_snapshot") or {}),
+                **script_section_of(
+                    service,
+                    s,
+                    p,
+                    call,
+                    {
+                        **full,
+                        "transcript_version": call.data.get("transcript_version", 0) + 1,
+                    },
+                ),
             },
         )
         if row:

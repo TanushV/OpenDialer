@@ -84,53 +84,70 @@ export function ScriptOutline({ template }: { template: ScriptTemplate }) {
   );
   return (
     <div className="script-outline">
-      {template.sections.map((section) => (
-        <section key={section.key}>
-          <header>
-            <h3>{section.title}</h3>
-            <span className="fine">
-              {section.options.length > 1
-                ? `${section.options.length} options · ${section.key === "objections" ? "AI orders them per lead" : (PICK[section.key] ?? "All named options available")}`
-                : section.key === "screening"
-                  ? "Fixed, said as written"
-                  : "One version"}
-            </span>
-          </header>
-          <ul>
-            {section.options.map((option) => (
-              <li key={option.id}>
-                {option.title && <strong>{option.title}: </strong>}
-                <Wording text={option.text} blocks={blocks} />
-                {option.notes && (
-                  <aside className="script-cue">
-                    <strong>Rep directions</strong>
-                    <p>{option.notes}</p>
-                  </aside>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-      {Object.entries(template.context ?? {}).map(([key, value]) => (
-        <details key={key}>
-          <summary>{key.replaceAll("_", " ")} · not spoken</summary>
-          <p>{value}</p>
-        </details>
-      ))}
-      {(template.facts.length > 0 || template.never_say.length > 0) && (
-        <section>
-          <header>
-            <h3>Facts and limits</h3>
-          </header>
-          <p className="fine">
-            {template.facts.length} fact
-            {template.facts.length === 1 ? "" : "s"} the AI may use ·{" "}
-            {template.never_say.length} thing
-            {template.never_say.length === 1 ? "" : "s"} it never says
-          </p>
-        </section>
+      {template.sections.map((section) =>
+        section.spoken === false ? (
+          <details key={section.key}>
+            <summary>{section.title} · reference</summary>
+            <p>{section.text}</p>
+          </details>
+        ) : (
+          <section key={section.key}>
+            <header>
+              <h3>{section.title}</h3>
+              <span className="fine">
+                {section.options.length > 1
+                  ? `${section.options.length} options · ${PICK[section.key] ?? "All named options available"}`
+                  : section.key === "screening"
+                    ? "Fixed, said as written"
+                    : "One version"}
+              </span>
+            </header>
+            <ul>
+              {section.options.map((option) => (
+                <li key={option.id}>
+                  {option.title && <strong>{option.title}: </strong>}
+                  <Wording text={option.text} blocks={blocks} />
+                  {option.notes && (
+                    <aside className="script-cue">
+                      <strong>Rep directions</strong>
+                      <p>{option.notes}</p>
+                    </aside>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ),
       )}
+      {Object.entries(template.context ?? {})
+        .filter(
+          ([key]) =>
+            !template.sections.some(
+              (section) => section.key === key || section.title === key,
+            ),
+        )
+        .map(([key, value]) => (
+          <details key={key}>
+            <summary>{key.replaceAll("_", " ")} · not spoken</summary>
+            <p>{value}</p>
+          </details>
+        ))}
+      {!template.sections.some(
+        (section) => section.key === "facts" || section.key === "never_say",
+      ) &&
+        (template.facts.length > 0 || template.never_say.length > 0) && (
+          <section>
+            <header>
+              <h3>Facts and limits</h3>
+            </header>
+            <p className="fine">
+              {template.facts.length} fact
+              {template.facts.length === 1 ? "" : "s"} the AI may use ·{" "}
+              {template.never_say.length} thing
+              {template.never_say.length === 1 ? "" : "s"} it never says
+            </p>
+          </section>
+        )}
     </div>
   );
 }

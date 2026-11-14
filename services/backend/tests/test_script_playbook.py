@@ -58,7 +58,8 @@ def test_playbook_aliases_options_context_and_cues_are_kept_separate():
     script = render(template, lead={"name": "Dana"}, seller="Seller", rep="Sam")
     assert "Seller" in script["screening_intro"]
     assert "Pause" not in script["opener"]
-    assert script["sections"][0]["options"][0]["notes"]
+    assert [s["key"] for s in script["sections"][:4]] == ["goal", "instructions", "preparation", "opening"]
+    assert script["sections"][3]["options"][0]["notes"]
 
 
 def test_screening_and_discovery_are_optional_and_defaults_are_explicit():

@@ -49,7 +49,9 @@ def script_parts(script, *, spoken_only=False):
     parts = []
     for section in (script or {}).get("sections", []):
         key = section.get("key", "")
-        if spoken_only and key not in SPOKEN_SECTIONS:
+        if section.get("spoken") is False:
+            continue
+        if spoken_only and not section.get("spoken", key in SPOKEN_SECTIONS):
             continue
         title = section.get("title") or key
         if section.get("text"):

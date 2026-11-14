@@ -9,9 +9,11 @@ Screening and Discovery are optional. Without Screening, the app supplies a busi
 and workspace names. The rep handles a screening prompt on the connected line.
 
 `# Pitch` accepts the alias `# Problem and outcome`. Use `##` headings for named alternatives within any spoken
-section. The agent picks one opening, pitch and close, up to three discovery questions and two offers; all
-objections stay available. Existing bullet alternatives remain accepted. Custom reference sections are preserved;
-ordinary bullets there stay checklists. `# Goal`, `# Instructions`/`# Delivery rules` and
+section. The agent picks one opening, pitch and close, up to three discovery questions and two offers. The Dialer
+keeps the heading and option order from the file and folds alternate options in place. All objections stay available.
+Existing bullet alternatives remain accepted. Custom headings with speaking text can be tracked like any other
+section. Put internal directions in blockquotes or a reference heading such as `# Instructions`.
+`# Goal`, `# Instructions`/`# Delivery rules` and
 `# Preparation`/`# Before you dial` provide non-spoken context. A blockquote (`>`) is a rep direction, shown separately
 from spoken wording. For conditional branches, put the question in the wording and describe when to use the next
 line in a direction. The script remains a guide for a human conversation, not an automatic speech engine.
@@ -26,7 +28,9 @@ requested for preparation. While that runs, the app displays the current base, n
 Formatting-only edits keep the generation identity and do not consume model work. Active calls retain the script
 frozen when they started. A job for superseded input cannot publish its script as current.
 
-During the call, Live helper uses the transcript or an F1 or typed private request to pick a response from that
+During the call, the script panel follows confidently matched rep phrases. It holds during prospect speech and
+tangents, and follows the next match even after you scroll manually. Live helper uses the transcript or an F1 or
+typed private request to pick a response from that
 frozen script. It displays the prepared wording as written. Put spoken alternatives in the named spoken sections,
 such as Objections. The rep can read custom reference sections and the This call notes in the script.
 

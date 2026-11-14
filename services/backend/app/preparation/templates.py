@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from functools import lru_cache
 from string import Formatter
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,7 +37,6 @@ TITLES = {
     "objections": "Objections",
     "close": "Close",
 }
-ORDER = ("opening", "screening", "gatekeeper", "pitch", "discovery", "offers", "objections", "close")
 ALIASES = {
     "opener": "opening",
     "problem and outcome": "pitch",
@@ -128,7 +128,7 @@ def template_version(template):
             return {
                 k: canonical(v)
                 for k, v in value.items()
-                if k not in {"markdown", "line"} and v not in (None, {}, [], "")
+                if k not in {"markdown", "line", "source_order", "spoken"} and v not in (None, {}, [], "")
             }
         return value
 
@@ -227,6 +227,10 @@ def parse_markdown(markdown):
                 spoken.append((number, line))
         return spoken, "\n".join(cues).strip()
 
+    def reference(key, value):
+        entry = raw[key]
+        return {"key": key, "title": entry["title"], "text": value, "spoken": False}
+
     def text(lines):
         return "\n".join(line for _, line in lines).strip()
 
@@ -258,10 +262,9 @@ def parse_markdown(markdown):
             result["notes"] = cues
         return result
 
-    for key in [*ORDER, *(key for key in raw if key.startswith("custom:"))]:
-        if key not in raw:
+    for key, entry in raw.items():
+        if key in CONTEXT or key in {TRIGGERS, "facts", "never_say", "follow_up", "voicemail"}:
             continue
-        entry = raw[key]
         shape = HEADINGS_BY_KEY.get(key, "fixed")
         options = []
         if entry["cards"]:
@@ -310,6 +313,7 @@ def parse_markdown(markdown):
                 errors.append({"line": entry["line"], "message": f"{entry['title']} is empty"})
             elif cues:
                 context[entry["title"]] = cues
+                sections.append(reference(key, cues))
         if len(options) > MAX_OPTIONS:
             errors.append(
                 {"line": entry["line"], "message": f"Use at most {MAX_OPTIONS} items in {entry['title']}"}
@@ -327,6 +331,7 @@ def parse_markdown(markdown):
                     "key": key,
                     "title": entry["title"],
                     "shape": shape,
+                    "spoken": True,
                     "options": options,
                     "pick": list(PICKS[key]) if key in PICKS and len(options) > 1 else None,
                 }
@@ -350,10 +355,15 @@ def parse_markdown(markdown):
 
         triggers, problems = parse_rules(raw[TRIGGERS]["lines"])
         errors.extend(problems)
+        sections.append(reference(TRIGGERS, text(raw[TRIGGERS]["lines"])))
     notes = {}
-    for key in CONTEXT:
-        if key in raw:
+    for key in raw:
+        if key in CONTEXT:
             context[key] = text(raw[key]["lines"])
+            sections.append(reference(key, context[key]))
+    for key in ("facts", "never_say"):
+        if key in raw:
+            sections.append(reference(key, text(raw[key]["lines"])))
     for key in ("follow_up", "voicemail"):
         if key not in raw:
             continue
@@ -367,6 +377,7 @@ def parse_markdown(markdown):
             value = text(spoken)
             _placeholders(value, raw[key]["line"], errors)
             notes[key] = value[:1000]
+            sections.append(reference(key, text(raw[key]["lines"])))
             if cues:
                 context[key + " directions"] = cues
     if len(blocks) > MAX_BLOCKS:
@@ -375,8 +386,12 @@ def parse_markdown(markdown):
         raise ScriptError(errors)
     return {
         "format": 2,
+        "source_order": True,
         "markdown": markdown,
-        "sections": sections,
+        "sections": [
+            {**section, "options": section.get("options", []), "pick": section.get("pick")}
+            for section in sorted(sections, key=lambda section: raw[section["key"]]["line"])
+        ],
         "blocks": blocks,
         "facts": facts,
         "never_say": never,
@@ -388,6 +403,14 @@ def parse_markdown(markdown):
 
 HEADINGS_BY_KEY = {key: shape for key, _, shape in HEADINGS.values()}
 SKIP = object()  # Lines under an unknown or repeated heading are reported once, at the heading.
+
+
+@lru_cache(maxsize=16)
+def restore_source_order(markdown):
+    try:
+        return parse_markdown(markdown)
+    except ScriptError:
+        return None  # Keep the saved parsed form if an older template no longer passes validation.
 
 
 def section_markdown(template, key):
@@ -480,7 +503,14 @@ def render(template, *, lead, seller, rep, picks=None, written=None):
 
     sections = []
     for section in template["sections"]:
-        order = chosen.get(section["key"]) or [option["id"] for option in section["options"]]
+        if section.get("spoken") is False:
+            sections.append({key: section[key] for key in ("key", "title", "text", "spoken")})
+            continue
+        source_ids = [option["id"] for option in section["options"]]
+        selected = set(chosen.get(section["key"]) or source_ids)
+        order = [identity for identity in source_ids if identity in selected]
+        if section["key"] in chosen:
+            chosen[section["key"]] = order
         rank = {identity: index for index, identity in enumerate(order)}
         options = [
             {
@@ -494,9 +524,15 @@ def render(template, *, lead, seller, rep, picks=None, written=None):
             for option in section["options"]
             if complete(option)
         ]
-        options.sort(key=lambda o: (o["rank"] is None, o["rank"] if o["rank"] is not None else 0))
         if options:
-            sections.append({"key": section["key"], "title": section["title"], "options": options})
+            sections.append(
+                {
+                    "key": section["key"],
+                    "title": section["title"],
+                    "options": options,
+                    **({"spoken": section["spoken"]} if "spoken" in section else {}),
+                }
+            )
 
     def first(key, default=""):
         section = next((s for s in sections if s["key"] == key), None)
@@ -557,7 +593,7 @@ def check_submission(template, picks, written, facts, row, *, required_blocks=No
             errors.append(f"Unknown {key} option ids {unknown}; valid ids are {ids}")
         if key == "objections":
             if sorted(chosen) != sorted(ids):
-                errors.append(f"Order every objection exactly once: {ids}")
+                errors.append(f"Include every objection exactly once: {ids}")
             continue
         low, high = section["pick"]
         if not low <= len(chosen) <= high:

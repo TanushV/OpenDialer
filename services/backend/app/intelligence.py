@@ -529,11 +529,12 @@ DROP_OFF_DAYS = 30
 
 
 def drop_off_report(service, p):
-    """D31, R11.6: the last 30 days of real (not test) calls with their summaries, in the script's stage order."""
+    """Where answered calls ended, preferring tracked speech and retaining older summary evidence."""
     from datetime import timedelta
 
     from app.aftercall.dropoff import drop_off
     from app.helper.live import script_parts
+    from app.script_follow import latest_match
 
     since = service.clock() - timedelta(days=DROP_OFF_DAYS)
     with service.db.transaction(False) as s:
@@ -543,11 +544,27 @@ def drop_off_report(service, p):
             if row.data.get("is_test") or not started or started < since:
                 continue
             summary = ops._by_key(service, s, p, "call_summaries", row.id)
+            ended = summary.data.get("ended_at_part") if summary else None
+            if row.data.get("human_answered_at"):
+                transcript = [segment.data for segment in ops.transcript_metadata(service, s, p, row.id)]
+                if any(segment.get("script_match_version") for segment in transcript):
+                    part = latest_match(transcript)
+                    ended = None
+                    if part and not (
+                        row.data.get("analysis_incomplete") or row.data.get("transcription_disabled")
+                    ):
+                        for section in (row.data.get("script_snapshot") or {}).get("sections", []):
+                            if any(
+                                f"{section.get('key')}:{option['id']}" == part["script_section"]
+                                for option in section.get("options") or ()
+                            ):
+                                ended = {"stage": section["title"]}
+                                break
             calls.append(
                 {
                     "human": bool(row.data.get("human_answered_at")),
                     "outcome": row.data.get("outcome"),
-                    "ended_at_part": (summary.data.get("ended_at_part") if summary else None),
+                    "ended_at_part": ended,
                 }
             )
         campaign = ops.selected_campaign(service, s, p)

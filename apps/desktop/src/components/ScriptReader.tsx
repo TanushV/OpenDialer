@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Sparkles } from "lucide-react";
 import type { Script, ScriptOption } from "../types";
 
@@ -80,13 +80,20 @@ function ScriptText({ text, written }: { text: string; written: string[] }) {
 function Option({
   option,
   written,
+  part,
+  current,
 }: {
   option: ScriptOption;
   written: string[];
+  part: string;
+  current: boolean;
 }) {
   return (
-    <div className="script-option">
-      {option.title && <strong>{option.title}</strong>}
+    <div
+      className="script-option"
+      data-script-part={part}
+      aria-current={current ? "step" : undefined}
+    >
       <ScriptText text={option.text} written={written} />
       {option.notes && (
         <aside className="script-cue">
@@ -98,16 +105,43 @@ function Option({
   );
 }
 
-/** The script a rep reads: picked options first, other options folded away. */
-export function ScriptReader({ script }: { script: Partial<Script> }) {
+/** Keep the current spoken option in view within the script pane only. */
+export function ScriptReader({
+  script,
+  position,
+}: {
+  script: Partial<Script>;
+  position?: { key: string; sequence: number } | null;
+}) {
   const written = Object.values(script.written ?? {}).map((w) => w.text);
   const sections = script.sections ?? [];
+  const directions = Object.entries(script.context ?? {}).filter(
+    ([key]) =>
+      !sections.some((section) => section.key === key || section.title === key),
+  );
+  const reader = useRef<HTMLDivElement>(null);
+  const part = position?.key;
+  const sequence = position?.sequence;
+  useLayoutEffect(() => {
+    if (!part || sequence === undefined) return;
+    const pane = reader.current?.closest<HTMLElement>(".script-card");
+    const target = reader.current?.querySelector<HTMLElement>(
+      '[aria-current="step"]',
+    );
+    if (!pane || !target) return;
+    const disclosure = target.closest("details");
+    if (disclosure) disclosure.open = true;
+    const visible = pane.getBoundingClientRect();
+    const line = target.getBoundingClientRect();
+    if (line.top < visible.top + 16 || line.bottom > visible.bottom - 38)
+      pane.scrollTop += line.top - visible.top - 20;
+  }, [part, sequence]);
   return (
-    <div className="script-reader">
-      {Object.keys(script.context ?? {}).length > 0 && (
+    <div ref={reader} className="script-reader">
+      {directions.length > 0 && (
         <details className="script-directions">
           <summary>Playbook directions · not spoken</summary>
-          {Object.entries(script.context ?? {}).map(([key, value]) => (
+          {directions.map(([key, value]) => (
             <section key={key}>
               <h3>{key.replaceAll("_", " ")}</h3>
               <p>{value}</p>
@@ -121,54 +155,71 @@ export function ScriptReader({ script }: { script: Partial<Script> }) {
           from research.
         </p>
       )}
-      {sections.map((section, i) => {
-        if (!section.options) {
-          return section.text ? (
-            <section key={i}>
-              <h3>{section.title}</h3>
-              <p>{section.text}</p>
-            </section>
-          ) : null;
-        }
-        const picked = section.options.filter((o) => o.picked);
-        const others = section.options.filter((o) => !o.picked);
-        if (section.key === "objections")
+      {sections
+        .filter((section) => section.key === "follow_up" && !!section.purpose)
+        .map((section) => (
+          <details key={section.key} className="script-directions">
+            <summary>{section.title}</summary>
+            <p>{section.text}</p>
+          </details>
+        ))}
+      {sections
+        .filter((section) => section.key !== "follow_up" || !section.purpose)
+        .map((section, i) => {
+          if (section.spoken === false)
+            return (
+              <details className="script-directions" key={section.key ?? i}>
+                <summary>{section.title} · reference</summary>
+                <ScriptText text={section.text ?? ""} written={[]} />
+              </details>
+            );
+          if (!section.options) {
+            return section.text ? (
+              <section key={i}>
+                <h3>{section.title}</h3>
+                <p>{section.text}</p>
+              </section>
+            ) : null;
+          }
+          const hasSelection = section.options.some((option) => option.picked);
           return (
-            <section key={section.key}>
+            <section key={section.key ?? i}>
               <h3>{section.title}</h3>
-              {section.options.map((option) => (
-                <details key={option.id} className="script-objection">
-                  <summary>{option.title}</summary>
-                  <ScriptText text={option.text} written={written} />
-                  {option.notes && (
-                    <aside className="script-cue">
-                      <strong>Rep directions</strong>
-                      <p>{option.notes}</p>
-                    </aside>
-                  )}
-                </details>
-              ))}
+              {section.options.map((option, index) => {
+                const key = `${section.key}:${option.id}`;
+                const content = (
+                  <Option
+                    option={option}
+                    written={written}
+                    part={key}
+                    current={part === key}
+                  />
+                );
+                return section.key === "objections" ||
+                  (hasSelection && !option.picked) ? (
+                  <details
+                    key={option.id}
+                    className={
+                      section.key === "objections"
+                        ? "script-objection"
+                        : "script-others"
+                    }
+                  >
+                    <summary>
+                      {option.title || `Alternative ${index + 1}`}
+                    </summary>
+                    {content}
+                  </details>
+                ) : (
+                  <div key={option.id}>
+                    {option.title && <strong>{option.title}</strong>}
+                    {content}
+                  </div>
+                );
+              })}
             </section>
           );
-        return (
-          <section key={section.key ?? i}>
-            <h3>{section.title}</h3>
-            {(picked.length ? picked : section.options).map((option) => (
-              <Option key={option.id} option={option} written={written} />
-            ))}
-            {picked.length > 0 && others.length > 0 && (
-              <details className="script-others">
-                <summary>
-                  {others.length} other option{others.length === 1 ? "" : "s"}
-                </summary>
-                {others.map((option) => (
-                  <Option key={option.id} option={option} written={written} />
-                ))}
-              </details>
-            )}
-          </section>
-        );
-      })}
+        })}
     </div>
   );
 }

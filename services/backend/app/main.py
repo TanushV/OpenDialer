@@ -613,6 +613,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
         """D31, R11.6: where answered real calls of the last 30 days ended in the script, by outcome."""
         return ops.drop_off_report(service, p)
 
+    @app.get("/v1/review/call-statistics/export")
+    def export_call_statistics(include_test: bool = False, p=Depends(principal)):
+        from app.call_statistics import export
+
+        return {"archive": export(service, p, include_test=include_test)}
+
     @app.get("/v1/review/issues")
     def review_issues(p=Depends(principal)):
         """What needs the rep, each with the one thing to do: Review opens with this list."""
@@ -690,16 +696,23 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def get_call(call_id: str, p=Depends(principal)):
         from app import live_help
         from app.aftercall.summary import suggestion
+        from app.script_follow import latest_match
 
         with db.transaction(False) as s:
             call = ops.required(service, s, "call_attempts", call_id, p)
             tip, helper = live_help.view(service, call)
             segments = ops.transcript_rows(service, s, p, call_id)
+            match = latest_match(segments)
             summary = ops.call_summary(service, s, p, call_id)
             return {
                 **{k: v for k, v in doc(call).items() if k != "recording_url"},
                 "aftercall": summary,
                 "transcript": segments,
+                "script_position": (
+                    {"key": match["script_section"], "sequence": match["transcript_version"]}
+                    if match and not call.data.get("transcription_disabled")
+                    else None
+                ),
                 "raw_evidence_status": ops.raw_status(service, call, segments),
                 "coach": tip,
                 "helper_status": helper,

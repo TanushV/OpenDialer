@@ -66,6 +66,8 @@ def _live(service, s, p, call):
 
 def request_in(service, s, p, call, question):
     """Everything one turn sends: script, lead, research, earlier calls and the call so far."""
+    from app.script_follow import latest_match
+
     lead = ops.required(service, s, "leads", call.data["lead_id"], p)
     script = call.data.get("script_snapshot") or ops.selected_script(service, s, p, lead)[0]
     facts = [
@@ -106,9 +108,11 @@ def request_in(service, s, p, call, question):
                 "notes": ((note.data.get("human_text") if note else None) or "")[:1000],
             }
         )
+    segments = ops.transcript_rows(service, s, p, call.id)
+    delivered = latest_match(segments)
     dialogue = [
         {"side": r.get("side"), "text": r["text"], "script_section": r.get("script_section")}
-        for r in ops.transcript_rows(service, s, p, call.id)
+        for r in segments
         if r.get("is_final") and not r.get("system_audio") and r.get("text")
     ][-live.DIALOGUE :]
     seller = ops.required(service, s, "sellers", p["seller_id"], p)
@@ -120,9 +124,7 @@ def request_in(service, s, p, call, question):
         "research": [f for f in facts if f],
         "earlier_calls": earlier,
         "dialogue": dialogue,
-        "script_section": next(
-            (r["script_section"] for r in reversed(dialogue) if r["script_section"]), None
-        ),
+        "script_section": delivered["script_section"] if delivered else None,
         "previous": shown.get("say_or_ask") if shown else None,
         "question": question,
     }

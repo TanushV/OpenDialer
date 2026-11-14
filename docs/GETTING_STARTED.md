@@ -6,7 +6,7 @@ From install to your first call. Each step names the page and the button.
 
 Download the Mac `.dmg`, Windows `.exe`, or Linux `_amd64.deb` from the [latest release](https://github.com/TanushV/OpenDialer/releases/latest).
 The Linux package targets Ubuntu 24.04 LTS on 64-bit Intel or AMD. From the download folder, run
-`sudo apt install ./OpenDialer_2.1.7_amd64.deb` using the filename you downloaded, then open **OpenDialer** from the app menu.
+`sudo apt install ./OpenDialer_2.1.8_amd64.deb` using the filename you downloaded, then open **OpenDialer** from the app menu.
 On any platform, choose **Start a local workspace**. Your data stays on this computer.
 
 ## 2. Settings
@@ -76,6 +76,10 @@ After you save, the next call starts in 3 seconds. The wrap-up shows the call's 
 
 **Review** opens with **Needs you**: each issue in a line, with the button that fixes it. Below are follow-ups, past
 calls (with transcripts kept 30 days, deletable) and **What it has learned**.
+
+In **Where calls end**, **Export call statistics** saves a ZIP with call outcomes, observed script events, the
+structure each call used, and counts for each stage. Test calls are optional. The files contain metadata, including
+section and option titles, and omit transcript text and contact details.
 
 ## When something is blocked
 
