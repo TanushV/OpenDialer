@@ -28,8 +28,13 @@ test("setup saves a write-only live help key", async ({ page }) => {
   const settingsVersion = (await (await settingsRead).json()).version;
   await expect(page.getByRole("region", { name: "Readiness" })).toBeVisible();
   const row = page.getByTestId("setup-openrouter");
-  await row.getByLabel("New OpenRouter key").fill("sk-or-test-only");
-  await row.getByRole("button", { name: "Save and check" }).click();
+  const key = row.getByLabel("New OpenRouter key");
+  const save = row.getByRole("button", { name: "Save and check" });
+  await expect(async () => {
+    await key.fill("sk-or-test-only");
+    await expect(save).toBeEnabled({ timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
+  await save.click();
   await expect(row.getByRole("status")).toContainText("Checked");
   // Write-only: the key is never shown again, only whether it is set and checked.
   await expect(row.getByLabel("New OpenRouter key")).toHaveValue("");

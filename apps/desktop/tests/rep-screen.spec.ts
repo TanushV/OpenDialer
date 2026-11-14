@@ -12,7 +12,7 @@ import {
   startCalling,
 } from "./simulation";
 import { zonedInstant } from "../src/state/zones";
-import { clickUntil } from "./navigation";
+import { clickUntil, goTo } from "./navigation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -205,12 +205,13 @@ test("review notes start empty and the AI summary stays read-only", async ({
   await hangUp(page).click();
   await saveOutcome(page, "not_interested");
   await expect(startCalling(page)).toBeVisible();
-  await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page
+  await goTo(page, "Review");
+  const notes = page.getByLabel("Your notes", { exact: true });
+  const review = page
     .getByRole("button", { name: `Review call ${packet.lead.name}` })
-    .first()
-    .click();
-  await expect(page.getByLabel("Your notes", { exact: true })).toHaveValue("");
+    .first();
+  await clickUntil(review, () => expect(notes).toBeVisible({ timeout: 3_000 }));
+  await expect(notes).toHaveValue("");
   await expect(page.getByRole("region", { name: "AI summary" })).toContainText(
     "AI drafted summary of the call.",
   );
