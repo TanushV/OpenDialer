@@ -1,5 +1,7 @@
 """Telnyx's documented unified WebSocket frames; no live carrier/account claim."""
 
+from datetime import timedelta
+
 import pytest
 
 
@@ -85,11 +87,10 @@ def test_live_socket_requires_a_current_local_call(workspace, app):
             ws.receive_json()
 
 
-def test_managed_socket_delivers_speech_to_existing_pipeline(workspace, app, monkeypatch):
+def managed_call(workspace, app):
     from time import monotonic
 
     from app.platform.db import get, update
-    from app.providers import telnyx_stt
     from conftest import start
 
     service = app.state.service
@@ -102,6 +103,13 @@ def test_managed_socket_delivers_speech_to_existing_pipeline(workspace, app, mon
     with service.db.transaction() as s:
         call = get(s, "call_attempts", made["id"], workspace["tenant_id"])
         update(call, state="HUMAN", transcription_layout="direct_tracks")
+    return made
+
+
+def test_managed_socket_delivers_speech_to_existing_pipeline(workspace, app, monkeypatch):
+    from app.providers import telnyx_stt
+
+    made = managed_call(workspace, app)
 
     async def fake(key, frames, *, on_ready=None):
         await on_ready()
@@ -121,3 +129,96 @@ def test_managed_socket_delivers_speech_to_existing_pipeline(workspace, app, mon
         row["text"] == "We have no budget this quarter" and row["side"] == "remote"
         for row in detail["transcript"]
     )
+
+
+@pytest.mark.slow
+def test_prospect_pause_and_final_text_release_one_helper_request(workspace, app, clock, monkeypatch):
+    from math import pi, sin
+    from struct import pack
+    from threading import Semaphore
+
+    from app import live_help
+    from app import live_transcription as audio
+    from app.providers import telnyx_stt
+
+    made = managed_call(workspace, app)
+    path = f"/v1/calls/{made['id']}"
+
+    requests = []
+
+    class Selector:
+        async def converse(self, messages, **_):
+            requests.append(messages[1]["content"])
+            return "Part: 1"
+
+    monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
+    start_at = clock.now
+    monkeypatch.setattr(audio, "monotonic", lambda: (clock.now - start_at).total_seconds())
+    frames_by_packet = {
+        1: ("We’re interested, but", True),
+        6: ("we would need", False),
+        16: ("we would need approval first.", True),
+        21: ("From finance.", True),
+        28: ("Yes.", True),
+    }
+    consumed = Semaphore(0)
+
+    async def fake(key, frames, *, on_ready=None):
+        await on_ready()
+        packet = 0
+        async for _ in frames:
+            packet += 1
+            if packet in frames_by_packet:
+                transcript, final = frames_by_packet[packet]
+                yield {"transcript": transcript, "is_final": final}
+            consumed.release()
+
+    monkeypatch.setattr(telnyx_stt, "transcribe", fake)
+    client, headers = workspace["client"], workspace["headers"]
+
+    def drain():
+        response = client.post("/v1/admin/jobs/run", headers=headers)
+        assert response.status_code == 200
+
+    voiced = pack("<320h", *(int(4500 * sin(2 * pi * 440 * i / 16000)) for i in range(320)))
+    speech = voiced * 5
+    silence = bytes(3200)
+    with client.websocket_connect(path + "/audio/remote") as stream:
+        stream.send_json({"token": workspace["access_token"]})
+        assert stream.receive_json()["status"] == "ready"
+
+        packet_number = 0
+
+        def send(packet, n=1):
+            nonlocal packet_number
+            for _ in range(n):
+                packet_number += 1
+                clock.now += timedelta(milliseconds=100)
+                stream.send_bytes(packet)
+                assert consumed.acquire(timeout=2)
+                if packet_number in frames_by_packet:
+                    assert stream.receive_json()["status"] == "transcribed"
+
+        send(speech)
+        send(silence, 4)
+        send(speech, 2)
+        drain()
+        assert requests == [], "A mid-sentence pause must not spend a request"
+        send(silence, 9)
+        drain()
+        assert len(requests) == 1 and "approval first" in requests[0]
+        assert (
+            client.get(path, headers=headers).json()["coach"]["say_or_ask"]
+            == made["script_snapshot"]["opener"]
+        )
+        send(silence, 10)
+        drain()
+        assert len(requests) == 1, "Quiet audio and additional final fragments share the same turn"
+        send(speech)
+        send(silence)
+        drain()
+        assert len(requests) == 1, "A final segment alone cannot confirm the short turn"
+        send(silence, 6)
+        drain()
+        assert len(requests) == 2 and "Yes." in requests[1]
+        stream.send_json({"stop": True})

@@ -18,6 +18,7 @@ dependencies = [
   "tzdata>=2026.1,<2027",
   "supabase==2.33.0",
   "ddgs>=9,<10",
+  "webrtcvad-wheels>=2.0.14.post1,<3",
 ]
 [dependency-groups]
 dev = [

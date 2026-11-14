@@ -2069,3 +2069,6 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 13, 2026: later transcript updates no longer discard a pending helper selection. Finalized prospect speech
   still queues the helper after a one-second pause. Hangup, mute and opt-outs stop automatic tips. The desktop simulation
   now runs delayed helper jobs on an advancing clock and uses a local selector without a provider key.
+- November 13, 2026: on direct audio, the live helper waits for finalized prospect text and 500 ms of detected quiet on
+  the prospect track. The quiet interval can accrue before the text arrives. The newest final fragment queues one
+  automatic request per pause. Transcript-only inputs continue to coalesce across one second.

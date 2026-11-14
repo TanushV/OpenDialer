@@ -7,8 +7,9 @@ from uuid import uuid4
 
 from fastapi import Body, Depends, WebSocket, WebSocketDisconnect
 
-from app import ops
+from app import live_help, ops
 from app.calling.state import TERMINAL
+from app.helper.prospect_turn import ProspectTurn
 from app.platform.db import emit, update
 from app.providers import telnyx_stt
 from app.service import fail
@@ -99,6 +100,11 @@ def bind_api(app, service, principal):
                 await ws.send_json({"status": "ready"})
 
             started, total = monotonic(), 0
+            turn = ProspectTurn() if side == "remote" else None
+
+            async def dispatch_turn():
+                if turn is not None and (version := turn.take()) is not None:
+                    await asyncio.to_thread(live_help.queue_confirmed_turn, service, p, call_id, version)
 
             async def frames():
                 nonlocal total, clean
@@ -125,6 +131,9 @@ def bind_api(app, service, principal):
                     total += len(data)
                     if total > 32000 * (monotonic() - started + 2):
                         raise ValueError("Audio buffer exceeded")
+                    if turn is not None:
+                        turn.observe(data)
+                        await dispatch_turn()
                     yield data
 
             segments = telnyx_stt.Segments(str(uuid4()), side)
@@ -133,7 +142,16 @@ def bind_api(app, service, principal):
                 segment = segments.accept(frame, service.clock())
                 if segment:
                     received = segment.pop("first_received")
-                    await ops.transcript(service, p, call_id, segment, received_at=received)
+                    if turn is not None:
+                        # Wait for this revision to commit before dispatching any pending tip.
+                        turn.interim = True
+                    result = await ops.transcript(
+                        service, p, call_id, segment, received_at=received, queue_helper=turn is None
+                    )
+                    if turn is not None and segment["is_final"]:
+                        usable = not (result.get("expired") or result.get("duplicate"))
+                        turn.finalized(result["transcript_version"] if usable else None)
+                        await dispatch_turn()
                     await ws.send_json({"status": "transcribed"})
             await ws.send_json({"status": "stopped"})
             await ws.close()

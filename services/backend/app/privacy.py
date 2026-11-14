@@ -705,7 +705,7 @@ def _accept_transcript(service, p, call_id, segment, received_at, *, session=Non
         }, phone
 
 
-def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, queue_coach=True):
+def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, queue_helper=True):
     import re
 
     from sqlalchemy import select
@@ -737,13 +737,14 @@ def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, 
             session=s,
         )
     eligible = bool(segment.get("is_final") and not result["expired"])
-    if eligible and queue_coach:
+    if eligible:
         from app.calling.state import TERMINAL
 
         if call.data["state"] in TERMINAL | {"ENDING"}:
             ops.enqueue_aftercall(service, s, p, call)
         elif (
-            segment.get("side") == "remote"
+            queue_helper
+            and segment.get("side") == "remote"
             and not segment.get("system_audio")
             and not result.get("duplicate")
             and segment.get("text", "").strip()
@@ -770,20 +771,20 @@ def _publish_transcripts(service, writes):
         service.raw.put(key, content, expires_at=expires, scope=scope, revision=content["revision"])
 
 
-def _receive_transcript(service, p, call_id, segment, received_at, defer_coach):
+def _receive_transcript(service, p, call_id, segment, received_at, queue_helper):
     writes = []
     with service.db.transaction() as s:
         result, eligible = ops._transcript_in(
-            service, s, p, call_id, segment, received_at, writes, queue_coach=defer_coach
+            service, s, p, call_id, segment, received_at, writes, queue_helper=queue_helper
         )
     ops._publish_transcripts(service, writes)
     return result, eligible
 
 
-async def transcript(service, p, call_id, segment, *, defer_coach=False, received_at=None):
+async def transcript(service, p, call_id, segment, *, queue_helper=True, received_at=None):
     import asyncio
 
     result, eligible = await asyncio.to_thread(
-        ops._receive_transcript, service, p, call_id, segment, received_at, True
+        ops._receive_transcript, service, p, call_id, segment, received_at, queue_helper
     )
     return result

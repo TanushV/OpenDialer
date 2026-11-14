@@ -59,6 +59,13 @@ def queue(service, s, p, call, transcript_version, delay_ms=live.DEBOUNCE_MS):
     )
 
 
+def queue_confirmed_turn(service, p, call_id, transcript_version):
+    with service.db.transaction() as s:
+        call = ops.required(service, s, "call_attempts", call_id, p)
+        if _live(service, s, p, call) and not _muted(call):
+            queue(service, s, p, call, transcript_version, delay_ms=0)
+
+
 def _live(service, s, p, call):
     """Whether the helper may answer on this call now."""
     if call.data["state"] in TERMINAL | {"ENDING"} or call.data.get("transcription_disabled"):
