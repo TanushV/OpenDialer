@@ -2072,3 +2072,6 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 13, 2026: on direct audio, the live helper waits for finalized prospect text and 500 ms of detected quiet on
   the prospect track. The quiet interval can accrue before the text arrives. The newest final fragment queues one
   automatic request per pause. Transcript-only inputs continue to coalesce across one second.
+- November 15, 2026: saving Wrong number or Wrong person on a standalone test contact records the test outcome without
+  suppressing the phone. Existing number holds and opt-outs still block a test call, and Settings names the reason for
+  the saved test phone before arming a session. HubSpot test contacts keep their writeback behavior.

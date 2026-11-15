@@ -584,6 +584,50 @@ test("Test call limits calling to the test phone, and the session ends with that
   ).toBeHidden();
 });
 
+test("Test call names a blocked destination in Settings before opening the Dialer", async ({
+  page,
+}) => {
+  await enter(page);
+  const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
+  expect(local.ok()).toBeTruthy();
+  const headers = {
+    authorization: `Bearer ${(await local.json()).access_token}`,
+  };
+  const phone = "+12025550198";
+  const saved = await page.request.put(`${AUTHORITY}/v1/admin/settings`, {
+    headers,
+    data: { test_phone: phone },
+  });
+  expect(saved.ok()).toBeTruthy();
+  const blocked = await page.request.post(`${AUTHORITY}/v1/suppressions`, {
+    headers,
+    data: { phone, reason: "opt_out" },
+  });
+  expect(blocked.ok()).toBeTruthy();
+
+  await openSettings(page);
+  const row = page.getByTestId("setup-test_phone");
+  await clickUntil(
+    row.getByRole("button", { name: "Test call", exact: true }),
+    () =>
+      expect(
+        page.getByText(
+          "The saved test phone has an opt-out. Choose another test phone in Settings.",
+          { exact: true },
+        ),
+      ).toBeVisible({ timeout: 3_000 }),
+  );
+  await expect(
+    row.getByRole("button", { name: "End test session" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: /^Call test phone/ }),
+  ).toHaveCount(0);
+});
+
 test("a slow re-read of the rows never undoes a check that finished after it", async ({
   page,
 }) => {

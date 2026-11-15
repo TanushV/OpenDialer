@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app import ops
 from app.aftercall.tasks import ACTIVE as ACTIVE_TASKS
 from app.calling.state import TERMINAL, moved
+from app.lead_lists import TEST_LIST, memberships
 from app.optimization.goals import review_token
 from app.platform.config import TEST_LINES
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
@@ -848,8 +849,14 @@ def save_disposition(service, p, call_id, data, *, source="rep_reported"):
                 },
             )
         endpoint = None
-        test_run = bool(call.data.get("dial_scope", {}).get("test_run_id"))
-        if outcome in NUMBER_STOPS and (not test_run or outcome == "opt_out"):
+        dial_scope = call.data.get("dial_scope", {})
+        test_run = bool(dial_scope.get("test_run_id"))
+        standalone_test = (
+            dial_scope.get("test_only")
+            and lead.data.get("source") == "csv"
+            and memberships(lead.data) == [TEST_LIST]
+        )
+        if outcome in NUMBER_STOPS and (outcome == "opt_out" or not (test_run or standalone_test)):
             # Journal the denial before any wrap-up mutation or receipt can
             # commit. A rollback retains the journal and recovery hold.
             endpoint_id = call.data.get("endpoint_id") or lead.data["endpoint_id"]

@@ -173,6 +173,60 @@ def test_an_unstarted_reservation_lapses_and_frees_the_rep_and_lead(workspace, c
     assert call(ws, "POST", "/v1/calls/start", json=body)["lead_id"] == again["lead"]["id"]
 
 
+@pytest.mark.parametrize("outcome", ["wrong_party", "invalid_endpoint"])
+def test_test_phone_remains_callable_after_practicing_a_bad_number_outcome(workspace, carrier, outcome):
+    ws = workspace
+    phone = "+12025550198"
+    call(ws, "PUT", "/v1/admin/settings", json={"test_phone": phone})
+    post(ws, "/v1/settings/test-call")
+    made = start(ws)
+    answered_by_human(ws, made["id"])
+    hang_up(ws, made["id"])
+    wrap_up(ws, made["id"], outcome=outcome)
+    assert get(ws, f"/v1/calls/{made['id']}")["outcome"] == outcome
+
+    post(ws, "/v1/settings/test-call")
+    ready_as(ws)
+    repeated = start_as(ws, key="repeat-test-phone")
+    assert repeated["is_test"]
+    assert [dial["to"] for dial in carrier.dials] == [phone, phone]
+
+
+@pytest.mark.parametrize(
+    ("reason", "description"),
+    [
+        ("opt_out", "has an opt-out"),
+        ("temporary_hold", "is on a safety hold"),
+        ("wrong_party", "is marked as a wrong number"),
+        ("invalid_endpoint", "is marked as invalid"),
+    ],
+)
+def test_test_phone_names_its_own_dial_block_and_accepts_a_different_phone(
+    workspace, carrier, reason, description
+):
+    ws = workspace
+    blocked, clean = "+12025550198", "+12025550199"
+    call(ws, "PUT", "/v1/admin/settings", json={"test_phone": blocked})
+    post(ws, "/v1/settings/test-call")
+    post(ws, "/v1/suppressions", {"phone": blocked, "reason": reason})
+    ready_as(ws)
+    detail = next_lead(ws, status=409)["detail"]
+    assert detail["fix"] == "settings"
+    assert detail["message"].startswith(f"The saved test phone {description}.")
+    assert get(ws, "/v1/calling/readiness")["why_none"] == detail["message"]
+    assert not carrier.dials
+
+    pause(ws)
+    call(ws, "DELETE", "/v1/settings/test-call")
+    stopped = post(ws, "/v1/settings/test-call", status=409)["detail"]
+    assert stopped == detail["message"]
+    assert not get(ws, "/v1/workspace").get("test_phone")
+    call(ws, "PUT", "/v1/admin/settings", json={"test_phone": clean})
+    post(ws, "/v1/settings/test-call")
+    assert start(ws)["is_test"]
+    assert [dial["to"] for dial in carrier.dials] == [clean]
+
+
 @pytest.mark.slow
 def test_due_callback_is_offered_first_and_opt_out_removes_a_lead(workspace, clock):
     ws = workspace

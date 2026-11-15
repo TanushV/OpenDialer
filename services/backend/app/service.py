@@ -778,9 +778,12 @@ def start_test_session(service, p):
         fail(409, "Type your phone number in Test phone first")
     with service.db.transaction(False) as s:
         from app import test_list
+        from app.administration import test_phone_issue
 
         if test_list.test_list_run(service, s, p):
             fail(409, "End the test list in the Dialer before starting a single test call.")
+        if issue := test_phone_issue(service, s, p, phone):
+            fail(409, issue)
         campaign = next(iter(ops.scoped(service, s, "campaigns", p)), None)
         # R11.7: the owner's HubSpot test contact, when it has this number, is the one dialed, so its calls land there.
         existing = test_candidate(service, s, p, phone)
