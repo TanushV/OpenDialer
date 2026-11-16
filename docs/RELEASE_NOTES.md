@@ -1,3 +1,10 @@
+# OpenDialer 2.2.1
+
+- **Get help off script.** The live helper uses a matching script line or offers a short suggested reply for a new question or objection.
+- **Get the tip sooner.** The helper can start after the prospect pauses using the transcript already on screen. The final transcript of that turn does not send a second request.
+
+Updates from 1.0.x through 2.2.0 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.2.0
 
 - **See why a call didn't start.** The Dialer keeps a visible warning with the exact reason and a link to the relevant settings when one exists. Carrier refusals show the Telnyx error code when available.

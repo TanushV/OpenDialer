@@ -203,6 +203,38 @@ def test_a_tip_shows_the_wording_of_the_matching_script_part(workspace, clock):
     assert coach["script_part"] == {"label": "Objections · Send me an email", "text": EMAIL}
 
 
+def test_off_script_questions_get_a_spoken_reply_and_the_next_turn_still_gets_help(
+    workspace, clock, monkeypatch
+):
+    from app import live_help
+
+    follow_up = "Which security requirements would your team need us to verify?"
+    selections = iter([f"Say: {follow_up}", "Part: 1"])
+    contexts = []
+
+    class Selector:
+        async def converse(self, messages, **_):
+            contexts.append(messages[1]["content"])
+            return next(selections)
+
+    with_helper(workspace)
+    monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
+    started = start(workspace)
+    call_id = started["id"]
+    answered_by_human(workspace, call_id)
+    chunk(workspace, call_id, "question", "Can you tell me how your security review works?")
+    first = tip_after_speech(workspace, clock, call_id)["coach"]
+    assert first["source"] == "suggestion"
+    assert first["script_part"] is None
+    assert first["say_or_ask"] == follow_up
+
+    chunk(workspace, call_id, "next", "Thanks, tell me about the rest of the offer.")
+    second = tip_after_speech(workspace, clock, call_id)["coach"]
+    assert second["say_or_ask"] == started["script_snapshot"]["opener"]
+    assert "security review works" in contexts[0]
+    assert follow_up in contexts[1]
+
+
 def test_automatic_selection_waits_for_the_whole_prospect_turn(workspace, clock, monkeypatch):
     from app import live_help
     from app.helper import live

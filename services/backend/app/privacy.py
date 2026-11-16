@@ -342,6 +342,7 @@ def job_metadata(payload):
         "context_fingerprint",
         "state_version",
         "transcript_version",
+        "prospect_segment_id",
         "request_id",
         "deadline",
         "raw_expires_at",

@@ -67,6 +67,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D34 | The rep starts personalized scripts for a chosen list in Leads. Importing contacts and saving the base script leave new generation idle. HubSpot number checks still run after sync. | Owner, November 13 |
 | D35 | Settings saves one repeatable list of approved test phones per workspace. The rep starts the list explicitly from the Dialer, which pauses at the end. Test calls use the normal audio, script and caller ID flow without prospect calling hours, retry spacing or the app's call timer. | Owner, November 13 |
 | D36 | Markdown defines the order of the script and its options. During calls the rep's finalized speech moves the script panel to a confident match, including after manual scrolling. Review exports observed paths and stage counts with the version and structure each call used. | Owner, November 13 |
+| D37 | The live helper uses a fitting prepared script line or suggests a short reply when the conversation goes off script. A direct-audio request can use the latest transcript once prospect audio confirms a pause. Finalization of the same text does not send a second request. | Owner follow-up, November 15 |
 | D26 | Withdrawn by D27. One shared number pool. Any seat can call from any pool number. The relay picks the number for each call (local area code first, then least used today) and counts daily use across all seats, so the per-number cap holds for the team. Pool numbers sit on one shared incoming route, and a callback rings the seat that last called that prospect, or goes to voicemail and a task on that seat. | Owner decision, November 8; that a Call Control dial may present any number on the account is confirmed in L23 |
 
 Open owner inputs:
@@ -2095,3 +2096,7 @@ test assets and admin access before asking for anything. The signed rollout foll
   the dial. A WebKit simulation checked refusal, recovery and repeat calls. The existing pilot profile placed one live
   call to the Mac's verified saved phone ending 1101 with muted test audio. Telnyx confirmed an answer and normal
   hangup; no human or microphone verification was inferred.
+- November 15, 2026: the latest owner test produced five model receipts with about half a second of request time
+  each and one visible tip. The first request began 11.3 seconds after answer. The call transcript repeated nearly
+  the same words on both tracks. 2.2.1 implements D37 and records the outcome of each completed helper selection
+  without logging its wording. An audio replay exercises a suggestion before finalization and prevents a duplicate.

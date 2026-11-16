@@ -155,6 +155,7 @@ export interface Coach {
   say_or_ask: string;
   /** The prepared script response selected for this moment. */
   script_part?: { label: string; text: string } | null;
+  source?: "suggestion";
   private: boolean;
   status: "ready";
   at?: string;

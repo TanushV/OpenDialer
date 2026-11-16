@@ -77,6 +77,36 @@ test("renewed interest gets a script tip despite a brief rep transcript update",
   );
 });
 
+test("an off-script reply is labeled and displayed in the Dialer", async ({
+  page,
+}) => {
+  await enter(page);
+  const placed = await firstCall(page);
+  await answer(page);
+  const line = "Which security requirements would your team need us to verify?";
+  await page.route(`**/v1/calls/${placed.id}`, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.coach = {
+      id: "off-script",
+      kind: "TIP",
+      private: false,
+      status: "ready",
+      say_or_ask: line,
+      source: "suggestion",
+      script_part: null,
+      remaining_ms: 30000,
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.keyboard.press("F1");
+  const helper = page.getByTestId("live-coaching-strip");
+  await expect(
+    helper.getByText("Suggested reply", { exact: true }),
+  ).toBeVisible();
+  await expect(helper.getByText(line, { exact: true })).toBeVisible();
+});
+
 const settle = (page: Page) =>
   page.evaluate(
     () =>

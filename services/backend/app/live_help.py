@@ -1,7 +1,7 @@
 """The live helper wired to the store (R10.1). The rules live in `helper/live.py`.
 
-A turn uses the call's script, lead context and dialogue to select a spoken response from the script.
-Only the resolved script wording is published to the Dialer. A turn never writes the call, the lead or a task.
+A turn uses the call's script, lead context and dialogue to select a script line or suggest a short response.
+A turn never writes the call, the lead or a task.
 """
 
 import asyncio
@@ -41,7 +41,7 @@ def provider(service, p):
     )
 
 
-def queue(service, s, p, call, transcript_version, delay_ms=live.DEBOUNCE_MS):
+def queue(service, s, p, call, transcript_version, delay_ms=live.DEBOUNCE_MS, *, prospect_segment_id=None):
     """Coalesce finalized prospect speech into the next scheduled selection."""
     service.jobs.coalesce_live_in(
         s,
@@ -51,6 +51,7 @@ def queue(service, s, p, call, transcript_version, delay_ms=live.DEBOUNCE_MS):
             "seller_id": p["seller_id"],
             "user_id": call.data["rep_id"],
             "transcript_version": transcript_version,
+            "prospect_segment_id": prospect_segment_id,
         },
         f"coach:{call.id}",
         tenant_id=p["tenant_id"],
@@ -59,11 +60,13 @@ def queue(service, s, p, call, transcript_version, delay_ms=live.DEBOUNCE_MS):
     )
 
 
-def queue_confirmed_turn(service, p, call_id, transcript_version):
+def queue_confirmed_turn(service, p, call_id, transcript_version, prospect_segment_id):
     with service.db.transaction() as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         if _live(service, s, p, call) and not _muted(call):
-            queue(service, s, p, call, transcript_version, delay_ms=0)
+            queue(
+                service, s, p, call, transcript_version, delay_ms=0, prospect_segment_id=prospect_segment_id
+            )
 
 
 def _live(service, s, p, call):
@@ -74,7 +77,7 @@ def _live(service, s, p, call):
     return not ops.suppressed(service, s, p, lead.data["phone"])
 
 
-def request_in(service, s, p, call, question):
+def request_in(service, s, p, call, question, *, prospect_segment_id=None):
     """Everything one turn sends: script, lead, research, earlier calls and the call so far."""
     from app.script_follow import latest_match
 
@@ -123,7 +126,9 @@ def request_in(service, s, p, call, question):
     dialogue = [
         {"side": r.get("side"), "text": r["text"], "script_section": r.get("script_section")}
         for r in segments
-        if r.get("is_final") and not r.get("system_audio") and r.get("text")
+        if not r.get("system_audio")
+        and r.get("text")
+        and (r.get("is_final") or (r.get("side") == "remote" and r["segment_id"] == prospect_segment_id))
     ][-live.DIALOGUE :]
     seller = ops.required(service, s, "sellers", p["seller_id"], p)
     shown = service.tips.shown.get(call.id)
@@ -140,14 +145,14 @@ def request_in(service, s, p, call, question):
     }
 
 
-def _prepare(service, p, call_id, question, *, automatic):
+def _prepare(service, p, call_id, question, *, automatic, prospect_segment_id=None):
     with service.db.transaction(False) as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         if not _live(service, s, p, call):
             return None, "ended"
         if automatic and _muted(call):
             return None, "muted"
-        return request_in(service, s, p, call, question), None
+        return request_in(service, s, p, call, question, prospect_segment_id=prospect_segment_id), None
 
 
 def _muted(call):
@@ -174,10 +179,20 @@ def _requeue(service, p, call_id, transcript_version):
         # When private help is in flight, preserve any prospect turn already queued behind it.
         newest = job is not None and job.payload.get("transcript_version") == transcript_version
         if newest and _live(service, s, p, call) and not _muted(call):
-            queue(service, s, p, call, transcript_version, live.BUSY_RETRY_MS)
+            queue(
+                service,
+                s,
+                p,
+                call,
+                transcript_version,
+                live.BUSY_RETRY_MS,
+                prospect_segment_id=job.payload.get("prospect_segment_id"),
+            )
 
 
-async def turn(service, p, call_id, question=None, request_id=None, *, transcript_version=None):
+async def turn(
+    service, p, call_id, question=None, request_id=None, *, transcript_version=None, prospect_segment_id=None
+):
     """One helper turn. Returns its status: shown, quiet, busy, muted, unavailable, cancelled or ended."""
     private = transcript_version is None
     identity = request_id or uid()
@@ -185,7 +200,15 @@ async def turn(service, p, call_id, question=None, request_id=None, *, transcrip
     if not private and service.tips.busy(call_id):
         await asyncio.to_thread(_requeue, service, p, call_id, transcript_version)
         return {**result, "status": "busy"}
-    request, skipped = await asyncio.to_thread(_prepare, service, p, call_id, question, automatic=not private)
+    request, skipped = await asyncio.to_thread(
+        _prepare,
+        service,
+        p,
+        call_id,
+        question,
+        automatic=not private,
+        prospect_segment_id=prospect_segment_id,
+    )
     if request is None:
         return {**result, "status": skipped}
     if not private and live.screener(request["dialogue"]):
@@ -234,10 +257,16 @@ async def turn(service, p, call_id, question=None, request_id=None, *, transcrip
         return {**result, "status": status}
     service.tips.status[call_id] = {"status": "available"}
     part = live.reply(text, parts)
-    if part is None:
+    spoken = part["text"] if part else live.suggestion(text)
+    if spoken is None:
+        reason = "chose to listen" if (text or "").strip() == live.QUIET else "unrecognized response"
+        log.info("Live helper on call %s: %s", call_id, reason)
         return {**result, "status": "quiet"}
-    tip = live.card(identity, part["text"], private=private, now=service.clock(), part=part)
+    tip = live.card(identity, spoken, private=private, now=service.clock(), part=part)
+    if part is None:
+        tip["source"] = "suggestion"
     status = await asyncio.to_thread(_publish, service, p, call_id, tip, automatic=not private)
+    log.info("Live helper on call %s: %s (%s)", call_id, status, "script" if part else "suggestion")
     return {**result, "status": status}
 
 

@@ -103,8 +103,11 @@ def bind_api(app, service, principal):
             turn = ProspectTurn() if side == "remote" else None
 
             async def dispatch_turn():
-                if turn is not None and (version := turn.take()) is not None:
-                    await asyncio.to_thread(live_help.queue_confirmed_turn, service, p, call_id, version)
+                if turn is not None and (candidate := turn.take()) is not None:
+                    version, segment_id = candidate
+                    await asyncio.to_thread(
+                        live_help.queue_confirmed_turn, service, p, call_id, version, segment_id
+                    )
 
             async def frames():
                 nonlocal total, clean
@@ -144,13 +147,17 @@ def bind_api(app, service, principal):
                     received = segment.pop("first_received")
                     if turn is not None:
                         # Wait for this revision to commit before dispatching any pending tip.
-                        turn.interim = True
+                        turn.committing = True
                     result = await ops.transcript(
                         service, p, call_id, segment, received_at=received, queue_helper=turn is None
                     )
-                    if turn is not None and segment["is_final"]:
-                        usable = not (result.get("expired") or result.get("duplicate"))
-                        turn.finalized(result["transcript_version"] if usable else None)
+                    if turn is not None:
+                        usable = segment["text"].strip() and not (
+                            result.get("expired") or result.get("duplicate")
+                        )
+                        turn.committed(
+                            result["transcript_version"] if usable else None, segment["segment_id"]
+                        )
                         await dispatch_turn()
                     await ws.send_json({"status": "transcribed"})
             await ws.send_json({"status": "stopped"})

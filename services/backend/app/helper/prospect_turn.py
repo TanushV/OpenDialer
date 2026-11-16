@@ -16,9 +16,10 @@ class ProspectTurn:
         self.vad = Vad(1)
         self.tail = b""
         self.quiet_ms = 0
-        self.interim = False
+        self.committing = False
         self.dispatched = False
         self.pending = None
+        self.sent_segment = None
 
     def observe(self, packet):
         pcm = self.tail + packet
@@ -26,23 +27,25 @@ class ProspectTurn:
         self.tail = pcm[complete:]
         for start in range(0, complete, FRAME_BYTES):
             if self.vad.is_speech(pcm[start : start + FRAME_BYTES], RATE):
-                # A new stretch of speech needs its own final text. Earlier fragments are already in context.
+                # Clear the prior candidate when new speech starts after a pause.
                 if self.quiet_ms >= RESUMED_MS:
                     self.pending = None
+                    self.dispatched = False
                 self.quiet_ms = 0
-                self.dispatched = False
             else:
                 self.quiet_ms = min(PAUSE_MS, self.quiet_ms + FRAME_MS)
 
     def take(self):
-        """Release the newest final fragment once per pause, after outstanding interim text settles."""
-        if self.interim or self.pending is None or self.dispatched or self.quiet_ms < PAUSE_MS:
+        """Release the latest committed text once local audio confirms a pause."""
+        if self.committing or self.pending is None or self.dispatched or self.quiet_ms < PAUSE_MS:
             return None
-        version, self.pending = self.pending, None
+        version, self.sent_segment = self.pending
+        self.pending = None
         self.dispatched = True
-        return version
+        return version, self.sent_segment
 
-    def finalized(self, version=None):
-        self.interim = False
-        if version is not None and not self.dispatched:
-            self.pending = version
+    def committed(self, version, segment_id):
+        self.committing = False
+        # A final revision of a segment already used by the helper is not a new turn.
+        if version is not None and not self.dispatched and segment_id != self.sent_segment:
+            self.pending = version, segment_id

@@ -144,7 +144,7 @@ export function LiveCoach({
             ? "Choosing a script line…"
             : muted
               ? "Automatic tips muted"
-              : "Tips come from your script"}
+              : "Tips follow the conversation"}
         </span>
         <HelperStatus call={call} />
         <div className="helper-actions">
@@ -183,6 +183,11 @@ export function LiveCoach({
             >
               <small>From your script · {advice.script_part.label}</small>
               <p>{advice.script_part.text}</p>
+            </div>
+          ) : advice?.source === "suggestion" ? (
+            <div className="helper-script-part">
+              <small>Suggested reply</small>
+              <p>{advice.say_or_ask}</p>
             </div>
           ) : (
             <p>

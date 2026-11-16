@@ -64,6 +64,7 @@ async def test_stream_closes_and_flushes_without_logging_or_saving_audio(monkeyp
 
     def connect(url, **kwargs):
         assert "transcription_engine=Soniox" in url
+        assert "endpointing=500" in url
         assert "not-a-real-key" not in url
         assert kwargs["additional_headers"]["Authorization"] == "Bearer not-a-real-key"
         return Connection()
@@ -132,7 +133,7 @@ def test_managed_socket_delivers_speech_to_existing_pipeline(workspace, app, mon
 
 
 @pytest.mark.slow
-def test_prospect_pause_and_final_text_release_one_helper_request(workspace, app, clock, monkeypatch):
+def test_prospect_pause_releases_one_helper_request_before_the_final_text(workspace, app, clock, monkeypatch):
     from math import pi, sin
     from struct import pack
     from threading import Semaphore
@@ -156,9 +157,9 @@ def test_prospect_pause_and_final_text_release_one_helper_request(workspace, app
     monkeypatch.setattr(audio, "monotonic", lambda: (clock.now - start_at).total_seconds())
     frames_by_packet = {
         1: ("We’re interested, but", True),
-        6: ("we would need", False),
-        16: ("we would need approval first.", True),
-        21: ("From finance.", True),
+        6: ("we would need approval", False),
+        24: ("we would need approval first.", True),
+        25: ("From finance.", True),
         28: ("Yes.", True),
     }
     consumed = Semaphore(0)
@@ -204,14 +205,15 @@ def test_prospect_pause_and_final_text_release_one_helper_request(workspace, app
         send(speech, 2)
         drain()
         assert requests == [], "A mid-sentence pause must not spend a request"
-        send(silence, 9)
+        send(silence, 7)
         drain()
-        assert len(requests) == 1 and "approval first" in requests[0]
+        assert len(requests) == 1 and "Prospect: we would need approval" in requests[0]
+        assert "approval first" not in requests[0], "The provider has not finalized this segment yet"
         assert (
             client.get(path, headers=headers).json()["coach"]["say_or_ask"]
             == made["script_snapshot"]["opener"]
         )
-        send(silence, 10)
+        send(silence, 12)
         drain()
         assert len(requests) == 1, "Quiet audio and additional final fragments share the same turn"
         send(speech)

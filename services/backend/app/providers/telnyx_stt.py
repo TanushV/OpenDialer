@@ -15,7 +15,7 @@ ENDPOINT = "wss://api.telnyx.com/v2/speech-to-text/transcription?" + urlencode(
         "input_format": "linear16",
         "sample_rate": 16000,
         "interim_results": "true",
-        "endpointing": 1000,
+        "endpointing": 500,  # Telnyx's minimum Soniox endpoint delay.
     }
 )
 
