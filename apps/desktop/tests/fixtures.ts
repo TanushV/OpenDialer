@@ -1,7 +1,8 @@
 import { expect, test as base } from "@playwright/test";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { withFixtureServer } from "./fixture-server";
 
 export { expect };
 export type { Page } from "@playwright/test";
@@ -20,30 +21,6 @@ const BACKEND_PORT = 18765 + slot;
 const FRONTEND_PORT = 11420 + slot;
 /** This worker's local authority. */
 export const AUTHORITY = `http://127.0.0.1:${BACKEND_PORT}`;
-
-async function ready(url: string, child: ChildProcess, ms: number) {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null)
-      throw new Error(`${url} exited with ${child.exitCode}`);
-    try {
-      if ((await fetch(url)).ok) return;
-    } catch {
-      /* not listening yet */
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(`${url} did not start within ${ms} ms`);
-}
-
-async function stop(child: ChildProcess) {
-  if (child.exitCode !== null) return;
-  const exited = new Promise((resolve) => child.once("exit", resolve));
-  child.kill("SIGTERM");
-  const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
-  await exited;
-  clearTimeout(timer);
-}
 
 /**
  * Set up this test's authority the way an earlier session would have, so the app opens on its
@@ -79,9 +56,9 @@ export const test = base.extend<
   frontend: [
     async ({}, use) => {
       const vite = spawn(
-        "npx",
+        process.execPath,
         [
-          "vite",
+          path.join(DESKTOP, "node_modules/vite/bin/vite.js"),
           "--host",
           "127.0.0.1",
           "--port",
@@ -99,9 +76,7 @@ export const test = base.extend<
         },
       );
       const url = `http://127.0.0.1:${FRONTEND_PORT}`;
-      await ready(url, vite, 60_000);
-      await use(url);
-      await stop(vite);
+      await withFixtureServer(vite, url, 60_000, () => use(url));
     },
     { scope: "worker", timeout: 90_000 },
   ],
@@ -119,9 +94,9 @@ export const test = base.extend<
           stdio: "ignore",
         },
       );
-      await ready(`${AUTHORITY}/health`, server, 30_000);
-      await use(AUTHORITY);
-      await stop(server);
+      await withFixtureServer(server, `${AUTHORITY}/health`, 30_000, () =>
+        use(AUTHORITY),
+      );
     },
     { auto: true, timeout: 45_000 },
   ],
