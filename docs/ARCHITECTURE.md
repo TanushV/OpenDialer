@@ -63,7 +63,8 @@ hiding a defect.
 
 ## Leads and numbers
 
-- **Intake** (`leads/intake.py`): one column map for CSV and HubSpot. Only mapped columns reach a model.
+- **Intake** (`leads/intake.py`): one column map for CSV and HubSpot. Research reads all CSV columns with bounded
+  cell and row sizes. HubSpot supplies identity and mapped columns.
 - **HubSpot** (`leads/hubspot_sync.py`, `crm.py`): a Service Key; a list picks who is called. Each sync adds, updates
   and removes leads; opt-outs flow both ways; each call is logged as a HubSpot call record with the summary.
 - **Number checks** (`leads/waterfall.py`): for HubSpot leads only, through Treg, within a spend limit per list. CSV

@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Search,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CallbackRouting } from "./CallbackRouting";
 import { countLabel, useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
@@ -40,7 +40,14 @@ export function LeadsPage({
 }) {
   const { snapshot: w, api, run, refresh, notice } = useWorkspace();
   const [csv, setCSV] = useState("");
-  const [columnMap, setColumnMap] = useState<ColumnMapping | null>(null);
+  const [mappedColumns, setMappedColumns] = useState<{
+    headerKey: string;
+    map: ColumnMapping;
+  } | null>(null);
+  const headers = useMemo(() => csvHeaders(csv), [csv]);
+  const headerKey = headers.join("\u0000");
+  const columnMap =
+    mappedColumns?.headerKey === headerKey ? mappedColumns.map : null;
   const [listName, setListName] = useState("");
   const [query, setQuery] = useState("");
   const [report, setReport] = useState<{
@@ -387,7 +394,7 @@ export function LeadsPage({
                   );
                   setReport(report);
                   setCSV("");
-                  setColumnMap(null);
+                  setMappedColumns(null);
                   await refresh();
                   await reloadLeads();
                   await lists.reload();
@@ -408,9 +415,9 @@ export function LeadsPage({
           )}
           {/* Below the buttons: the guessed map arrives after the CSV is read and must not move Import leads. */}
           <ColumnMap
-            headers={csvHeaders(csv)}
+            headers={headers}
             value={columnMap}
-            onChange={setColumnMap}
+            onChange={(map) => setMappedColumns({ headerKey, map })}
           />
         </div>
       </section>

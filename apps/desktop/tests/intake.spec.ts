@@ -2,7 +2,7 @@ import { expect, test } from "./fixtures";
 import { openLeads } from "./simulation";
 
 const CSV = [
-  "name,phone,company,timezone,title,finder,network status,signal summaries,signal dates,signal urls,email",
+  "name,phone,company,timezone,title,finder,phone_status,account signals,signal_dates,signal urls,email",
   'Liam Intake,+16175550123,Brighterway,America/New_York,VP Sales,blitzapi,LIVE,"Hiring SDRs | New office","2026-10-20; 2026-09-02","https://b.example/jobs; https://b.example/news",liam@b.example',
   "Dana Dead,+16175550124,Brighterway,America/New_York,Director,wiza,DEAD,,,,dana@b.example",
 ].join("\n");
@@ -19,17 +19,21 @@ test("import shows the column map, keeps per-column separators and marks a dead 
   await openLeads(page);
   await page.getByLabel("List name", { exact: true }).fill("Intake check");
   await page.getByLabel("CSV lead data").fill(CSV);
-  const map = page.getByLabel("Column map");
+  const map = page.getByRole("group", { name: "Column map" });
+  await expect(map).toContainText("the research agent reads all columns");
+  await expect(
+    map.getByRole("combobox", { name: "Company description" }),
+  ).toBeHidden();
   await expect(
     map.getByRole("combobox", { name: "Signal summaries", exact: true }),
-  ).toHaveValue("signal summaries");
+  ).toHaveValue("account signals");
   await expect(map.getByLabel("Signal summaries separator")).toHaveValue("|");
   await expect(map.getByLabel("Signal links separator")).toHaveValue(";");
   await expect(
     map.getByRole("combobox", {
       name: "Live status (DEAD is never dialed)",
     }),
-  ).toHaveValue("network status");
+  ).toHaveValue("phone_status");
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
   await expect(page.getByText(/2 imported/)).toBeVisible();
   await expect(
@@ -69,7 +73,7 @@ test("the guessed column map arrives below Import leads and never moves the butt
       button.evaluate((b) => b.getBoundingClientRect().top + window.scrollY);
     const before = await top();
     release();
-    await expect(page.getByLabel("Column map")).toBeVisible();
+    await expect(page.getByRole("group", { name: "Column map" })).toBeVisible();
     expect(await top()).toBe(before);
   } finally {
     release();

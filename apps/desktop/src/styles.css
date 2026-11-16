@@ -2367,6 +2367,11 @@ details.transcript-card {
   padding-left: 18px;
   line-height: 1.7;
 }
+.script-wording,
+.script-markdown-example {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .ai-chip {
   display: inline-flex;
   align-items: center;

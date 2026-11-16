@@ -106,7 +106,9 @@ export function ScriptOutline({ template }: { template: ScriptTemplate }) {
               {section.options.map((option) => (
                 <li key={option.id}>
                   {option.title && <strong>{option.title}: </strong>}
-                  <Wording text={option.text} blocks={blocks} />
+                  <span className="script-wording">
+                    <Wording text={option.text} blocks={blocks} />
+                  </span>
                   {option.notes && (
                     <aside className="script-cue">
                       <strong>Rep directions</strong>
@@ -374,11 +376,22 @@ export function ScriptEditor() {
             <code># Never say</code> are optional.
           </li>
           <li>
-            Use <code>##</code> for named options and objections. Prefix rep
-            directions with <code>&gt;</code>; they never become spoken wording.
-            Discovery bullets and existing opening/close bullets remain choices.
-            Other bullets stay checklists. Familiar headings such as Opener and
-            Problem and outcome work too.
+            Use <code>#</code> for each section and <code>##</code> for each
+            named option. Put each alternative question under its own option
+            heading. Write the spoken lines below it in the order you want to
+            read them.
+          </li>
+          <li>
+            In Discovery, Opening, Gatekeeper, Pitch, and Close, a bullet starts
+            an option. Indent a follow-up line to keep it with that bullet. Keep
+            either bullets or named options within a section.
+          </li>
+          <li>
+            Start rep directions with <code>&gt;</code>. Put shared directions
+            before the options. Put option-specific directions under its
+            heading, or indent them under its bullet. Use{" "}
+            <code>{"<!-- note -->"}</code> for draft comments. An inline{" "}
+            <code>#</code> is part of the spoken line.
           </li>
           <li>
             <code>{"{{ instruction }}"}</code> is text the AI writes for each
@@ -392,6 +405,17 @@ export function ScriptEditor() {
             Screening names your business.
           </li>
         </ul>
+        <p className="fine">Example question section</p>
+        <pre className="script-markdown-example">{`# The question
+> Ask one question, then pause.
+
+## Hiring
+I saw you're hiring at {company}.
+How are you onboarding new reps?
+> Use this when the job posting is current.
+
+## Funding
+What will the new funding change for the team?`}</pre>
       </details>
       <div className="script-columns">
         <label className="script-source">

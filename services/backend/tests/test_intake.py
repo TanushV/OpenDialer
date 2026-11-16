@@ -83,11 +83,17 @@ def test_a_300_property_record_keeps_its_mapped_signal_columns():
     assert lead["signals"]["aligned"] and len(lead["signals"]["items"]) == 2
 
 
-def test_bookkeeping_columns_never_reach_a_model():
-    row = read(CSV, guess_map(CSV))["row"]
-    for column in ("email", "apollo person id", "salesforge contact ids", "record id", "fit evidence"):
-        assert column not in row
-    assert row["company"] == "Brighterway" and row["title"] == "VP Sales"
+def test_crm_bookkeeping_stays_out_of_research_context():
+    row = read(HUBSPOT, guess_map(HUBSPOT))["row"]
+    assert "email" not in row and "hs_object_id" not in row
+    assert row["company"] == "Brighterway" and row["jobtitle"] == "VP Sales"
+
+
+def test_csv_context_limits_never_drop_column_names_even_for_very_wide_rows():
+    label = "column " * 30
+    raw = {f"{i} {label}": "text" for i in range(160)}
+    row = read(raw, {}, full_csv=True)["row"]
+    assert row.keys() == raw.keys()
 
 
 def test_a_dead_live_status_is_read_from_the_mapped_column():

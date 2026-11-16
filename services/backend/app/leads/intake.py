@@ -1,8 +1,7 @@
 """One intake path (section 9, D16): a CSV row or a HubSpot record becomes a row, and one column map reads it.
 
-The map names which column plays each role and how its values split. Everything after this ignores the source. Only
-identity and mapped columns reach a model; email, provider IDs and bookkeeping columns never do. Mapping happens
-before any size limit, so a wide record cannot push a signal column out.
+The map names which column plays each role and how its values split. CSV intake also keeps unmapped columns for
+research. Mapping happens before the size limit, so a wide record cannot push a signal column out.
 """
 
 import json
@@ -11,26 +10,30 @@ import re
 # Role -> (header names it is recognised by, default delimiter for multi-value columns).
 ROLES = {
     "title": (("title", "job title", "jobtitle"), None),
-    "headline": (("contact headline", "headline"), None),
-    "company_description": (("company description", "about", "description"), None),
-    "industry": (("industry",), None),
+    "headline": (("contact headline", "headline", "linkedin headline"), None),
+    "company_description": (("company description", "company about", "about", "description"), None),
+    "industry": (("industry", "company industry", "account industry"), None),
     "size": (
         (
             "employees (estimate)",
             "employees",
             "company size",
             "employee count",
+            "company headcount",
             "headcount",
             "numberofemployees",
         ),
         None,
     ),
-    "number_source": (("finder", "number source", "phone source"), None),
-    "live_status": (("network status", "live status", "line status"), None),
-    "signal_summaries": (("signal summaries", "signals"), "|"),
-    "signal_dates": (("signal dates",), ";"),
-    "signal_urls": (("signal urls", "signal links"), ";"),
-    "linkedin_activity": (("linkedin activity status", "linkedin activity"), None),
+    "number_source": (("finder", "number source", "phone source", "phone number source"), None),
+    "live_status": (("network status", "live status", "line status", "phone status"), None),
+    "signal_summaries": (("signal summaries", "account signals", "company signals", "signals"), "|"),
+    "signal_dates": (("signal dates", "account signal dates"), ";"),
+    "signal_urls": (("signal urls", "signal links", "account signal urls", "account signal links"), ";"),
+    "linkedin_activity": (
+        ("linkedin activity status", "linkedin activity", "recent linkedin activity"),
+        None,
+    ),
 }
 SIGNALS = ("signal_summaries", "signal_dates", "signal_urls")
 # Read by import itself (who, where, which number), so they always reach the row.
@@ -58,7 +61,7 @@ DEAD = {"dead", "disconnected", "not_in_service"}
 
 
 def _key(header):
-    return " ".join(str(header).strip().casefold().split())
+    return re.sub(r"[\W_]+", "", str(header).casefold())
 
 
 def guess_map(headers):
@@ -66,7 +69,7 @@ def guess_map(headers):
     by_key = {_key(h): h for h in headers if str(h).strip()}
     found = {}
     for role, (names, delimiter) in ROLES.items():
-        column = next((by_key[name] for name in names if name in by_key), None)
+        column = next((by_key[key] for name in names if (key := _key(name)) in by_key), None)
         if column is not None:
             found[role] = {"column": column, "delimiter": delimiter}
     return found
@@ -86,8 +89,11 @@ def check_map(column_map, headers):
 
 
 def _value(raw, column):
-    wanted = _key(column)
-    found = next((v for k, v in raw.items() if _key(k) == wanted), None)
+    if column in raw:
+        found = raw[column]
+    else:
+        wanted = _key(column)
+        found = next((v for k, v in raw.items() if _key(k) == wanted), None)
     return " ".join(str(found if found is not None else "").split())
 
 
@@ -130,22 +136,26 @@ def signal_urls(lead_signals):
     return [url for url in lead_signals.get("urls", []) if url]
 
 
-def model_row(raw, column_map):
-    """What a model may read: identity columns and mapped columns only, each value bounded, none dropped by size."""
+def model_row(raw, column_map, *, full_csv=False):
+    """Keep every CSV column and bound values. CRM retains its identity and mapped columns."""
     mapped = {_key(entry["column"]) for entry in column_map.values()}
+    relevant = {_key(header) for header in IDENTITY} | mapped
     row = {}
     for key, value in raw.items():
-        name = _key(key)
-        text = " ".join(str(value if value is not None else "").split())
-        if text and (name in IDENTITY or name in mapped):
+        text = str(value if value is not None else "")
+        if full_csv:
+            row[str(key)] = text[:VALUE_LIMIT]
+        elif _key(key) in relevant and (text := " ".join(text.split())):
             row[str(key).strip()[:80]] = text[:VALUE_LIMIT]
-    while len(json.dumps(row)) > ROW_LIMIT:  # Shorten the longest value; never drop a column.
+    while len(json.dumps(row, ensure_ascii=False)) > ROW_LIMIT:
         longest = max(row, key=lambda k: len(row[k]))
+        if not row[longest]:  # Headers alone can exceed the value budget. Keep their names.
+            break
         row[longest] = row[longest][: len(row[longest]) // 2]
     return row
 
 
-def read(raw, column_map):
+def read(raw, column_map, *, full_csv=False):
     """The lead fields one source row supplies through the map."""
 
     def one(role):
@@ -154,7 +164,7 @@ def read(raw, column_map):
 
     status = re.sub(r"[^a-z_]+", "_", one("live_status").casefold()).strip("_")
     return {
-        "row": model_row(raw, column_map),
+        "row": model_row(raw, column_map, full_csv=full_csv),
         "profile": {
             role: one(role)
             for role in ("title", "headline", "company_description", "industry", "size", "linkedin_activity")

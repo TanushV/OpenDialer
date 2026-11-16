@@ -66,6 +66,7 @@ MAX_WRITTEN = 400
 BLOCK = re.compile(r"\{\{(.*?)\}\}", re.S)
 TOKEN = re.compile(r"\[\[(ai-\d+)\]\]")
 BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
+COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 STARTER = """# Opening
 Hi {first_name}, this is {rep} with {seller}. {{ one sentence on why we're calling {company} now, based on research }}
@@ -157,13 +158,38 @@ def _placeholders(text, line, errors):
             )
 
 
+def _bullet_groups(lines):
+    """Use sibling bullets as options and keep their indented lines with them."""
+    groups, shared_cues, loose_text = [], [], []
+    bullet_indent = 0
+    for number, line in lines:
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        inside = bool(groups) and indent > bullet_indent
+        if not inside and (match := BULLET.match(line)):
+            groups.append([(number, match[1].strip())])
+            bullet_indent = indent
+        elif inside or (groups and not stripped):
+            groups[-1].append((number, stripped))
+        elif stripped.startswith(">"):
+            shared_cues.append(stripped[1:].strip())
+        elif stripped:
+            loose_text.append(number)
+    return groups, "\n".join(shared_cues).strip(), loose_text
+
+
 def parse_markdown(markdown):
     """Parse a Markdown playbook once; blockquotes are cues, never spoken wording."""
     if len(markdown.encode()) > MAX_BYTES:
         raise ScriptError([{"line": 0, "message": "Keep the script under 40 KB"}])
     errors, raw, context = [], {}, {}
     current, card = None, None
-    for number, line in enumerate(markdown.splitlines(), 1):
+    # Keep source line numbers and the original editor text when omitting comments from speech.
+    source = COMMENT.sub(lambda match: re.sub(r"[^\r\n]", "", match[0]), markdown)
+    if "<!--" in source:
+        number = source.count("\n", 0, source.index("<!--")) + 1
+        raise ScriptError([{"line": number, "message": "Close the Markdown comment with -->"}])
+    for number, line in enumerate(source.splitlines(), 1):
         heading = re.match(r"^(#{1,6})\s+(.+?)\s*#*\s*$", line)
         if heading and len(heading[1]) == 1:
             name = " ".join(heading[2].casefold().split())
@@ -283,37 +309,29 @@ def parse_markdown(markdown):
         elif shape == "cards":
             errors.append({"line": entry["line"], "message": f"Add at least one ## item to {entry['title']}"})
         else:
-            spoken, cues = split_cues(entry["lines"])
-            items = []
-            plain = []
-            for number, line in spoken:
-                match = BULLET.match(line)
-                if match:
-                    items.append([number, match[1].strip()])
-                elif line.strip():
-                    if items and line.startswith((" ", "\t")):
-                        items[-1][1] += " " + line.strip()
-                    else:
-                        plain.append(number)
-            if items and shape in {"choice", "list"}:
+            items, shared, plain = (
+                _bullet_groups(entry["lines"]) if shape in {"choice", "list"} else ([], "", [])
+            )
+            if items:
                 if plain:
                     errors.append(
                         {
                             "line": plain[0],
-                            "message": f"{entry['title']} mixes bullets and plain text; make every line a bullet",
+                            "message": f"{entry['title']} mixes bullets and plain text. Indent a continuation or start it with a bullet",
                         }
                     )
                 options = [
-                    option([(number, value)], key, f"{key}-{i}", inherited=cues)
-                    for i, (number, value) in enumerate(items, 1)
+                    option(lines, key, f"{key}-{i}", inherited=shared) for i, lines in enumerate(items, 1)
                 ]
-            elif spoken and text(spoken):
-                options = [option(entry["lines"], key, f"{key}-1")]
-            elif not key.startswith("custom:"):
-                errors.append({"line": entry["line"], "message": f"{entry['title']} is empty"})
-            elif cues:
-                context[entry["title"]] = cues
-                sections.append(reference(key, cues))
+            else:
+                spoken, cues = split_cues(entry["lines"])
+                if text(spoken):
+                    options = [option(entry["lines"], key, f"{key}-1")]
+                elif not key.startswith("custom:"):
+                    errors.append({"line": entry["line"], "message": f"{entry['title']} is empty"})
+                elif cues:
+                    context[entry["title"]] = cues
+                    sections.append(reference(key, cues))
         if len(options) > MAX_OPTIONS:
             errors.append(
                 {"line": entry["line"], "message": f"Use at most {MAX_OPTIONS} items in {entry['title']}"}

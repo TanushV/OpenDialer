@@ -54,56 +54,66 @@ export function ColumnMap({
   }, [key]);
   if (!headers.length || !value) return null;
   const options: [string, string][] = [
-    ["", "Not used"],
+    ["", "No column mapped"],
     ...headers.map((h): [string, string] => [h, h]),
   ];
+  const mapped = roles.filter((role) => value[role]);
+  const unmapped = roles.filter((role) => !value[role]);
+  const field = (role: string) => (
+    <div key={role} className="column-map-row">
+      <Select
+        label={ROLE_NAMES[role] ?? role}
+        options={options}
+        value={value[role]?.column ?? ""}
+        onChange={(e) => {
+          const next = { ...value };
+          if (e.target.value)
+            next[role] = {
+              column: e.target.value,
+              delimiter:
+                value[role]?.delimiter ??
+                (MULTI.has(role)
+                  ? role === "signal_summaries"
+                    ? "|"
+                    : ";"
+                  : null),
+            };
+          else delete next[role];
+          onChange(next);
+        }}
+      />
+      {MULTI.has(role) && value[role] && (
+        <label className="delimiter">
+          Split on
+          <input
+            aria-label={`${ROLE_NAMES[role]} separator`}
+            value={value[role].delimiter ?? ""}
+            maxLength={3}
+            onChange={(e) =>
+              onChange({
+                ...value,
+                [role]: { ...value[role], delimiter: e.target.value },
+              })
+            }
+          />
+        </label>
+      )}
+    </div>
+  );
   return (
     <div className="column-map" role="group" aria-label="Column map">
       <p className="small muted">
-        Columns the research agent reads. Email, IDs and other bookkeeping
-        columns never reach it.
+        Mapped fields identify information such as job titles and account
+        signals. When you generate scripts, the research agent reads all columns
+        in each CSV row.
       </p>
-      {roles.map((role) => (
-        <div key={role} className="column-map-row">
-          <Select
-            label={ROLE_NAMES[role] ?? role}
-            options={options}
-            value={value[role]?.column ?? ""}
-            onChange={(e) => {
-              const next = { ...value };
-              if (e.target.value)
-                next[role] = {
-                  column: e.target.value,
-                  delimiter:
-                    value[role]?.delimiter ??
-                    (MULTI.has(role)
-                      ? role === "signal_summaries"
-                        ? "|"
-                        : ";"
-                      : null),
-                };
-              else delete next[role];
-              onChange(next);
-            }}
-          />
-          {MULTI.has(role) && value[role] && (
-            <label className="delimiter">
-              Split on
-              <input
-                aria-label={`${ROLE_NAMES[role]} separator`}
-                value={value[role].delimiter ?? ""}
-                maxLength={3}
-                onChange={(e) =>
-                  onChange({
-                    ...value,
-                    [role]: { ...value[role], delimiter: e.target.value },
-                  })
-                }
-              />
-            </label>
-          )}
-        </div>
-      ))}
+      {mapped.map(field)}
+      {unmapped.length > 0 && (
+        <details>
+          <summary>Map other fields</summary>
+          {unmapped.map(field)}
+        </details>
+      )}
     </div>
   );
 }

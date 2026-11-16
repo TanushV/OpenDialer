@@ -384,7 +384,7 @@ def import_leads(service, p, body, *, session=None):
                 names = list(dict.fromkeys([*memberships(duplicate.data), body.get("list_name", "").strip()]))
                 update(duplicate, list_names=names)
                 if test_list:
-                    fields = intake.read(raw, column_map)
+                    fields = intake.read(raw, column_map, full_csv=True)
                     update(
                         duplicate,
                         **fields,
@@ -395,6 +395,22 @@ def import_leads(service, p, body, *, session=None):
                         domain=str(raw.get("domain", ""))[:250].lower(),
                         company_key=company_key(raw),
                     )
+                elif duplicate.data.get("source") != "crm":
+                    old = duplicate.data
+                    fields = intake.read(raw, column_map, full_csv=True)
+                    full_row = {**(old.get("row") or {}), **raw}
+                    update(
+                        duplicate,
+                        row=intake.model_row(full_row, column_map, full_csv=True),
+                        profile={**(old.get("profile") or {}), **fields["profile"]},
+                        signals=fields["signals"]
+                        if any(role in column_map for role in intake.SIGNALS)
+                        else old.get("signals", fields["signals"]),
+                        number_source=fields["number_source"] or old.get("number_source"),
+                        live_status="dead"
+                        if old.get("live_status") == "dead"
+                        else fields["live_status"] or old.get("live_status"),
+                    )
                 emit(s, p["tenant_id"], "lead.updated", duplicate, service.clock())
                 result["leads"].append(doc(duplicate))
                 continue
@@ -404,7 +420,7 @@ def import_leads(service, p, body, *, session=None):
                     ZoneInfo(timezone)
                 except (ValueError, KeyError):
                     timezone = None
-            fields = intake.read(raw, column_map)
+            fields = intake.read(raw, column_map, full_csv=True)
             row = fields["row"]
             lead = put(
                 s,

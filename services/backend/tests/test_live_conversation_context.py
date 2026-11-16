@@ -90,6 +90,27 @@ def test_exact_script_wording_links_back_to_its_part():
     assert position == "objections:objections-1" and source is None
 
 
+def test_alternative_questions_keep_their_line_breaks_in_the_helper_context():
+    request = request_with([])
+    request["script"]["sections"].append(
+        {
+            "key": "custom:the-question",
+            "title": "The question",
+            "options": [
+                {
+                    "title": "With a trigger",
+                    "text": "Hiring:\nHow are you onboarding?\n\nFunding:\nHow are you expanding?",
+                }
+            ],
+        }
+    )
+    prompt = messages(request)[1]["content"]
+    assert (
+        "The question · With a trigger: Hiring:\n   How are you onboarding?\n   \n   Funding:\n   How are you expanding?"
+        in prompt
+    )
+
+
 def test_plain_spoken_lines_keep_contextual_estimates_and_typographic_spaces():
     spoken = "Roughly 60 hours for 20 sites. That assumes 3 hours per site."
     assert answer("Say: Roughly 60\u202fhours for 20 sites.\nThat assumes 3 hours per site.", {}) == (

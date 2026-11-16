@@ -146,7 +146,10 @@ class SimulatedCoach:
         for line in script.splitlines():
             if not line or line in {"Facts:", "Research:", "Never say:", "Earlier calls:"}:
                 break
-            if not line.startswith(" ") and ": " in line:
+            if line.startswith("   "):
+                if parts and not line.startswith("   Rep directions (not spoken):"):
+                    parts[-1] += "\n" + line[3:]
+            elif ": " in line:
                 parts.append(line)
         heard = set(re.findall(r"[a-z]{4,}", (question or said).lower()))
         overlap = [len(heard.intersection(re.findall(r"[a-z]{4,}", part.lower()))) for part in parts]

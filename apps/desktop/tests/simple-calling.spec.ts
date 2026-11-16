@@ -87,7 +87,7 @@ test("open a Markdown script file, see it parsed, and keep readable wording", as
     name: "sales.md",
     mimeType: "text/markdown",
     buffer: Buffer.from(
-      "# Opening\nHi {first_name}, this is {rep} from {seller}.\n\n# Screening\n{rep} from {seller}, about your process.\n\n# Discovery\n- How do you handle this today?\n\n# Objections\n## Busy\nWhen would be better?\n\n# Close\nWould a short call help?",
+      "# Opening\nHi {first_name}, this is {rep} from {seller}.\n\n# Screening\n{rep} from {seller}, about your process.\n\n# Discovery\n- How do you handle this today?\n  What takes the most time?\n  > Ask only if needed.\n- Who else is involved?\n\n# Objections\n## Busy\nWhen would be better?\n\n# Close\nWould a short call help?",
     ),
   });
   const outline = page.locator(".script-outline");
@@ -95,6 +95,16 @@ test("open a Markdown script file, see it parsed, and keep readable wording", as
     outline.getByRole("heading", { name: "Objections" }),
   ).toBeVisible();
   await expect(outline).toContainText("Busy: When would be better?");
+  const discovery = outline.locator("section").filter({
+    has: page.getByRole("heading", { name: "Discovery", exact: true }),
+  });
+  const discoveryOptions = discovery.locator("li");
+  expect(await discoveryOptions.first().innerText()).toContain(
+    "How do you handle this today?\nWhat takes the most time?",
+  );
+  await expect(discoveryOptions.nth(1)).not.toContainText(
+    "Ask only if needed.",
+  );
   await page.getByRole("button", { name: "Save script", exact: true }).click();
   await expect(page.getByText(/Script saved/).first()).toBeVisible();
   await page.reload();

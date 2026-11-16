@@ -42,16 +42,25 @@ Standalone workspaces can add owned numbers under **Numbers** and test their rou
 ## 4. Script
 
 Open **Script**. Use **Open calling script (.md)** or paste your Markdown script (start from the [example](examples/script.md)).
-Click **Save script**.
-The page says **Saved** or **Unsaved changes**; calls use the saved version. Required sections: `# Opening`,
-`# Screening`, `# Discovery`, `# Close`. Each bullet is an option the agent may pick; `{{ ... }}` is a line the agent
-writes for each lead; `{first_name}`, `{company}`, `{rep}` and `{seller}` are filled in. **Add trigger list** adds the
-"why now" rules research looks for.
+The preview shows the sections, options and wording in source order. Click **Save script** to use the new version on
+future calls. **How to write it** in the editor includes a question example.
+
+- Use `#` for sections. Include `# Opening` and `# Close`.
+- Use `##` for named alternatives, with each branch's spoken wording beneath it. Put Hire, Funding, and other
+  independent branches under separate option headings.
+- Opening, Gatekeeper, Discovery, Pitch, and Close also accept bullets as options. Indent a follow-up line to keep it
+  with its bullet. Use one option style per section.
+- Start rep directions with `>`. Put shared directions before the options, and put specific directions inside an option.
+  Indent directions inside a bullet. Use `<!-- note -->` for draft comments. An inline `#` is spoken text.
+- `{first_name}`, `{company}`, `{rep}` and `{seller}` fill in known fields. `{{ ... }}` tells the agent what to write for
+  each lead. **Add trigger list** adds the reasons research may use for calling now.
 
 ## 5. Leads
 
-On **Leads**, either name a list and import a CSV with at least `name` and `phone` (the app shows how it read the
-columns before saving), or **Sync a HubSpot list** with a spend limit for number checks. If HubSpot has no lists yet, make
+On **Leads**, either name a list and import a CSV with `name` and `phone`, or **Sync a HubSpot list** with a spend limit
+for number checks. The CSV preview maps recognized headers such as `account signals` and `phone status`. You can edit
+the map and separators. When you generate scripts, the research agent reads all columns of each CSV row. Reimport an
+older CSV to restore columns that earlier versions omitted. If HubSpot has no lists yet, make
 one in HubSpot under Contacts → Lists. In **Research and scripts**, click **Generate scripts** for the list you want
 personalized. Importing a list or saving the base script leaves generation idle. Callable leads can use the base script.
 

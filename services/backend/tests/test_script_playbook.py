@@ -85,3 +85,31 @@ def test_direction_only_custom_section_is_preserved_and_bad_fields_are_reported(
     assert "approved measurements" in template["context"]["Proof notes"]
     with pytest.raises(ScriptError, match="Unbalanced"):
         parse_markdown(PLAYBOOK.replace("Pause for permission.", "Pause { for permission."))
+
+
+def test_discovery_preserves_follow_up_lines_and_keeps_cues_with_their_question():
+    source = """# Opening
+Hi, {rep} from {seller}.
+
+# Discovery
+> Listen before asking another question.
+- How do you handle it today? <!-- Review wording later. -->
+  What takes the most time?
+  > Ask the follow-up only if needed.
+- Who else is involved?
+  > Ask after they describe the work.
+
+# Close
+Worth a short conversation?
+"""
+    template = parse_markdown(source)
+    discovery = template["sections"][1]["options"]
+    assert [option["text"] for option in discovery] == [
+        "How do you handle it today?\nWhat takes the most time?",
+        "Who else is involved?",
+    ]
+    assert [option["notes"] for option in discovery] == [
+        "Listen before asking another question.\nAsk the follow-up only if needed.",
+        "Listen before asking another question.\nAsk after they describe the work.",
+    ]
+    assert template["markdown"] == source

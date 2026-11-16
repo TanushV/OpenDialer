@@ -51,7 +51,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D22 | Local CI/CD is the working loop. One command, `scripts/check.py`, runs a fast tier on every commit, a full tier that covers everything GitHub CI covers before every push, and an unsigned local package build. Built first, in Phase 0. See section 12A. | Owner decision, November 7 |
 | D24 | Phase 3 moves code by strangling, not in one pass. New packages on `Ctx` start now; each later phase writes its area as plain modules (calling in 4, learning in 8, leads and prep in 9, helper and after-call in 10) and deletes the mixin code it replaces. R3.2, R3.4, R3.5 and R3.6 complete with those phases. The migration, lead fields and package rules land in Phase 3. | Builder decision, November 7, under the owner's end-to-end instruction: a one-pass rewrite of 35,000 lines was the riskiest step in the plan and delivered nothing visible |
 | D15 | The CRM stage owns fit and whether the person is still at the company. This app owns number accuracy. No `# Fit` section and no job-change check. | Owner decision |
-| D16 | One intake path: CSV or HubSpot produces a row, the column map reads it, and everything after that ignores the source. | Owner approved |
+| D16 | CSV and HubSpot use the same column map. Research uses every column of a CSV row and the identity and mapped columns of a HubSpot row. | Owner approved, updated November 16 |
 | D17 | HubSpot: a list picks who is called and the app picks the order. The app writes native call records, opt-outs and `phone_status`. No universal writeback layer; HubSpot's call record is the shared format, so other dialers such as Nooks need no adapter. | Owner approved; creating CSV leads in HubSpot only on their first connected call is an assumption the owner may veto |
 | D18 | Build the number check with Trestle through Treg. No paid live-line check and no paid namesake lookups. See section 9A. | Owner decision, November 6; this replaces the earlier test-rule result that kept the live-line check |
 | D19 | When a CRM lead lacks a usable saved number, the app uses LeadOcean, AI Ark, Tomba, then Wiza and checks the results through Trestle. A usable CRM number goes directly to RealValidito screening. CSV leads skip the waterfall and screening. The outside runner stays for building CSV lists. Blitz joins first after its reset. | Owner decision, November 7, updated November 13 to use Treg only for missing numbers |
@@ -343,8 +343,8 @@ facts.
    headline, company description, industry, size, number source, live status, signal summaries, signal dates, signal
    URLs, LinkedIn activity. Each multi-value column has its own delimiter. If the counts do not line up, the signals stay
    one unaligned bundle and are never paired by position. Map first, then apply size limits, so a large record cannot
-   lose a signal column. Show the map and allow corrections. Only mapped columns reach a model; email, provider IDs and
-   bookkeeping columns do not.
+   lose a signal column. The preview shows recognized mappings and lets the rep add or correct them. Research reads
+   every CSV column and applies the cell and row size limits. HubSpot supplies identity and mapped columns.
 2. **Row first.** The agent opens the row's signal URLs before searching.
 3. **Criteria.** Rules live in a `# Triggers` section of the script, seeded from the master script's `# Before you dial`
    list.
@@ -1330,8 +1330,8 @@ Goal: criteria are enforced in code, and research keeps working if ChatGPT is un
       Done November 8 as an editor button that adds the default `# Triggers` list; the owner still confirms windows and strengths.
 - [x] R9.2 Failing tests: out-of-window, unlisted and unquoted triggers are rejected; a `row_only` signal is capped at C; a
       `page` signal without a quote is rejected; one record through CSV and through HubSpot gives the same Lead; signals with
-      mismatched counts are never paired by position; a 300-property record keeps its mapped signal columns; bookkeeping
-      columns never reach a model; a `DEAD` number is not dialable.
+      mismatched counts are never paired by position; a 300-property record keeps its mapped signal columns; HubSpot
+      bookkeeping stays out of research context; a `DEAD` number is not dialable.
       Done November 8 (`test_intake.py`, `test_trigger_criteria.py`, `acceptance/test_lead_intake.py`).
 - [x] R9.3 One intake path and column map, with the owner's rows as the test case: delimiter per column, mapping before size
       limits.
@@ -2114,3 +2114,6 @@ test assets and admin access before asking for anything. The signed rollout foll
   reply can appear 220 ms into the request. A resumed prospect turn can get help even if the provider has not
   started a new transcript segment. A synthetic replay through the live Telnyx Soniox endpoint saw final
   responses for each sample and false end signals on pauses of 440 ms and 700 ms within a sentence.
+- November 16, 2026: the Script preview and helper preserve question lines. The editor shows how to write named
+  branches, indent bullet continuations and keep draft comments out of speech. The CSV preview recognizes common
+  export headers, including account signals and phone status, and research receives the full column set for CSV leads.

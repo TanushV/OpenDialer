@@ -43,7 +43,7 @@ def _script_entries(script, spoken_only):
         if spoken_only and not section.get("spoken", bool(section.get("options"))):
             continue
         title = section.get("title") or key
-        if section.get("text"):
+        if (section.get("text") or "").strip():
             yield key, (title, section["text"], "")
             continue
         options = section.get("options", [])
@@ -121,9 +121,11 @@ def messages(request):
     )
     body += ["", "Script parts:"]
     for label, spoken, directions in script_parts(script, spoken_only=True):
-        body.append(f"{label}: {' '.join(spoken.split())}")
+        first, *continuation = spoken.strip().splitlines()
+        body.append(f"{label}: {first}")
+        body.extend(f"   {line}" for line in continuation)
         if directions:
-            body.append(f"   Rep directions (not spoken): {directions[:120]}")
+            body.append(f"   Rep directions (not spoken): {' '.join(directions[:120].split())}")
     body += _lines("Facts", template.get("facts", []))
     body += _lines("Research", [line[:180] for line in request.get("research", [])])
     body += _lines("Never say", template.get("never_say", []))
