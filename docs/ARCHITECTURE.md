@@ -76,14 +76,14 @@ hiding a defect.
 - **Research and scripts** (`prep/`, `preparation/`): the ChatGPT login is the main route; DeepSeek V4.1 Flash on
   OpenRouter's no-retention route takes over when it is unavailable. Each lead gets a trigger ("why now"), checked
   against the page it came from.
-- **Live helper** (`helper/live.py`, wired in `live_help.py`) sends numbered spoken responses from the call's script.
-  Direct audio sends one selection once the prospect's transcript is final and the local voice detector has observed
-  500 ms of quiet. Audio and transcript processing overlap. Transcript-only inputs coalesce across a one-second wait.
-  Rep speech can add context while a selection is pending. The rep can also ask for a line via F1 or a typed question.
-  The app checks the model's selection and shows the prepared wording verbatim while the call is active. The model can
-  leave the helper quiet when no response fits.
-  One streamed request per turn runs on OpenRouter through Cerebras with no retention. A tip lasts 30 seconds in
-  memory (a private selection lasts 5 minutes). Phone screening uses the prepared Screening line without a model request.
+- **Live helper** (`helper/live.py`, wired in `live_help.py`) sends the call's prepared script in its authored order and
+  asks for one or two spoken sentences. Replies can use, adapt or go beyond the script and calculate estimates from
+  stated inputs. The direct audio path uses the latest transcript after 240 ms of detected quiet. It gives obviously
+  unfinished phrases 540 ms. Telnyx can finalize a segment during a pause, so the local audio determines when to ask.
+  Transcript-only inputs still coalesce across a one-second wait. A local reply can appear after 220 ms while the same
+  model request continues. Exact script quotes link back to the matching line. The rep can also ask via F1 or a typed
+  question. One request per turn runs on OpenRouter through Cerebras with no retention. Tips stay in memory for 30
+  seconds and private replies for 5 minutes. Phone screening uses the prepared Screening line directly.
 - **After the call** (`aftercall/summary.py`): one request over the whole transcript returns a summary, a suggested
   outcome and a next step; each field is checked on its own, and a failed summary has Retry. It is shown in the
   wrap-up and in Review, read by the next call's script and brief, and added to HubSpot. The rep confirms the

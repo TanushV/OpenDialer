@@ -1,3 +1,10 @@
+# OpenDialer 2.2.2
+
+- **Get a reply sooner.** The live helper listens for a shorter pause when the prospect's thought sounds complete. A quick suggestion appears while the model works, and the model can improve it when ready.
+- **Get help with whatever comes up.** The helper reads the script in the order you wrote it and suggests what to say. It can use a line, adapt it, do estimate math from the conversation, or answer a different question.
+
+Updates from 1.0.x through 2.2.1 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.2.1
 
 - **Get help off script.** The live helper uses or adapts a relevant script line or suggests what to say next. Estimates use the inputs from the conversation. Use **Show in script** to open the selected line in place.

@@ -150,7 +150,7 @@ def test_prospect_pause_releases_one_helper_request_before_the_final_text(worksp
     class Selector:
         async def converse(self, messages, **_):
             requests.append(messages[1]["content"])
-            return "Part: 1"
+            return made["script_snapshot"]["opener"]
 
     monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
     start_at = clock.now
@@ -158,9 +158,10 @@ def test_prospect_pause_releases_one_helper_request_before_the_final_text(worksp
     frames_by_packet = {
         1: ("We’re interested, but", True),
         6: ("we would need approval", False),
-        24: ("we would need approval first.", True),
-        25: ("From finance.", True),
-        28: ("Yes.", True),
+        16: ("we would need approval from finance to proceed", False),
+        26: ("we would need approval from finance to proceed.", True),
+        27: ("From finance.", True),
+        31: ("Yes.", True),
     }
     consumed = Semaphore(0)
 
@@ -213,14 +214,18 @@ def test_prospect_pause_releases_one_helper_request_before_the_final_text(worksp
             client.get(path, headers=headers).json()["coach"]["say_or_ask"]
             == made["script_snapshot"]["opener"]
         )
-        send(silence, 12)
+        send(speech, 3)
+        send(silence, 8)
         drain()
-        assert len(requests) == 1, "Quiet audio and additional final fragments share the same turn"
+        assert len(requests) == 2 and "from finance to proceed" in requests[1]
+        send(silence, 4)
+        drain()
+        assert len(requests) == 2, "The final and extra fragments do not repeat a reply"
         send(speech)
         send(silence)
         drain()
-        assert len(requests) == 1, "A final segment alone cannot confirm the short turn"
+        assert len(requests) == 2, "A final segment alone cannot confirm the short turn"
         send(silence, 6)
         drain()
-        assert len(requests) == 2 and "Yes." in requests[1]
+        assert len(requests) == 3 and "Yes." in requests[2]
         stream.send_json({"stop": True})

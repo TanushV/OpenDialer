@@ -1,6 +1,6 @@
 """The live helper wired to the store (R10.1). The rules live in `helper/live.py`.
 
-A turn uses the call's script, lead context and dialogue to select a script line or suggest a short response.
+A turn uses the call's script, lead context and dialogue to suggest a short spoken response.
 A turn never writes the call, the lead or a task.
 """
 
@@ -131,7 +131,6 @@ def request_in(service, s, p, call, question, *, prospect_segment_id=None):
         and (r.get("is_final") or (r.get("side") == "remote" and r["segment_id"] == prospect_segment_id))
     ][-live.DIALOGUE :]
     seller = ops.required(service, s, "sellers", p["seller_id"], p)
-    shown = service.tips.shown.get(call.id)
     return {
         "seller": seller.data.get("name", ""),
         "lead": {k: lead.data.get(k) for k in ("name", "company", "title", "segment", "prospect_brief")},
@@ -140,7 +139,6 @@ def request_in(service, s, p, call, question, *, prospect_segment_id=None):
         "earlier_calls": earlier,
         "dialogue": dialogue,
         "script_section": delivered["script_section"] if delivered else None,
-        "previous": shown.get("say_or_ask") if shown else None,
         "question": question,
     }
 
@@ -257,8 +255,7 @@ async def turn(
         return await fallback("budget")
 
     deadline = live.DEADLINE_MS if private else live.AUTOMATIC_DEADLINE_MS
-    entries = live.candidates(request)
-    messages = live.messages(request, parts=[part for _, part in entries])
+    messages = live.messages(request)
 
     async def model_reply():
         async with asyncio.timeout(deadline / 1000):
@@ -288,7 +285,7 @@ async def turn(
                 return early
             return await fallback(reason)
         service.tips.status[call_id] = {"status": "available"}
-        if resolved := live.answer(text, entries, request):
+        if resolved := live.answer(text, request.get("script")):
             return await show(*resolved, replaces_turn=transcript_version if early is not None else None)
         return early if early is not None else await fallback(None)
     finally:

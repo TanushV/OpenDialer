@@ -2109,3 +2109,8 @@ test assets and admin access before asking for anything. The signed rollout foll
   is still current. Estimate arithmetic is checked against stated inputs, and a simple rate stated in the
   latest question can be answered locally. The reply can open the referenced line without changing speech
   auto-follow or script order.
+- November 16, 2026: 2.2.2 sends the live helper an ordered script and asks for ordinary spoken wording.
+  A clear phrase can dispatch after 240 ms of detected quiet and an unfinished phrase after 540 ms. The local
+  reply can appear 220 ms into the request. A resumed prospect turn can get help even if the provider has not
+  started a new transcript segment. A synthetic replay through the live Telnyx Soniox endpoint saw final
+  responses for each sample and false end signals on pauses of 440 ms and 700 ms within a sentence.

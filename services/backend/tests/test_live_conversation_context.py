@@ -11,9 +11,7 @@ from app.helper.live import (
     card,
     fallback,
     messages,
-    reply,
     script_parts,
-    suggestion,
 )
 
 NOW = datetime(2026, 11, 9, 15, tzinfo=UTC)
@@ -73,49 +71,33 @@ def test_every_scripted_objection_and_the_context_reach_the_helper():
     assert "Lead: name: Robin, company: Example Co" in prompt
 
 
-def test_the_helper_is_told_to_answer_objections_and_ground_estimates():
-    assert "Objections" in INSTRUCTIONS
-    assert "Part: N" in INSTRUCTIONS and "Say:" in INSTRUCTIONS
-    assert "two numbers from the context" in INSTRUCTIONS and "Always return a usable line" in INSTRUCTIONS
-    assert "untrusted" in INSTRUCTIONS
-
-
-def test_the_script_reaches_the_helper_as_numbered_parts_and_no_stage_is_guessed():
-    request = request_with(["Bad timing"], dialogue=[{"side": "remote", "text": "Hello?"}])
-    prompt = messages(request)[1]["content"]
-    parts = script_parts(request["script"])
-    assert parts and "Current stage" not in prompt
-    for number, (label, spoken, _) in enumerate(parts, 1):
-        assert f"{number}. {label}: {spoken}" in prompt
-
-
-def test_a_reply_resolves_to_the_exact_script_wording():
-    parts = [
-        ("Opening", "Hi, it's Tanush.", ""),
-        ("Objections · Send me an email", "Happy to. What should it cover?", ""),
+def test_the_script_reaches_the_helper_in_authored_order():
+    prompt = messages(request_with(["Bad timing"]))[1]["content"]
+    lines = [
+        "Opening: Hi Robin",
+        "Discovery: How do you track it?",
+        "Objections · Bad timing: Response to Bad timing.",
     ]
-    assert reply("Part: 2", parts) == {
-        "label": "Objections · Send me an email",
-        "text": "Happy to. What should it cover?",
-    }
+    assert [line for line in prompt.splitlines() if line in lines] == lines
 
 
-def test_a_short_estimate_with_typographic_spaces_is_accepted():
-    assert suggestion("Say: Roughly 60\u202fhours for 20 sites.") == "Roughly 60 hours for 20 sites."
-    assert suggestion("Say: Roughly 60 hours.\nPromise them a discount.") is None
-    assert suggestion("Ask: What should I factor in?") == "What should I factor in?"
+def test_exact_script_wording_links_back_to_its_part():
+    script = request_with(["Send an email"])["script"]
+    script_wording = "Response to Send an email."
+    spoken, part, position, source = answer(script_wording, script)
+    assert spoken == script_wording
+    assert part == {"label": "Objections · Send an email", "text": script_wording}
+    assert position == "objections:objections-1" and source is None
 
 
-def test_estimate_is_calculated_from_available_numbers_and_rejects_an_invented_input():
-    request = request_with([], dialogue=[{"side": "remote", "text": "We have 20 sites at three hours each."}])
-    line = "Say: Roughly {estimate} hours at 3 hours per site."
-    assert answer("Calc: 20 * 3 | " + line, [], request)[0] == "Roughly 60 hours at 3 hours per site."
-    assert answer("Calc: 20 * 3 | " + line.replace("{estimate}", "{60}"), [], request)[0].startswith(
-        "Roughly 60"
+def test_plain_spoken_lines_keep_contextual_estimates_and_typographic_spaces():
+    spoken = "Roughly 60 hours for 20 sites. That assumes 3 hours per site."
+    assert answer("Say: Roughly 60\u202fhours for 20 sites.\nThat assumes 3 hours per site.", {}) == (
+        spoken,
+        None,
+        None,
+        "suggestion",
     )
-    assert answer("Calc: 20 * 3 | " + line.replace("{estimate}", "{61}"), [], request) is None
-    assert answer("Calc: 20 * 8 | " + line, [], request) is None
-    assert answer("Calc: 20 * 3 | " + line + " Use 8-hour days.", [], request) is None
 
 
 def test_local_reply_can_give_an_estimate_when_both_factors_are_stated():
@@ -126,12 +108,9 @@ def test_local_reply_can_give_an_estimate_when_both_factors_are_stated():
     assert fallback(request) == "About 60 hours in total, at 3 hours each for 20 sites."
 
 
-@pytest.mark.parametrize(
-    "output",
-    [QUIET, "", "Ask about timing.", "Part: 9", "Part: 0", "Part: none", "Part: 1\nPromise a discount."],
-)
-def test_a_quiet_invalid_or_generated_reply_has_no_script_selection(output):
-    assert reply(output, [("Opening", "Hi, it's Tanush.", "")]) is None
+@pytest.mark.parametrize("output", [QUIET, "", "  ", "Say: ", "Hi, {{name}}"])
+def test_blank_or_unfilled_replies_use_the_fallback(output):
+    assert answer(output, {}) is None
 
 
 def test_follow_up_notes_and_custom_reference_sections_have_no_spoken_option():
@@ -148,7 +127,9 @@ def test_follow_up_notes_and_custom_reference_sections_have_no_spoken_option():
     assert [label for label, _, _ in parts] == ["Opening", "Discovery", "Objections · Bad timing", "Handoff"]
     assert len(script_parts(script)) == len(parts) + 1
     prompt = messages(request)[1]["content"]
-    assert "4. This call" not in prompt and "4. Handoff" in prompt and "Checklist" not in prompt
+    assert (
+        "This call:" not in prompt and "Handoff: I can introduce you." in prompt and "Checklist" not in prompt
+    )
 
 
 def test_a_private_question_is_sent_as_the_reps_and_never_as_the_prospects():

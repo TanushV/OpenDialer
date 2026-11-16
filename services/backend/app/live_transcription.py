@@ -156,7 +156,9 @@ def bind_api(app, service, principal):
                             result.get("expired") or result.get("duplicate")
                         )
                         turn.committed(
-                            result["transcript_version"] if usable else None, segment["segment_id"]
+                            result["transcript_version"] if usable else None,
+                            segment["segment_id"],
+                            segment["text"],
                         )
                         await dispatch_turn()
                     await ws.send_json({"status": "transcribed"})

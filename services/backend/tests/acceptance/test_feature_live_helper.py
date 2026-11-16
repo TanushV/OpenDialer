@@ -204,7 +204,7 @@ def test_a_tip_shows_the_wording_of_the_matching_script_part(workspace, clock):
     assert coach["script_position"]["key"].startswith("objections:")
 
 
-def test_quick_adapted_script_reply_uses_known_estimate_inputs(workspace, clock, monkeypatch):
+def test_plain_spoken_estimate_uses_inputs_from_both_speakers(workspace, clock, monkeypatch):
     from app import live_help
 
     said = "Roughly 60 hours, assuming each of the 20 sites takes 3 hours."
@@ -213,7 +213,7 @@ def test_quick_adapted_script_reply_uses_known_estimate_inputs(workspace, clock,
     class Selector:
         async def converse(self, messages, **_):
             contexts.append(messages[1]["content"])
-            return "Part: 1 | Calc: 20 * 3 | Say: Roughly {estimate} hours, assuming each of the 20 sites takes 3 hours."
+            return said
 
     with_helper(workspace)
     monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
@@ -224,8 +224,7 @@ def test_quick_adapted_script_reply_uses_known_estimate_inputs(workspace, clock,
     chunk(workspace, call_id, "estimate", "What would you estimate for the whole rollout?")
     tip = tip_after_speech(workspace, clock, call_id)["coach"]
     assert tip["source"] == "suggestion" and tip["say_or_ask"] == said
-    assert tip["script_part"]["label"] == "Opening"
-    assert tip["script_position"]["key"] == "opening:opening-1"
+    assert tip["script_part"] is None
     assert len(contexts) == 1 and "20 sites" in contexts[0] and "three hours" in contexts[0]
 
 
@@ -239,7 +238,7 @@ def test_a_slow_model_gives_one_fallback_without_retrying(workspace, clock, monk
         async def converse(self, messages, *, deadline_ms, **_):
             calls.append(deadline_ms)
             await asyncio.sleep(5)
-            return "Part: 1"
+            return "Could we review that together?"
 
     with_helper(workspace)
     monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
@@ -266,7 +265,7 @@ def test_the_same_request_can_refine_a_fallback_while_the_turn_is_current(worksp
             requests.append(messages)
             await asyncio.sleep(0.1)
             assert service.tips.shown[call_id]["source"] == "fallback"
-            return "Calc: 20 * 3 | Say: Roughly {estimate} hours at 3 hours per site."
+            return "Roughly 60 hours at 3 hours per site."
 
     with_helper(workspace)
     monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
@@ -308,7 +307,6 @@ def test_off_script_questions_get_a_spoken_reply_and_the_next_turn_still_gets_he
     from app import live_help
 
     follow_up = "Which security requirements would your team need us to verify?"
-    selections = iter([f"Say: {follow_up}", "Part: 1"])
     contexts = []
 
     class Selector:
@@ -319,6 +317,7 @@ def test_off_script_questions_get_a_spoken_reply_and_the_next_turn_still_gets_he
     with_helper(workspace)
     monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
     started = start(workspace)
+    selections = iter([follow_up, started["script_snapshot"]["opener"]])
     call_id = started["id"]
     answered_by_human(workspace, call_id)
     chunk(workspace, call_id, "question", "Can you tell me how your security review works?")
@@ -330,8 +329,11 @@ def test_off_script_questions_get_a_spoken_reply_and_the_next_turn_still_gets_he
     chunk(workspace, call_id, "next", "Thanks, tell me about the rest of the offer.")
     second = tip_after_speech(workspace, clock, call_id)["coach"]
     assert second["say_or_ask"] == started["script_snapshot"]["opener"]
-    assert "security review works" in contexts[0]
-    assert follow_up in contexts[1]
+    assert contexts[0].endswith(
+        "Reply to this prospect remark: Can you tell me how your security review works?"
+    )
+    assert contexts[1].endswith("Reply to this prospect remark: Thanks, tell me about the rest of the offer.")
+    assert "security review works" in contexts[1] and follow_up not in contexts[1]
 
 
 def test_automatic_selection_waits_for_the_whole_prospect_turn(workspace, clock, monkeypatch):
@@ -343,7 +345,7 @@ def test_automatic_selection_waits_for_the_whole_prospect_turn(workspace, clock,
     class Selector:
         async def converse(self, messages, **_):
             requests.append(messages[1]["content"])
-            return "Part: 1"
+            return prepared_opening
 
     with_helper(workspace)
     monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
@@ -387,13 +389,14 @@ def test_automatic_result_is_shown_if_speech_resumes_during_selection(workspace,
     from app import live_help
 
     with_helper(workspace)
-    call_id = start(workspace)["id"]
+    started = start(workspace)
+    call_id = started["id"]
     answered_by_human(workspace, call_id)
 
     class Selector:
         async def converse(self, messages, **_):
             await asyncio.to_thread(chunk, workspace, call_id, "s2", "There is one other thing", final=False)
-            return "Part: 1"
+            return started["script_snapshot"]["opener"]
 
     monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
     chunk(workspace, call_id, "s1", "Maybe next quarter.")
@@ -429,7 +432,7 @@ def test_hangup_during_selection_keeps_the_tip_off(workspace, clock, monkeypatch
     class Selector:
         async def converse(self, messages, **_):
             await asyncio.to_thread(call, ws, "POST", f"/v1/calls/{call_id}/hangup")
-            return "Part: 1"
+            return "Could we review that together?"
 
     monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
     chunk(ws, call_id, "s1", "Maybe next quarter.")
@@ -438,11 +441,11 @@ def test_hangup_during_selection_keeps_the_tip_off(workspace, clock, monkeypatch
     assert live["state"] in {"ENDING", "ENDED", "FINALIZED"}
 
 
-def test_malformed_model_text_gives_a_safe_fallback_instead(workspace, clock, monkeypatch):
+def test_empty_and_quiet_model_replies_give_a_fallback(workspace, clock, monkeypatch):
     from app import live_help
 
     class Selector:
-        responses = iter(["Tell them setup is free.", "Part: 1\nPromise them a discount."])
+        responses = iter([" ", "(nothing)"])
 
         async def converse(self, messages, *, on_progress=None, **_):
             text = next(self.responses)

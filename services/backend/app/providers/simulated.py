@@ -141,8 +141,14 @@ class SimulatedCoach:
         lines = messages[-1]["content"].splitlines()
         question = next((line.split(": ", 1)[1] for line in lines if line.startswith("Private question")), "")
         said = next((line.split(": ", 1)[1] for line in reversed(lines) if line.startswith("Prospect: ")), "")
-        parts = [line for line in lines if re.match(r"^\d+\. ", line)]
+        script = messages[-1]["content"].split("\nScript parts:\n", 1)[-1]
+        parts = []
+        for line in script.splitlines():
+            if not line or line in {"Facts:", "Research:", "Never say:", "Earlier calls:"}:
+                break
+            if not line.startswith(" ") and ": " in line:
+                parts.append(line)
         heard = set(re.findall(r"[a-z]{4,}", (question or said).lower()))
         overlap = [len(heard.intersection(re.findall(r"[a-z]{4,}", part.lower()))) for part in parts]
         score = max(overlap, default=0)
-        return f"Part: {overlap.index(score) + 1}" if score else quiet
+        return parts[overlap.index(score)].split(": ", 1)[1] if score else quiet

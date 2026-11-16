@@ -70,8 +70,9 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
     release_notes = (ROOT / "docs/RELEASE_NOTES.md").read_text()
     version = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())["version"]
     assert release_notes.splitlines()[0] == "# OpenDialer " + version
-    assert "Get help off script." in notes
-    assert "Get the tip sooner." in notes
+    assert "Get a reply sooner." in notes
+    assert "Get help with whatever comes up." in notes
+    assert "Get help off script." not in notes
     assert "See why a call didn't start." not in notes
     assert "Start a fresh test every time." not in notes
     assert "Start a test call directly in the Dialer." not in notes
@@ -197,7 +198,7 @@ def test_version_identity_artifact_contract():
         next(p["version"] for p in python_lock["package"] if p["name"] == "opendialer"),
         next(p["version"] for p in cargo_lock["package"] if p["name"] == "opendialer-desktop"),
     ]
-    assert versions == ["2.2.1"] * len(versions)
+    assert versions == ["2.2.2"] * len(versions)
     assert tauri["identifier"] == "com.opendialer.desktop"
     assert tauri["app"]["windows"][0]["backgroundThrottling"] == "disabled"
     updater = tauri["plugins"]["updater"]
