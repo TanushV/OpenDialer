@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CallbackRouting } from "./CallbackRouting";
-import { useHistory } from "../state/useHistory";
+import { countLabel, useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { LONG_REQUEST_MS, native, openSource } from "../api/client";
 import { date, label, useWorkspace } from "../context";
@@ -66,6 +66,12 @@ export function LeadsPage({
     ...(filterList === null ? {} : { list_name: filterList }),
   });
   const leads = history.items;
+  const activeCount = w.active_lead_count;
+  const total =
+    history.totalLabel ??
+    (leadView === "active" && filterList === null && activeCount
+      ? countLabel(activeCount.total, activeCount.total_capped)
+      : null);
   useEffect(() => {
     setSelected([]);
     void run(() => history.load(false, query, leadView));
@@ -97,7 +103,7 @@ export function LeadsPage({
         aria-busy={!history.ready}
       >
         <div className="leads-toolbar">
-          <h3>{history.totalLabel ?? w.leads.length} leads</h3>
+          <h3>{total === null ? "Leads" : `${total} leads`}</h3>
           <select
             aria-label="Lead view"
             value={leadView}

@@ -2100,3 +2100,5 @@ test assets and admin access before asking for anything. The signed rollout foll
   each and one visible tip. The first request began 11.3 seconds after answer. The call transcript repeated nearly
   the same words on both tracks. 2.2.1 implements D37 and records the outcome of each completed helper selection
   without logging its wording. An audio replay exercises a suggestion before finalization and prevents a duplicate.
+- November 16, 2026: the Leads badge uses the same active-lead filter as the Leads table. A lead remains counted
+  while it belongs to another active list after a list is removed. All-lead history retains its original total.

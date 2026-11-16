@@ -134,8 +134,12 @@ def test_removed_list_visibility_keeps_shared_contacts_and_restore_history(works
     assert {row["id"] for row in removed["items"]} == {sole["id"]}
     assert removed["total"] == 1
     assert get(workspace, "/v1/workspace/leads")["total"] == baseline + 2
+    snapshot = get(workspace, "/v1/workspace")
+    assert snapshot["active_lead_count"] == {"total": baseline + 1, "total_capped": False}
+    assert snapshot["pages"]["leads"]["total"] == baseline + 2
     manage(workspace, "Remove entire list", "restore")
     assert get(workspace, "/v1/workspace/leads", params={"filter": "active"})["total"] == baseline + 2
+    assert get(workspace, "/v1/workspace")["active_lead_count"]["total"] == baseline + 2
     assert get(workspace, f"/v1/leads/{sole['id']}/packet")["lead"]["id"] == sole["id"]
 
 

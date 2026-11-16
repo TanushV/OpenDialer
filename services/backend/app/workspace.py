@@ -32,6 +32,24 @@ def scoped_query(model, p):
     return select(model).where(model.tenant_id == p["tenant_id"], model.seller_id == p["seller_id"])
 
 
+def active_lead_filter(campaigns, model):
+    memberships = []
+    for campaign in campaigns:
+        removed = [name for name, state in campaign.data.get("lists", {}).items() if state.get("archived")]
+        memberships.append(and_(model.op_campaign_id == campaign.id, active_membership(model, removed)))
+    return and_(
+        func.coalesce(model.data["archived"].as_boolean(), False).is_(False),
+        or_(*memberships),
+    )
+
+
+def page_count(s, query, model):
+    total = s.scalar(
+        select(func.count()).select_from(query.with_only_columns(model.id).limit(TOTAL_CAP + 1).subquery())
+    )
+    return {"total": min(total, TOTAL_CAP), "total_capped": total > TOTAL_CAP}
+
+
 def after(model, anchor, descending):
     return after_key(model.created_at, model.id, anchor.created_at, anchor.id, descending=descending)
 
@@ -96,21 +114,7 @@ def workspace_page(
         if section == "leads" and list_name is not None:
             query = query.where(in_list(model, list_name))
         if section == "leads" and filter != "all":
-            memberships = []
-            for campaign in ops.scoped(service, s, "campaigns", p):
-                removed = [
-                    name for name, state in campaign.data.get("lists", {}).items() if state.get("archived")
-                ]
-                memberships.append(
-                    and_(
-                        model.op_campaign_id == campaign.id,
-                        active_membership(model, removed),
-                    )
-                )
-            active = and_(
-                func.coalesce(model.data["archived"].as_boolean(), False).is_(False),
-                or_(*memberships),
-            )
+            active = active_lead_filter(ops.scoped(service, s, "campaigns", p), model)
             query = query.where(active if filter == "active" else ~active)
         if section == "tasks":
             query = query.where(or_(model.op_status != "aliased", model.op_status.is_(None)))
@@ -121,11 +125,7 @@ def workspace_page(
             query = query.where(closed if filter == "closed" else or_(~closed, model.op_status.is_(None)))
             if filter == "overdue":
                 query = query.where(model.op_due_at <= service.clock())
-        total = s.scalar(
-            select(func.count()).select_from(
-                query.with_only_columns(model.id).limit(TOTAL_CAP + 1).subquery()
-            )
-        )
+        count = page_count(s, query, model)
         descending = section not in {"leads", "task_owners"}
         if cursor:
             anchor = s.scalar(query.where(model.id == cursor))
@@ -180,8 +180,7 @@ def workspace_page(
             ops._label_leads(service, s, p, selected)
         return {
             "items": selected,
-            "total": min(total, TOTAL_CAP),
-            "total_capped": total > TOTAL_CAP,
+            **count,
             "next_cursor": examined[-1].id if more and examined else None,
             "scanned": len(examined),
             "search_complete": not more,
@@ -257,7 +256,8 @@ def snapshot(service, p):
             )
             or 0
         )
-        campaign = ops.scoped(service, s, "campaigns", p)[0]
+        campaigns = ops.scoped(service, s, "campaigns", p)
+        campaign = campaigns[0]
         policy = ops.required(service, s, "policy_versions", campaign.data["policy_id"], p)
         user = ops.required(service, s, "users", p["user_id"], p)
         pages = {
@@ -323,6 +323,8 @@ def snapshot(service, p):
             present = {item["id"] for item in pages[section]["items"]}
             pages[section]["items"] += [item for item in extra if item["id"] not in present]
         run = user.data.get("test_run")
+        lead_model = MODELS["leads"]
+        active_leads = scoped_query(lead_model, p).where(active_lead_filter(campaigns, lead_model))
         current = {
             "mode": "local",
             "simulation": service.settings.simulation,
@@ -339,6 +341,7 @@ def snapshot(service, p):
             "quiescence": ops.quiescence_in(service, s, p),
             "reservation": reservation,
             "event_cursor": event_cursor,
+            "active_lead_count": page_count(s, active_leads, lead_model),
             **{section: value["items"] for section, value in pages.items()},
             "pages": {
                 section: {k: v for k, v in value.items() if k != "items"} for section, value in pages.items()

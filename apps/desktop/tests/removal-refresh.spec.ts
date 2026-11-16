@@ -42,6 +42,10 @@ test("remove and restore a whole list while shared contacts stay active", async 
   page,
 }) => {
   await enter(page, "remove-list-101");
+  const badge = page
+    .getByRole("button", { name: "Leads", exact: true })
+    .locator(".nav-count");
+  const before = Number(await badge.innerText());
   await add(
     page,
     "Remove source 101",
@@ -52,6 +56,7 @@ test("remove and restore a whole list while shared contacts stay active", async 
     "Keep source 101",
     "name,phone,timezone\nShared removal,+14155550622,America/Los_Angeles",
   );
+  await expect(badge).toHaveText(String(before + 2));
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await row(page, "Remove source 101")
     .getByRole("button", { name: "Remove list", exact: true })
@@ -60,6 +65,7 @@ test("remove and restore a whole list while shared contacts stay active", async 
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await expect(row(page, "Unique removal")).toBeHidden();
   await expect(row(page, "Shared removal")).toBeVisible();
+  await expect(badge).toHaveText(String(before + 1));
   await page.getByLabel("Lead view", { exact: true }).selectOption("removed");
   await expect(row(page, "Unique removal")).toBeVisible();
   await expect(row(page, "Shared removal")).toBeHidden();
@@ -78,6 +84,7 @@ test("remove and restore a whole list while shared contacts stay active", async 
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page.getByLabel("Lead view", { exact: true }).selectOption("active");
   await expect(row(page, "Unique removal")).toBeVisible();
+  await expect(badge).toHaveText(String(before + 2));
 });
 
 test("remove from a chosen membership and recover an unassigned lead", async ({

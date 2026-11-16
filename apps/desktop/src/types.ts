@@ -460,6 +460,7 @@ export interface HistoryPage<T> {
   filter?: string;
 }
 export interface Workspace {
+  active_lead_count?: { total: number; total_capped: boolean };
   test_phone?: string | null;
   test_run?: { id: string; phones: string[] } | null;
   /** Latest live-event sequence reflected by this snapshot. */

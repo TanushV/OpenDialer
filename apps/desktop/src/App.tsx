@@ -690,11 +690,11 @@ export function App() {
               >
                 <Icon size={18} />
                 {title}
-                {title === "Leads" && (
-                  <span className="nav-count">
+                {title === "Leads" && snapshot.active_lead_count && (
+                  <span className="nav-count" title="Active leads">
                     {countLabel(
-                      snapshot.pages?.leads?.total ?? snapshot.leads.length,
-                      snapshot.pages?.leads?.total_capped,
+                      snapshot.active_lead_count.total,
+                      snapshot.active_lead_count.total_capped,
                     )}
                   </span>
                 )}
