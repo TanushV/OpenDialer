@@ -31,6 +31,7 @@ import { TokenUsage } from "./TokenUsage";
 import { ScriptMemory } from "./ScriptMemory";
 import { ScriptReader } from "./ScriptReader";
 import { OpenFile } from "./OpenFile";
+import { HoldRelease } from "./HoldRelease";
 
 export function LeadsPage({
   onNavigate,
@@ -514,7 +515,7 @@ export function LeadsPage({
               />
               {packet.lead.suppressed && (
                 <HoldRelease
-                  lead={packet.lead}
+                  phone={packet.lead.phone}
                   onDone={() => setPacket(null)}
                 />
               )}
@@ -525,68 +526,6 @@ export function LeadsPage({
       {/* Last: it grows while research runs, so nothing below it moves under the pointer. */}
       <PreparationPanel onNavigate={onNavigate} />
     </>
-  );
-}
-/** Release a temporary safety hold after review; permanent opt-outs stay. */
-function HoldRelease({ lead, onDone }: { lead: Lead; onDone: () => void }) {
-  const { api, run, refresh, notice } = useWorkspace();
-  const [reason, setReason] = useState("");
-  const [confirming, setConfirming] = useState(false);
-  return (
-    <div>
-      <h3>Temporary safety hold</h3>
-      <p className="muted small">
-        Calls to this endpoint are blocked. A temporary hold, such as an
-        unconfirmed request to stop calls, can be released after review. Opt-
-        outs and wrong-party denials stay permanent and cannot be released.
-      </p>
-      <label>
-        Hold review reason
-        <input
-          value={reason}
-          maxLength={500}
-          onChange={(event) => {
-            setReason(event.target.value);
-            setConfirming(false);
-          }}
-        />
-      </label>
-      {confirming ? (
-        <div className="button-row">
-          <p>
-            Release the hold on {lead.phone}? Calling resumes only within
-            policy.
-          </p>
-          <button
-            className="secondary"
-            onClick={() =>
-              void run(async () => {
-                await api("/v1/admin/suppressions/release-hold", "POST", {
-                  phone: lead.phone,
-                  reason: reason.trim(),
-                });
-                await refresh();
-                onDone();
-                notice("Temporary hold released. The reason is recorded.");
-              }).finally(() => setConfirming(false))
-            }
-          >
-            Confirm release
-          </button>
-          <button className="text-button" onClick={() => setConfirming(false)}>
-            Keep hold
-          </button>
-        </div>
-      ) : (
-        <button
-          className="secondary"
-          disabled={reason.trim().length < 3}
-          onClick={() => setConfirming(true)}
-        >
-          Release temporary hold
-        </button>
-      )}
-    </div>
   );
 }
 function EndpointCorrection({

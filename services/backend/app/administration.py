@@ -6,6 +6,7 @@ import logging
 import re
 import secrets
 import time
+from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlsplit
 
@@ -299,12 +300,13 @@ def setup_rows(service, p):
     signed_in = (home / "auth.json").is_file() and (home / "account.json").is_file()
     live["chatgpt"] = (signed_in, "Signed in on this Mac" if signed_in else "Not signed in", signed_in)
     phone = normalize_phone(conf.get("test_phone") or "")
-    live["test_phone"] = (
-        bool(phone.e164),
-        phone.e164 or "Add your own number for test calls",
-        bool(conf.get("test_phone")),
-    )
     with service.db.transaction(False) as s:
+        issue = test_phone_issue(service, s, p, phone.e164) if phone.e164 else None
+        live["test_phone"] = (
+            bool(phone.e164) and issue is None,
+            issue.message if issue else phone.e164 or "Add your own number for test calls",
+            bool(conf.get("test_phone")),
+        )
         numbers = ops.scoped(service, s, "number_inventory", p)
         code = ops.number_setup_blocker(service, s, p, numbers)
         ready = sum(1 for n in numbers if n.data.get("lifecycle") in {"healthy", "limited_real_use"})
@@ -335,6 +337,7 @@ def setup_rows(service, p):
     return {
         "status": first.detail() if first else None,
         "rows": rows(conf, conf.get("_setup_checks") or {}, live),
+        "test_phone_hold": issue.release_phone if issue else None,
     }
 
 
@@ -667,7 +670,13 @@ def number_setup_blocker(service, s, p, numbers):
     return "CALLER_NUMBER_PAUSED"
 
 
-def test_phone_issue(service, s, p, phone):
+@dataclass(frozen=True)
+class TestPhoneIssue:
+    message: str
+    release_phone: str | None = None
+
+
+def test_phone_issue(service, s, p, phone) -> TestPhoneIssue | None:
     """Describe the saved destination's own number hold, if one exists."""
     suppression = ops._by_key(service, s, p, "suppressions", phone)
     endpoint = ops._by_key(service, s, p, "phone_endpoints", phone)
@@ -677,7 +686,11 @@ def test_phone_issue(service, s, p, phone):
         else None
     )
     if reason == "temporary_hold":
-        return "The saved test phone is on a safety hold. Release it after review or choose another test phone in Settings."
+        release_phone = phone if not suppression.data.get("permanent") else None
+        return TestPhoneIssue(
+            "The saved test phone is on a safety hold. Review the hold or choose another test phone in Settings.",
+            release_phone,
+        )
     if endpoint and not reason:
         data = endpoint.data
         if data.get("ownership_status") == "wrong_party":
@@ -693,7 +706,8 @@ def test_phone_issue(service, s, p, phone):
         "reassignment": "needs a reassignment review",
     }.get(reason, "is blocked" if reason else None)
     if description:
-        return f"The saved test phone {description}. Choose another test phone in Settings."
+        return TestPhoneIssue(f"The saved test phone {description}. Choose another test phone in Settings.")
+    return None
 
 
 def no_lead_detail(service, s, p, reasons):
@@ -704,7 +718,8 @@ def no_lead_detail(service, s, p, reasons):
         if p.get("test_run_id"):
             message = "The remaining test phones are blocked by opt-outs or number holds. Review the test list in Settings."
         elif ops.in_test_session(service, p):
-            message = test_phone_issue(service, s, p, ops.test_phone(service, p))
+            issue = test_phone_issue(service, s, p, ops.test_phone(service, p))
+            message = issue.message if issue else None
         if message:
             return {
                 "code": "NO_ELIGIBLE_LEADS",

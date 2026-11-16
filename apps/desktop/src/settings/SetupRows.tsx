@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { openSource } from "../api/client";
+import { HoldRelease } from "../components/HoldRelease";
 import { useWorkspace } from "../context";
 import { useNewestAnswer } from "../state/newest";
 import { Button, Panel, Status } from "../ui/kit";
@@ -22,6 +23,7 @@ interface Row {
 interface Rows {
   status: { code: string; message: string; fix: string } | null;
   rows: Row[];
+  test_phone_hold?: string | null;
 }
 
 /** Rows whose values are typed here; saving runs the row's check at once. */
@@ -76,7 +78,7 @@ export function SetupRows({
   /** Re-read the saved settings after a change made here. */
   reload: () => Promise<void>;
 }) {
-  const { api, run, notice, refresh } = useWorkspace();
+  const { api, run, notice, refresh, subscribe } = useWorkspace();
   const [data, setRows] = useState<Rows | null>(null);
   // An answer shows only if no later request has answered: a slow re-read never undoes a newer check.
   const newest = useNewestAnswer();
@@ -91,7 +93,12 @@ export function SetupRows({
   const load = useCallback(() => fetchRows("/v1/settings/rows"), [fetchRows]);
   useEffect(() => {
     void load().catch(() => {});
-  }, [load, version]);
+    return subscribe((events) => {
+      if (events.some((event) => event.type.startsWith("suppression."))) {
+        void load().catch(() => {});
+      }
+    });
+  }, [load, subscribe, version]);
   if (!data) return null;
   return (
     <section className="setup-rows" aria-label="Readiness">
@@ -124,7 +131,17 @@ export function SetupRows({
         <SetupRow
           key={row.id}
           row={row}
-          extra={extras[row.id]}
+          extra={
+            row.id === "test_phone" && data.test_phone_hold ? (
+              <HoldRelease
+                key={data.test_phone_hold}
+                phone={data.test_phone_hold}
+                onDone={load}
+              />
+            ) : (
+              extras[row.id]
+            )
+          }
           save={async (values) => {
             await api("/v1/admin/settings", "PUT", values);
             await fetchRows(`/v1/settings/rows/${row.id}/check`, "POST");
@@ -136,7 +153,12 @@ export function SetupRows({
             row.id === "test_phone" && row.state === "ok"
               ? () =>
                   run(async () => {
-                    await api("/v1/settings/test-call", "POST");
+                    try {
+                      await api("/v1/settings/test-call", "POST");
+                    } catch (error) {
+                      await load().catch(() => {});
+                      throw error;
+                    }
                     await Promise.all([refresh(), reload()]);
                     notice("Press Call test phone in the Dialer.");
                     onTestCall();

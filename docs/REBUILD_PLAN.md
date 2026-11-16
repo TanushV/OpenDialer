@@ -2077,3 +2077,5 @@ test assets and admin access before asking for anything. The signed rollout foll
   the saved test phone before arming a session. HubSpot test contacts keep their writeback behavior.
 - November 15, 2026: 2.1.9 releases unused reservations and pauses calling when a single test ends. A test list checks
   its remaining destinations once and explains when number holds prevent any further test calls.
+- November 15, 2026: 2.1.10 shows a saved test phone's block on its Settings row. Temporary holds can be reviewed and
+  released there, with the reason recorded by the existing release action. Confirmed opt-outs stay blocked.

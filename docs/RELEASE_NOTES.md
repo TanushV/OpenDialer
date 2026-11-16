@@ -1,3 +1,9 @@
+# OpenDialer 2.1.10
+
+- **Review a test phone hold in Settings.** The Test phone row shows why the number is blocked. If you confirm there was no request to stop calls, release the temporary hold and record your reason there. Confirmed opt-outs stay in effect.
+
+Updates from 1.0.x through 2.1.9 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.1.9
 
 - **Repeat a test call after practicing an outcome.** Saving Wrong number or Wrong person on a standalone test contact keeps the outcome in call history. Settings explains any existing block on the saved phone before opening the Dialer.

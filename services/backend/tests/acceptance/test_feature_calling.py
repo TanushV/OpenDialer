@@ -209,6 +209,11 @@ def test_test_phone_names_its_own_dial_block_and_accepts_a_different_phone(
     call(ws, "PUT", "/v1/admin/settings", json={"test_phone": blocked})
     post(ws, "/v1/settings/test-call")
     post(ws, "/v1/suppressions", {"phone": blocked, "reason": reason})
+    settings = get(ws, "/v1/settings/rows")
+    test_phone = next(row for row in settings["rows"] if row["id"] == "test_phone")
+    assert test_phone["state"] == "failed"
+    assert description in test_phone["detail"]
+    assert settings["test_phone_hold"] == (blocked if reason == "temporary_hold" else None)
     ready_as(ws)
     detail = next_lead(ws, status=409)["detail"]
     assert detail["fix"] == "settings"
