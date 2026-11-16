@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from helpers import finish
 from journey import call, get, post, ready, run_jobs
 from test_feature_calling import Telnyx, inbound, inbound_task
@@ -101,6 +102,29 @@ def test_invalid_test_upload_preserves_the_saved_targets(workspace):
     assert replaced["contacts"] == [saved["contacts"][1]]
     restored = call(workspace, "PUT", "/v1/settings/test-list", json={"rows": ROWS})
     assert restored == saved
+
+
+@pytest.mark.slow
+def test_a_large_test_list_with_blocked_phones_finishes_the_queue_scan(workspace, carrier):
+    ws = workspace
+    rows = [{"name": f"Test {i}", "phone": f"+120255501{i:02d}"} for i in range(33)]
+    call(ws, "PUT", "/v1/settings/test-list", json={"rows": rows})
+    for row in rows[1:]:
+        post(ws, "/v1/suppressions", {"phone": row["phone"], "reason": "opt_out"})
+    run = post(ws, "/v1/settings/test-list/start")
+    ready(ws)
+    request = {"campaign_id": ws["campaign_id"], "test_only": True, "test_run_id": run["id"]}
+    reserved = post(ws, "/v1/queue/next", request)
+    made = post(
+        ws,
+        "/v1/calls/start",
+        {"reservation_id": reserved["reservation_id"], "idempotency_key": "test-list-clean"},
+    )
+    finish(ws, made, outcome="not_interested")
+    assert [dial["to"] for dial in carrier.dials] == [rows[0]["phone"]]
+    detail = post(ws, "/v1/queue/next", request, status=409)["detail"]
+    assert detail["code"] == "NO_ELIGIBLE_LEADS" and detail["fix"] == "settings"
+    assert "remaining test phones" in detail["message"]
 
 
 def test_callback_matches_the_test_contact_that_placed_the_call(workspace, clock, carrier):

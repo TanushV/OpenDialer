@@ -699,10 +699,13 @@ def test_phone_issue(service, s, p, phone):
 def no_lead_detail(service, s, p, reasons):
     """The refusal for Next call: the plain reason nobody can be called, most useful first."""
     reasons = set(reasons)
-    if reasons & {"INTERNAL_SUPPRESSION", "WRONG_PARTY", "INVALID_ENDPOINT"} and ops.in_test_session(
-        service, p
-    ):
-        if message := test_phone_issue(service, s, p, ops.test_phone(service, p)):
+    if reasons & {"INTERNAL_SUPPRESSION", "WRONG_PARTY", "INVALID_ENDPOINT"} and not reasons & NUMBER_REASONS:
+        message = None
+        if p.get("test_run_id"):
+            message = "The remaining test phones are blocked by opt-outs or number holds. Review the test list in Settings."
+        elif ops.in_test_session(service, p):
+            message = test_phone_issue(service, s, p, ops.test_phone(service, p))
+        if message:
             return {
                 "code": "NO_ELIGIBLE_LEADS",
                 "reasons": sorted(reasons),

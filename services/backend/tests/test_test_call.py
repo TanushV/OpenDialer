@@ -166,13 +166,20 @@ def test_ending_test_mode_invalidates_its_pending_dial(workspace, carrier):
     _, packet = start(workspace)
     assert packet.status_code == 200, packet.text
     assert client.delete("/v1/settings/test-call", headers=headers).status_code == 200
+    snapshot = client.get("/v1/workspace", headers=headers).json()
+    assert snapshot["test_phone"] is None and snapshot["reservation"] is None
+    assert snapshot["user"]["presence"]["status"] == "paused"
     refused = client.post(
         "/v1/calls/start",
         headers=headers,
         json={"reservation_id": packet.json()["reservation_id"], "idempotency_key": "ended-test"},
     )
-    assert refused.status_code == 403 and "OUTREACH_HOLD" in refused.text
+    assert refused.status_code == 409 and refused.json()["detail"].startswith("Reservation expired")
     assert carrier.dials == []
+    ready(workspace)
+    next_call = client.post("/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]})
+    assert next_call.status_code == 200, next_call.text
+    assert next_call.json()["lead"]["phone"] != packet.json()["lead"]["phone"]
 
 
 def test_a_test_session_without_a_test_phone_is_off(workspace, app):

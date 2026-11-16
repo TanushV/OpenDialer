@@ -70,15 +70,15 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
     release_notes = (ROOT / "docs/RELEASE_NOTES.md").read_text()
     version = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())["version"]
     assert release_notes.splitlines()[0] == "# OpenDialer " + version
-    assert "Keep the Markdown script in order." in notes
-    assert "Follow the rep's speech." in notes
-    assert "Export call statistics." in notes
+    assert "Repeat a test call after practicing an outcome." in notes
+    assert "End a test cleanly." in notes
+    assert "Get live suggestions sooner." in notes
     assert "Generate scripts per list." not in notes
     assert "Cleaner desktop layout." not in notes
     assert "A shared number pool for reps." not in notes
-    assert "Updating from 0.9.x or 0.10.x keeps your workspace and saved credentials" in notes
+    assert "Updates from 0.9.x or 0.10.x keep your workspace and saved credentials" in notes
     assert "fresh workspace" in notes
-    assert "old data stays untouched" in notes
+    assert "earlier data on disk" in notes
     assert "Your workspace is preserved; update in place" not in notes
     assert "macOS may ask for microphone access again" in notes
     assert "re-import" in notes
@@ -193,7 +193,7 @@ def test_version_identity_artifact_contract():
         next(p["version"] for p in python_lock["package"] if p["name"] == "opendialer"),
         next(p["version"] for p in cargo_lock["package"] if p["name"] == "opendialer-desktop"),
     ]
-    assert versions == ["2.1.8"] * len(versions)
+    assert versions == ["2.1.9"] * len(versions)
     assert tauri["identifier"] == "com.opendialer.desktop"
     assert tauri["app"]["windows"][0]["backgroundThrottling"] == "disabled"
     updater = tauri["plugins"]["updater"]

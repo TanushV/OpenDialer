@@ -376,7 +376,8 @@ def _selection_page(service, s, p, campaign_id, after):
         ops._release_in_flight(service, p, held)
         last = leads[-1] if leads else None
         cursor = (last.op_priority, last.op_coverage_at, last.id) if last else None
-        return None, cursor, denied, len(leads) < PAGE_SIZE
+        # Test queues already loaded every destination in the run.
+        return None, cursor, denied, bool(p.get("test_only")) or len(leads) < PAGE_SIZE
     identifier = selection["lead_id"]
     ops._release_in_flight(service, p, [lead_id for lead_id in held if lead_id != identifier])
     if allocations[identifier]["number_id"]:

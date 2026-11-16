@@ -655,13 +655,18 @@ def create_app(settings=None, *, clock=None, carrier=None):
     @app.delete("/v1/settings/test-call")
     async def end_test_call(p=Depends(administrator)):
         def end():
+            released = None
             with db.transaction() as s:
                 db.authorize_stream(s, p)
                 user = ops.required(service, s, "users", p["user_id"], p, lock=True)
                 if user.data.get("test_run"):
                     test_list.close(service, s, p, user)
                     return ops.release_unused_reservation_in(service, s, p)
+                if ops.in_test_session(service, p):
+                    test_list.close(service, s, p, user)
+                    released = ops.release_unused_reservation_in(service, s, p)
             ops.end_test_session(service, p)
+            return released
 
         if released := await asyncio.to_thread(end):
             await pool.cancel(service.managed, released)

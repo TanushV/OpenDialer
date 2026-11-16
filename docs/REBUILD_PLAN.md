@@ -2075,3 +2075,5 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 15, 2026: saving Wrong number or Wrong person on a standalone test contact records the test outcome without
   suppressing the phone. Existing number holds and opt-outs still block a test call, and Settings names the reason for
   the saved test phone before arming a session. HubSpot test contacts keep their writeback behavior.
+- November 15, 2026: 2.1.9 releases unused reservations and pauses calling when a single test ends. A test list checks
+  its remaining destinations once and explains when number holds prevent any further test calls.
