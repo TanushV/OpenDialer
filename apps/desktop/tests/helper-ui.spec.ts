@@ -420,8 +420,10 @@ test("a same-version stale help read cannot restore withdrawn guidance", async (
     received = resolve;
   });
   let count = 0;
+  let finished = false;
   let capturedVersion: number, capturedTranscript: number;
   await page.route(`**/v1/calls/${original.id}`, async (route) => {
+    if (finished) return route.fallback();
     const sequence = ++count;
     const response = await route.fetch();
     const body = await response.json();
@@ -450,7 +452,14 @@ test("a same-version stale help read cannot restore withdrawn guidance", async (
       received();
       await held;
     }
-    await route.fulfill({ response, json: body });
+    await route.fulfill({
+      response,
+      json: body,
+      headers: {
+        ...response.headers(),
+        "x-withdrawn-guidance": String(sequence),
+      },
+    });
   });
   try {
     await page.keyboard.press("F1");
@@ -476,16 +485,20 @@ test("a same-version stale help read cannot restore withdrawn guidance", async (
       });
       (window as any).obsoleteObserver = observer;
     });
+    const staleReply = page.waitForResponse(
+      (response) => response.headers()["x-withdrawn-guidance"] === "1",
+    );
+    // Deliver the held reply before the fixture removes its routes during cleanup.
     release();
-    await page.unrouteAll({ behavior: "wait" });
+    await staleReply;
     await settle(page);
     expect(await page.evaluate(() => (window as any).sawObsolete)).toBe(false);
     await expect(
       page.getByText("OBSOLETE ADVICE SHOULD NOT REAPPEAR", { exact: true }),
     ).toHaveCount(0);
   } finally {
+    finished = true;
     release();
-    await page.unrouteAll({ behavior: "wait" });
     await page.evaluate(() => (window as any).obsoleteObserver?.disconnect());
     await finishCall(page);
   }
