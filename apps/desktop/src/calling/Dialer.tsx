@@ -130,6 +130,17 @@ function StatusBar({
               End test session
             </Button>
           )}
+          {!test && (
+            <Button
+              disabled={Boolean(
+                phase.blocker &&
+                phase.blocker.code !== "CALLER_NUMBER_CALLBACK_TEST_REQUIRED",
+              )}
+              onClick={() => void act.testPhone(() => onNavigate?.("Settings"))}
+            >
+              Test call
+            </Button>
+          )}
           <Button
             variant="primary"
             kbd="Space"

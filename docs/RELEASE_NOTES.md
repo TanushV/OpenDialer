@@ -1,3 +1,9 @@
+# OpenDialer 2.1.11
+
+- **Start a test call directly in the Dialer.** Test call dials the saved test phone once, even outside prospect calling hours. OpenDialer pauses after the test. If the saved phone needs attention, the button opens Settings so you can review it or save another test phone.
+
+Updates from 1.0.x through 2.1.10 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.1.10
 
 - **Review a test phone hold in Settings.** The Test phone row shows why the number is blocked. If you confirm there was no request to stop calls, release the temporary hold and record your reason there. Confirmed opt-outs stay in effect.

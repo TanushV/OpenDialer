@@ -204,7 +204,7 @@ def blocked(code, phone=None, *, shared=False):
                 "numbers",
             ),
             "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": (
-                "Start a Test call in Settings, then call the displayed number back and answer it here.",
+                "Place a test call, then call the displayed number back and answer it here.",
                 "settings",
             ),
         }.get(code, (message, fix))

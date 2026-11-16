@@ -2079,3 +2079,6 @@ test assets and admin access before asking for anything. The signed rollout foll
   its remaining destinations once and explains when number holds prevent any further test calls.
 - November 15, 2026: 2.1.10 shows a saved test phone's block on its Settings row. Temporary holds can be reviewed and
   released there, with the reason recorded by the existing release action. Confirmed opt-outs stay blocked.
+- November 15, 2026: 2.1.11 starts one saved test phone call directly from the paused Dialer, independent of the
+  prospect queue. WebKit verified the test reservation and pause outside prospect calling hours. An isolated pilot
+  backend and headless WebRTC received live Telnyx voicemail and finalization events for the approved 8547 test phone.

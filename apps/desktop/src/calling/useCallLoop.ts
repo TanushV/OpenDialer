@@ -82,6 +82,7 @@ export function useCallLoop(visible: boolean) {
     useState<Call["callback_review"]>(null);
   const [audioStatus, setAudioStatus] = useState("");
   const busy = useRef(false);
+  const starting = useRef(false);
   const skipping = useRef<string | null>(null);
   // R9E.8: the rep's own Hang up, Skip, Stay and outcome key show at once, for the call they were pressed on,
   // and a re-read from before the server saw them cannot bring the used control back.
@@ -516,33 +517,40 @@ export function useCallLoop(visible: boolean) {
   }
   const listsKey = `dial-lists:${session.tenant_id}:${session.seller_id}:${session.user_id}`;
 
-  async function startCalling() {
-    // First, while the rep's click or key is still current: WebKit starts audio only from one (live transcript).
-    unlockSpeechAudio();
-    if (local.length) throw new Error(local[0].message);
-    await syncOptouts();
-    if (journal.current.blocksCalling)
-      throw new Error("Sync the pending opt-out before calling.");
-    testRunId.current = testList?.id ?? null;
-    testRun.current = Boolean(testPhone || testList);
-    pausing.current = false;
-    setHeld(false);
-    setFinished(null);
+  async function startCalling(armTestPhone?: () => Promise<void>) {
+    if (starting.current) return;
+    starting.current = true;
     try {
-      await withConnecting(connectAudio);
-      if (await pausedMeanwhile(false)) return;
-      setStarted(true);
-      callingRef.current = true;
-      await refresh();
-      if (await pausedMeanwhile(false)) return;
-      callingRef.current = true;
-      if (testRun.current) await nextCall();
-      else await nextOrPause();
-    } catch (error) {
-      if (testRun.current) {
+      // WebKit unlocks audio only while the rep's click or key is still current.
+      unlockSpeechAudio();
+      setTestError("");
+      if (local.length) throw new Error(local[0].message);
+      await syncOptouts();
+      if (journal.current.blocksCalling)
+        throw new Error("Sync the pending opt-out before calling.");
+      if (armTestPhone) await armTestPhone();
+      testRunId.current = armTestPhone ? null : (testList?.id ?? null);
+      testRun.current = Boolean(armTestPhone || testPhone || testList);
+      pausing.current = false;
+      setHeld(false);
+      setFinished(null);
+      try {
+        await withConnecting(connectAudio);
+        if (await pausedMeanwhile(false)) return;
+        setStarted(true);
+        callingRef.current = true;
+        await refresh();
+        if (await pausedMeanwhile(false)) return;
+        callingRef.current = true;
+        if (testRun.current) await nextCall();
+        else await nextOrPause();
+      } catch (error) {
+        if (!testRun.current) throw error;
         await pauseCalling().catch(() => {});
         setTestError(error instanceof Error ? error.message : String(error));
-      } else throw error;
+      }
+    } finally {
+      starting.current = false;
     }
   }
   /**
@@ -780,11 +788,19 @@ export function useCallLoop(visible: boolean) {
   }, [syncOptouts]);
 
   const act = {
-    start: () =>
-      run(async () => {
-        setTestError("");
-        await startCalling();
-      }),
+    start: () => run(startCalling),
+    testPhone: (openSettings: () => void) =>
+      run(() =>
+        startCalling(async () => {
+          try {
+            await api("/v1/settings/test-call", "POST");
+          } catch (error) {
+            if (error instanceof ApiError && error.status === 409)
+              openSettings();
+            throw error;
+          }
+        }),
+      ),
     endTest: () => run(endTest),
     pause: () => run(pauseCalling),
     skip: () => run(skip),

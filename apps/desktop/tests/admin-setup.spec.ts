@@ -540,6 +540,66 @@ test("Settings imports a test CSV and the Dialer calls only those destinations",
   ).toBeVisible();
 });
 
+test("the Dialer test button only calls the saved phone even when the lead queue is outside calling hours", async ({
+  page,
+}) => {
+  await enter(page);
+  const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
+  expect(local.ok()).toBeTruthy();
+  const headers = {
+    authorization: `Bearer ${(await local.json()).access_token}`,
+  };
+  const saved = await page.request.put(`${AUTHORITY}/v1/admin/settings`, {
+    headers,
+    data: { test_phone: "+12025550199" },
+  });
+  expect(saved.ok()).toBeTruthy();
+  const state = await page.request.get(`${AUTHORITY}/v1/workspace`, {
+    headers,
+  });
+  const { policy, test_phone } = await state.json();
+  expect(test_phone).toBeFalsy();
+  const published = await page.request.post(
+    `${AUTHORITY}/v1/admin/policies/${policy.id}/publish`,
+    {
+      headers,
+      data: {
+        expected_version: policy.version,
+        local_start_hour: 0,
+        local_end_hour: 1,
+      },
+    },
+  );
+  expect(published.ok()).toBeTruthy();
+  await page.reload();
+  await expect(page.getByTestId("readiness")).toContainText(
+    /outside calling hours/i,
+  );
+  const reserved = page.waitForResponse(
+    (r) => r.url().endsWith("/v1/queue/next") && r.ok(),
+  );
+  const placed = page.waitForResponse(
+    (r) => r.url().endsWith("/v1/calls/start") && r.ok(),
+  );
+  await page
+    .getByRole("button", { name: "Test call", exact: true })
+    .click({ timeout: 4_000 });
+  const reservation = await reserved;
+  expect(reservation.request().postDataJSON()).toMatchObject({
+    test_only: true,
+  });
+  expect((await reservation.json()).lead.phone).toBe("+12025550199");
+  expect(await (await placed).json()).toMatchObject({ is_test: true });
+  await expect(page.getByTestId("lead-name")).toHaveText("Your test phone");
+  await page.getByRole("button", { name: /^Skip/ }).click();
+  await expect(
+    page.getByRole("button", { name: /^Start calling/ }),
+  ).toBeVisible();
+});
+
 test("Test call limits calling to the test phone, and the session ends with that call", async ({
   page,
 }) => {
@@ -612,7 +672,13 @@ for (const [reason, message] of [
     });
     expect(blocked.ok()).toBeTruthy();
 
-    await openSettings(page);
+    await clickUntil(
+      page.getByRole("button", { name: "Test call", exact: true }),
+      () =>
+        expect(
+          page.getByRole("heading", { name: "Settings", exact: true }),
+        ).toBeVisible(),
+    );
     const row = page.getByTestId("setup-test_phone");
     await expect(
       row.getByRole("status", { name: "Test phone status" }),
