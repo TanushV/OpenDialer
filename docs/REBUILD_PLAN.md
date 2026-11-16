@@ -562,7 +562,8 @@ Rules:
   becomes Connected or a matching custom outcome such as Meeting Booked, read from the dispositions API at setup. An
   unmapped outcome shows at setup, not after a call.
 - The summary goes to HubSpot; the transcript never does.
-- Test-session and `delivery_test` calls are never written, except for contacts on the HubSpot test list.
+- Test calls and `delivery_test` calls stay local, including calls to numbers that match HubSpot contacts. Outcomes and
+  summaries from those calls do not write back, even if a job from an older version retries.
 - A failed write retries, then reaches Needs attention, and never blocks dialing. Before retrying an uncertain write, search
   for `opendialer_call_id`, because the HubSpot docs I found describe no duplicate guard.
 - Other dialers such as Nooks write their own records, so there is no adapter. Exclusion lists built on HubSpot outcomes
@@ -1644,9 +1645,8 @@ one learning view kept. Each item gets its tests first.
       per-number caps stay.
 - [x] R11.6 Stage drop-off (D31): the after-call summary names the script part where the call ended, checked against
       the script's parts; Review shows where answered calls end, by outcome.
-- [x] R11.7 HubSpot test segment (section 9B's rule, never built): test calls to a contact on the chosen test segment
-      are written to HubSpot, so L15 to L18 run on the owner's line. Built simpler: a test session dials only the
-      rep's phone, so a test call to any HubSpot contact is written, and the session prefers that contact.
+- [x] R11.7 A test session may match a HubSpot contact for the saved phone. The old test writeback rule is superseded
+      by section 9B, so tests and their outcomes stay local regardless of the matching contact.
 - [x] R11.8 Call screeners: when the transcript shows a phone's screener, the helper shows "say your name and why
       you're calling" without a model call.
 - [ ] R11.9 One candidate, installed; live sessions: calls (transcript, voice both ways, helper, screener, L3 to L7),
@@ -2085,3 +2085,7 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 15, 2026: 2.1.12 clears the previous result when the rep starts, so an old finalized test cannot pause a
   repeat. Only single-phone tests disable answering-machine detection. An isolated backend placed a live call to
   approved 1101 before that change. The owner confirmed receipt and heard the headless browser's test audio.
+- November 15, 2026: the owner directed that test numbers stay out of HubSpot. Test outcomes do not queue CRM writes,
+  and previously queued test logs and summaries are skipped. Practice wrong-number outcomes leave explicitly staged
+  test phones callable. The two verified test phone fields and six test call destinations were cleared in HubSpot,
+  and the dedicated contacts were removed from their two assigned segments.

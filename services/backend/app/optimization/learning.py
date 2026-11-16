@@ -5,6 +5,7 @@ from datetime import timedelta
 from statistics import NormalDist
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.calling.records import is_test_call
 from app.optimization.conversations import conversation_associations as conversation_associations
 from app.optimization.numbering import timestamp
 from app.scheduling.models import (
@@ -193,10 +194,6 @@ def freeze_features(lead, *, health, now, calls=()):
             and timestamp(c["started_at"]) <= now
         ),
     }
-
-
-def is_test_call(call):
-    return bool(call.get("is_test") or (call.get("disposition_input") or {}).get("delivery_test"))
 
 
 def training_rows(calls, snapshots, events, *, now, goal, window_days, include_unclassified=False):

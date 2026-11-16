@@ -11,6 +11,7 @@ from datetime import timedelta
 from weakref import WeakValueDictionary
 
 from app import ops
+from app.calling.records import is_test_call
 from app.leads import dnc, hubspot_sync, intake
 from app.leads import waterfall as wf
 from app.platform.db import audit, doc, emit, put, update
@@ -605,13 +606,13 @@ async def log_job(service, p, call_id):
 
     with service.db.transaction(False) as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
+        if is_test_call(call.data):
+            return {"skipped": True}
         lead = ops.required(service, s, "leads", call.data["lead_id"], p)
         data, lead_data = dict(call.data), dict(lead.data)
         endpoint_id = data.get("endpoint_id")
         endpoint = ops.scoped_get(service, s, p, "phone_endpoints", endpoint_id) if endpoint_id else None
         dialed_phone = endpoint.data["phone"] if endpoint else lead_data.get("phone") or ""
-    # R11.7: a test call to a HubSpot contact is the owner's own test contact (a test session dials only the
-    # rep's phone), so it is written; that is how L15 to L18 run on the owner's line.
     if lead_data.get("source") != "crm" or not lead_data.get("external_id"):
         return {"skipped": True}
     hs = hubspot(service, p)
@@ -653,6 +654,8 @@ async def summary_job(service, p, call_id):
 
     with service.db.transaction(False) as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
+        if is_test_call(call.data):
+            return {"skipped": True}
         hubspot_id = call.data.get("crm_logged")
         summary = (ops.call_summary(service, s, p, call_id) or {}).get("summary")
     if not hubspot_id or not summary:
@@ -662,7 +665,7 @@ async def summary_job(service, p, call_id):
 
 
 def enqueue_summary(service, s, p, call):
-    if call.data.get("crm_logged"):
+    if call.data.get("crm_logged") and not is_test_call(call.data):
         service.jobs.enqueue_in(
             s,
             LANE,
@@ -724,7 +727,7 @@ async def contact_job(service, p, lead_id):
 
 def on_outcome(service, s, p, call, lead, outcome):
     """After a saved outcome on a CRM lead: log it to HubSpot, note our own call for the guard, and reopen a wrong number."""
-    if lead.data.get("source") != "crm":
+    if is_test_call(call.data) or lead.data.get("source") != "crm":
         return
     now = service.clock()
     update(lead, last_called_at=now.isoformat())
@@ -746,8 +749,7 @@ def on_outcome(service, s, p, call, lead, outcome):
 
 
 def enqueue_log(service, s, p, call):
-    """Queue the HubSpot record for a saved outcome; never for a CSV lead. A test call to a HubSpot contact is
-    written: it can only be the owner's own test contact (R11.7)."""
+    """Queue a call record for a regular CRM outcome."""
     lead = ops.required(service, s, "leads", call.data["lead_id"], p)
     if lead.data.get("source") != "crm" or not config(service, p).get("hubspot_service_key"):
         return

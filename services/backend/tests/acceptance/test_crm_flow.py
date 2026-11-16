@@ -462,9 +462,10 @@ def test_checking_the_hubspot_key_creates_the_apps_fields_once(workspace, monkey
     }
 
 
-def test_a_test_call_to_the_owners_hubspot_contact_is_written_to_hubspot(workspace, monkeypatch):
-    """R11.7 (section 9B): a test session dials only the rep's own phone, so a test call to a HubSpot contact is the
-    owner's test contact; it is written, which lets L15 to L18 run on the owner's line."""
+def test_a_test_call_to_a_hubspot_number_remains_local(workspace, monkeypatch):
+    from app import crm, ops
+    from app.platform.db import update
+    from helpers import principal
     from journey import answered_by_human, hang_up, reserve, wrap_up
 
     ws = workspace
@@ -483,11 +484,25 @@ def test_a_test_call_to_the_owners_hubspot_contact_is_written_to_hubspot(workspa
     )
     answered_by_human(ws, call["id"])
     hang_up(ws, call["id"])
+    before = list(fakes.writes)
     wrap_up(ws, call["id"], outcome="wrong_party")
     run_jobs(ws, rounds=3)
     assert get(ws, f"/v1/calls/{call['id']}")["is_test"] is True
-    assert len(fakes.created_calls) == 1
-    assert ("/crm/v3/objects/contacts/1", {"phone_status": "wrong_number"}) in fakes.writes
+    assert not fakes.created_calls
+    assert fakes.writes == before
+    post(ws, "/v1/settings/test-call")
+
+    # Work created before the update may still retry. A test activity logged by the old
+    # rule must not receive a follow-up summary either.
+    client = ws["client"]
+    service = client.app.state.service
+    p = principal(ws)
+    with service.db.transaction() as s:
+        update(ops.required(service, s, "call_attempts", call["id"], p), crm_logged="old-test-activity")
+        update(ops._by_key(service, s, p, "call_summaries", call["id"]), summary="Test call")
+    assert client.portal.call(crm.log_job, service, p, call["id"]) == {"skipped": True}
+    assert client.portal.call(crm.summary_job, service, p, call["id"]) == {"skipped": True}
+    assert not fakes.created_calls and fakes.writes == before
 
 
 @pytest.mark.parametrize("retry_scheduled", [False, True])

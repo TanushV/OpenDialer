@@ -57,6 +57,14 @@ def presence_of(user_data):
     return UserView.model_validate(user_data).presence
 
 
+def is_test_call(call):
+    return bool(
+        call.get("is_test")
+        or (call.get("dial_scope") or {}).get("test_only")
+        or (call.get("disposition_input") or {}).get("delivery_test")
+    )
+
+
 class CallView(View):
     """The call fields dialing, hang-up and recovery read (R3.5, R4.5)."""
 

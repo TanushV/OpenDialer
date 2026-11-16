@@ -2,6 +2,7 @@
 
 - **Start a fresh test every time.** An earlier test result no longer pauses a new call while the Dialer refreshes.
 - **Check audio on a single test call.** The line connects on answer without automatic voicemail detection. Test lists continue to use voicemail detection for rehearsing the normal calling flow.
+- **Keep test calls out of HubSpot.** Test calls, outcomes and summaries stay on this desktop, including when the saved test number matches a HubSpot contact.
 
 Updates from 1.0.x through 2.1.11 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
 
