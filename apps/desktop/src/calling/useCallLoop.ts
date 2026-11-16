@@ -13,6 +13,12 @@ import { captureSpeech, unlockSpeechAudio } from "../telephony/speech";
 import type { Call, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
 import {
+  callProblem,
+  startProblem,
+  unconfirmedProblem,
+  type CallProblem,
+} from "./problems";
+import {
   screen,
   withIntent,
   type Blocker,
@@ -75,6 +81,8 @@ export function useCallLoop(visible: boolean) {
   const [packet, setPacket] = useState<Packet | null>(null);
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [finished, setFinished] = useState<QueueStatus | null>(null);
+  const [problem, setProblem] = useState<CallProblem | null>(null);
+  const [settling, setSettling] = useState(false);
   const [muted, setMuted] = useState(false);
   const [editing, setEditing] = useState(false);
   // A saved callback whose time a person already handled names the task to review.
@@ -297,7 +305,16 @@ export function useCallLoop(visible: boolean) {
         ready: callingRef.current,
         pausing: pausing.current,
       });
-      if (next === "pause") void pauseCalling().catch(() => {});
+      if (next === "pause") {
+        if (status !== "return-ended") {
+          setProblem({
+            title: "Calling paused",
+            message:
+              "Your Telnyx audio connection dropped. Check your connection and headset, then try again.",
+          });
+        }
+        void pauseCalling().catch(() => {});
+      }
     };
     return () => {
       controller.onStatus = () => {};
@@ -450,8 +467,7 @@ export function useCallLoop(visible: boolean) {
       const found = await readBlockers();
       const blocked = local[0] ?? found.find((b) => !SELF_CLEARING.has(b.code));
       if (blocked) {
-        if (testRun.current) throw new Error(blocked.message);
-        return;
+        throw new ApiError(blocked.message, 409, blocked.code, blocked.fix);
       }
       if (found.some((b) => b.code === "REP_AUDIO_NOT_READY")) {
         await withConnecting(connectAudio);
@@ -495,14 +511,38 @@ export function useCallLoop(visible: boolean) {
       setPacket(await api<Packet>(`/v1/leads/${next.lead.id}/packet`));
       // Pause pressed while the lead was reserved or loading: no call is placed and the lead is given back.
       if (await pausedMeanwhile(true)) return;
-      const placed = await api<Call>("/v1/calls/start", "POST", {
-        reservation_id: next.reservation_id,
-        idempotency_key: next.reservation_id,
-      });
+      let placed: Call;
+      try {
+        placed = await api<Call>("/v1/calls/start", "POST", {
+          reservation_id: next.reservation_id,
+          idempotency_key: next.reservation_id,
+        });
+      } catch (error) {
+        // A lost response is different from a refusal. There may be a live call: reload it
+        // without replaying the request or releasing its audio leg.
+        if (error instanceof ApiError && error.status < 500) throw error;
+        setProblem(
+          unconfirmedProblem(
+            testRun.current,
+            "The app lost the dial response. The call may have been placed.",
+          ),
+        );
+        holdCalling();
+        await api("/v1/rep/presence", "POST", {
+          status: "paused",
+          telephony_ready: false,
+        }).catch(() => {});
+        await refresh().catch(() => {});
+        return;
+      }
       // The visible phase can still be the no-call render when the request returns.
       callRef.current = placed;
       setCall(placed);
       setMuted(false);
+      if (placed.dial_error) {
+        setProblem(callProblem(placed));
+        await stopAfterFailure(testRun.current && !testRunId.current);
+      }
     } finally {
       busy.current = false;
     }
@@ -518,17 +558,27 @@ export function useCallLoop(visible: boolean) {
   const listsKey = `dial-lists:${session.tenant_id}:${session.seller_id}:${session.user_id}`;
 
   async function startCalling(armTestPhone?: () => Promise<void>) {
-    if (starting.current) return;
+    if (starting.current || busy.current) return;
     starting.current = true;
+    pausing.current = false;
+    const testing = Boolean(armTestPhone || testPhone || testList);
     try {
       // WebKit unlocks audio only while the rep's click or key is still current.
       unlockSpeechAudio();
-      setTestError("");
-      if (local.length) throw new Error(local[0].message);
+      setProblem(null);
+      if (local.length)
+        throw new ApiError(local[0].message, 409, local[0].code, local[0].fix);
       await syncOptouts();
       if (journal.current.blocksCalling)
         throw new Error("Sync the pending opt-out before calling.");
       if (armTestPhone) await armTestPhone();
+      // Arming the approved test phone can clear the first-callback setup
+      // blocker. Check the current blockers before starting the audio leg.
+      const blocked = (await readBlockers()).find(
+        (b) => !SELF_CLEARING.has(b.code),
+      );
+      if (blocked)
+        throw new ApiError(blocked.message, 409, blocked.code, blocked.fix);
       // A prior outcome belongs to the previous run. Discard it and any read still in flight.
       if (callRef.current?.state === "FINALIZED") {
         readGeneration.current += 1;
@@ -537,24 +587,28 @@ export function useCallLoop(visible: boolean) {
         setPacket(null);
       }
       testRunId.current = armTestPhone ? null : (testList?.id ?? null);
-      testRun.current = Boolean(armTestPhone || testPhone || testList);
-      pausing.current = false;
+      testRun.current = testing;
       setHeld(false);
       setFinished(null);
+      await withConnecting(connectAudio);
+      if (await pausedMeanwhile(false)) return;
+      setStarted(true);
+      callingRef.current = true;
       try {
-        await withConnecting(connectAudio);
-        if (await pausedMeanwhile(false)) return;
-        setStarted(true);
-        callingRef.current = true;
         await refresh();
-        if (await pausedMeanwhile(false)) return;
-        callingRef.current = true;
-        if (testRun.current) await nextCall();
-        else await nextOrPause();
       } catch (error) {
-        if (!testRun.current) throw error;
-        await pauseCalling().catch(() => {});
-        setTestError(error instanceof Error ? error.message : String(error));
+        // This read can trigger local session renewal after presence already went ready.
+        // Let the loop start with the renewed API; no reservation or dial was sent yet.
+        if (error instanceof ApiError && error.status === 401) return;
+        throw error;
+      }
+      if (await pausedMeanwhile(false)) return;
+      callingRef.current = true;
+      await nextCall();
+    } catch (error) {
+      if (!pausing.current || testing) {
+        setProblem(startProblem(error, testing));
+        await stopAfterFailure(testing && !testList);
       }
     } finally {
       starting.current = false;
@@ -575,11 +629,14 @@ export function useCallLoop(visible: boolean) {
     if (reserved) await api("/v1/queue/release", "POST", {});
     return true;
   }
-  async function pauseCalling() {
+  function holdCalling() {
     pausing.current = true;
     callingRef.current = false;
     setHeld(true);
     setStarted(false);
+  }
+  async function pauseCalling() {
+    holdCalling();
     await api("/v1/rep/presence", "POST", {
       status: "paused",
       audio_ready: w.user.presence.audio_ready ?? false,
@@ -591,11 +648,23 @@ export function useCallLoop(visible: boolean) {
     }
     await refresh();
   }
-  const [testError, setTestError] = useState("");
+  async function stopAfterFailure(singleTest: boolean) {
+    setSettling(true);
+    try {
+      await pauseCalling().catch(() => {});
+      if (singleTest) {
+        await api("/v1/settings/test-call", "DELETE").catch(() => {});
+        testRun.current = false;
+        await refresh().catch(() => {});
+      }
+    } finally {
+      setSettling(false);
+    }
+  }
   async function endTest() {
     await pauseCalling();
     await api("/v1/settings/test-call", "DELETE");
-    setTestError("");
+    setProblem(null);
     testRun.current = false;
     testRunId.current = null;
     await refresh();
@@ -748,12 +817,8 @@ export function useCallLoop(visible: boolean) {
     try {
       await nextCall();
     } catch (error) {
-      await pauseCalling().catch(() => {});
-      if (testRun.current) {
-        setTestError(error instanceof Error ? error.message : String(error));
-        return;
-      }
-      throw error;
+      setProblem(startProblem(error, testRun.current));
+      await stopAfterFailure(testRun.current && !testRunId.current);
     }
   }
   const advance = () => run(nextOrPause);
@@ -761,7 +826,7 @@ export function useCallLoop(visible: boolean) {
   useEffect(() => {
     if (!visible) return;
     if (phase.kind === "dialing" && !call) {
-      void advance();
+      if (!starting.current) void advance();
       return;
     }
     if ((phase.kind === "saved" || phase.kind === "skipped") && !editing) {
@@ -769,7 +834,8 @@ export function useCallLoop(visible: boolean) {
         // A test call is one call: stop here rather than count down to a prospect (live check, November 10).
         void run(async () => {
           await pauseCalling();
-          notice("Test call finished. Calling is paused.");
+          if (!callProblem(call))
+            notice("Test call finished. Calling is paused.");
         });
         return;
       }
@@ -780,7 +846,7 @@ export function useCallLoop(visible: boolean) {
       const timer = setTimeout(() => void advance(), 60_000);
       return () => clearTimeout(timer);
     }
-  }, [phase.kind, call?.id, call?.state, editing, visible]);
+  }, [phase.kind, call?.id, call?.state, editing, visible, api]);
   // Pending opt-outs retry when the network returns.
   useEffect(() => {
     void syncOptouts().catch(() => {});
@@ -834,7 +900,8 @@ export function useCallLoop(visible: boolean) {
     returnProvider,
     testPhone,
     testList,
-    testError,
+    problem: problem ?? callProblem(call),
+    settling,
     listsKey,
     stopping,
     callbackReview,

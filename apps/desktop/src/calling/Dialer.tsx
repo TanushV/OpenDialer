@@ -67,7 +67,7 @@ function StatusBar({
   loop: Loop;
   onNavigate?: (page: string) => void;
 }) {
-  const { phase, packet, act, testPhone, testList, testError } = loop;
+  const { phase, packet, act, testPhone, testList, problem, settling } = loop;
   const lead = packet?.lead;
   const identity = lead?.company
     ? `${lead.name} · ${lead.company}`
@@ -77,7 +77,14 @@ function StatusBar({
   const target =
     phase.kind === "finished" ? FIX_PAGE[phase.fix ?? ""] : undefined;
   return (
-    <header className="status-bar">
+    <header
+      className="status-bar"
+      data-call-blocked={Boolean(
+        !problem &&
+        ((paused && phase.blocker) ||
+          (phase.kind === "finished" && phase.reason)),
+      )}
+    >
       <div
         className="status-text"
         role="status"
@@ -86,9 +93,26 @@ function StatusBar({
       >
         <strong>
           {paused && test && !phase.blocker
-            ? testError || (testList ? "Test list" : "Test call")
+            ? testList
+              ? "Test list"
+              : "Test call"
             : headline(phase)}
         </strong>
+        {problem && (
+          <div className="call-problem" role="alert" aria-label="Call problem">
+            <strong>{problem.title}</strong>
+            <span>{problem.message}</span>
+            {problem.nextAction && <span>{problem.nextAction}</span>}
+            {problem.fix && FIX_PAGE[problem.fix] && onNavigate && (
+              <Button
+                variant="text"
+                onClick={() => onNavigate(FIX_PAGE[problem.fix!])}
+              >
+                Open {FIX_PAGE[problem.fix]}
+              </Button>
+            )}
+          </div>
+        )}
         {paused && !test && !phase.blocker && (
           <Readiness onNavigate={onNavigate} />
         )}
@@ -126,16 +150,17 @@ function StatusBar({
       ) : paused ? (
         <>
           {test && (
-            <Button variant="text" onClick={() => void act.endTest()}>
+            <Button
+              variant="text"
+              disabled={settling}
+              onClick={() => void act.endTest()}
+            >
               End test session
             </Button>
           )}
           {!test && (
             <Button
-              disabled={Boolean(
-                phase.blocker &&
-                phase.blocker.code !== "CALLER_NUMBER_CALLBACK_TEST_REQUIRED",
-              )}
+              disabled={settling}
               onClick={() => void act.testPhone(() => onNavigate?.("Settings"))}
             >
               Test call
@@ -144,7 +169,7 @@ function StatusBar({
           <Button
             variant="primary"
             kbd="Space"
-            disabled={!!phase.blocker}
+            disabled={settling || !!phase.blocker}
             onClick={() => void act.start()}
           >
             {testList

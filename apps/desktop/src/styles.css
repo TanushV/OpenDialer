@@ -2711,6 +2711,10 @@ details.transcript-card {
 .status-bar > .ui-button {
   flex-shrink: 0;
 }
+.status-bar[data-call-blocked="true"] {
+  border-inline-start: 4px solid #a8352d;
+  background: #fff1ef;
+}
 .status-text {
   display: grid;
   gap: 2px;
@@ -2718,6 +2722,25 @@ details.transcript-card {
 }
 .status-text strong {
   font-size: 18px;
+}
+.call-problem {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  margin-top: 5px;
+  padding: 8px 12px;
+  color: #76241e;
+  background: #fff1ef;
+  border: 1px solid #dfaca5;
+  border-inline-start: 4px solid #a8352d;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.call-problem strong {
+  font-size: 16px;
+}
+.dialer:has(.call-problem) .status-bar {
+  height: auto;
 }
 .status-lead {
   overflow: hidden;

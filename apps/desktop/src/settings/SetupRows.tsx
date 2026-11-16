@@ -80,6 +80,7 @@ export function SetupRows({
 }) {
   const { api, run, notice, refresh, subscribe } = useWorkspace();
   const [data, setRows] = useState<Rows | null>(null);
+  const [testSetupError, setTestSetupError] = useState("");
   // An answer shows only if no later request has answered: a slow re-read never undoes a newer check.
   const newest = useNewestAnswer();
   const fetchRows = useCallback(
@@ -127,6 +128,12 @@ export function SetupRows({
           </Button>
         </Panel>
       )}
+      {testSetupError && (
+        <div className="call-problem" role="alert">
+          <strong>Could not prepare the test call</strong>
+          <span>{testSetupError}</span>
+        </div>
+      )}
       {data.rows.map((row) => (
         <SetupRow
           key={row.id}
@@ -145,6 +152,7 @@ export function SetupRows({
           save={async (values) => {
             await api("/v1/admin/settings", "PUT", values);
             await fetchRows(`/v1/settings/rows/${row.id}/check`, "POST");
+            if (row.id === "test_phone") setTestSetupError("");
           }}
           check={() =>
             run(() => fetchRows(`/v1/settings/rows/${row.id}/check`, "POST"))
@@ -153,11 +161,15 @@ export function SetupRows({
             row.id === "test_phone" && row.state === "ok"
               ? () =>
                   run(async () => {
+                    setTestSetupError("");
                     try {
                       await api("/v1/settings/test-call", "POST");
                     } catch (error) {
+                      setTestSetupError(
+                        error instanceof Error ? error.message : String(error),
+                      );
                       await load().catch(() => {});
-                      throw error;
+                      return;
                     }
                     await Promise.all([refresh(), reload()]);
                     notice("Press Call test phone in the Dialer.");
@@ -258,7 +270,7 @@ function SetupRow({
         )}
         {testCall && (
           <Button variant="primary" onClick={() => void testCall()}>
-            Test call
+            Prepare test call
           </Button>
         )}
         {/* A saved value is checked as it is, without typing it again. */}

@@ -174,6 +174,12 @@ export interface Call {
   } | null;
   /** Carrier hang-up side: "callee" is the prospect, "caller" is this app's side. */
   provider_hangup_source?: string | null;
+  provider_hangup_cause?: string | null;
+  sip_block_code?: string | null;
+  end_reason?: string | null;
+  recovery_reason?: string | null;
+  dial_error?: { message: string; fix?: string | null };
+  answered_at?: string | null;
   connected_seconds?: number | null;
   /** Telnyx found a mailbox on the final attempt: the line stays open for the rep's message. */
   voicemail_turn?: boolean;

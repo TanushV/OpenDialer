@@ -636,7 +636,9 @@ test("Test call limits calling to the test phone, and the session ends with that
   await phone.pressSequentially("+1 202 555 0199");
   await expect(phone).toHaveValue("+1 202 555 0199");
   await row.getByRole("button", { name: "Save and check" }).click();
-  await row.getByRole("button", { name: "Test call", exact: true }).click();
+  await row
+    .getByRole("button", { name: "Prepare test call", exact: true })
+    .click();
   const placed = page.waitForResponse(
     (r) => r.url().endsWith("/v1/calls/start") && r.ok(),
   );
@@ -659,6 +661,132 @@ test("Test call limits calling to the test phone, and the session ends with that
   await expect(
     page.getByRole("button", { name: "End test session", exact: true }),
   ).toBeHidden();
+});
+
+test("a refused test dial stays visible and retry can place the call", async ({
+  page,
+}) => {
+  await enter(page);
+  const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
+  const headers = {
+    authorization: `Bearer ${(await local.json()).access_token}`,
+  };
+  expect(
+    (
+      await page.request.put(`${AUTHORITY}/v1/admin/settings`, {
+        headers,
+        data: { test_phone: "+12025550199" },
+      })
+    ).ok(),
+  ).toBeTruthy();
+  await page.route(
+    "**/v1/calls/start",
+    (route) =>
+      route.fulfill({
+        status: 409,
+        json: {
+          detail: {
+            code: "CALLER_ID_CAPACITY",
+            message: "Every verified caller ID reached its outbound limit.",
+            next_action: "Check Numbers for available caller IDs.",
+            fix: "numbers",
+          },
+        },
+      }),
+    { times: 1 },
+  );
+  await page.getByRole("button", { name: "Test call", exact: true }).click();
+  const failure = page.getByRole("alert", { name: "Call problem" });
+  await expect(failure).toContainText("Test call did not start");
+  await expect(failure).toContainText(
+    "Every verified caller ID reached its outbound limit.",
+  );
+  await expect(failure).toContainText(
+    "Check Numbers for available caller IDs.",
+  );
+  await expect(
+    failure.getByRole("button", { name: "Open Numbers" }),
+  ).toBeVisible();
+  const [placed] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/v1/calls/start") && r.ok()),
+    page.getByRole("button", { name: "Test call", exact: true }).click(),
+  ]);
+  expect(await placed.json()).toMatchObject({ is_test: true });
+  await expect(failure).toHaveCount(0);
+});
+
+test("a lost dial response shows uncertainty without submitting again", async ({
+  page,
+}) => {
+  await enter(page);
+  const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
+  await page.request.put(`${AUTHORITY}/v1/admin/settings`, {
+    headers: { authorization: `Bearer ${(await local.json()).access_token}` },
+    data: { test_phone: "+12025550199" },
+  });
+  let submissions = 0;
+  await page.route("**/v1/calls/start", async (route) => {
+    submissions++;
+    // The backend accepts the dial; only its response is lost.
+    expect((await route.fetch()).ok()).toBeTruthy();
+    await route.abort();
+  });
+  await page.getByRole("button", { name: "Test call", exact: true }).click();
+  await expect(page.getByRole("alert", { name: "Call problem" })).toContainText(
+    "Test call could not be confirmed",
+  );
+  await expect(page.getByRole("alert", { name: "Call problem" })).toContainText(
+    "The call may have been placed",
+  );
+  await expect(page.getByRole("button", { name: /^Skip/ })).toBeVisible();
+  expect(submissions).toBe(1);
+});
+
+test("the test phone being busy is not reported as a successful test", async ({
+  page,
+}) => {
+  await enter(page);
+  const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
+  const headers = {
+    authorization: `Bearer ${(await local.json()).access_token}`,
+  };
+  await page.request.put(`${AUTHORITY}/v1/admin/settings`, {
+    headers,
+    data: { test_phone: "+12025550199" },
+  });
+  const [placed] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/v1/calls/start") && r.ok()),
+    page.getByRole("button", { name: "Test call", exact: true }).click(),
+  ]);
+  const call = await placed.json();
+  const ended = await page.request.post(`${AUTHORITY}/v1/simulation/event`, {
+    headers,
+    data: {
+      event_id: "test-busy",
+      call_id: call.id,
+      event_type: "call.hangup",
+      payload: { hangup_cause: "user_busy" },
+    },
+  });
+  expect(ended.ok()).toBeTruthy();
+  await expect(page.getByRole("alert", { name: "Call problem" })).toContainText(
+    "Telnyx reported that the destination was busy.",
+  );
+  await expect(
+    page.getByRole("button", { name: "Test call", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByText("Test call finished. Calling is paused."),
+  ).toHaveCount(0);
 });
 
 for (const [reason, message] of [
@@ -700,7 +828,10 @@ for (const [reason, message] of [
     await expect(
       row.getByRole("status", { name: "Test phone status" }),
     ).toContainText(message);
-    const dial = row.getByRole("button", { name: "Test call", exact: true });
+    const dial = row.getByRole("button", {
+      name: "Prepare test call",
+      exact: true,
+    });
     const release = row.getByRole("button", { name: "Release temporary hold" });
     await expect(dial).toHaveCount(0);
     if (reason === "opt_out") {
@@ -804,7 +935,9 @@ test("a saved test call pauses calling instead of counting down to a prospect", 
   const row = page.getByTestId("setup-test_phone");
   await row.getByLabel("New Test phone").fill("+1 202 555 0188");
   await row.getByRole("button", { name: "Save and check" }).click();
-  await row.getByRole("button", { name: "Test call", exact: true }).click();
+  await row
+    .getByRole("button", { name: "Prepare test call", exact: true })
+    .click();
   await page.getByRole("button", { name: /^Call test phone/ }).click();
   await expect(page.getByTestId("lead-name")).toHaveText("Your test phone");
   await answer(page);

@@ -33,6 +33,12 @@ def test_a_pass_on_another_commit_does_not_count():
     assert gate.verdict([], SHA)[0] is False
 
 
+def test_the_patch_rolls_into_the_next_minor_after_nine():
+    assert gate.version_allowed("2.2.9")
+    assert not gate.version_allowed("2.2.10")
+    assert gate.version_allowed("2.3.0")
+
+
 def test_every_release_build_waits_for_the_gate():
     workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
     jobs = workflow["jobs"]

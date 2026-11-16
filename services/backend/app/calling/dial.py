@@ -215,20 +215,16 @@ async def start_call(service, p, data):
     if not created:
         return call
     await ops.dispatch_call(service, p, call["id"])
-    return await asyncio.to_thread(ops._call_snapshot, service, p, call["id"])
+    latest = await asyncio.to_thread(ops._call_snapshot, service, p, call["id"])
+    if latest.get("dial_error") and latest.get("is_test") and not latest["dial_scope"].get("test_run_id"):
+        await asyncio.to_thread(ops.presence, service, p, {"status": "paused", "telephony_ready": False})
+        await asyncio.to_thread(ops.end_test_session, service, p)
+    return latest
 
 
 def _claim_dial(service, p, call_id, owner):
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        # The call is already prepared: only what stops calling now can refuse it here.
-        require(
-            Situation(
-                blockers=tuple(ops.dial_blockers_in(service, s, p, rep=False)),
-                step="dial",
-                reservation_ok=True,
-            )
-        )
         # Lock call, then lead, as other call writers do: the dial claim updates both.
         call = ops.required(service, s, "call_attempts", call_id, p, lock=True)
         model = MODELS["command_outbox"]
@@ -244,6 +240,13 @@ def _claim_dial(service, p, call_id, owner):
             fail(409, "Original dial intent is missing; review this call before retrying")
         if command.data["status"] != "pending":
             return
+        # A blocker acquired after authorization still wins. Settle the original command so
+        # recovery cannot place this call after the rep has been shown a refusal.
+        if blockers := ops.dial_blockers_in(service, s, p, rep=False):
+            first = blockers[0]
+            update(command, status="cancelled", reasons=[first.code])
+            _finish_failed_dial(service, s, p, call, "policy_cancelled", first.message, first.fix)
+            return None, doc(call), None, None
         lead = ops.required(service, s, "leads", call.data["lead_id"], p, lock=True)
         payload = command.data["payload"]
         if payload["to"] == lead.data["phone"]:
@@ -258,8 +261,11 @@ def _claim_dial(service, p, call_id, owner):
         submission_decision = ops.record_decision(service, s, p, lead, decision)
         if not decision.allowed:
             update(command, status="cancelled", reasons=decision.reasons)
-            ops.finish_call(service, s, p, call, "policy_cancelled")
-            return
+            detail = ops.no_lead_detail(
+                service, s, {**p, **CallView.model_validate(call.data).dial_scope}, decision.reasons
+            )
+            _finish_failed_dial(service, s, p, call, "policy_cancelled", detail["message"], detail.get("fix"))
+            return None, doc(call), None, None
         policy = ops.required(
             service,
             s,
@@ -307,6 +313,27 @@ def _claim_dial(service, p, call_id, owner):
         return command.id, doc(call), lead.data["phone"], payload
 
 
+def _finish_failed_dial(service, s, p, call, reason, message, fix=None):
+    """A refused dial has no conversation to wrap up and must not write a CRM outcome."""
+    ops.finish_call(service, s, p, call, reason)
+    update(
+        call,
+        **moved(call.data, "outcome.saved", service.clock()),
+        dial_error={"message": message, "fix": fix},
+    )
+    emit(s, workspace(p), "call.updated", call, service.clock(), {"state": call.data["state"]})
+
+
+def _rejection_message(response):
+    # Keep the provider's diagnostic code without copying a response body that can include phone numbers.
+    body = body_of(response)
+    errors = body.get("errors") if isinstance(body, dict) else None
+    first = errors[0] if isinstance(errors, list) and errors and isinstance(errors[0], dict) else {}
+    code = str(first.get("code", ""))
+    suffix = f", code {code}" if code.isascii() and code.isdigit() and 1 <= len(code) <= 6 else ""
+    return f"Telnyx rejected the dial (HTTP {response.status_code}{suffix})."
+
+
 def _dial_failed(service, p, call_id, command_id, owner, exc):
     with service.db.transaction() as s:
         command = ops.required(service, s, "command_outbox", command_id, p)
@@ -335,11 +362,21 @@ def _dial_failed(service, p, call_id, command_id, owner, exc):
                     == CallView.model_validate(call.data).attempt_ordinal
                 ):
                     update(lead, **CommandView.model_validate(command.data).prior_attempt)
-                ops.finish_call(
-                    service, s, p, call, "carrier_channel_limit" if limited else "carrier_not_submitted"
-                )
+                if limited:
+                    _finish_failed_dial(
+                        service,
+                        s,
+                        p,
+                        call,
+                        "carrier_channel_limit",
+                        "All of this Telnyx account’s call channels are in use. Wait a minute before retrying.",
+                    )
+                else:
+                    _finish_failed_dial(service, s, p, call, "carrier_not_submitted", str(exc), "settings")
             elif rejected:
-                ops.finish_call(service, s, p, call, "provider_rejected")
+                _finish_failed_dial(
+                    service, s, p, call, "provider_rejected", _rejection_message(exc.response), "settings"
+                )
             elif call.data["state"] == "DIALING" and not CallView.model_validate(call.data).provider_id:
                 update(call, **moved(call.data, "dial.uncertain", service.clock()))
                 emit(s, workspace(p), "call.updated", call, service.clock(), {"state": "RECONCILING"})
@@ -383,12 +420,18 @@ async def dispatch_call(service, p, call_id):
     if not claimed:
         return
     pool_ref = claimed[1].get("pool_ref")
+    if claimed[0] is None:
+        if pool_ref:
+            await pool.cancel(service.managed, pool_ref, unsent=True)
+        return
     try:
         try:
             provider = await asyncio.to_thread(ops.carrier, service, workspace(p))
         except Exception as exc:
             # Configuration fails before any request exists; nothing can be live.
-            raise CarrierNotSubmitted(type(exc).__name__) from exc
+            raise CarrierNotSubmitted(
+                "The Telnyx connection could not be opened. Check your calling setup."
+            ) from exc
         if pool_ref:
             snapshot = service.managed.pool
             if (

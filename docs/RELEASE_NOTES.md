@@ -1,3 +1,11 @@
+# OpenDialer 2.2.0
+
+- **See why a call didn't start.** The Dialer keeps a visible warning with the exact reason and a link to the relevant settings when one exists. Carrier refusals show the Telnyx error code when available.
+- **Know whether it's safe to retry.** A refused dial closes without asking for an outcome. If the dial response is lost, OpenDialer keeps the original attempt and checks for its result without redialing.
+- **See when a test didn't connect.** A busy destination, no answer, or a carrier block stays visible. The Settings button is labeled **Prepare test call**. Use **Test call** in the Dialer to place it directly.
+
+Updates from 1.0.x through 2.1.12 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.1.12
 
 - **Start a fresh test every time.** An earlier test result no longer pauses a new call while the Dialer refreshes.

@@ -833,6 +833,7 @@ the rest, because they come from reading API docs and not from a function-level 
 - A phase is finished only when CI has passed on its exact last commit.
 - Each signed release has a tag. `v1.0.2` is the rollback point, and a bad commit is reverted rather than rewritten. There is no
   force-push.
+- Patch versions go from 0 through 9. The next release after `.9` bumps the minor version and resets the patch to 0.
 - An urgent fix during the rebuild lands on `main` and ships when `main` is next green and has passed the live checks for what
   changed. If `main` cannot ship in time, the owner decides what to do (R10).
 - Migration is the main exposure: installed data stays on `local-2` until a release containing Phase 3 is installed, which needs
@@ -2089,3 +2090,8 @@ test assets and admin access before asking for anything. The signed rollout foll
   and previously queued test logs and summaries are skipped. Practice wrong-number outcomes leave explicitly staged
   test phones callable. The two verified test phone fields and six test call destinations were cleared in HubSpot,
   and the dedicated contacts were removed from their two assigned segments.
+- November 15, 2026: 2.2.0 adds a persistent Dialer warning for a failed or uncertain dial. A carrier rejection or
+  a blocker acquired during dispatch closes the attempt without soliciting an outcome; a lost response never replays
+  the dial. A WebKit simulation checked refusal, recovery and repeat calls. The existing pilot profile placed one live
+  call to the Mac's verified saved phone ending 1101 with muted test audio. Telnyx confirmed an answer and normal
+  hangup; no human or microphone verification was inferred.

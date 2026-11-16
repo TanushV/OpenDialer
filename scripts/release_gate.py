@@ -5,10 +5,16 @@ GITHUB_TOKEN=... GITHUB_REPOSITORY=owner/name GITHUB_SHA=... python scripts/rele
 
 import json
 import os
+import re
 import sys
 import urllib.request
+from pathlib import Path
 
 WORKFLOW = "ci.yml"
+
+
+def version_allowed(version):
+    return bool(re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.[0-9]", version))
 
 
 def verdict(runs, sha):
@@ -40,6 +46,11 @@ def fetch(repository, sha, token):
 
 
 def main():
+    manifest = Path(__file__).resolve().parents[1] / "apps/desktop/package.json"
+    version = json.loads(manifest.read_text())["version"]
+    if not version_allowed(version):
+        print("Use a patch from 0 through 9. After .9, bump the minor version and reset the patch to 0.")
+        return 1
     sha = os.environ["GITHUB_SHA"]
     allowed, reason = verdict(fetch(os.environ["GITHUB_REPOSITORY"], sha, os.environ["GITHUB_TOKEN"]), sha)
     print(reason)

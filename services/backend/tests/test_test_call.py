@@ -6,6 +6,7 @@ archived lead, so it never joined the Test line list, and at 3 AM Eastern the ca
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
 from app import ops
 from app.administration import no_lead_detail
 from conftest import ready
@@ -39,6 +40,78 @@ def test_a_test_call_reaches_the_rep_outside_calling_hours(workspace, clock):
     assert packet.status_code == 200, packet.text
     assert packet.json()["lead"]["id"] == started["lead_id"]
     assert packet.json()["lead"]["phone"] == PHONE
+
+
+def test_a_carrier_rejection_finishes_the_test_and_exposes_the_error(workspace, carrier, monkeypatch):
+    client, headers = workspace["client"], workspace["headers"]
+    save_phone(workspace)
+    _, packet = start(workspace)
+    assert packet.status_code == 200, packet.text
+
+    async def refuse(payload):
+        request = httpx.Request("POST", "https://api.telnyx.com/v2/calls")
+        response = httpx.Response(
+            403,
+            json={"errors": [{"code": "40001", "detail": "Private carrier detail"}]},
+            request=request,
+        )
+        response.raise_for_status()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(carrier, "dial", refuse)
+        result = client.post(
+            "/v1/calls/start",
+            headers=headers,
+            json={"reservation_id": packet.json()["reservation_id"], "idempotency_key": "rejected-test"},
+        )
+    assert result.status_code == 200, result.text
+    assert result.json()["state"] == "FINALIZED"
+    assert result.json()["dial_error"] == {
+        "message": "Telnyx rejected the dial (HTTP 403, code 40001).",
+        "fix": "settings",
+    }
+    assert "Private carrier detail" not in result.text
+    snapshot = client.get("/v1/workspace", headers=headers).json()
+    assert not snapshot["test_phone"]
+    assert snapshot["user"]["presence"]["status"] == "paused"
+    assert not carrier.dials
+    _, retry = start(workspace)
+    assert retry.status_code == 200, retry.text
+
+
+def test_a_blocker_between_reserving_and_dispatch_is_final_not_a_delayed_dial(
+    workspace, app, carrier, monkeypatch
+):
+    from app.platform.db import workspace as scope
+    from helpers import principal
+
+    client, headers = workspace["client"], workspace["headers"]
+    save_phone(workspace)
+    _, packet = start(workspace)
+    original = ops.dispatch_call
+
+    async def block_then_dispatch(service, p, call_id):
+        service.configs.write(scope(p), {"channel_limited_until": "2099-01-01T00:00:00+00:00"})
+        return await original(service, p, call_id)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(ops, "dispatch_call", block_then_dispatch)
+        stopped = client.post(
+            "/v1/calls/start",
+            headers=headers,
+            json={"reservation_id": packet.json()["reservation_id"], "idempotency_key": "cap-race"},
+        )
+    assert stopped.status_code == 200, stopped.text
+    result = stopped.json()
+    assert result["state"] == "FINALIZED"
+    assert "account call limit reached" in result["dial_error"]["message"]
+    service = app.state.service
+    p = principal(workspace)
+    service.configs.write(scope(p), {"channel_limited_until": None})
+    with service.db.transaction(False) as session:
+        intent = ops._by_key(service, session, p, "command_outbox", result["id"])
+        assert intent.data["status"] == "cancelled"
+    assert not carrier.dials
 
 
 def test_the_test_phone_can_be_called_again_even_if_its_crm_record_is_stale(workspace, app, carrier, clock):
