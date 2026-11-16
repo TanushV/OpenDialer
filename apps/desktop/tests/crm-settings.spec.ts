@@ -58,6 +58,22 @@ test("the CRM keys save and check in Settings, and the HubSpot panel names a mis
       row.getByRole("status", { name: `${label} status` }),
     ).toContainText("Checked");
   }
+  await page.route("**/v1/hubspot/owners", (route) =>
+    route.fulfill({
+      json: {
+        owners: [{ id: "11", name: "Alex Morgan", email: "alex@example.test" }],
+      },
+    }),
+  );
+  const hubspot = page.getByTestId("setup-hubspot");
+  await hubspot.getByRole("button", { name: "Choose HubSpot owner" }).click();
+  await hubspot
+    .getByRole("combobox", { name: "HubSpot owner", exact: true })
+    .selectOption("11");
+  await expect(hubspot.getByText("Calls logged as Alex Morgan")).toBeVisible();
+  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(hubspot.getByText("HubSpot owner ID 11 saved")).toBeVisible();
   await save.scrollIntoViewIfNeeded();
   await uncovered(save);
   await noSidewaysScroll(page);

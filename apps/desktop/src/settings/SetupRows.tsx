@@ -24,6 +24,7 @@ interface Rows {
   status: { code: string; message: string; fix: string } | null;
   rows: Row[];
   test_phone_hold?: string | null;
+  hubspot_owner_id?: string;
 }
 
 /** Rows whose values are typed here; saving runs the row's check at once. */
@@ -145,6 +146,8 @@ export function SetupRows({
                 phone={data.test_phone_hold}
                 onDone={load}
               />
+            ) : row.id === "hubspot" && row.state !== "optional" ? (
+              <HubSpotOwner saved={data.hubspot_owner_id ?? ""} reload={load} />
             ) : (
               extras[row.id]
             )
@@ -180,6 +183,80 @@ export function SetupRows({
         />
       ))}
     </section>
+  );
+}
+
+function HubSpotOwner({
+  saved,
+  reload,
+}: {
+  saved: string;
+  reload: () => Promise<void>;
+}) {
+  const { api, run } = useWorkspace();
+  const [owners, setOwners] = useState<
+    { id: string; name: string; email: string }[] | null
+  >(null);
+  const [selected, setSelected] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const owner = owners?.find((person) => person.id === selected);
+  return owners ? (
+    <div className="setup-owner">
+      <label className="setup-row-form">
+        HubSpot owner
+        <select
+          disabled={busy}
+          value={selected}
+          onChange={({ target }) => {
+            const id = target.value;
+            setBusy(true);
+            void run(async () => {
+              await api("/v1/admin/settings", "PUT", { hubspot_owner_id: id });
+              setSelected(id);
+              await reload();
+            }).finally(() => setBusy(false));
+          }}
+        >
+          <option value="">No owner selected</option>
+          {selected && !owner && (
+            <option value={selected}>Saved owner ID {selected}</option>
+          )}
+          {owners.map((person) => (
+            <option key={person.id} value={person.id}>
+              {[person.name, person.email].filter(Boolean).join(" · ") ||
+                person.id}
+            </option>
+          ))}
+        </select>
+      </label>
+      {owner && (
+        <span className="muted">
+          Calls logged as {owner.name || owner.email}
+        </span>
+      )}
+      {owners.length === 0 && (
+        <span className="muted">No active HubSpot owners found.</span>
+      )}
+    </div>
+  ) : (
+    <div className="setup-owner">
+      <Button
+        onClick={() =>
+          void run(async () => {
+            setOwners(
+              (
+                await api<{ owners: NonNullable<typeof owners> }>(
+                  "/v1/hubspot/owners",
+                )
+              ).owners,
+            );
+          })
+        }
+      >
+        Choose HubSpot owner
+      </Button>
+      {saved && <span className="muted">HubSpot owner ID {saved} saved</span>}
+    </div>
   );
 }
 

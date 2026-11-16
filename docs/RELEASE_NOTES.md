@@ -4,6 +4,7 @@
 - **Get help with whatever comes up.** The helper reads the script in the order you wrote it and suggests what to say. It can use a line, adapt it, do estimate math from the conversation, or answer a different question.
 - **Keep questions easy to read.** The Script preview and live helper preserve line breaks in question branches. Indented directions stay with their question. The editor includes a Markdown example.
 - **Use the whole CSV for research.** OpenDialer recognizes common export headers. The research agent reads all columns in each CSV row, including fields outside the column map.
+- **Call CSV lists with a shared profile.** Generate scripts and dial the imported list directly. Connect a HubSpot owner in Settings to attribute calls to the rep. After a connected CSV call, OpenDialer links or creates the contact and logs the outcome in HubSpot when configured.
 
 Updates from 1.0.x through 2.2.1 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
 

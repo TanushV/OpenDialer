@@ -23,9 +23,11 @@ Settings shows one row per thing to set, and a status at the top: **Ready to cal
 5. **Calling hours** are edited in their row (8 AM to 5 PM in each lead's time zone by default).
 6. **Test phone.** Type your own number and click **Save and check**, then **Test call**. Select **Call test phone** in
    the Dialer at any hour. When the outcome is saved, the Dialer returns to Start calling.
-7. **HubSpot.** Shared profiles each have an assigned HubSpot segment. The setup can supply the **HubSpot Service Key**
-   and the **Treg token**, which is used to look up numbers on contacts without a usable saved phone. Add the
-   **RealValidito key and secret** in Settings to screen HubSpot contacts before calling.
+7. **HubSpot.** In **Settings → HubSpot Service Key**, save and check the account's Service Key if your calling
+   setup did not include it. Click **Choose HubSpot owner** and select the rep by name and email on that rep's
+   computer. Owner selection uses the key's `crm.objects.owners.read` scope. The owner attributes calls and new
+   contacts created by that rep. Each shared profile's assigned segment still controls what it can import from
+   HubSpot. Add the **RealValidito key and secret** to screen synced contacts. Treg looks up missing numbers.
 8. **Test list.** Under **Test list**, select **Open test list CSV** and choose a CSV with a `phone` column and up to
    50 approved test phones. Add `name`, `company`, and `domain` for personalized scripts. Click **Save test list**.
    To prepare scripts, open **Leads → Research and scripts** and choose **Generate scripts** for **Test calls**.
@@ -63,6 +65,14 @@ the map and separators. When you generate scripts, the research agent reads all 
 older CSV to restore columns that earlier versions omitted. If HubSpot has no lists yet, make
 one in HubSpot under Contacts → Lists. In **Research and scripts**, click **Generate scripts** for the list you want
 personalized. Importing a list or saving the base script leaves generation idle. Callable leads can use the base script.
+
+CSV lists can use the shared number pool with or without a HubSpot key or membership in the assigned segment.
+With a key saved, a connected conversation and saved outcome link the CSV lead to a matching HubSpot contact by email
+or phone and log the call. A new contact is created when there is no match. OpenDialer leaves an existing contact's
+owner alone and attributes the call to the owner selected on the rep's computer. If several contacts share the dialed
+number, add the person's email to the CSV, reimport, and retry the write under **Settings → Needs attention**. Unanswered
+calls to unlinked leads and test calls stay on the computer. If you later sync a linked prospect from a HubSpot segment,
+the app keeps the same lead and call history and applies the usual checks for HubSpot imports.
 
 ## 6. Call
 

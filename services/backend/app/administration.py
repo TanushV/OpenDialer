@@ -337,6 +337,7 @@ def setup_rows(service, p):
     return {
         "status": first.detail() if first else None,
         "rows": rows(conf, conf.get("_setup_checks") or {}, live),
+        "hubspot_owner_id": conf.get("hubspot_owner_id") or "",
         "test_phone_hold": issue.release_phone if issue else None,
     }
 

@@ -294,6 +294,7 @@ class ProviderSettings(Strict):
     realvalidito_api_key: str | None = Field(default=None, max_length=200)
     realvalidito_api_secret: str | None = Field(default=None, max_length=200)
     hubspot_service_key: str | None = Field(default=None, max_length=500)
+    hubspot_owner_id: str | None = Field(default=None, pattern=r"^(?:[0-9]{1,40})?$")
     treg_token: str | None = Field(default=None, max_length=500)
     # R9C.10: research on this seat uses the ChatGPT login or the OpenRouter fallback.
     research_route: Literal["chatgpt", "fallback"] | None = None
@@ -781,6 +782,12 @@ def create_app(settings=None, *, clock=None, carrier=None):
         from app import crm
 
         return await crm.lists(service, p)
+
+    @app.get("/v1/hubspot/owners")
+    async def hubspot_owners(p=Depends(administrator)):
+        from app import crm
+
+        return await crm.owners(service, p)
 
     @app.post("/v1/hubspot/sync")
     async def hubspot_sync(data: HubSpotSync, p=Depends(administrator)):

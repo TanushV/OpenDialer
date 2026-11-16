@@ -68,7 +68,7 @@ def list_permitted(service, s, p, lead):
         names = [
             name
             for name in names
-            if (catalog.get(name, {}).get("crm") or {}).get("list_id") == pool.segment_id
+            if (catalog.get(name, {}).get("crm") or {}).get("list_id") in {None, pool.segment_id}
         ]
     if p.get("callback_lead_id"):
         due = timestamp(value.get("callback_due_at"))

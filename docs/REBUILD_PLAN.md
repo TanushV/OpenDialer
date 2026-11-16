@@ -52,7 +52,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D24 | Phase 3 moves code by strangling, not in one pass. New packages on `Ctx` start now; each later phase writes its area as plain modules (calling in 4, learning in 8, leads and prep in 9, helper and after-call in 10) and deletes the mixin code it replaces. R3.2, R3.4, R3.5 and R3.6 complete with those phases. The migration, lead fields and package rules land in Phase 3. | Builder decision, November 7, under the owner's end-to-end instruction: a one-pass rewrite of 35,000 lines was the riskiest step in the plan and delivered nothing visible |
 | D15 | The CRM stage owns fit and whether the person is still at the company. This app owns number accuracy. No `# Fit` section and no job-change check. | Owner decision |
 | D16 | CSV and HubSpot use the same column map. Research uses every column of a CSV row and the identity and mapped columns of a HubSpot row. | Owner approved, updated November 16 |
-| D17 | HubSpot: a list picks who is called and the app picks the order. The app writes native call records, opt-outs and `phone_status`. No universal writeback layer; HubSpot's call record is the shared format, so other dialers such as Nooks need no adapter. | Owner approved; creating CSV leads in HubSpot only on their first connected call is an assumption the owner may veto |
+| D17 | HubSpot and local CSV lists can both supply leads. The app writes native call records, opt-outs and `phone_status`. For a new CSV lead, the first connected conversation links or creates a HubSpot contact when a key is configured. Each rep can choose a HubSpot owner for call attribution and new contacts. | Owner approved, updated November 16 |
 | D18 | Build the number check with Trestle through Treg. No paid live-line check and no paid namesake lookups. See section 9A. | Owner decision, November 6; this replaces the earlier test-rule result that kept the live-line check |
 | D19 | When a CRM lead lacks a usable saved number, the app uses LeadOcean, AI Ark, Tomba, then Wiza and checks the results through Trestle. A usable CRM number goes directly to RealValidito screening. CSV leads skip the waterfall and screening. The outside runner stays for building CSV lists. Blitz joins first after its reset. | Owner decision, November 7, updated November 13 to use Treg only for missing numbers |
 | D23 | Leads pulled from the CRM get a RealValidito do-not-call check (federal, state and TCPA litigator) before they can be dialed. Any hit is suppressed. CSV leads are not checked. | Owner decision, November 7; replaces the DoNotCallDNC key |
@@ -541,8 +541,8 @@ Two homes, one set of rules:
 
 ## 9B. HubSpot
 
-One account, barebones. HubSpot picks who is called and the app picks the order. Calling never depends on HubSpot. With
-seats (D25), each Mac syncs only the list members owned by its "Calls for" user and writes its calls with that owner.
+One account. Calling supports both local CSV lists and synced HubSpot segments. A shared profile can sync its assigned
+HubSpot segment. Each rep's locally selected HubSpot owner attributes that rep's call records and new CSV contacts.
 
 | Direction | What | When |
 |---|---|---|
@@ -558,6 +558,7 @@ Rules:
   says why.
 - A local opt-out always wins. A sync can add a suppression and can never remove one.
 - CSV leads are created in HubSpot only on their first connected call, so cold rows do not flood the CRM.
+  The worker reuses a matching email or unambiguous phone and leaves existing contact ownership intact.
 - One outcome map. `no_answer` and a skipped voicemail become No answer; `busy` becomes Busy; a final-attempt voicemail
   becomes Left voicemail; `wrong_party` and `invalid_endpoint` become Wrong number. Anything where a person answered
   becomes Connected or a matching custom outcome such as Meeting Booked, read from the dispositions API at setup. An
@@ -2117,3 +2118,6 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 16, 2026: the Script preview and helper preserve question lines. The editor shows how to write named
   branches, indent bullet continuations and keep draft comments out of speech. The CSV preview recognizes common
   export headers, including account signals and phone status, and research receives the full column set for CSV leads.
+- November 16, 2026: shared rep profiles can prepare and call local CSV lists. The assigned HubSpot segment still
+  scopes HubSpot imports. Settings links a HubSpot owner to the computer for call attribution and new contacts.
+  The existing CRM worker links or creates CSV contacts after a connected conversation when a Service Key is saved.

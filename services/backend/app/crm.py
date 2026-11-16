@@ -7,10 +7,12 @@ check or write retries as a job and, when it cannot settle, reaches Needs attent
 
 import asyncio
 import logging
+import re
 from datetime import timedelta
 from weakref import WeakValueDictionary
 
 from app import ops
+from app.aftercall import crm_log
 from app.calling.records import is_test_call
 from app.leads import dnc, hubspot_sync, intake
 from app.leads import waterfall as wf
@@ -73,6 +75,22 @@ async def lists(service, p):
     return {"lists": [item for item in available if segment is None or item["id"] == segment]}
 
 
+async def owners(service, p):
+    from app.providers.hubspot import HubSpotError
+
+    try:
+        return {"owners": await hubspot(service, p).owners()}
+    except HubSpotError as exc:
+        if exc.status == 401:
+            fail(401, "HubSpot refused the Service Key. Check it in Settings.")
+        if exc.status == 403:
+            fail(
+                exc.status,
+                "To choose a HubSpot owner, give the HubSpot Service Key the crm.objects.owners.read scope.",
+            )
+        fail(502, f"Could not load HubSpot owners ({exc}). Try again.")
+
+
 def set_spend_limit(service, p, list_name, usd):
     """The per-list waterfall limit, set before the first sync; nothing is bought without one (R15)."""
     with service.db.transaction() as s:
@@ -124,10 +142,12 @@ def _endpoint(service, s, p, phone, now):
     )
 
 
-def _lead_fields(row):
+def _lead_fields(row, csv_row=None):
     fields = intake.read(row, intake.guess_map(list(row)))
     return {
-        "row": fields["row"],
+        "row": intake.model_row({**csv_row, **fields["row"]}, {}, full_csv=True)
+        if csv_row
+        else fields["row"],
         "profile": fields["profile"],
         "signals": fields["signals"],
         "number_source": fields["number_source"] or "crm",
@@ -177,6 +197,7 @@ def _set_phone(service, s, p, lead, phone, now):
 
 def apply_sync(service, p, list_id, list_name, members, contacts):
     """Write one sync's plan: new and changed leads, removals, opt-outs and the last-contacted guard."""
+    from app.lead_lists import memberships, set_memberships
     from app.preparation.workflows import company_key
 
     now = service.clock()
@@ -206,8 +227,41 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
         crm.update(list_id=list_id, synced_at=now.isoformat())
         update(campaign, lists={**lists, list_name: {**lists.get(list_name, {}), "crm": crm}})
         checks = []
+        linked_csv = (
+            {
+                lead.data["external_id"]: lead
+                for lead in ops.scoped(service, s, "leads", p)
+                if lead.data.get("source") == "csv" or "csv_row" in lead.data
+                if lead.data.get("external_id")
+                and not lead.data.get("test_list_contact")
+                and lead.data["campaign_id"] == campaign.id
+            }
+            if planned["add"]
+            else {}
+        )
         for cid, row in planned["add"]:
             phone = hubspot_sync.dialable_phone(row.get("phone"))
+            if lead := linked_csv.get(cid):
+                # Once pulled as a CRM member, check this number as usual while retaining its CSV data and history.
+                csv_row = lead.data.get("csv_row") or lead.data.get("row") or {}
+                changes = _lead_fields(row, csv_row)
+                changes.update(_set_phone(service, s, p, lead.data, phone, now))
+                if phone == lead.data.get("phone") and lead.data.get("live_status") == "dead":
+                    changes["live_status"] = "dead"
+                update(
+                    lead,
+                    **changes,
+                    csv_row=csv_row,
+                    source="crm",
+                    crm_list_id=list_id,
+                    crm_removed=False,
+                    crm_synced_at=now.isoformat(),
+                    crm_number_revision=lead.version + 1,
+                )
+                update(lead, number_status="checking", dnc={"status": "not_checked", "reason": "not yet run"})
+                set_memberships(lead, [*memberships(lead.data), list_name])
+                checks.append(lead)
+                continue
             data = {
                 **_lead_fields(row),
                 "company_key": company_key(row),
@@ -239,8 +293,14 @@ def apply_sync(service, p, list_id, list_name, members, contacts):
             checks.append(lead)
         for cid, row in planned["update"]:
             lead = existing[cid]
-            changes = _lead_fields(row)
+            changes = _lead_fields(row, lead.data.get("csv_row"))
             phone = hubspot_sync.dialable_phone(row.get("phone"))
+            if (
+                phone == lead.data.get("phone")
+                and lead.data.get("live_status") == "dead"
+                and "csv_row" in lead.data
+            ):
+                changes["live_status"] = "dead"
             if phone != hubspot_sync.dialable_phone(previous[cid].get("phone")):
                 changes.update(
                     _set_phone(service, s, p, lead.data, phone, now),
@@ -359,13 +419,13 @@ def lists_due(service, s, p, now):
     campaign = _campaign(service, s, p)
     out = []
     for name, state in (campaign.data.get("lists") or {}).items():
-        crm = (state or {}).get("crm")
-        if not crm or state.get("archived"):
+        crm = (state or {}).get("crm") or {}
+        if not (list_id := crm.get("list_id")) or state.get("archived"):
             continue
-        if (pool := service.managed.pool) is not None and pool.segment_id != crm["list_id"]:
+        if (pool := service.managed.pool) is not None and pool.segment_id != list_id:
             continue
         synced = service_time(crm.get("synced_at"))
-        out.append((name, crm["list_id"], synced, synced is None or now - synced >= STALE))
+        out.append((name, list_id, synced, synced is None or now - synced >= STALE))
     return out
 
 
@@ -600,10 +660,65 @@ def _store_dnc(service, p, results):
             emit(s, p["tenant_id"], "lead.updated", lead, now)
 
 
+def call_outcome(call):
+    return (call.get("disposition") or {}).get("outcome") or call.get("outcome") or "no_answer"
+
+
+def should_log(call, lead):
+    if is_test_call(call) or lead.get("test_list_contact"):
+        return False
+    if lead.get("external_id"):
+        return True
+    outcome = call_outcome(call)
+    return lead.get("source") == "csv" and (
+        (bool(call.get("answered_at")) and outcome in crm_log.HUMAN)
+        or (bool(call.get("human_answered_at")) and outcome not in crm_log.OUTCOMES)
+    )
+
+
+async def link_csv_contact(hs, lead, phone, owner_id):
+    row = lead.get("row") or {}
+    email = next(
+        (
+            email
+            for key, value in row.items()
+            if re.sub(r"[^a-z]", "", key.casefold()) in {"email", "emailaddress", "workemail"}
+            and re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", (email := str(value or "").strip().casefold()))
+        ),
+        "",
+    )
+    if email and (contact := await hs.contact_id(email, "email")):
+        return contact
+    found = await hs.contacts_by_phone(phone[2:], hubspot_sync.PHONE_PROPERTIES)
+    if not found:
+        raise RuntimeError("HubSpot did not return a contact search result. Try the write again.")
+    matches = {
+        str(contact["id"])
+        for contact in found["results"]
+        if any(
+            hubspot_sync.dialable_phone((contact.get("properties") or {}).get(field)) == phone
+            for field in hubspot_sync.PHONE_PROPERTIES
+        )
+    }
+    if len(matches) > 1 or found.get("paging", {}).get("next"):
+        raise RuntimeError(
+            "Multiple HubSpot contacts match the called number. Add the contact's email to the CSV."
+        )
+    if matches:
+        return matches.pop()
+    first, _, last = (lead.get("name") or "Unknown").strip().partition(" ")
+    properties = {"firstname": first or "Unknown", "lastname": last, "phone": phone}
+    if lead.get("company"):
+        properties["company"] = lead["company"]
+    if email:
+        properties["email"] = email
+    if owner_id:
+        properties["hubspot_owner_id"] = owner_id
+    return await hs.create_csv_contact(properties)
+
+
 async def log_job(service, p, call_id):
     """Write one finished call to HubSpot; the job's retries and Needs attention cover failures (R9B.9)."""
-    from app.aftercall import crm_log
-
     with service.db.transaction(False) as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         if is_test_call(call.data):
@@ -613,23 +728,37 @@ async def log_job(service, p, call_id):
         endpoint_id = data.get("endpoint_id")
         endpoint = ops.scoped_get(service, s, p, "phone_endpoints", endpoint_id) if endpoint_id else None
         dialed_phone = endpoint.data["phone"] if endpoint else lead_data.get("phone") or ""
-    if lead_data.get("source") != "crm" or not lead_data.get("external_id"):
+    if not should_log(data, lead_data):
         return {"skipped": True}
     hs = hubspot(service, p)
     dispositions = await hs.dispositions()
-    outcome = (data.get("disposition") or {}).get("outcome") or data.get("outcome") or "no_answer"
+    outcome = call_outcome(data)
     mapped, missing = crm_log.map_outcomes([outcome], dispositions)
     if missing:
         raise RuntimeError(f"No HubSpot outcome for {outcome}; map it in Settings")
+    owner_id = config(service, p).get("hubspot_owner_id") or ""
+    contact_id = lead_data.get("external_id")
+    if not contact_id:
+        if not dialed_phone or dialed_phone != lead_data.get("phone"):
+            raise RuntimeError(
+                "The CSV lead's phone changed after the call. Review the HubSpot contact before logging it."
+            )
+        contact_id = await link_csv_contact(hs, lead_data, dialed_phone, owner_id)
+        with service.db.transaction() as s:
+            row = ops.required(service, s, "leads", data["lead_id"], p, lock=True)
+            contact_id = row.data.get("external_id") or contact_id
+            update(row, external_id=contact_id)
+            emit(s, p["tenant_id"], "lead.updated", row, service.clock())
     record = crm_log.CallRecord(
         call_id=call_id,
-        contact_id=lead_data["external_id"],
+        contact_id=contact_id,
         outcome=outcome,
         started_at=data.get("answered_at") or data.get("created_at") or service.clock().isoformat(),
         duration_ms=int(1000 * float(data.get("talk_seconds") or 0)),
         from_number=data.get("from_number") or "",
         to_number=dialed_phone,
         note=((data.get("disposition") or {}).get("note") or "")[:2000],
+        owner_id=owner_id,
     )
     uncertain = bool(data.get("crm_log_attempted"))
     await asyncio.to_thread(_mark_attempt, service, p, call_id)
@@ -640,10 +769,10 @@ async def log_job(service, p, call_id):
     if summary:
         await crm_log.add_summary(hs, hubspot_id, summary)
     if outcome in {"wrong_party", "invalid_endpoint"} and dialed_phone == lead_data.get("phone"):
-        await hs.update_contact(lead_data["external_id"], {"phone_status": "wrong_number"})
+        await hs.update_contact(contact_id, {"phone_status": "wrong_number"})
     if outcome == "opt_out":
         await hs.update_contact(
-            lead_data["external_id"], {"opendialer_opt_out": "true", "opendialer_opt_out_reason": "opt_out"}
+            contact_id, {"opendialer_opt_out": "true", "opendialer_opt_out_reason": "opt_out"}
         )
     return {"hubspot_call_id": hubspot_id}
 
@@ -726,14 +855,15 @@ async def contact_job(service, p, lead_id):
 
 
 def on_outcome(service, s, p, call, lead, outcome):
-    """After a saved outcome on a CRM lead: log it to HubSpot, note our own call for the guard, and reopen a wrong number."""
-    if is_test_call(call.data) or lead.data.get("source") != "crm":
+    """After a rep saves the outcome, queue HubSpot logging and reopen a wrong CRM number."""
+    if is_test_call(call.data):
         return
     now = service.clock()
     update(lead, last_called_at=now.isoformat())
     enqueue_log(service, s, p, call)
     if (
-        outcome == "wrong_party"
+        lead.data.get("source") == "crm"
+        and outcome == "wrong_party"
         and (call.data.get("endpoint_id") or lead.data["endpoint_id"]) == lead.data["endpoint_id"]
     ):
         ledger = dict(lead.data.get("waterfall") or {})
@@ -749,9 +879,9 @@ def on_outcome(service, s, p, call, lead, outcome):
 
 
 def enqueue_log(service, s, p, call):
-    """Queue a call record for a regular CRM outcome."""
+    """Queue a HubSpot call for a linked lead or a first connected CSV call."""
     lead = ops.required(service, s, "leads", call.data["lead_id"], p)
-    if lead.data.get("source") != "crm" or not config(service, p).get("hubspot_service_key"):
+    if not should_log(call.data, lead.data) or not config(service, p).get("hubspot_service_key"):
         return
     service.jobs.enqueue_in(
         s,

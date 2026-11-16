@@ -2883,6 +2883,14 @@ label.setup-row-form {
   margin: 0;
   max-width: 380px;
 }
+.setup-owner {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+.setup-owner select {
+  max-width: 100%;
+}
 /* A row's own control (ChatGPT login, call connection, calling hours) spans the row under its text. */
 .setup-row-extra {
   grid-column: 1 / -1;

@@ -6,12 +6,14 @@ The exact Service Key scopes and the do-not-call property are settled with the o
 """
 
 import asyncio
+from urllib.parse import quote
 
 import httpx
 
 BASE_URL = "https://api.hubapi.com"
 CALL_TO_CONTACT = 194  # HubSpot-defined association type: call to contact.
 BATCH = 100
+CSV_CONTACT_KEY = "opendialer_csv_contact_key"
 SCOPES = (
     "crm.lists.read",
     "crm.objects.contacts.read",
@@ -21,6 +23,14 @@ SCOPES = (
 # Properties the app creates once at setup (R9B.10). Our own opt-out flag is the one a sync reads and writes.
 OWN_PROPERTIES = {
     "contacts": [
+        {
+            "name": CSV_CONTACT_KEY,
+            "label": "OpenDialer CSV contact key",
+            "type": "string",
+            "fieldType": "text",
+            "groupName": "contactinformation",
+            "hasUniqueValue": True,
+        },
         {
             "name": "phone_status",
             "label": "Phone status (OpenDialer)",
@@ -135,6 +145,17 @@ class HubSpot:
             if str(item.get("objectTypeId", "0-1")) == "0-1"
         ]
 
+    async def owners(self):
+        return [
+            {
+                "id": str(owner["id"]),
+                "name": " ".join(filter(None, (owner.get("firstName"), owner.get("lastName")))),
+                "email": owner.get("email") or "",
+            }
+            for owner in await self._pages("/crm/v3/owners", params={"archived": "false", "limit": 100})
+            if not owner.get("archived") and owner.get("type", "PERSON") == "PERSON"
+        ]
+
     async def members(self, list_id):
         rows = await self._pages(f"/crm/v3/lists/{list_id}/memberships", params={"limit": 250})
         return list(dict.fromkeys(str(row["recordId"]) for row in rows))
@@ -193,6 +214,55 @@ class HubSpot:
     async def create_contact(self, properties):
         created = await self.request("POST", "/crm/v3/objects/contacts", json={"properties": properties})
         return created["id"]
+
+    async def contact_id(self, value, field):
+        found = await self.request(
+            "GET", "/crm/v3/objects/contacts/" + quote(value, safe=""), params={"idProperty": field}
+        )
+        return str(found["id"]) if found else None
+
+    async def contacts_by_phone(self, national_number, properties):
+        return await self.request(
+            "POST",
+            "/crm/v3/objects/contacts/search",
+            json={
+                "filterGroups": [
+                    {"filters": [{"propertyName": field, "operator": "EQ", "value": national_number}]}
+                    for field in (
+                        "hs_searchable_calculated_phone_number",
+                        "hs_searchable_calculated_mobile_number",
+                    )
+                ],
+                "properties": list(properties),
+                "limit": 50,
+            },
+        )
+
+    async def create_csv_contact(self, properties):
+        """The unique key makes two first-call jobs and a lost create response safe to retry."""
+        path = "/crm/v3/properties/contacts"
+        saved = await self.request("GET", f"{path}/{CSV_CONTACT_KEY}")
+        if saved is None:
+            spec = next(item for item in OWN_PROPERTIES["contacts"] if item["name"] == CSV_CONTACT_KEY)
+            try:
+                saved = await self.request("POST", path, json=spec)
+            except HubSpotError as error:
+                if error.status != 409:
+                    raise
+                saved = await self.request("GET", f"{path}/{CSV_CONTACT_KEY}")
+        if not (saved or {}).get("hasUniqueValue"):
+            raise HubSpotError("HubSpot needs a unique OpenDialer CSV contact key before creating contacts.")
+        try:
+            return await self.create_contact({**properties, CSV_CONTACT_KEY: properties["phone"]})
+        except HubSpotError as error:
+            if error.status not in (400, 409):
+                raise
+            found = await self.contact_id(properties["phone"], CSV_CONTACT_KEY)
+            if not found and properties.get("email"):
+                found = await self.contact_id(properties["email"], "email")
+            if not found:
+                raise
+            return found
 
     async def ensure_properties(self):
         """Create the app's own properties once; existing ones are left as they are."""

@@ -9,7 +9,7 @@ from urllib.parse import parse_qs
 
 import httpx
 import pytest
-from journey import get, post, ready, run_jobs
+from journey import answered_by_human, call, get, hang_up, import_leads, post, ready, run_jobs, wrap_up
 
 A = "+12125550101"  # Already on the CRM record.
 B = "+12125550102"  # Found by LeadOcean for the contact with no number; on the federal do-not-call list.
@@ -18,7 +18,7 @@ C = "+12125550103"  # Saved by the rep in HubSpot.
 
 class Fakes:
     def __init__(self):
-        self.calls, self.writes, self.created_calls = [], [], []
+        self.calls, self.writes, self.created_calls, self.created_contacts = [], [], [], []
         self.members = ["1", "3"]
         self.people = {
             "1": {
@@ -38,6 +38,7 @@ class Fakes:
             },
         }
         self.mobile_saved_during_lookup = None
+        self.existing_csv_contact_after_search = None
         self.down = False
 
     def __call__(self, request):
@@ -47,6 +48,23 @@ class Fakes:
         if self.down and host == "api.hubapi.com":
             return httpx.Response(503)
         if host == "api.hubapi.com":
+            if path == "/crm/v3/owners":
+                return httpx.Response(
+                    200,
+                    json={
+                        "results": [
+                            {
+                                "id": "11",
+                                "userId": 99,
+                                "firstName": "Example",
+                                "lastName": "Seller",
+                                "email": "rep@example.test",
+                            }
+                        ]
+                    },
+                )
+            if path.startswith("/crm/v3/properties/contacts/"):
+                return httpx.Response(200, json={"hasUniqueValue": True})
             if path.endswith("/memberships"):
                 return httpx.Response(200, json={"results": [{"recordId": m} for m in self.members]})
             if path == "/crm/v3/objects/contacts/batch/read":
@@ -76,6 +94,33 @@ class Fakes:
                         {"id": "d-wn", "label": "Wrong number"},
                     ],
                 )
+            if path == "/crm/v3/objects/contacts/search":
+                value = body["filterGroups"][0]["filters"][0]["value"]
+                return httpx.Response(
+                    200,
+                    json={
+                        "results": [
+                            {"id": identity, "properties": properties}
+                            for identity, properties in self.people.items()
+                            if any(
+                                value == "".join(c for c in properties.get(k, "") if c.isdigit())[-10:]
+                                for k in ("phone", "mobilephone")
+                            )
+                        ]
+                    },
+                )
+            if request.method == "GET" and path.startswith("/crm/v3/objects/contacts/"):
+                field = request.url.params["idProperty"]
+                value = path.rsplit("/", 1)[-1]
+                identity = next((i for i, props in self.people.items() if props.get(field) == value), None)
+                return httpx.Response(200, json={"id": identity}) if identity else httpx.Response(404)
+            if request.method == "POST" and path == "/crm/v3/objects/contacts":
+                if self.existing_csv_contact_after_search:
+                    self.people["9"] = self.existing_csv_contact_after_search
+                    return httpx.Response(409, json={})
+                self.created_contacts.append(body["properties"])
+                self.people["9"] = body["properties"]
+                return httpx.Response(201, json={"id": "9"})
             if path == "/crm/v3/objects/calls/search":
                 return httpx.Response(200, json={"results": []})
             if path == "/crm/v3/objects/calls":
@@ -174,6 +219,105 @@ def crm_leads(ws):
 
 
 @pytest.mark.slow
+def test_shared_rep_prepares_and_dials_a_csv_list_without_hubspot(workspace, carrier, monkeypatch):
+    ws = workspace
+    managed = ws["client"].app.state.service.managed
+    managed.apply_pool_snapshot(
+        ws["tenant_id"],
+        {
+            "id": "team",
+            "segment_id": "77",
+            "numbers": [{"phone": "+12125550190", "daily_limit": 90, "used": 0, "outbound_enabled": True}],
+        },
+    )
+
+    class RPC:
+        def rpc(self, name, args):
+            async def execute():
+                return SimpleNamespace(data={"phone": "+12125550190", "submitted": True})
+
+            return SimpleNamespace(execute=execute)
+
+    monkeypatch.setattr(managed, "client", RPC())
+    row = {"name": "New CSV Prospect", "phone": C, "timezone": "America/New_York"}
+    import_leads(ws, [row], list_name="Local list")
+    call(
+        ws,
+        "PATCH",
+        "/v1/lists",
+        json={"campaign_id": ws["campaign_id"], "list_name": "Local list", "action": "pause"},
+    )
+    assert post(ws, "/v1/preparation/lists", {"list_name": "Local list"})["marked"] == 0
+    call(
+        ws,
+        "PATCH",
+        "/v1/lists",
+        json={"campaign_id": ws["campaign_id"], "list_name": "Local list", "action": "resume"},
+    )
+    assert post(ws, "/v1/preparation/lists", {"list_name": "Local list"})["marked"] == 1
+    run_jobs(ws, rounds=3)
+    ready(ws)
+    selected = post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"], "list_names": ["Local list"]})
+    assert selected["lead"]["phone"] == C
+    post(
+        ws, "/v1/calls/start", {"reservation_id": selected["reservation_id"], "idempotency_key": "csv-pool-1"}
+    )
+    assert carrier.dials[-1]["from"] == "+12125550190"
+
+
+@pytest.mark.parametrize("match", ["new", "mobile", "email", "concurrent", "no_answer", "ambiguous"])
+def test_csv_writeback_uses_the_selected_owner_and_resolves_the_prospect(workspace, monkeypatch, match):
+    ws = workspace
+    fakes = setup(ws, monkeypatch)
+    owners = get(ws, "/v1/hubspot/owners")["owners"]
+    assert owners == [{"id": "11", "name": "Example Seller", "email": "rep@example.test"}]
+    call(ws, "PUT", "/v1/admin/settings", json={"hubspot_owner_id": "11"})
+    row = {"name": "New CSV", "phone": C, "timezone": "America/New_York", "account rank": "4"}
+    if match in {"mobile", "ambiguous"}:
+        fakes.people["1"].update(mobilephone="(212) 555-0103", hubspot_owner_id="22")
+    if match == "ambiguous":
+        fakes.people["3"].update(phone=C)
+    if match == "email":
+        row["Work Email"] = "Ann@example.test"
+        fakes.people["1"].update(email="ann@example.test", hubspot_owner_id="22")
+    if match == "concurrent":
+        fakes.existing_csv_contact_after_search = {"opendialer_csv_contact_key": C, "phone": C}
+    import_leads(ws, [row], list_name="Local list")
+    assert not fakes.created_contacts
+    ready(ws)
+    selected = post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"], "list_names": ["Local list"]})
+    attempt = post(
+        ws, "/v1/calls/start", {"reservation_id": selected["reservation_id"], "idempotency_key": "csv-crm-1"}
+    )
+    if match != "no_answer":
+        answered_by_human(ws, attempt["id"])
+    hang_up(ws, attempt["id"])
+    wrap_up(ws, attempt["id"], outcome="no_answer" if match == "no_answer" else "meeting_booked")
+    run_jobs(ws, rounds=3)
+    assert len(fakes.created_contacts) == (1 if match == "new" else 0)
+    if match in {"no_answer", "ambiguous"}:
+        assert not fakes.created_calls
+        return
+    (activity,) = fakes.created_calls
+    contact_id = "1" if match in {"mobile", "email"} else "9"
+    assert activity["associations"][0]["to"]["id"] == contact_id
+    assert activity["properties"]["hubspot_owner_id"] == "11"
+    assert activity["properties"]["hs_call_disposition"] == "d-mb"
+    (lead,) = get(ws, "/v1/workspace/leads", params={"list_name": "Local list"})["items"]
+    assert lead["external_id"] == contact_id and lead["source"] == "csv"
+    if match == "new":
+        assert fakes.created_contacts[0]["hubspot_owner_id"] == "11"
+    assert all("hubspot_owner_id" not in props for _, props in fakes.writes)
+    if match == "new":
+        fakes.members = ["9"]
+        post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
+        synced = crm_leads(ws)["9"]
+        assert synced["id"] == lead["id"]
+        assert set(synced["list_names"]) == {"Local list", "HubSpot list"}
+        assert synced["row"]["account rank"] == "4"
+
+
+@pytest.mark.slow
 def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_relay(
     workspace, carrier, monkeypatch
 ):
@@ -221,7 +365,7 @@ def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_rela
     assert not status["threads"]
     assert next(row for row in status["lists"] if row["list_name"] == "HubSpot list")["unrequested"] == 1
     ready(ws)
-    selected = post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"]})
+    selected = post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"], "list_names": ["HubSpot list"]})
     assert selected["lead"]["phone"] == A and selected["number"]["phone"] == chosen
     response = post(
         ws,
@@ -453,12 +597,13 @@ def test_checking_the_hubspot_key_creates_the_apps_fields_once(workspace, monkey
     monkeypatch.setattr(service.settings, "simulation", False)
     rows = post(ws, "/v1/settings/rows/hubspot/check")
     row = next(r for r in rows["rows"] if r["id"] == "hubspot")
-    assert row["state"] == "ok" and "created 4 fields" in row["detail"]
+    assert row["state"] == "ok" and "created 5 fields" in row["detail"]
     assert set(made) == {
         "phone_status",
         "opendialer_opt_out",
         "opendialer_opt_out_reason",
         "opendialer_call_id",
+        "opendialer_csv_contact_key",
     }
 
 
