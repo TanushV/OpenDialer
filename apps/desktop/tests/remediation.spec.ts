@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
-import { uncovered } from "./layout";
+import { settled, uncovered } from "./layout";
 import { openMoreSettings } from "./navigation";
 import {
   answer,
@@ -51,6 +51,7 @@ for (const connected of [false]) {
     const strip = page.getByTestId("live-coaching-strip");
     await expect(strip).toBeVisible();
     await page.mouse.wheel(0, 1200);
+    await settled(strip);
     const status = (await page
       .getByRole("status", { name: "Call status" })
       .boundingBox())!;
@@ -62,8 +63,20 @@ for (const connected of [false]) {
     await expect(hangUp(page)).toBeInViewport();
     await pauseCalling(page).click();
     await hangUp(page).click();
-    await saveOutcome(page, "meeting_booked");
-    await expect(page.getByText(/Meeting recorded.*rep/i)).toBeVisible();
+    const [saved] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/disposition"),
+      ),
+      saveOutcome(page, "meeting_booked"),
+    ]);
+    expect(saved.ok()).toBeTruthy();
+    expect(await saved.json()).toMatchObject({
+      state: "FINALIZED",
+      outcome: "meeting_booked",
+      outcome_source: "rep_reported",
+    });
     await expect(
       page.getByRole("button", {
         name: /create calendar|send invitation|sync CRM/i,
