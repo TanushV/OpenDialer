@@ -13,7 +13,7 @@ import { Keypad } from "../components/Keypad";
 import { DialLists } from "../components/LeadLists";
 import { LiveCoach } from "../components/LiveCoach";
 import { ProspectBrief } from "../components/ProspectBrief";
-import { ScriptReader } from "../components/ScriptReader";
+import { revealScriptPart, ScriptReader } from "../components/ScriptReader";
 import { CallbackReviewNotice, WrapUp } from "../components/WrapUp";
 import { Button } from "../ui/kit";
 import { sessionAudio } from "../telephony/speech";
@@ -195,6 +195,7 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
     (call?.lead_id === packet?.lead.id && call?.script_snapshot) ||
     packet?.script;
   const position = visible && isActiveCall(call) ? call?.script_position : null;
+  const scriptPane = useRef<HTMLElement>(null);
   const between = phase.kind === "paused" || phase.kind === "finished";
   const testing = testList || testPhone;
   return (
@@ -259,7 +260,13 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
       )}
       {between && !testing && <DueTasks />}
       {(phase.kind === "talking" || phase.kind === "voicemail_final") &&
-        call && <LiveCoach call={call} onChange={loop.act.reload} />}
+        call && (
+          <LiveCoach
+            call={call}
+            onChange={loop.act.reload}
+            onShowSection={(key) => revealScriptPart(scriptPane.current, key)}
+          />
+        )}
       {loop.editing && call && (
         <WrapUp
           key={call.id}
@@ -294,6 +301,7 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
             ))}
           </section>
           <section
+            ref={scriptPane}
             className="card script-card"
             aria-label="Script"
             data-testid="prepared-script"

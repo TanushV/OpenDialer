@@ -105,6 +105,20 @@ function Option({
   );
 }
 
+/** Open the matching option and move only the script pane. */
+export function revealScriptPart(pane: HTMLElement | null, key: string) {
+  const target = pane?.querySelector<HTMLElement>(
+    `[data-script-part="${CSS.escape(key)}"]`,
+  );
+  if (!pane || !target) return;
+  const disclosure = target.closest("details");
+  if (disclosure) disclosure.open = true;
+  const visible = pane.getBoundingClientRect();
+  const line = target.getBoundingClientRect();
+  if (line.top < visible.top + 16 || line.bottom > visible.bottom - 38)
+    pane.scrollTop += line.top - visible.top - 20;
+}
+
 /** Keep the current spoken option in view within the script pane only. */
 export function ScriptReader({
   script,
@@ -124,17 +138,10 @@ export function ScriptReader({
   const sequence = position?.sequence;
   useLayoutEffect(() => {
     if (!part || sequence === undefined) return;
-    const pane = reader.current?.closest<HTMLElement>(".script-card");
-    const target = reader.current?.querySelector<HTMLElement>(
-      '[aria-current="step"]',
+    revealScriptPart(
+      reader.current?.closest<HTMLElement>(".script-card") ?? null,
+      part,
     );
-    if (!pane || !target) return;
-    const disclosure = target.closest("details");
-    if (disclosure) disclosure.open = true;
-    const visible = pane.getBoundingClientRect();
-    const line = target.getBoundingClientRect();
-    if (line.top < visible.top + 16 || line.bottom > visible.bottom - 38)
-      pane.scrollTop += line.top - visible.top - 20;
   }, [part, sequence]);
   return (
     <div ref={reader} className="script-reader">
@@ -175,7 +182,11 @@ export function ScriptReader({
             );
           if (!section.options) {
             return section.text ? (
-              <section key={i}>
+              <section
+                key={i}
+                data-script-part={section.key}
+                aria-current={part === section.key ? "step" : undefined}
+              >
                 <h3>{section.title}</h3>
                 <p>{section.text}</p>
               </section>

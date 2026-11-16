@@ -87,10 +87,10 @@ def test_without_an_openrouter_key_the_live_provider_is_off_and_says_why(workspa
     monkeypatch.setattr(app.state.settings, "simulation", False)
     chunk(ws, call_id, "s1", "We have no budget for this right now.")
     live = tip_after_speech(ws, clock, call_id)
-    assert live["coach"] is None
+    assert live["coach"]["source"] == "fallback"
     assert live["helper_status"] == {"status": "paused", "reason": "not_configured"}
     answer = post(ws, f"/v1/calls/{call_id}/coach", {"question": "What now?", "request_id": str(uuid4())})
-    assert answer["status"] == "unavailable"
+    assert answer["status"] == "shown"
 
 
 def test_mute_stops_automatic_tips_but_a_private_question_is_still_answered(workspace, clock):
@@ -201,6 +201,105 @@ def test_a_tip_shows_the_wording_of_the_matching_script_part(workspace, clock):
     coach = tip_after_speech(ws, clock, call_id)["coach"]
     assert coach["say_or_ask"] == EMAIL
     assert coach["script_part"] == {"label": "Objections · Send me an email", "text": EMAIL}
+    assert coach["script_position"]["key"].startswith("objections:")
+
+
+def test_quick_adapted_script_reply_uses_known_estimate_inputs(workspace, clock, monkeypatch):
+    from app import live_help
+
+    said = "Roughly 60 hours, assuming each of the 20 sites takes 3 hours."
+    contexts = []
+
+    class Selector:
+        async def converse(self, messages, **_):
+            contexts.append(messages[1]["content"])
+            return "Part: 1 | Calc: 20 * 3 | Say: Roughly {estimate} hours, assuming each of the 20 sites takes 3 hours."
+
+    with_helper(workspace)
+    monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
+    call_id = start(workspace)["id"]
+    answered_by_human(workspace, call_id)
+    chunk(workspace, call_id, "input1", "We have 20 sites.")
+    chunk(workspace, call_id, "input2", "Assume three hours for each site.", side="rep")
+    chunk(workspace, call_id, "estimate", "What would you estimate for the whole rollout?")
+    tip = tip_after_speech(workspace, clock, call_id)["coach"]
+    assert tip["source"] == "suggestion" and tip["say_or_ask"] == said
+    assert tip["script_part"]["label"] == "Opening"
+    assert tip["script_position"]["key"] == "opening:opening-1"
+    assert len(contexts) == 1 and "20 sites" in contexts[0] and "three hours" in contexts[0]
+
+
+def test_a_slow_model_gives_one_fallback_without_retrying(workspace, clock, monkeypatch):
+    from app import live_help
+    from app.helper import live
+
+    calls = []
+
+    class Selector:
+        async def converse(self, messages, *, deadline_ms, **_):
+            calls.append(deadline_ms)
+            await asyncio.sleep(5)
+            return "Part: 1"
+
+    with_helper(workspace)
+    monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
+    call_id = start(workspace)["id"]
+    answered_by_human(workspace, call_id)
+    chunk(workspace, call_id, "estimate", "How much would that cost?")
+    tip = tip_after_speech(workspace, clock, call_id)["coach"]
+    assert calls == [live.AUTOMATIC_DEADLINE_MS]
+    assert tip["source"] == "fallback" and "estimate" in tip["say_or_ask"]
+    run_jobs(workspace)
+    assert len(calls) == 1
+
+
+def test_the_same_request_can_refine_a_fallback_while_the_turn_is_current(workspace, clock, monkeypatch):
+    from app import live_help
+    from app.helper import live
+
+    requests = []
+    service = workspace["client"].app.state.service
+    monkeypatch.setattr(live, "FALLBACK_AFTER_MS", 20, raising=False)
+
+    class Selector:
+        async def converse(self, messages, **_):
+            requests.append(messages)
+            await asyncio.sleep(0.1)
+            assert service.tips.shown[call_id]["source"] == "fallback"
+            return "Calc: 20 * 3 | Say: Roughly {estimate} hours at 3 hours per site."
+
+    with_helper(workspace)
+    monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
+    call_id = start(workspace)["id"]
+    answered_by_human(workspace, call_id)
+    chunk(workspace, call_id, "estimate", "How long would 20 sites take at three hours per site?")
+    tip = tip_after_speech(workspace, clock, call_id)["coach"]
+    assert tip["say_or_ask"] == "Roughly 60 hours at 3 hours per site."
+    assert len(requests) == 1
+
+
+def test_a_late_reply_cannot_restore_a_dismissed_fallback(workspace, clock, monkeypatch):
+    from app import live_help
+    from app.helper import live
+
+    service = workspace["client"].app.state.service
+    monkeypatch.setattr(live, "FALLBACK_AFTER_MS", 20)
+
+    class Selector:
+        async def converse(self, messages, **_):
+            await asyncio.sleep(0.1)
+            tip_id = service.tips.shown[call_id]["id"]
+            await asyncio.to_thread(
+                call, workspace, "PATCH", f"/v1/calls/{call_id}/coach", json={"dismissed": tip_id}
+            )
+            return "Say: Is there a specific estimate you need?"
+
+    with_helper(workspace)
+    monkeypatch.setattr(live_help, "provider", lambda *_: Selector())
+    call_id = start(workspace)["id"]
+    answered_by_human(workspace, call_id)
+    chunk(workspace, call_id, "estimate", "What is the rollout estimate?")
+    assert tip_after_speech(workspace, clock, call_id)["coach"] is None
 
 
 def test_off_script_questions_get_a_spoken_reply_and_the_next_turn_still_gets_help(
@@ -310,7 +409,7 @@ def test_renewed_interest_gets_a_tip_with_a_new_mic_update(workspace, clock):
     call_id = start(workspace)["id"]
     answered_by_human(workspace, call_id)
     chunk(workspace, call_id, "decline", "Sorry, I am not interested.")
-    assert tip_after_speech(workspace, clock, call_id)["coach"] is None
+    assert tip_after_speech(workspace, clock, call_id)["coach"]["source"] == "fallback"
 
     chunk(workspace, call_id, "return", "Actually, I am interested. Maybe next quarter.")
     clock.now += timedelta(milliseconds=300)
@@ -339,7 +438,7 @@ def test_hangup_during_selection_keeps_the_tip_off(workspace, clock, monkeypatch
     assert live["state"] in {"ENDING", "ENDED", "FINALIZED"}
 
 
-def test_automatic_and_private_help_never_show_free_form_model_text(workspace, clock, monkeypatch):
+def test_malformed_model_text_gives_a_safe_fallback_instead(workspace, clock, monkeypatch):
     from app import live_help
 
     class Selector:
@@ -357,10 +456,10 @@ def test_automatic_and_private_help_never_show_free_form_model_text(workspace, c
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
     chunk(ws, call_id, "s1", "What is the price?")
-    assert tip_after_speech(ws, clock, call_id)["coach"] is None
+    assert tip_after_speech(ws, clock, call_id)["coach"]["source"] == "fallback"
     answer = post(ws, f"/v1/calls/{call_id}/coach", {"question": "Can we offer a discount?"})
-    assert answer["status"] == "quiet"
-    assert get(ws, f"/v1/calls/{call_id}")["coach"] is None
+    assert answer["status"] == "shown"
+    assert get(ws, f"/v1/calls/{call_id}")["coach"]["source"] == "fallback"
 
 
 def test_a_call_screener_gets_the_saved_screening_line_without_a_model_or_key(workspace, clock):

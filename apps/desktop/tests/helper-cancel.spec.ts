@@ -83,7 +83,7 @@ test("private help stays cancellable until the selected script line is ready", a
     await page
       .getByRole("button", { name: "Ask privately", exact: true })
       .click();
-    const waiting = page.getByText("Choosing a script line…", { exact: true });
+    const waiting = page.getByText("Preparing a reply…", { exact: true });
     await expect(waiting).toBeVisible();
     await expect(page.getByText(line, { exact: true })).toHaveCount(0);
     await expect(

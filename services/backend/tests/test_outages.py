@@ -96,7 +96,7 @@ def test_missing_speech_is_a_warning_and_never_a_blocker(workspace, app):
 
 
 def test_a_live_helper_outage_never_stops_a_call(workspace, app, clock, monkeypatch):
-    """Section 5: with OpenRouter down, the helper pauses and says so; the call and calling go on."""
+    """Section 5: with OpenRouter down, the local reply and call still work."""
     from app import live_help
 
     class Down:
@@ -121,7 +121,7 @@ def test_a_live_helper_outage_never_stops_a_call(workspace, app, clock, monkeypa
     clock.now += timedelta(seconds=1)
     asyncio.run(ops.run_jobs(app.state.service, queues=["live_coach"]))
     live = c.get(f"/v1/calls/{call_id}", headers=h).json()
-    assert live["coach"] is None
+    assert live["coach"]["source"] == "fallback"
     assert live["helper_status"] == {"status": "paused", "reason": "transport_fault"}
     assert live["state"] not in {"ENDED", "FINALIZED"} and blockers(workspace) == []
     # Nothing reached OpenRouter, so the turn's budget hold is released, not left standing.

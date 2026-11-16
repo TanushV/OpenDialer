@@ -159,7 +159,7 @@ def _muted(call):
     return call.data.get("coach_preferences", {}).get("muted", False)
 
 
-def _publish(service, p, call_id, tip, *, automatic):
+def _publish(service, p, call_id, tip, *, automatic, replaces_turn=None):
     """Show a completed selection and tell the Dialer to re-read the call."""
     with service.db.transaction() as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
@@ -167,6 +167,15 @@ def _publish(service, p, call_id, tip, *, automatic):
             return "ended"
         if automatic and _muted(call):
             return "muted"
+        if replaces_turn is not None:
+            shown = service.tips.shown.get(call_id) or {}
+            queued = s.scalar(
+                select(Job).where(Job.tenant_id == p["tenant_id"], Job.key == f"coach:{call_id}")
+            )
+            if shown.get("id") != tip["id"] or (
+                queued and queued.payload.get("transcript_version") != replaces_turn
+            ):
+                return "superseded"
         service.tips.show(call_id, tip)
         emit(s, p["tenant_id"], "coach.card_ready", call, service.clock())
         return "shown"
@@ -193,7 +202,7 @@ def _requeue(service, p, call_id, transcript_version):
 async def turn(
     service, p, call_id, question=None, request_id=None, *, transcript_version=None, prospect_segment_id=None
 ):
-    """One helper turn. Returns its status: shown, quiet, busy, muted, unavailable, cancelled or ended."""
+    """Give one line for the turn, with a local fallback if the model cannot answer."""
     private = transcript_version is None
     identity = request_id or uid()
     result = {"request_id": identity, "private": private}
@@ -220,54 +229,75 @@ async def turn(
         )
         status = await asyncio.to_thread(_publish, service, p, call_id, tip, automatic=not private)
         return {**result, "status": status}
-    parts = live.script_parts(request.get("script"), spoken_only=True)
-    if not parts:
-        return {**result, "status": "quiet"}
+
+    async def show(spoken, part=None, section=None, source=None, *, replaces_turn=None):
+        tip = live.card(identity, spoken, private=private, now=service.clock(), part=part)
+        if source:
+            tip["source"] = source
+        if section:
+            tip["script_position"] = {"key": section, "sequence": transcript_version or 0}
+        status = await asyncio.to_thread(
+            _publish, service, p, call_id, tip, automatic=not private, replaces_turn=replaces_turn
+        )
+        log.info("Live helper on call %s: %s (%s)", call_id, status, source or "script")
+        return {**result, "status": status}
+
+    async def fallback(reason):
+        if reason:
+            service.tips.status[call_id] = {"status": "paused", "reason": reason}
+        return await show(live.fallback(request), source="fallback")
+
     coach = await asyncio.to_thread(provider, service, p)
     if coach is None:
-        service.tips.status[call_id] = {"status": "paused", "reason": "not_configured"}
-        return {**result, "status": "unavailable"}
+        return await fallback("not_configured")
     key = f"coach:{call_id}:{identity}"
     if not await asyncio.to_thread(
         ops.reserve_optional_budget, service, p, key, 0.01, object_id=call_id, work_kind="live_coach"
     ):
-        service.tips.status[call_id] = {"status": "paused", "reason": "budget"}
-        return {**result, "status": "unavailable"}
+        return await fallback("budget")
 
-    task = asyncio.create_task(
-        coach.converse(live.messages(request, parts=parts), quiet=live.QUIET, deadline_ms=live.DEADLINE_MS)
-    )
+    deadline = live.DEADLINE_MS if private else live.AUTOMATIC_DEADLINE_MS
+    entries = live.candidates(request)
+    messages = live.messages(request, parts=[part for _, part in entries])
+
+    async def model_reply():
+        async with asyncio.timeout(deadline / 1000):
+            return await coach.converse(messages, quiet=live.QUIET, deadline_ms=deadline)
+
+    task = asyncio.create_task(model_reply())
     service.tips.start(call_id, identity, task)
-    text, status, unsent = None, "shown", False
+    unsent = False
+    early = None
     try:
-        text = await task
-    except asyncio.CancelledError:
-        status = "cancelled"
-    except Exception as exc:
-        reason = getattr(exc, "reason", None) or "transport_fault"
-        log.warning("Live helper turn failed: %s", type(exc).__name__)
-        service.tips.status[call_id] = {"status": "paused", "reason": reason}
-        status = "unavailable"
-        # The request never reached OpenRouter: nothing can be billed, so its hold is released.
-        unsent = isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
+        try:
+            if not private:
+                done, _ = await asyncio.wait({task}, timeout=live.FALLBACK_AFTER_MS / 1000)
+                if not done:
+                    early = await fallback(None)
+            text = await task
+        except asyncio.CancelledError:
+            return {**result, "status": "cancelled"}
+        except Exception as exc:
+            # A connection failure before submitting frees its hold. Uncertain submissions are settled normally.
+            unsent = isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
+            reason = getattr(exc, "reason", None) or (
+                "timeout" if isinstance(exc, TimeoutError) else "transport_fault"
+            )
+            log.warning("Live helper turn failed: %s", type(exc).__name__)
+            if early is not None:
+                return early
+            return await fallback(reason)
+        service.tips.status[call_id] = {"status": "available"}
+        if resolved := live.answer(text, entries, request):
+            return await show(*resolved, replaces_turn=transcript_version if early is not None else None)
+        return early if early is not None else await fallback(None)
     finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         service.tips.finish(call_id, task)
+        # Publishing precedes billing so an accounting write cannot delay the visible suggestion.
         await asyncio.to_thread(_settle, service, p, coach, call_id, key, unsent)
-    if status != "shown":
-        return {**result, "status": status}
-    service.tips.status[call_id] = {"status": "available"}
-    part = live.reply(text, parts)
-    spoken = part["text"] if part else live.suggestion(text)
-    if spoken is None:
-        reason = "chose to listen" if (text or "").strip() == live.QUIET else "unrecognized response"
-        log.info("Live helper on call %s: %s", call_id, reason)
-        return {**result, "status": "quiet"}
-    tip = live.card(identity, spoken, private=private, now=service.clock(), part=part)
-    if part is None:
-        tip["source"] = "suggestion"
-    status = await asyncio.to_thread(_publish, service, p, call_id, tip, automatic=not private)
-    log.info("Live helper on call %s: %s (%s)", call_id, status, "script" if part else "suggestion")
-    return {**result, "status": status}
 
 
 def _settle(service, p, coach, call_id, key, unsent):

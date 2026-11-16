@@ -5,7 +5,7 @@ from webrtcvad import Vad
 RATE = 16000
 FRAME_MS = 20
 FRAME_BYTES = RATE * FRAME_MS // 1000 * 2
-PAUSE_MS = 500
+PAUSE_MS = 400
 RESUMED_MS = 200
 
 

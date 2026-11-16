@@ -107,6 +107,47 @@ test("an off-script reply is labeled and displayed in the Dialer", async ({
   await expect(helper.getByText(line, { exact: true })).toBeVisible();
 });
 
+test("an adapted reply opens its script option without rearranging the script", async ({
+  page,
+}) => {
+  await enter(page);
+  const placed = await firstCall(page);
+  await answer(page);
+  const sections = placed.script_snapshot.sections;
+  const section = sections.find(
+    (item: { key: string }) => item.key === "objections",
+  );
+  const option = section.options[0];
+  const key = `${section.key}:${option.id}`;
+  const words = "Roughly 60 hours, assuming each site takes three hours.";
+  await page.route(`**/v1/calls/${placed.id}`, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.coach = {
+      id: "adapted-estimate",
+      kind: "TIP",
+      private: false,
+      status: "ready",
+      say_or_ask: words,
+      source: "suggestion",
+      script_part: { label: section.title, text: option.text },
+      script_position: { key, sequence: 1 },
+      remaining_ms: 30000,
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.keyboard.press("F1");
+  const helper = page.getByTestId("live-coaching-strip");
+  await expect(helper.getByText(words, { exact: true })).toBeVisible();
+  const script = page.getByTestId("prepared-script");
+  const headings = await script.locator("h3").allTextContents();
+  const optionBody = script.locator(`[data-script-part="${key}"]`);
+  await expect(optionBody).toBeHidden();
+  await helper.getByRole("button", { name: "Show in script" }).click();
+  await expect(optionBody).toBeVisible();
+  expect(await script.locator("h3").allTextContents()).toEqual(headings);
+});
+
 const settle = (page: Page) =>
   page.evaluate(
     () =>

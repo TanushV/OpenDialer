@@ -24,7 +24,7 @@ ROUTE = {
 }
 RESPONSE_BYTES = 262144
 # Reasoning tokens count against the completion cap even with reasoning excluded from the response.
-MAX_COMPLETION_TOKENS = 4096
+MAX_COMPLETION_TOKENS = 256
 # An optional progress callback runs at most this often.
 PROGRESS_SECONDS = 0.25
 PROGRESS_CHARS = 24

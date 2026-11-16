@@ -2102,3 +2102,10 @@ test assets and admin access before asking for anything. The signed rollout foll
   without logging its wording. An audio replay exercises a suggestion before finalization and prevents a duplicate.
 - November 16, 2026: the Leads badge uses the same active-lead filter as the Leads table. A lead remains counted
   while it belongs to another active list after a list is removed. All-lead history retains its original total.
+- November 16, 2026: the owner approved filled or adapted script lines, replies off script, and local fallbacks.
+  The helper sends selected script lines in the authored order, accepts only a short reply, and publishes before
+  settling the model charge. After a 400 ms local quiet window the helper starts one request. At 500 ms it
+  can show a local reply, then replace it with model wording from the same request up to 1,200 ms if the turn
+  is still current. Estimate arithmetic is checked against stated inputs, and a simple rate stated in the
+  latest question can be answered locally. The reply can open the referenced line without changing speech
+  auto-follow or script order.

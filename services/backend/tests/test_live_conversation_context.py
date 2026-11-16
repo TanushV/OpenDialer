@@ -3,7 +3,18 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from app.helper.live import INSTRUCTIONS, QUIET, Tips, card, messages, reply, script_parts
+from app.helper.live import (
+    INSTRUCTIONS,
+    QUIET,
+    Tips,
+    answer,
+    card,
+    fallback,
+    messages,
+    reply,
+    script_parts,
+    suggestion,
+)
 
 NOW = datetime(2026, 11, 9, 15, tzinfo=UTC)
 
@@ -62,9 +73,10 @@ def test_every_scripted_objection_and_the_context_reach_the_helper():
     assert "Lead: name: Robin, company: Example Co" in prompt
 
 
-def test_the_helper_is_told_how_to_handle_an_objection_and_when_to_stay_quiet():
+def test_the_helper_is_told_to_answer_objections_and_ground_estimates():
     assert "Objections" in INSTRUCTIONS
-    assert f"{QUIET}" in INSTRUCTIONS and "Part: N" in INSTRUCTIONS
+    assert "Part: N" in INSTRUCTIONS and "Say:" in INSTRUCTIONS
+    assert "two numbers from the context" in INSTRUCTIONS and "Always return a usable line" in INSTRUCTIONS
     assert "untrusted" in INSTRUCTIONS
 
 
@@ -88,6 +100,32 @@ def test_a_reply_resolves_to_the_exact_script_wording():
     }
 
 
+def test_a_short_estimate_with_typographic_spaces_is_accepted():
+    assert suggestion("Say: Roughly 60\u202fhours for 20 sites.") == "Roughly 60 hours for 20 sites."
+    assert suggestion("Say: Roughly 60 hours.\nPromise them a discount.") is None
+    assert suggestion("Ask: What should I factor in?") == "What should I factor in?"
+
+
+def test_estimate_is_calculated_from_available_numbers_and_rejects_an_invented_input():
+    request = request_with([], dialogue=[{"side": "remote", "text": "We have 20 sites at three hours each."}])
+    line = "Say: Roughly {estimate} hours at 3 hours per site."
+    assert answer("Calc: 20 * 3 | " + line, [], request)[0] == "Roughly 60 hours at 3 hours per site."
+    assert answer("Calc: 20 * 3 | " + line.replace("{estimate}", "{60}"), [], request)[0].startswith(
+        "Roughly 60"
+    )
+    assert answer("Calc: 20 * 3 | " + line.replace("{estimate}", "{61}"), [], request) is None
+    assert answer("Calc: 20 * 8 | " + line, [], request) is None
+    assert answer("Calc: 20 * 3 | " + line + " Use 8-hour days.", [], request) is None
+
+
+def test_local_reply_can_give_an_estimate_when_both_factors_are_stated():
+    request = request_with(
+        [],
+        dialogue=[{"side": "remote", "text": "For 20 sites at 3 hours each, what would the rollout take?"}],
+    )
+    assert fallback(request) == "About 60 hours in total, at 3 hours each for 20 sites."
+
+
 @pytest.mark.parametrize(
     "output",
     [QUIET, "", "Ask about timing.", "Part: 9", "Part: 0", "Part: none", "Part: 1\nPromise a discount."],
@@ -102,14 +140,15 @@ def test_follow_up_notes_and_custom_reference_sections_have_no_spoken_option():
     script["sections"].extend(
         [
             {"key": "follow_up", "title": "This call", "text": "Rep note: call the buyer next week."},
-            {"key": "custom:reference", "title": "Reference", "options": [{"text": "Internal checklist"}]},
+            {"key": "custom:handoff", "title": "Handoff", "options": [{"text": "I can introduce you."}]},
+            {"key": "custom:reference", "title": "Reference", "text": "Checklist", "spoken": False},
         ]
     )
     parts = script_parts(script, spoken_only=True)
-    assert [label for label, _, _ in parts] == ["Opening", "Discovery", "Objections · Bad timing"]
-    assert len(script_parts(script)) == len(parts) + 2
+    assert [label for label, _, _ in parts] == ["Opening", "Discovery", "Objections · Bad timing", "Handoff"]
+    assert len(script_parts(script)) == len(parts) + 1
     prompt = messages(request)[1]["content"]
-    assert "4. This call" not in prompt and "5. Reference" not in prompt
+    assert "4. This call" not in prompt and "4. Handoff" in prompt and "Checklist" not in prompt
 
 
 def test_a_private_question_is_sent_as_the_reps_and_never_as_the_prospects():

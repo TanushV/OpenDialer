@@ -1,7 +1,7 @@
 # OpenDialer 2.2.1
 
-- **Get help off script.** The live helper uses a matching script line or offers a short suggested reply for a new question or objection.
-- **Get the tip sooner.** The helper can start after the prospect pauses using the transcript already on screen. The final transcript of that turn does not send a second request.
+- **Get help off script.** The live helper uses or adapts a relevant script line or suggests what to say next. Estimates use the inputs from the conversation. Use **Show in script** to open the selected line in place.
+- **Get the tip sooner.** The helper starts after the prospect pauses with one short request. If the model takes too long or returns unusable text, a local reply appears without waiting or retrying.
 - **See the current lead count.** The Leads badge counts leads in active lists. A lead in multiple active lists counts once, and removed leads stay in history.
 
 Updates from 1.0.x through 2.2.0 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.

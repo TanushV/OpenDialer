@@ -8,6 +8,7 @@ const PAUSED: Record<string, string> = {
   not_configured: "add an OpenRouter key in Settings",
   budget: "this list's AI budget is used up",
   transport_fault: "connection interrupted",
+  timeout: "model response timed out",
   provider_unverified: "provider not verified",
   provider_mismatch: "provider route changed",
 };
@@ -31,9 +32,11 @@ function HelperStatus({ call }: { call: Call | null }) {
 export function LiveCoach({
   call,
   onChange,
+  onShowSection,
 }: {
   call: Call | null;
   onChange: () => Promise<void>;
+  onShowSection?: (key: string) => void;
 }) {
   const { api, run, notice } = useWorkspace();
   const [expanded, setExpanded] = useState(false);
@@ -141,7 +144,7 @@ export function LiveCoach({
         </strong>
         <span className="fine">
           {waiting
-            ? "Choosing a script line…"
+            ? "Preparing a reply…"
             : muted
               ? "Automatic tips muted"
               : "Tips follow the conversation"}
@@ -181,12 +184,33 @@ export function LiveCoach({
               className="helper-script-part"
               data-testid="helper-script-part"
             >
-              <small>From your script · {advice.script_part.label}</small>
-              <p>{advice.script_part.text}</p>
+              <small>
+                {advice.source === "suggestion"
+                  ? "Adapted reply"
+                  : "From your script"}{" "}
+                · {advice.script_part.label}
+              </small>
+              <p>
+                {advice.source === "suggestion"
+                  ? advice.say_or_ask
+                  : advice.script_part.text}
+              </p>
+              {onShowSection && advice.script_position && (
+                <button
+                  className="text-button"
+                  onClick={() => onShowSection(advice.script_position!.key)}
+                >
+                  Show in script
+                </button>
+              )}
             </div>
-          ) : advice?.source === "suggestion" ? (
+          ) : advice?.source ? (
             <div className="helper-script-part">
-              <small>Suggested reply</small>
+              <small>
+                {advice.source === "fallback"
+                  ? "Quick reply"
+                  : "Suggested reply"}
+              </small>
               <p>{advice.say_or_ask}</p>
             </div>
           ) : (
