@@ -540,7 +540,7 @@ test("Settings imports a test CSV and the Dialer calls only those destinations",
   ).toBeVisible();
 });
 
-test("the Dialer test button only calls the saved phone even when the lead queue is outside calling hours", async ({
+test("the Dialer can call the saved test phone repeatedly outside prospect calling hours", async ({
   page,
 }) => {
   await enter(page);
@@ -592,12 +592,29 @@ test("the Dialer test button only calls the saved phone even when the lead queue
     test_only: true,
   });
   expect((await reservation.json()).lead.phone).toBe("+12025550199");
-  expect(await (await placed).json()).toMatchObject({ is_test: true });
+  const first = await (await placed).json();
+  expect(first).toMatchObject({ is_test: true });
   await expect(page.getByTestId("lead-name")).toHaveText("Your test phone");
   await page.getByRole("button", { name: /^Skip/ }).click();
   await expect(
     page.getByRole("button", { name: /^Start calling/ }),
   ).toBeVisible();
+
+  // The next Start becomes visible before its fresh workspace read has returned.
+  // A slower read must not let the previous test's saved result pause the new one.
+  await page.route("**/v1/workspace", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.continue();
+  });
+  const [second] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/v1/calls/start") && r.ok(), {
+      timeout: 8_000,
+    }),
+    page.getByRole("button", { name: "Test call", exact: true }).click(),
+  ]);
+  const repeated = await second.json();
+  expect(repeated).toMatchObject({ is_test: true, lead_id: first.lead_id });
+  expect(repeated.id).not.toBe(first.id);
 });
 
 test("Test call limits calling to the test phone, and the session ends with that call", async ({

@@ -74,6 +74,7 @@ def test_the_test_phone_can_be_called_again_even_if_its_crm_record_is_stale(work
         )
         assert dial.status_code == 200, dial.text
         assert "time_limit_secs" not in carrier.dials[-1]
+        assert carrier.dials[-1]["answering_machine_detection"] == "disabled"
         ended = client.post(
             "/v1/simulation/event",
             headers=headers,

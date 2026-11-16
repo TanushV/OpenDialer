@@ -66,13 +66,13 @@ def _held_reservation(service, s, p, reservation_id, now):
     return reservation, claim, ReservationView.model_validate(reservation.data)
 
 
-def _dial_payload(service, scope, call_id, phone, caller, agent, *, test_only):
+def _dial_payload(service, scope, call_id, phone, caller, agent, *, test_only, test_run_id):
     return {
         "to": phone,
         "from": caller,
         "link_to": agent,
         "bridge_on_answer": True,
-        "answering_machine_detection": "premium",
+        "answering_machine_detection": "disabled" if test_only and not test_run_id else "premium",
         "timeout_secs": service.configs.read(scope).get("outbound_ring_seconds", 40),
         "prevent_double_bridge": True,
         **({} if test_only else {"time_limit_secs": service.settings.max_call_seconds}),
@@ -165,6 +165,7 @@ def _prepare_call(service, p, data):
             number.data["phone"],
             agent,
             test_only=test_only,
+            test_run_id=held.dial_scope.get("test_run_id"),
         )
         put(
             s,

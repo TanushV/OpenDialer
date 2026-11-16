@@ -529,6 +529,13 @@ export function useCallLoop(visible: boolean) {
       if (journal.current.blocksCalling)
         throw new Error("Sync the pending opt-out before calling.");
       if (armTestPhone) await armTestPhone();
+      // A prior outcome belongs to the previous run. Discard it and any read still in flight.
+      if (callRef.current?.state === "FINALIZED") {
+        readGeneration.current += 1;
+        callRef.current = null;
+        setCall(null);
+        setPacket(null);
+      }
       testRunId.current = armTestPhone ? null : (testList?.id ?? null);
       testRun.current = Boolean(armTestPhone || testPhone || testList);
       pausing.current = false;
@@ -758,16 +765,11 @@ export function useCallLoop(visible: boolean) {
       return;
     }
     if ((phase.kind === "saved" || phase.kind === "skipped") && !editing) {
-      if (
-        (call?.is_test || testRun.current) &&
-        !call?.dial_scope?.test_run_id
-      ) {
+      if (call?.is_test && !call.dial_scope?.test_run_id) {
         // A test call is one call: stop here rather than count down to a prospect (live check, November 10).
         void run(async () => {
           await pauseCalling();
-          notice(
-            "Test call saved. Calling is paused; Start calling uses your lead lists.",
-          );
+          notice("Test call finished. Calling is paused.");
         });
         return;
       }

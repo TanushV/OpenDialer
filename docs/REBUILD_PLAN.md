@@ -2082,3 +2082,6 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 15, 2026: 2.1.11 starts one saved test phone call directly from the paused Dialer, independent of the
   prospect queue. WebKit verified the test reservation and pause outside prospect calling hours. An isolated pilot
   backend and headless WebRTC received live Telnyx voicemail and finalization events for the approved 8547 test phone.
+- November 15, 2026: 2.1.12 clears the previous result when the rep starts, so an old finalized test cannot pause a
+  repeat. Only single-phone tests disable answering-machine detection. An isolated backend placed a live call to
+  approved 1101 before that change. The owner confirmed receipt and heard the headless browser's test audio.

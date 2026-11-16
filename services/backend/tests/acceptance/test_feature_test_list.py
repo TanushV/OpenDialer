@@ -55,6 +55,7 @@ def test_settings_test_list_reuses_script_and_queue_without_touching_outreach(wo
             )
             assert placed["is_test"] and placed["script_snapshot"]["fallback"] is False
             assert "time_limit_secs" not in carrier.dials[-1]
+            assert carrier.dials[-1]["answering_machine_detection"] == "premium"
             finish(ws, placed, outcome="not_interested")
         assert sorted(called) == PHONES
         assert post(ws, "/v1/queue/next", request, status=409)["detail"]["code"] == "TEST_LIST_COMPLETE"
