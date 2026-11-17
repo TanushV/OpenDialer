@@ -46,6 +46,7 @@ class FakeRelay:
         self.script = []
         self.cleared_gap = False
         self.session = session
+        self.occupied = False
         relay = self
 
         class Auth:
@@ -75,6 +76,8 @@ class FakeRelay:
             if name == "relay_clear_gap":
                 self.cleared_gap = True
                 return SimpleNamespace(data=None)
+            if self.occupied:
+                raise RuntimeError("This setup is in use on another computer")
             step = self.script.pop(0) if self.script else {}
             if isinstance(step, Exception):
                 raise step
@@ -247,9 +250,10 @@ def connection_sign_in_required(workspace, app, fast_relay):
 def connection_in_use_elsewhere(workspace, app, fast_relay):
     import_setup_file(workspace)
     assert eventually(lambda: not codes(workspace, app))
-    fast_relay.script.append(RuntimeError("This setup is in use on another computer"))
+    fast_relay.occupied = True
     assert eventually(lambda: "CONNECTION_IN_USE_ELSEWHERE" in codes(workspace, app))
     # The other computer quits: the next exchange succeeds and the loop takes over by itself.
+    fast_relay.occupied = False
     assert eventually(lambda: "CONNECTION_IN_USE_ELSEWHERE" not in codes(workspace, app))
 
 
