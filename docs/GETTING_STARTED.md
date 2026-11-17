@@ -64,7 +64,9 @@ for number checks. The CSV preview maps recognized headers such as `account sign
 the map and separators. When you generate scripts, the research agent reads all columns of each CSV row. Reimport an
 older CSV to restore columns that earlier versions omitted. If HubSpot has no lists yet, make
 one in HubSpot under Contacts → Lists. In **Research and scripts**, click **Generate scripts** for the list you want
-personalized. Importing a list or saving the base script leaves generation idle. Callable leads can use the base script.
+personalized. Importing a list or saving the base script leaves generation idle. Prospect calls need a current prepared
+script. The Leads table shows script and calling status together. Open a lead to read its prepared script or see what it is
+waiting for. Prepared scripts use your master wording and fill any marked `{{ ... }}` blocks. Test calls can use the base script.
 
 CSV lists can use the shared number pool with or without a HubSpot key or membership in the assigned segment.
 With a key saved, a connected conversation and saved outcome link the CSV lead to a matching HubSpot contact by email

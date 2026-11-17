@@ -349,10 +349,6 @@ test("an imported list waits for the rep to start script generation", async ({
   const panel = page.getByRole("region", { name: "Lead preparation" });
   const preparation = panel.getByRole("listitem").filter({ hasText: list });
   await expect(preparation).toContainText("1 awaiting generation");
-  await preparation.getByRole("button", { name: "Generate scripts" }).click();
-  await expect(preparation.getByText(/1 of 1 processed/)).toBeVisible({
-    timeout: 30000,
-  });
   await page.getByLabel("Search leads").fill("Dana Reyes");
   await page.getByRole("button", { name: "Search lead history" }).click();
   await page
@@ -360,9 +356,30 @@ test("an imported list waits for the rep to start script generation", async ({
     .first()
     .click();
   const packet = page.getByRole("dialog", { name: "Lead packet" });
-  await expect(packet.getByText("Script for this lead")).toBeVisible();
+  await expect(packet.getByText("Base script preview")).toBeVisible();
+  const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
+  expect(local.ok()).toBeTruthy();
+  const generated = await page.request.post(
+    `${AUTHORITY}/v1/preparation/lists`,
+    {
+      headers: { authorization: `Bearer ${(await local.json()).access_token}` },
+      data: { list_name: list },
+    },
+  );
+  expect(generated.ok()).toBeTruthy();
+  await expect(packet.getByText("Script for this lead")).toBeVisible({
+    timeout: 30000,
+  });
   await expect(packet.locator(".ai-text").first()).toBeVisible();
   await expect(packet.getByText("What the agent found")).toBeVisible();
+  await packet.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(preparation.getByText(/1 of 1 processed/)).toBeVisible();
+  await expect(
+    page.getByRole("row").filter({ hasText: "Dana Reyes" }).first(),
+  ).toContainText("Script ready");
 });
 
 test("a slow failed settings read never brings the error back after Try again worked", async ({

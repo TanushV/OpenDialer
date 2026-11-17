@@ -32,13 +32,23 @@ import { ScriptMemory } from "./ScriptMemory";
 import { ScriptReader } from "./ScriptReader";
 import { OpenFile } from "./OpenFile";
 import { HoldRelease } from "./HoldRelease";
+import { readNewest, useNewestAnswer } from "../state/newest";
+
+const SCRIPT_STATUS: Record<string, string> = {
+  ready: "Script ready",
+  queued: "Script in preparation",
+  stale: "Script needs refresh",
+  skipped: "Script skipped",
+  failed: "Script generation failed",
+  missing: "Script needed",
+};
 
 export function LeadsPage({
   onNavigate,
 }: {
   onNavigate: (view: "Script" | "Settings") => void;
 }) {
-  const { snapshot: w, api, run, refresh, notice } = useWorkspace();
+  const { snapshot: w, api, run, refresh, notice, subscribe } = useWorkspace();
   const [csv, setCSV] = useState("");
   const [mappedColumns, setMappedColumns] = useState<{
     headerKey: string;
@@ -56,6 +66,23 @@ export function LeadsPage({
     invalid: number;
   } | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
+  const packetLead = useRef<string | null>(null);
+  const packetReads = useNewestAnswer();
+  const loadPacket = useCallback(
+    (id: string) =>
+      readNewest(
+        packetReads,
+        () => api<Packet>(`/v1/leads/${id}/packet`),
+        (next) => {
+          if (packetLead.current === id) setPacket(next);
+        },
+      ),
+    [api, packetReads],
+  );
+  const closePacket = () => {
+    packetLead.current = null;
+    setPacket(null);
+  };
   const [lookupLead, setLookupLead] = useState("");
   const [lookupStatus, setLookupStatus] = useState<Record<string, string>>({});
   const [filterList, setFilterList] = useState<string | null>(null);
@@ -73,6 +100,32 @@ export function LeadsPage({
     ...(filterList === null ? {} : { list_name: filterList }),
   });
   const leads = history.items;
+  const updateLead = history.update;
+  useEffect(
+    () =>
+      subscribe((events) => {
+        let refreshPacket = false;
+        for (const event of events) {
+          if (!event.type.startsWith("lead.")) continue;
+          if (event.entity_id === packetLead.current) refreshPacket = true;
+          const { script_status, lead_status } = event.payload;
+          if (
+            typeof script_status === "string" &&
+            typeof lead_status === "string"
+          ) {
+            updateLead({
+              id: event.entity_id,
+              version: event.entity_version,
+              script_status,
+              status: lead_status,
+            });
+          }
+        }
+        if (refreshPacket && packetLead.current)
+          void loadPacket(packetLead.current).catch(() => {});
+      }),
+    [loadPacket, subscribe, updateLead],
+  );
   const activeCount = w.active_lead_count;
   const total =
     history.totalLabel ??
@@ -271,17 +324,21 @@ export function LeadsPage({
                                 ? "Company booked"
                                 : label(lead.status)}
                     </span>
+                    {lead.script_status && (
+                      <small className="muted">
+                        {SCRIPT_STATUS[lead.script_status]}
+                      </small>
+                    )}
                   </td>
                   <td>{lead.attempt_count}</td>
                   <td>
                     <button
                       className="icon-button"
                       aria-label={`Open lead ${lead.name}`}
-                      onClick={() =>
-                        void run(async () =>
-                          setPacket(await api(`/v1/leads/${lead.id}/packet`)),
-                        )
-                      }
+                      onClick={() => {
+                        packetLead.current = lead.id;
+                        void run(() => loadPacket(lead.id));
+                      }}
                     >
                       <ChevronRight size={18} />
                     </button>
@@ -431,10 +488,7 @@ export function LeadsPage({
           >
             <div className="modal-heading">
               <h2>{packet.lead.name}</h2>
-              <button
-                className="secondary small"
-                onClick={() => setPacket(null)}
-              >
+              <button className="secondary small" onClick={closePacket}>
                 Close
               </button>
             </div>
@@ -483,18 +537,24 @@ export function LeadsPage({
                 </button>
               )}
             </div>
-            <h3>Script for this lead</h3>
+            <h3>
+              {packet.script.fallback
+                ? "Base script preview"
+                : "Script for this lead"}
+            </h3>
             <p className="fine">
               {packet.script.fallback
-                ? packet.lead.status === "preparing"
-                  ? "Being prepared. This is your script as written until the agent finishes."
-                  : packet.preparation?.status === "skipped"
-                    ? `The agent skipped this lead: ${packet.preparation.reason ?? "no reason given."} It is called with your script as written.`
-                    : "Your script as written."
-                : (packet.script.summary ?? "Written from research.")}
+                ? packet.preparation?.status === "skipped" &&
+                  packet.preparation.reason
+                  ? `Script skipped. ${packet.preparation.reason}`
+                  : SCRIPT_STATUS[packet.preparation?.status ?? "missing"]
+                : Object.keys(packet.script.written ?? {}).length
+                  ? "Script ready"
+                  : "Script ready. Uses the wording from your master script."}
             </p>
             <ScriptReader script={packet.script} />
             <h3>What the agent found</h3>
+            {packet.script.summary && <p>{packet.script.summary}</p>}
             {!packet.research.facts.length && (
               <p className="muted small">No researched facts yet.</p>
             )}
@@ -522,15 +582,9 @@ export function LeadsPage({
                 Wrong-party endpoints stay suppressed. Attach a verified
                 replacement endpoint to continue this lead.
               </p>
-              <EndpointCorrection
-                lead={packet.lead}
-                onDone={() => setPacket(null)}
-              />
+              <EndpointCorrection lead={packet.lead} onDone={closePacket} />
               {packet.lead.suppressed && (
-                <HoldRelease
-                  phone={packet.lead.phone}
-                  onDone={() => setPacket(null)}
-                />
+                <HoldRelease phone={packet.lead.phone} onDone={closePacket} />
               )}
             </>
           </section>

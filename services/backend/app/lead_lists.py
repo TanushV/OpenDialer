@@ -133,6 +133,7 @@ def list_summary(service, p, list_names=None):
             value = lead.data
             if value.get("test_list_contact"):
                 continue
+            script_status = ops.preparation_state(service, s, p, lead)["status"]
             due = timestamp(value.get("callback_due_at"))
             callback = bool(due and due <= service.clock())
             selected_p = {**p, "dial_lists": list_names}
@@ -155,8 +156,8 @@ def list_summary(service, p, list_names=None):
                     continue
                 row = result[name]
                 row["total"] += 1
-                row["preparing"] += value.get("status") == "preparing"
-                row["ready"] += value.get("status") == "eligible"
+                row["preparing"] += script_status == "queued"
+                row["ready"] += script_status == "ready"
                 held = bool(
                     value.get("outreach_hold")
                     or value.get("dial_paused")

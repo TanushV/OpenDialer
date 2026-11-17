@@ -190,6 +190,9 @@ def app(request, tmp_path, clock, carrier):
     shutil.copyfile(request.getfixturevalue("sqlite_store_template"), tmp_path / "test.db")
     database_url = f"sqlite:///{tmp_path}/test.db"
     application = create_app(fixture_settings(database_url, tmp_path), clock=clock, carrier=carrier)
+    application.state.service.require_prepared_scripts = (
+        False  # Unrelated calling tests use the base fixture script.
+    )
     yield application
     application.state.db.engine.dispose()
 

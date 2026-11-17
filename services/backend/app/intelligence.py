@@ -59,7 +59,11 @@ def packet(service, p, lead_id):
             limit=1,
             newest=True,
         )
-        assignment = reservations[0].data.get("script_comparison") if reservations else None
+        assignment = (
+            reservations[0].data.get("script_comparison")
+            if reservations and not service.require_prepared_scripts
+            else None
+        )
         script, preparation = ops.selected_script(service, s, p, lead, assignment=assignment)
         call_model = MODELS["call_attempts"]
         active_calls = ops.lead_records(

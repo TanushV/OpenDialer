@@ -368,7 +368,59 @@ def rep_audio_not_ready(workspace, app):
     assert "REP_AUDIO_NOT_READY" not in codes(workspace, app, rep=True)
 
 
+def script_not_ready(workspace, app):
+    from journey import get, import_leads, post, reserve, run_jobs
+    from test_campaign_prep import SCRIPT, save_script
+
+    ws = workspace
+    app.state.service.require_prepared_scripts = True
+    name = "Require prepared scripts"
+    result = import_leads(
+        ws,
+        [{"name": "Example Lead", "phone": "+12125550177", "timezone": "America/New_York"}],
+        list_name=name,
+    )
+    lead = result["leads"][0]
+    status = get(ws, "/v1/workspace/leads", params={"list_name": name})["items"][0]
+    assert status.get("script_status") == "missing"
+    summary = next(row for row in get(ws, "/v1/lists")["lists"] if row["name"] == name)
+    assert summary["ready"] == summary["callable_now"] == 0
+    refused = reserve(ws, list_names=[name])
+    assert refused.status_code == 409 and "SCRIPT_NOT_READY" in refused.json()["detail"]["reasons"]
+    post(ws, "/v1/preparation/lists/release", {"list_name": name}, status=409)
+    save_script(ws, SCRIPT)
+    post(ws, "/v1/preparation/lists", {"list_name": name})
+    run_jobs(ws, rounds=3)
+    packet = get(ws, f"/v1/leads/{lead['id']}/packet")
+    assert not packet["script"]["fallback"]
+    assert get(ws, "/v1/workspace/leads", params={"list_name": name})["items"][0]["script_status"] == "ready"
+    reserved = reserve(ws, list_names=[name])
+    assert reserved.status_code == 200, reserved.text
+    save_script(
+        ws, SCRIPT.replace("a quick question", "a different question") + "\n# Extra context\nNew wording.\n"
+    )
+    assert get(ws, f"/v1/leads/{lead['id']}/packet")["preparation"]["status"] == "stale"
+    denied = post(
+        ws,
+        "/v1/calls/start",
+        {"reservation_id": reserved.json()["reservation_id"], "idempotency_key": "stale-script"},
+        status=403,
+    )
+    assert "SCRIPT_NOT_READY" in denied["detail"]["reasons"]
+    post(ws, "/v1/queue/release")
+    post(ws, "/v1/preparation/lists", {"list_name": name})
+    run_jobs(ws, rounds=2)
+    reserved = reserve(ws, list_names=[name])
+    assert reserved.status_code == 200, reserved.text
+    post(
+        ws,
+        "/v1/calls/start",
+        {"reservation_id": reserved.json()["reservation_id"], "idempotency_key": "current-script"},
+    )
+
+
 EXIT_TESTS = {
+    "SCRIPT_NOT_READY": script_not_ready,
     "DATABASE_INTEGRITY_FAILURE": database_integrity_failure,
     "RESTORE_RECONCILIATION_REQUIRED": restore_reconciliation_required,
     "TELNYX_NOT_CONFIGURED": telnyx_not_configured,

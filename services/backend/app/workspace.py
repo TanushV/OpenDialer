@@ -155,6 +155,8 @@ def workspace_page(
                 value.update(ops.number_readiness_in(service, s, p, row))
             if section == "registries":
                 value = {k: v for k, v in value.items() if k in REGISTRY_FIELDS}
+            if section == "leads":
+                value["script_status"] = ops.preparation_state(service, s, p, row)["status"]
             selected.append(value)
             if len(selected) >= limit:
                 break

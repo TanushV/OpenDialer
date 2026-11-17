@@ -33,6 +33,9 @@ with tempfile.TemporaryDirectory(prefix="opendialer-e2e-") as directory:
         settings.allowed_origins = [*settings.allowed_origins, *origins.split(",")]
 
     app = create_app(settings, clock=simulation_clock())
+    app.state.service.require_prepared_scripts = (
+        False  # General calling journeys use the base fixture script.
+    )
     if slow_log := os.environ.get("OPENDIALER_E2E_SLOW_LOG"):
         # Diagnosis only: requests slower than a second, with their path, to find what a browser test waits on.
         @app.middleware("http")

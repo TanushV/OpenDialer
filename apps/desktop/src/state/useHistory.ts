@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../context";
 import type { HistoryPage } from "../types";
 
@@ -74,18 +74,20 @@ export function useHistory<T extends { id: string; version?: number }>(
         setBusy(false);
     }
   }
-  function update(value: T) {
+  const update = useCallback((value: Pick<T, "id"> & Partial<T>) => {
     setLoaded((previous) =>
       previous
         ? {
             ...previous,
             items: previous.items.map((row) =>
-              row.id === value.id ? { ...row, ...value } : row,
+              row.id === value.id && (value.version ?? 0) >= (row.version ?? 0)
+                ? { ...row, ...value }
+                : row,
             ),
           }
         : previous,
     );
-  }
+  }, []);
   return {
     items,
     total,

@@ -274,6 +274,8 @@ def bus_metadata(payload):
     fields = {
         "state",
         "lead_id",
+        "script_status",
+        "lead_status",
         "segment_id",
         "transcript_version",
         "kind",

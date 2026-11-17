@@ -32,6 +32,8 @@ from app.providers.simulated import SimulatedCarrier
 class AppState:
     """The backend's state: no behavior. Every operation is a function in `app.ops`."""
 
+    require_prepared_scripts = True
+
     def __init__(self, db, settings, clock, carrier=None):
         self.db, self.settings, self.clock = db, settings, clock
         self.injected_carrier = carrier
@@ -579,6 +581,13 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
     )
     return CallContext(
         now=service.clock(),
+        script_ready=active
+        or own_test_line
+        or not service.require_prepared_scripts
+        or (
+            lead.data.get("status") == "eligible"
+            and ops.preparation_state(service, s, p, lead)["status"] == "ready"
+        ),
         continuing_call=active,
         authorization_reconciled=not seller.data.get("restore_hold", False),
         outreach_hold=bool(

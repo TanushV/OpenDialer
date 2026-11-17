@@ -116,7 +116,9 @@ def _prepare_call(service, p, data):
         decision = authorize(ops.context(service, s, scoped_p, lead, number))
         ops.record_decision(service, s, p, lead, decision)
         if not decision.allowed:
-            fail(403, {"code": "CALL_DENIED", "reasons": decision.reasons})
+            detail = ops.no_lead_detail(service, s, scoped_p, decision.reasons)
+            fail(403, {**detail, "code": "CALL_DENIED"})
+        script_comparison = None if service.require_prepared_scripts else held.script_comparison
         call = put(
             s,
             "call_attempts",
@@ -135,10 +137,8 @@ def _prepare_call(service, p, data):
                 "feature_snapshot_id": held.feature_snapshot_id,
                 "decision_id": held.policy_decision_id,
                 "coaching_comparison": held.coaching_comparison,
-                "script_comparison": held.script_comparison,
-                "script_snapshot": ops.selected_script(
-                    service, s, p, lead, assignment=held.script_comparison
-                )[0],
+                "script_comparison": script_comparison,
+                "script_snapshot": ops.selected_script(service, s, p, lead, assignment=script_comparison)[0],
                 "state": "AUTHORIZED",
                 "state_at": now.isoformat(),
                 "started_at": now.isoformat(),
@@ -253,9 +253,13 @@ def _claim_dial(service, p, call_id, owner):
             ops.refuse_outside_test_line(service, p, lead)
             number = ops.required(service, s, "number_inventory", call.data["number_id"], p)
             service.managed.require_number(workspace(p), number.data)
-            decision = authorize(
-                ops.context(service, s, {**p, **CallView.model_validate(call.data).dial_scope}, lead, number)
+            context = ops.context(
+                service, s, {**p, **CallView.model_validate(call.data).dial_scope}, lead, number
             )
+            decision = authorize(context)
+            if decision.allowed and service.require_prepared_scripts and not context.own_test_line:
+                script = ops.selected_script(service, s, p, lead)[0]
+                update(call, script_snapshot=script)
         else:
             decision = Decision(False, ["RESERVATION_INVALID"])
         submission_decision = ops.record_decision(service, s, p, lead, decision)

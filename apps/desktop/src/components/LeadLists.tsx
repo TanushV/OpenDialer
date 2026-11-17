@@ -126,7 +126,7 @@ export function ListsPage({
               <tr>
                 <th>LIST</th>
                 <th>TOTAL</th>
-                <th>READY / PREPARING</th>
+                <th>SCRIPTS</th>
                 <th>CALLABLE NOW</th>
                 <th>HELD</th>
                 <th>COMPLETED</th>
@@ -149,7 +149,7 @@ export function ListsPage({
                   </td>
                   <td>{list.total}</td>
                   <td>
-                    {list.ready} / {list.preparing}
+                    {list.ready} ready / {list.preparing} preparing
                   </td>
                   <td>{list.callable_now}</td>
                   <td>{list.held}</td>

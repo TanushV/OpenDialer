@@ -19,6 +19,7 @@ interface ListProgress {
 }
 export interface PreparationStatus {
   master_version: number;
+  requires_prepared_script?: boolean;
   summary: {
     total: number;
     ready: number;
@@ -106,7 +107,9 @@ export function PreparationPanel({
           <p className="muted small">
             {compact
               ? `Master version ${status.master_version}. ${status.summary.ready} of ${status.summary.total} leads prepared for the current script.`
-              : "Choose a list to research and personalize. Until then, callable leads use your base script."}
+              : status.requires_prepared_script
+                ? "Choose a list to prepare. Prospect calls require a ready script."
+                : "Choose a list to research and personalize. Until then, callable leads use your base script."}
           </p>
         </div>
         {status.threads.length > 0 && (
@@ -121,12 +124,8 @@ export function PreparationPanel({
           {status.summary.waiting + status.summary.working > 0
             ? `Refreshing ${status.summary.waiting + status.summary.working} lead scripts: ${status.summary.working} in progress, ${status.summary.waiting} waiting.`
             : "No script refresh is pending."}
-          {status.summary.failed
-            ? ` ${status.summary.failed} failed; current base script remains available.`
-            : ""}
-          {status.summary.skipped
-            ? ` ${status.summary.skipped} skipped; current base script remains available.`
-            : ""}
+          {status.summary.failed ? ` ${status.summary.failed} failed.` : ""}
+          {status.summary.skipped ? ` ${status.summary.skipped} skipped.` : ""}
         </p>
       )}
       {!status.has_script && (
@@ -141,10 +140,7 @@ export function PreparationPanel({
       )}
       {status.has_script && !status.ai_connected && (
         <div className="info-note">
-          <p>
-            Connect ChatGPT or OpenRouter in Settings to generate scripts. Until
-            then, leads are called with your script as written.
-          </p>
+          <p>Connect ChatGPT or OpenRouter in Settings to generate scripts.</p>
           <button className="secondary" onClick={() => onNavigate("Settings")}>
             Open Settings
           </button>
@@ -201,13 +197,11 @@ export function PreparationPanel({
                     <span style={{ width: `${percent}%` }} />
                   </div>
                   <p className="fine">
-                    {list.ready} with their own script
+                    {list.ready} with a ready script
                     {list.skipped
                       ? ` · ${list.skipped} skipped by the agent`
                       : ""}
-                    {list.failed
-                      ? ` · ${list.failed} using your base script`
-                      : ""}
+                    {list.failed ? ` · ${list.failed} failed` : ""}
                     {list.working ? ` · ${list.working} in progress` : ""}
                     {list.waiting ? ` · ${list.waiting} waiting` : ""}
                     {list.unrequested
@@ -217,7 +211,9 @@ export function PreparationPanel({
                       ? ` · ${money(list.spent_usd)} of ${money(list.budget_usd)} AI budget`
                       : ""}
                   </p>
-                  {(list.unrequested > 0 || list.failed > 0) && (
+                  {(list.unrequested > 0 ||
+                    list.failed > 0 ||
+                    list.skipped > 0) && (
                     <button
                       className="secondary small"
                       disabled={
@@ -256,7 +252,9 @@ export function PreparationPanel({
                         skipped
                       </summary>
                       <p className="fine">
-                        Skipped leads are called with your script as written.
+                        {status.requires_prepared_script
+                          ? "Skipped leads wait for a ready script. Choose Generate scripts to retry them."
+                          : "Skipped leads are called with your script as written."}
                       </p>
                       <ul>
                         {list.skipped_leads.map((lead, index) => (
@@ -268,7 +266,7 @@ export function PreparationPanel({
                       </ul>
                     </details>
                   )}
-                  {list.waiting > 0 && (
+                  {list.waiting > 0 && !status.requires_prepared_script && (
                     <button
                       className="text-button"
                       onClick={() =>

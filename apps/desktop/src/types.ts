@@ -30,6 +30,7 @@ export interface Lead {
   dial_paused?: boolean;
   archived?: boolean;
   status: string;
+  script_status?: string;
   suppressed: boolean;
   coverage_due_at: string;
   attempt_count: number;

@@ -69,6 +69,10 @@ CATALOG = {
         "dialer",
     ),
     "NO_CAMPAIGN": ("Import a lead list to start a campaign.", "leads"),
+    "SCRIPT_NOT_READY": (
+        "Leads need a current script. Open Leads and choose Generate scripts under Research and scripts.",
+        "leads",
+    ),
     "NO_CALLER_NUMBER": ("Add a caller number in Numbers: buy one, or add one you own.", "numbers"),
     "CALLER_NUMBER_ROUTE_REQUIRED": ("In Numbers, choose Set up route on your caller number.", "numbers"),
     "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": (
@@ -118,6 +122,7 @@ EXITS = {
     "CONNECTION_RECONNECTING": Exit(by_itself_within=60),
     "CONNECTION_DELIVERY_GAP": Exit(by_itself_within=60),
     "NO_CAMPAIGN": Exit(control="Leads: Import a list"),
+    "SCRIPT_NOT_READY": Exit(control="Leads: Generate scripts"),
     "NO_CALLER_NUMBER": Exit(control="Numbers: Buy or add a number, or ask the pool operator to add one"),
     "CALLER_NUMBER_ROUTE_REQUIRED": Exit(control="Numbers: Set up route"),
     "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": Exit(

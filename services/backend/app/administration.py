@@ -15,7 +15,7 @@ from sqlalchemy import func, or_, select, text
 
 from app import ops, test_list
 from app.calling import audio_leg
-from app.calling.blockers import Facts, mark_stuck
+from app.calling.blockers import CATALOG, Facts, mark_stuck
 from app.calling.blockers import blockers as dial_gate
 from app.calling.state import TERMINAL
 from app.platform.config import PROVIDER_DEFAULTS, CapabilityStatus
@@ -39,6 +39,7 @@ TIMING_REASONS = {"OUTSIDE_CALLING_WINDOW", "NOT_DUE", "CADENCE_LIMIT", "ENDPOIN
 REGISTRY_REASONS = {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"}
 # Why nobody can be called, in the order a rep can act on it. The first reason present is shown, then the rest briefly.
 WHY_NOBODY = [
+    ({"SCRIPT_NOT_READY"}, *CATALOG["SCRIPT_NOT_READY"]),
     (
         {"CRM_SYNC_STALE"},
         "Some HubSpot leads need a sync before calling.",

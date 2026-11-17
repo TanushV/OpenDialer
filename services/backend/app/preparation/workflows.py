@@ -224,6 +224,11 @@ def preparation_state(service, s, p, lead):
         or (state.get("expires_at") and dt(state["expires_at"]) <= service.clock())
     ):
         state["status"] = "stale"
+    if state.get("status") == "ready":
+        row = ops.script_row(service, s, p, lead)
+        template = ops.lead_script_base(service, s, p, lead)["template"]
+        if not row or not template or row.data.get("template_version") != template_version(template):
+            state["status"] = "stale"
     return state
 
 
@@ -450,7 +455,7 @@ def request_preparation_in(service, s, p, leads):
         if not ops.preparation_permitted(service, s, p, lead):
             continue
         state = ops.preparation_state(service, s, p, lead)
-        if state["status"] in {"ready", "skipped"} or (
+        if state["status"] == "ready" or (
             requested_preparation(service, s, p, lead) and state["status"] != "failed"
         ):
             continue
@@ -459,6 +464,14 @@ def request_preparation_in(service, s, p, leads):
             preparation_request_key=ops.preparation_key(service, s, p, lead),
             status="preparing" if state["status"] != "stale" else lead.data["status"],
             preparation={**state, "status": "queued", "attempts": 0, "next_attempt_at": None},
+        )
+        emit(
+            s,
+            p["tenant_id"],
+            "lead.updated",
+            lead,
+            service.clock(),
+            {"script_status": "queued", "lead_status": lead.data["status"]},
         )
         marked += 1
     return marked
@@ -553,6 +566,14 @@ def rewrite_scripts(
                     "next_attempt_at": None,
                 },
             )
+            emit(
+                s,
+                p["tenant_id"],
+                "lead.updated",
+                lead,
+                service.clock(),
+                {"script_status": "queued", "lead_status": lead.data["status"]},
+            )
             count += 1
         update(ops.required(service, s, "sellers", p["seller_id"], p), preparation_user_id=p["user_id"])
     ops.prepare_tick(service, p)
@@ -596,6 +617,10 @@ def lead_script_base_ready(service, s, p):
 
 def release_list(service, p, list_name):
     """Call a list's unprepared leads now with the base script (after a budget stop, say)."""
+    if service.require_prepared_scripts:
+        from app.service import fail
+
+        fail(409, "Prospect calls require a prepared script. Choose Generate scripts in Leads.")
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
         model = MODELS["leads"]
@@ -790,6 +815,7 @@ def preparation_status(service, p):
             entry["budget_usd"] = budget.get("per_list_usd", 25.0)
         return {
             "master_version": ops.script_base(service, s, p, campaign)["version"],
+            "requires_prepared_script": service.require_prepared_scripts,
             "summary": summary,
             "lists": sorted(lists.values(), key=lambda e: e["list_name"]),
             "threads": threads,
@@ -1172,10 +1198,21 @@ def finish_thread(service, p, owner, claimed, work, failure, *, release=False, r
                     ops.store_facts_in(service, s, p, lead, work, alias)
                 changes["preparation"] = failure_state(state, item["key"], now, error)
                 if changes["preparation"]["attempts"] >= MAX_ATTEMPTS and lead.data["status"] == "preparing":
-                    # Out of attempts: call with the base script rather than never.
+                    # Let the rep request another attempt. The queue checks script readiness independently.
                     changes["status"] = "eligible"
             update(lead, **changes)
-            emit(s, p["tenant_id"], "lead.packet_ready", lead, now, {"lead_id": lead.id})
+            emit(
+                s,
+                p["tenant_id"],
+                "lead.packet_ready",
+                lead,
+                now,
+                {
+                    "lead_id": lead.id,
+                    "script_status": lead.data["preparation"]["status"],
+                    "lead_status": lead.data["status"],
+                },
+            )
     return published
 
 

@@ -458,8 +458,10 @@ def _claim_in(service, s, p, campaign_id, plan):
     coach_comparison = ops.comparison_assignment(
         service, s, p, campaign, lead, "coaching", rep_id=p["user_id"]
     )
-    script_comparison = ops.comparison_assignment(
-        service, s, p, campaign, lead, "script", rep_id=p["user_id"]
+    script_comparison = (
+        None
+        if service.require_prepared_scripts
+        else ops.comparison_assignment(service, s, p, campaign, lead, "script", rep_id=p["user_id"])
     )
     reservation = put(
         s,
