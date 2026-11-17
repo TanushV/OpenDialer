@@ -16,6 +16,7 @@ import { ProspectBrief } from "../components/ProspectBrief";
 import { revealScriptPart, ScriptReader } from "../components/ScriptReader";
 import { CallbackReviewNotice, WrapUp } from "../components/WrapUp";
 import { Button } from "../ui/kit";
+import { createRinger } from "../telephony/ringer";
 import { sessionAudio } from "../telephony/speech";
 import { headline, keys, type Action, type Phase } from "./screen";
 import { OUTCOME_KEYS, useCallLoop } from "./useCallLoop";
@@ -40,9 +41,23 @@ export function Dialer({
   onNavigate?: (page: string) => void;
 }) {
   const loop = useCallLoop(visible);
-  const { phase, act } = loop;
+  const { phase, act, call } = loop;
   useKeys(phase, act, visible, loop.call?.suggested_outcome?.code);
   usePhaseSound(phase);
+  const ringbackCall =
+    phase.kind === "dialing" && call?.provider_id && !loop.inbound
+      ? call.id
+      : null;
+  useEffect(() => {
+    if (!ringbackCall) return;
+    const tone = createRinger();
+    try {
+      tone.start();
+    } catch {
+      // The Dialer still shows the call's progress when audio is unavailable.
+    }
+    return () => tone.stop();
+  }, [ringbackCall]);
   return (
     <div className="dialer" data-phase={phase.kind}>
       <audio ref={loop.audio} autoPlay />
@@ -521,9 +536,12 @@ function ActionBar({ loop }: { loop: Loop }) {
         <span className="muted">{loop.audioStatus || "Connecting audio"}</span>
       )}
       {phase.kind === "dialing" && (
-        <Button kbd="Space" onClick={() => void act.skip()} disabled={!call}>
-          Skip
-        </Button>
+        <>
+          <Button kbd="Space" onClick={() => void act.skip()} disabled={!call}>
+            Skip
+          </Button>
+          <HangUp act={act} disabled={!call} />
+        </>
       )}
       {phase.kind === "voicemail_skipping" && (
         <>
@@ -537,6 +555,7 @@ function ActionBar({ loop }: { loop: Loop }) {
           <Button variant="secondary" kbd="S" onClick={() => void act.stay()}>
             Stay
           </Button>
+          <HangUp act={act} />
         </>
       )}
       {phase.kind === "voicemail_final" && (
@@ -605,9 +624,14 @@ function ActionBar({ loop }: { loop: Loop }) {
   );
 }
 
-function HangUp({ act }: { act: Loop["act"] }) {
+function HangUp({ act, disabled }: { act: Loop["act"]; disabled?: boolean }) {
   return (
-    <Button variant="danger" kbd="Esc" onClick={() => void act.hangup()}>
+    <Button
+      variant="danger"
+      kbd="Esc"
+      disabled={disabled}
+      onClick={() => void act.hangup()}
+    >
       Hang up
     </Button>
   );

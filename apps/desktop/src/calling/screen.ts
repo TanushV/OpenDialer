@@ -23,6 +23,9 @@ export interface ScreenCall {
   voicemail_turn?: boolean;
   stay_on_voicemail?: boolean;
   machine_detected?: boolean;
+  screening_detected?: boolean;
+  answered_at?: string | null;
+  bridged_at?: string | null;
   provider_hangup_source?: string | null;
   connected_seconds?: number | null;
 }
@@ -53,7 +56,10 @@ export type Phase =
   | { kind: "dialing"; ringing: boolean }
   | { kind: "voicemail_skipping" }
   | { kind: "voicemail_final" }
-  | { kind: "talking" }
+  | {
+      kind: "talking";
+      answer?: "identifying" | "person" | "screening" | "voicemail";
+    }
   | {
       kind: "ended";
       who: "they" | "you" | null;
@@ -151,11 +157,22 @@ export function screen(input: ScreenInput): Phase {
 
 function live(call: ScreenCall): Phase {
   if (call.state === "ENDING") return ended(call);
+  if (call.state === "HUMAN") return { kind: "talking", answer: "person" };
+  if (call.state === "SCREENING" || call.screening_detected)
+    return { kind: "talking", answer: "screening" };
+  if (call.voicemail_turn) return { kind: "voicemail_final" };
+  if (MAILBOX.has(call.state) || call.machine_detected)
+    return call.stay_on_voicemail
+      ? { kind: "talking", answer: "voicemail" }
+      : { kind: "voicemail_skipping" };
+  if (
+    call.state === "ANSWERED_UNCLASSIFIED" ||
+    call.answered_at ||
+    call.bridged_at
+  )
+    return { kind: "talking", answer: "identifying" };
   if (DIALING.has(call.state)) return { kind: "dialing", ringing: false };
   if (call.state === "RINGING") return { kind: "dialing", ringing: true };
-  if (call.voicemail_turn) return { kind: "voicemail_final" };
-  if (MAILBOX.has(call.state) && !call.stay_on_voicemail)
-    return { kind: "voicemail_skipping" };
   return { kind: "talking" };
 }
 
@@ -188,9 +205,9 @@ export function keys(phase: Phase): Record<string, Action> {
     case "connecting":
       return { KeyP: "pause" };
     case "dialing":
-      return { Space: "skip", KeyP: "pause" };
+      return { Space: "skip", Escape: "hangup", KeyP: "pause" };
     case "voicemail_skipping":
-      return { Space: "skip", KeyS: "stay" };
+      return { Space: "skip", Escape: "hangup", KeyS: "stay" };
     case "voicemail_final":
       return { Escape: "hangup" };
     case "talking":
@@ -227,7 +244,13 @@ export function headline(phase: Phase): string {
     case "voicemail_final":
       return "Leave your message";
     case "talking":
-      return "Talking";
+      return {
+        identifying: "Answered · identifying",
+        person: "Talking · person",
+        screening: "Call screening",
+        voicemail: "Voicemail",
+        unknown: "Talking",
+      }[phase.answer ?? "unknown"];
     case "ended": {
       if (phase.saving) return "Saving the outcome";
       const who =

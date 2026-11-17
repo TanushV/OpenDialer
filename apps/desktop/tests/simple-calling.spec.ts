@@ -20,6 +20,75 @@ async function enter(page: import("@playwright/test").Page) {
   if (await sample.isVisible()) await sample.click();
 }
 
+for (const end of ["answer", "hang up"] as const) {
+  test(`outbound ringback stops on ${end}`, async ({ page }) => {
+    await page.addInitScript(() => {
+      const start = OscillatorNode.prototype.start;
+      const stop = OscillatorNode.prototype.stop;
+      OscillatorNode.prototype.start = function (when?: number) {
+        if (this.frequency.value === 440)
+          document.documentElement.dataset.ringback = "playing";
+        return start.call(this, when);
+      };
+      OscillatorNode.prototype.stop = function (when?: number) {
+        if (this.frequency.value === 440)
+          document.documentElement.dataset.ringback = "stopped";
+        return stop.call(this, when);
+      };
+    });
+    await enter(page);
+    await prepareSimulationCall(page, "Ringback prospect", "+14155550795");
+    await startDialing(page);
+    const root = page.locator("html");
+    await expect(root).toHaveAttribute("data-ringback", "playing");
+    await expect(hangUp(page)).toBeEnabled();
+    if (end === "answer") {
+      await answer(page);
+      await expect(callStatus(page)).toContainText("Talking · person");
+      await expect(root).toHaveAttribute("data-ringback", "stopped");
+      await finishCall(page);
+    } else {
+      const hungUp = page.waitForRequest(
+        (request) =>
+          request.url().endsWith("/hangup") && request.method() === "POST",
+      );
+      await page.keyboard.press("Escape");
+      await hungUp;
+      await expect(root).toHaveAttribute("data-ringback", "stopped");
+      await expect(hangUp(page)).toHaveCount(0);
+    }
+  });
+}
+
+test("a late answer received during Skip leaves the outcome for the rep", async ({
+  page,
+}) => {
+  await enter(page);
+  await prepareSimulationCall(page, "Pickup during skip", "+14155550796");
+  await startDialing(page);
+  await page.route("**/v1/calls/*/hangup", async (route) => {
+    const request = route.request();
+    const headers = await request.allHeaders();
+    const id = new URL(request.url()).pathname.split("/").at(-2);
+    const answer = await page.request.post(`${AUTHORITY}/v1/simulation/event`, {
+      headers: { authorization: headers.authorization },
+      data: {
+        event_id: "pickup-during-skip",
+        event_type: "call.answered",
+        call_id: id,
+        payload: {},
+      },
+    });
+    expect(answer.ok()).toBeTruthy();
+    await route.continue();
+  });
+  await page.getByRole("button", { name: /^Skip/ }).click();
+  await expect(outcomeKeys(page)).toBeVisible();
+  await pauseCalling(page).click();
+  await expect(outcomeKeys(page)).toBeVisible();
+  await finishCall(page);
+});
+
 test("Space starts calling once and ignores editing and repeat presses", async ({
   page,
 }, testInfo) => {

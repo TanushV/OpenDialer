@@ -70,6 +70,26 @@ test("auto-answer requires the exact authority-confirmed agent identity", async 
   expect(agent.answer).toHaveBeenCalledTimes(1);
 });
 
+test("the outbound audio leg uses the configured microphone and the Dialer playback element", async () => {
+  const phone = new Telephony();
+  const playback = {} as HTMLAudioElement;
+  await phone.input("rep-microphone");
+  await phone.output("rep-speakers");
+  await phone.connect("synthetic-token", playback);
+  const client = sdk.clients.at(-1);
+  expect(client.micId).toBe("rep-microphone");
+  expect(client.speaker).toBe("rep-speakers");
+  expect(client.remoteElement).toBe(playback);
+  phone.expectAgentLeg("agent");
+  const agent = call("agent");
+  client.emit(agent);
+  await Promise.resolve();
+  expect(agent.answer).toHaveBeenCalledWith({
+    remoteElement: playback,
+    video: false,
+  });
+});
+
 test("agent ringing before the HTTP receipt is held until that identity arrives", async () => {
   const { phone, client } = await connected();
   const agent = call("sdk-agent", "ringing", "verified-agent");

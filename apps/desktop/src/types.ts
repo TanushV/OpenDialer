@@ -202,11 +202,13 @@ export interface Call {
   recovery_reason?: string | null;
   dial_error?: { message: string; fix?: string | null };
   answered_at?: string | null;
+  bridged_at?: string | null;
   connected_seconds?: number | null;
   /** Telnyx found a mailbox on the final attempt: the line stays open for the rep's message. */
   voicemail_turn?: boolean;
   stay_on_voicemail?: boolean;
   machine_detected?: boolean;
+  screening_detected?: boolean;
   transcription_source?: string;
   transcription_layout?: string;
   transcription_disabled?: boolean;

@@ -2136,3 +2136,7 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 17, 2026: Codex file import verifies the existing ChatGPT session through the bundled runtime without
   forcing a token refresh. A rejected import keeps the previous login. The owner's downloaded file imported in
   a temporary workspace with its credential fields and refresh timestamp unchanged.
+- November 17, 2026: list preparation can pause independently of dialing and other lists. Resume keeps ready
+  scripts for the current master, and late AI results for a replaced master cannot publish. The Dialer plays local
+  outbound ringback and offers Hang up before answer and during classification. The existing mailbox skip policy
+  applies once Telnyx identifies a mailbox.

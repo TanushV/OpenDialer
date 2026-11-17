@@ -79,6 +79,10 @@ Open a lead to see its generated script and selected path. If the inputs change,
 shows the earlier version while a fresh script is needed for calls. Old saved selections can be reconstructed when
 their matching master is still available.
 
+Use **Pause generation** on a list to stop starting new batches. Batches already running can finish. **Resume generation**
+continues the requested work and keeps ready scripts for the current master. If the master changed while paused, Resume
+requests fresh scripts for the leads previously requested on that list.
+
 In **Dialing settings**, a list can set its own attempts per lead. Leave both cadence fields blank to inherit the workspace
 settings. Enter one wait in days between each pair of attempts, such as `2, 3` for three attempts on days 0, 2 and 5. Each
 day is 24 hours. Custom waits disable the quick final retry. Call attempts are shared across memberships. When lists overlap,
@@ -116,11 +120,13 @@ The left Calling context panel shows the prospect's role, company description an
 | Space | Dialing or a mailbox | Skip this call |
 | S | Voicemail is being skipped | Stay on the line |
 | P | Any time | Pause after this call |
-| Esc | Talking | Hang up |
+| Esc | Dialing, identifying an answer, or talking | Hang up |
 | 1 to 6 | Call ended | Meeting booked, Callback, Not interested, Gatekeeper, Wrong number, Voicemail |
 | Enter | Call ended with a suggestion | Accept the suggested outcome |
 
 After you save, the next call starts in 3 seconds. The wrap-up shows the call's summary and next step.
+The outbound ringback tone plays locally until answer or hangup. Once the far end answers, the Dialer shows the
+answering status while Telnyx identifies the person, call screening, or voicemail and the rep can hear the line.
 
 ## 7. Review
 

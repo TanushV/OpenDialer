@@ -102,6 +102,21 @@ describe("the Dialer screen phases (section 6)", () => {
     }
   });
 
+  it("lets the rep hang up at every stage and names the answer as it is identified", () => {
+    for (const [state, message] of [
+      ["DIALING", "Dialing"],
+      ["RINGING", "Ringing"],
+      ["ANSWERED_UNCLASSIFIED", "Answered · identifying"],
+      ["HUMAN", "Talking · person"],
+      ["SCREENING", "Call screening"],
+      ["VOICEMAIL_GREETING", "Voicemail: skipping"],
+    ]) {
+      const phase = screen({ ...base, call: { state } });
+      expect(keys(phase).Escape).toBe("hangup");
+      expect(headline(phase)).toBe(message);
+    }
+  });
+
   it("names who hung up and how long the call lasted", () => {
     const phase = screen({
       ...base,
@@ -126,10 +141,12 @@ describe("the Dialer screen phases (section 6)", () => {
     expect(at({ blockers: [blocker] })).toEqual({});
     expect(at({ call: { state: "RINGING" } })).toEqual({
       Space: "skip",
+      Escape: "hangup",
       KeyP: "pause",
     });
     expect(at({ call: { state: "VOICEMAIL_GREETING" } })).toEqual({
       Space: "skip",
+      Escape: "hangup",
       KeyS: "stay",
     });
     expect(at({ call: { state: "HUMAN" } })).toEqual({

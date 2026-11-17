@@ -893,6 +893,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def release_list(data: PrepareList, p=Depends(administrator)):
         return ops.release_list(service, p, data.list_name)
 
+    @app.post("/v1/preparation/lists/{action}")
+    def set_list_preparation_pause(
+        action: Literal["pause", "resume"], data: PrepareList, p=Depends(administrator)
+    ):
+        from app.preparation.workflows import set_list_preparation_paused
+
+        return set_list_preparation_paused(service, p, data.list_name, action == "pause")
+
     @app.post("/v1/preparation/resume")
     def resume_preparation(p=Depends(administrator)):
         return ops.resume_preparation(service, p)

@@ -70,7 +70,11 @@ def remove_list_in(service, s, p, catalog, name, leads):
     catalog.pop(name, None)
     retired = set()
     for lead in leads:
-        set_memberships(lead, [member for member in memberships(lead.data) if member != name])
+        names = memberships(lead.data)
+        if lead.data.get("preparation_request_key"):
+            requested = lead.data.get("preparation_request_lists", names)
+            update(lead, preparation_request_lists=[member for member in requested if member != name])
+        set_memberships(lead, [member for member in names if member != name])
         if not has_current_list(lead.data, catalog):
             retired.add(lead.id)
             update(

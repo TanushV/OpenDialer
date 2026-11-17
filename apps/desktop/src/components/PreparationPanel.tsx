@@ -6,6 +6,7 @@ import { readNewest, useNewestAnswer } from "../state/newest";
 
 interface ListProgress {
   list_name: string;
+  paused?: boolean;
   total: number;
   ready: number;
   skipped: number;
@@ -211,37 +212,63 @@ export function PreparationPanel({
                       ? ` · ${money(list.spent_usd)} of ${money(list.budget_usd)} AI budget`
                       : ""}
                   </p>
-                  {(list.unrequested > 0 ||
-                    list.failed > 0 ||
-                    list.skipped > 0) && (
-                    <button
-                      className="secondary small"
-                      disabled={
-                        starting || !status.has_script || !status.ai_connected
-                      }
-                      onClick={() =>
-                        void run(async () => {
-                          setStarting(true);
-                          try {
-                            const { marked } = await api<{ marked: number }>(
-                              "/v1/preparation/lists",
-                              "POST",
-                              { list_name: list.list_name },
-                              { timeoutMs: LONG_REQUEST_MS },
-                            );
-                            await load();
-                            notice(
-                              `${marked} leads queued for script generation.`,
-                            );
-                          } finally {
-                            setStarting(false);
-                          }
-                        })
-                      }
-                    >
-                      Generate scripts
-                    </button>
+                  {list.paused && (
+                    <p className="fine" role="status">
+                      Generation paused
+                    </p>
                   )}
+                  <button
+                    className="text-button"
+                    disabled={starting}
+                    onClick={() =>
+                      void run(async () => {
+                        setStarting(true);
+                        try {
+                          const action = list.paused ? "resume" : "pause";
+                          await api(`/v1/preparation/lists/${action}`, "POST", {
+                            list_name: list.list_name,
+                          });
+                          await load();
+                        } finally {
+                          setStarting(false);
+                        }
+                      })
+                    }
+                  >
+                    {list.paused ? "Resume generation" : "Pause generation"}
+                  </button>
+                  {!list.paused &&
+                    (list.unrequested > 0 ||
+                      list.failed > 0 ||
+                      list.skipped > 0) && (
+                      <button
+                        className="secondary small"
+                        disabled={
+                          starting || !status.has_script || !status.ai_connected
+                        }
+                        onClick={() =>
+                          void run(async () => {
+                            setStarting(true);
+                            try {
+                              const { marked } = await api<{ marked: number }>(
+                                "/v1/preparation/lists",
+                                "POST",
+                                { list_name: list.list_name },
+                                { timeoutMs: LONG_REQUEST_MS },
+                              );
+                              await load();
+                              notice(
+                                `${marked} leads queued for script generation.`,
+                              );
+                            } finally {
+                              setStarting(false);
+                            }
+                          })
+                        }
+                      >
+                        Generate scripts
+                      </button>
+                    )}
                   {list.skipped_leads?.length > 0 && (
                     <details className="prep-skipped">
                       <summary>

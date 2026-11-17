@@ -61,6 +61,14 @@ test("generated CSV paths match the Dialer and the prospect brief stays on the l
     .getByRole("region", { name: "Lead preparation" })
     .getByRole("listitem")
     .filter({ hasText: "Script paths CSV" });
+  await preparation.getByRole("button", { name: "Pause generation" }).click();
+  await expect(preparation.getByText("Generation paused")).toBeVisible();
+  await expect(
+    preparation.getByRole("button", { name: "Generate scripts" }),
+  ).toHaveCount(0);
+  await page.reload();
+  await openLeads(page);
+  await preparation.getByRole("button", { name: "Resume generation" }).click();
   await preparation.getByRole("button", { name: "Generate scripts" }).click();
   await expect(preparation.getByText("2 of 2 processed")).toBeVisible({
     timeout: 30_000,

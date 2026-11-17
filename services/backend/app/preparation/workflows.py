@@ -14,7 +14,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 
 from app import ops
-from app.lead_lists import budget_scope, memberships, uses_master
+from app.lead_lists import budget_scope, in_list, memberships, uses_master
 from app.platform.db import MODELS, Job, doc, emit, put, uid, update
 from app.preparation.agent import INSTRUCTIONS, TOOLS, SimulatedAgent, ThreadWork, simulated_page
 from app.preparation.templates import (
@@ -143,6 +143,25 @@ def requested_preparation(service, s, p, lead):
     state = lead.data.get("preparation") or {}
     expires = state.get("expires_at")
     return not (state.get("status") in {"ready", "skipped"} and expires and dt(expires) <= service.clock())
+
+
+def preparation_request_lists(lead):
+    names = memberships(lead.data)
+    return set(names).intersection(lead.data.get("preparation_request_lists", names))
+
+
+def preparation_unpaused(service, s, p, lead):
+    campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
+    catalog = campaign.data.get("lists", {})
+    for name in preparation_request_lists(lead):
+        entry = catalog.get(name, {})
+        if (
+            not entry.get("preparation_paused")
+            and not entry.get("archived")
+            and entry.get("script_mode") != "master"
+        ):
+            return True
+    return False
 
 
 def agent_route(service, p):
@@ -486,20 +505,29 @@ def running_threads(service, s, p, finishing=None):
     )
 
 
-def request_preparation_in(service, s, p, leads):
+def request_preparation_in(service, s, p, leads, *, list_name=None):
     """Mark leads to be prepared before they can be called. Returns how many were marked."""
     marked = 0
+    selected = {**p, "dial_lists": [list_name]} if list_name is not None else p
     for lead in leads:
-        if not ops.preparation_permitted(service, s, p, lead):
+        if not ops.preparation_permitted(service, s, selected, lead):
             continue
         state = ops.preparation_state(service, s, p, lead)
-        if state["status"] == "ready" or (
-            requested_preparation(service, s, p, lead) and state["status"] != "failed"
-        ):
+        if state["status"] == "ready":
             continue
+        current = requested_preparation(service, s, p, lead)
+        names = set(memberships(lead.data) if list_name is None else [list_name])
+        if current:
+            names.update(preparation_request_lists(lead))
+            if state["status"] != "failed":
+                if names != preparation_request_lists(lead):
+                    update(lead, preparation_request_lists=sorted(names))
+                    marked += 1
+                continue
         update(
             lead,
             preparation_request_key=ops.preparation_key(service, s, p, lead),
+            preparation_request_lists=sorted(names),
             status="preparing" if state["status"] != "stale" else lead.data["status"],
             preparation={**state, "status": "queued", "attempts": 0, "next_attempt_at": None},
         )
@@ -598,6 +626,7 @@ def rewrite_scripts(
                 rewrite_generation=generation,
                 refresh_research=refresh_research,
                 preparation_request_key=ops.preparation_key(service, s, p, lead, generation),
+                preparation_request_lists=memberships(lead.data) if list_name is None else [list_name],
                 preparation={
                     **(lead.data.get("preparation") or {}),
                     "status": "queued",
@@ -643,10 +672,45 @@ def prepare_list(service, p, list_name=None, lead_ids=None):
             if list_name is None or lead_ids is not None or list_name in memberships(lead.data)
             if not lead.data.get("test_list_contact") or not lead.data.get("archived")
         ]
-        marked = ops.request_preparation_in(service, s, p, leads)
+        marked = ops.request_preparation_in(service, s, p, leads, list_name=list_name)
         update(ops.required(service, s, "sellers", p["seller_id"], p), preparation_user_id=p["user_id"])
     ops.prepare_tick(service, p)
     return {"marked": marked}
+
+
+def set_list_preparation_paused(service, p, name, paused):
+    from app.service import fail
+
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        campaign = ops.selected_campaign(service, s, p)
+        catalog = dict(campaign.data.get("lists", {}))
+        entry = catalog.get(name, {})
+        if entry.get("archived"):
+            fail(404, "Lead list not found")
+        model = MODELS["leads"]
+        leads = list(
+            s.scalars(select(model).where(model.op_campaign_id == campaign.id, in_list(model, name)))
+        )
+        if not leads and name not in catalog:
+            fail(404, "Lead list not found")
+        if bool(entry.get("preparation_paused")) == paused:
+            return {"paused": paused, "marked": 0}
+        catalog[name] = {**entry, "preparation_paused": paused}
+        update(campaign, lists=catalog)
+        marked = 0
+        if not paused:
+            requested = [
+                lead
+                for lead in leads
+                if lead.data.get("preparation_request_key")
+                and name in preparation_request_lists(lead)
+                and not requested_preparation(service, s, p, lead)
+            ]
+            marked = ops.request_preparation_in(service, s, p, requested, list_name=name)
+    if not paused:
+        ops.prepare_tick(service, p)
+    return {"paused": paused, "marked": marked}
 
 
 def lead_script_base_ready(service, s, p):
@@ -722,6 +786,8 @@ def prepare_tick(service, p, finishing=None):
                 if lead.id in pending:
                     continue
                 if not ops.preparation_permitted(service, s, p, lead):
+                    continue
+                if not preparation_unpaused(service, s, p, lead):
                     continue
                 if needs_preparation(ops.preparation_state(service, s, p, lead), now):
                     candidates.append(lead)
@@ -811,6 +877,7 @@ def preparation_status(service, p):
                     name,
                     {
                         "list_name": name,
+                        "paused": bool(catalog.get(name, {}).get("preparation_paused")),
                         "total": 0,
                         "ready": 0,
                         "skipped": 0,
@@ -894,6 +961,8 @@ def claim_thread(service, p, lead_ids):
                 if lead.data.get("status") == "preparing":
                     update(lead, status="eligible")
                     emit(s, p["tenant_id"], "lead.updated", lead, service.clock())
+                continue
+            if not preparation_unpaused(service, s, p, lead):
                 continue
             lease = lead.data.get("preparation_lease") or {}
             if lease.get("expires_at") and dt(lease["expires_at"]) > service.clock():

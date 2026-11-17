@@ -809,7 +809,8 @@ export function useCallLoop(visible: boolean) {
   useEffect(() => {
     if (call && skipping.current === call.id && owesOutcome(call)) {
       skipping.current = null;
-      void run(() => save("no_answer"));
+      if (!call.answered_at && !call.bridged_at)
+        void run(() => save("no_answer"));
     }
   }, [call?.id, call?.state]);
   /** A failed dial pauses the loop with its reason, so the screen never sits on "Dialing". */

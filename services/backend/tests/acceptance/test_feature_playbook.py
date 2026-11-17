@@ -53,6 +53,85 @@ def test_new_master_never_reuses_old_personalized_output(workspace):
     assert after["preparation_status"] == "ready"
 
 
+def test_preparation_pause_is_list_scoped_and_resume_preserves_finished_scripts(workspace):
+    ws = workspace
+    save_script(ws)
+    finished = add(ws)
+    run_jobs(ws, 3)
+    before = get(ws, f"/v1/leads/{finished}/packet")["script"]["script_version"]
+    waiting = import_leads(
+        ws,
+        [{"name": "Waiting", "company": "Waiting Co", "phone": "+14155557942"}],
+        list_name="Playbook rewrites",
+    )["leads"][0]["id"]
+    shared = import_leads(
+        ws,
+        [{"name": "Shared", "company": "Shared Co", "phone": "+14155557943"}],
+        list_name="Playbook rewrites",
+    )["leads"][0]["id"]
+    matched = import_leads(ws, [{"phone": "+14155557943"}], list_name="Other list")
+    assert matched["duplicates"] == 1
+    post(ws, "/v1/preparation/lists", {"list_name": "Playbook rewrites"})
+    post(ws, "/v1/preparation/lists/pause", {"list_name": "Playbook rewrites"})
+    run_jobs(ws, 3)
+    for identity in (waiting, shared):
+        assert get(ws, f"/v1/leads/{identity}/packet")["script"]["fallback"]
+    assert next(
+        row for row in get(ws, "/v1/preparation")["lists"] if row["list_name"] == "Playbook rewrites"
+    )["paused"]
+    post(ws, "/v1/preparation/lists", {"list_name": "Other list"})
+    run_jobs(ws, 3)
+    shared_packet = get(ws, f"/v1/leads/{shared}/packet")
+    assert not shared_packet["script"]["fallback"], (
+        shared_packet["preparation"],
+        get(ws, "/v1/preparation")["lists"],
+    )
+    assert get(ws, f"/v1/leads/{waiting}/packet")["script"]["fallback"]
+    assert post(ws, "/v1/preparation/lists/resume", {"list_name": "Playbook rewrites"})["marked"] == 0
+    run_jobs(ws, 3)
+    assert not get(ws, f"/v1/leads/{waiting}/packet")["script"]["fallback"]
+    assert get(ws, f"/v1/leads/{finished}/packet")["script"]["script_version"] == before
+
+
+async def test_midrun_master_change_rejects_old_result_and_resume_uses_new_master(
+    workspace, app, monkeypatch
+):
+    import asyncio
+
+    from helpers import principal
+
+    ws = workspace
+    save_script(ws)
+    identity = add(ws)
+    submitted, finish = asyncio.Event(), asyncio.Event()
+
+    class SlowAgent(SimulatedAgent):
+        async def run(self, *args, **kwargs):
+            result = await super().run(*args, **kwargs)
+            submitted.set()
+            await finish.wait()
+            return result
+
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: SlowAgent()))
+    service, who = app.state.service, principal(ws)
+    old = asyncio.create_task(ops.run_prep_thread(service, who, [identity]))
+    try:
+        await asyncio.wait_for(submitted.wait(), 5)
+        await asyncio.to_thread(post, ws, "/v1/preparation/lists/pause", {"list_name": "Playbook rewrites"})
+        changed = SCRIPT.replace("Would Tuesday work?", "Can we look at the updated scope?")
+        await asyncio.to_thread(save_script, ws, changed)
+    finally:
+        finish.set()
+    assert (await old)["prepared"] == 0
+    assert get(ws, f"/v1/leads/{identity}/packet")["script"]["fallback"]
+    monkeypatch.setattr(ops, "agent_route", bound(lambda p: SimulatedAgent()))
+    assert post(ws, "/v1/preparation/lists/resume", {"list_name": "Playbook rewrites"})["marked"] == 1
+    run_jobs(ws, 3)
+    script = get(ws, f"/v1/leads/{identity}/packet")["script"]
+    assert not script["fallback"]
+    assert script["closing_question"] == "Can we look at the updated scope?"
+
+
 def test_script_save_reports_refresh_and_unique_progress(workspace):
     ws = workspace
     save_script(ws)
