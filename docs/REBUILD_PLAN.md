@@ -2140,3 +2140,6 @@ test assets and admin access before asking for anything. The signed rollout foll
   scripts for the current master, and late AI results for a replaced master cannot publish. The Dialer plays local
   outbound ringback and offers Hang up before answer and during classification. The existing mailbox skip policy
   applies once Telnyx identifies a mailbox.
+- November 17, 2026: the owner approved publishing 2.3.0 and installing it on this Mac. The feature commit
+  `0018496` passed all eight Verify jobs. Verify the versioned commit and signed builds before publishing, then
+  check the native updater, installed workspace and the outbound call behavior.

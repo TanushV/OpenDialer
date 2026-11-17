@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "opendialer-desktop"
-version = "2.2.4"
+version = "2.3.0"
 dependencies = [
  "libc",
  "objc2",

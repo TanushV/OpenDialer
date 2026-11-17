@@ -1,3 +1,13 @@
+# OpenDialer 2.3.0
+
+- **Hear outbound calls ring.** The Dialer plays a local ringback tone until the call answers or stops. It shows the answer while Telnyx identifies a person, voicemail, or call screening.
+- **Hang up while dialing.** Click Hang up or press Esc before or after answer. A late answer during Skip stays available for the rep to classify.
+- **Pause script generation by list.** Resume keeps finished scripts for the current master. If the master changes during generation, old results cannot publish and resumed work uses the new master.
+- **Read RealValidito DNC credits correctly.** Settings displays the balance and gives specific reasons when the provider rejects the credentials or IP address.
+- **Import an existing ChatGPT session.** OpenDialer verifies the imported login without forcing a token refresh and keeps the prior login if verification fails.
+
+Updates from 1.0.x through 2.2.4 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.2.4
 
 - **Import CSVs with more header formats.** Use common name, phone, company, and location headers. Preview the dialing column, copy recommended headers, and see why individual rows were skipped. Research and scriptwriting can read custom columns.
