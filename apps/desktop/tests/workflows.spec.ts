@@ -220,7 +220,7 @@ test("skipped leads show the agent's reason in the list progress and the lead", 
     () => expect(packet).toBeVisible({ timeout: 3_000 }),
   );
   await expect(
-    packet.getByText(`The agent skipped this lead: ${reason}`, {
+    packet.getByText(`Script skipped. ${reason}`, {
       exact: false,
     }),
   ).toBeVisible();

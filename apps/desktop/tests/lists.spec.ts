@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures";
+import { goTo } from "./navigation";
 import {
   finishCall,
   startDialing,
@@ -103,7 +104,7 @@ test("a dialing-list choice survives reload while the previous queue release is 
 }) => {
   await enter(page);
   await add(page, "Reload list 100", "+14155550793");
-  await page.getByRole("button", { name: "Dialer", exact: true }).click();
+  await goTo(page, "Dialer");
   await page
     .getByLabel("Dial from all active lists", { exact: true })
     .uncheck();
@@ -133,7 +134,7 @@ test("a rejected dialing-list change restores the saved choice", async ({
 }) => {
   await enter(page);
   await add(page, "Rejected list 100", "+14155550794");
-  await page.getByRole("button", { name: "Dialer", exact: true }).click();
+  await goTo(page, "Dialer");
   await page
     .getByLabel("Dial from all active lists", { exact: true })
     .uncheck();
