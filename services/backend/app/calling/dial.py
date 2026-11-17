@@ -472,6 +472,10 @@ async def dispatch_call(service, p, call_id):
                 },
             )
             if not admission.submitted:
+                if admission.reason == "company":
+                    raise CarrierNotSubmitted(
+                        "Another contact at this company was called today or has a call reserved."
+                    )
                 raise CarrierNotSubmitted("The shared outbound number is no longer reserved.")
         receipt = await provider.dial(claimed[3])
     except Exception as exc:

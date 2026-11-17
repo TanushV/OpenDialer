@@ -7,6 +7,7 @@ state and its area code's state), so an uncertain location narrows the window in
 """
 
 from collections import Counter
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # state | name | preferred metros | preferred area codes | in-service area codes
 _STATE_DATA = """
@@ -117,6 +118,21 @@ def planning_zones(lead):
     if lead.get("timezone") and lead.get("timezone_confidence", "confirmed") in {"confirmed", "high"}:
         return (lead["timezone"],)
     return plausible_zones(lead)
+
+
+def company_call_zone(lead, now):
+    """Use the earliest plausible local midnight for the lead's current calling day."""
+    zones = []
+    for name in planning_zones(lead):
+        try:
+            zones.append(ZoneInfo(name))
+        except (ZoneInfoNotFoundError, ValueError):
+            continue
+    return min(
+        zones,
+        key=lambda zone: now.astimezone(zone).replace(hour=0, minute=0, second=0, microsecond=0),
+        default=ZoneInfo("UTC"),
+    )
 
 
 # Area codes that cover the same place: a caller from one reads as local to the others.

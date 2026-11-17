@@ -12,6 +12,7 @@ from app import ops, test_list
 from app.calling.decide import Situation, require
 from app.compliance.policy import authorize
 from app.lead_lists import TEST_LIST, active_membership, in_list
+from app.optimization.geography import company_call_zone
 from app.optimization.numbering import select_number, timestamp
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
 from app.scheduling.models import FEATURE_SCHEMA_VERSION, company_group
@@ -129,8 +130,6 @@ def _company_contacted(service, s, p, lead, claims, now):
     """Contacts at one company are never called back to back: after any call there, the
     others wait for the next calling day in the prospect's time zone. A requested callback
     or contact request is exempt."""
-    from zoneinfo import ZoneInfo
-
     key = lead.data.get("company_key")
     if not key or lead.data.get("requested_contact") or lead.data.get("callback_due_at"):
         return False
@@ -154,10 +153,7 @@ def _company_contacted(service, s, p, lead, claims, now):
         return False
     if {c.lead_id for c in claims} & {sibling.id for sibling in siblings}:
         return True
-    try:
-        zone = ZoneInfo(lead.data.get("timezone") or "UTC")
-    except (ValueError, KeyError):
-        zone = ZoneInfo("UTC")
+    zone = company_call_zone(lead.data, now)
     today = now.astimezone(zone).date()
     return any(
         (last := timestamp(sibling.data.get("last_attempt_at"))) and last.astimezone(zone).date() == today
@@ -266,6 +262,8 @@ def _due_leads(s, p, campaign_id, after, now, catalog):
         page.append(model.id == p["callback_lead_id"])
     elif (names := p.get("dial_lists")) is not None:
         page.append(or_(False, *(in_list(model, name) for name in names)))
+    if excluded := p.get("excluded_companies"):
+        page.append(or_(model.op_lead_id.is_(None), model.op_lead_id.not_in(excluded)))
     if after is not None:
         priority, coverage, identity = after
         page.append(

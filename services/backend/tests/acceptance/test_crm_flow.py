@@ -352,7 +352,7 @@ def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_rela
             requests.append((name, args))
 
             async def execute():
-                result = {"phone": chosen} if name == "relay_pool_reserve" else {"submitted": True}
+                result = {"phone": chosen} if name == "relay_pool_reserve_company" else {"submitted": True}
                 return SimpleNamespace(data=result)
 
             return SimpleNamespace(execute=execute)
@@ -377,7 +377,8 @@ def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_rela
     )
     assert response["number_id"] == selected["number"]["id"]
     assert carrier.dials[-1]["from"] == chosen
-    assert [name for name, _ in requests] == ["relay_pool_reserve", "relay_pool_submit"]
+    assert [name for name, _ in requests] == ["relay_pool_reserve_company", "relay_pool_submit"]
+    assert requests[0][1]["company"]["key"] == selected["lead"]["company_key"]
 
 
 def test_a_hubspot_list_syncs_checks_numbers_and_do_not_call_then_logs_the_call(workspace, monkeypatch):

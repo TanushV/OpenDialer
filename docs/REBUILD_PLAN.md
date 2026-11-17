@@ -2127,3 +2127,6 @@ test assets and admin access before asking for anything. The signed rollout foll
   the entire applied search and verifies the matching lead IDs before editing. List dialing settings can use the saved
   master without preparation and set the attempt cap and waits. Shared memberships keep one attempt history and use
   the stricter applicable cadence. On startup confirmed legacy rep-audio webhook receipts are archived without replay.
+- November 17, 2026: extended same-company outbound spacing to the shared pool. The relay checks the existing company
+  hash when it reserves a number and before submitting a dial. The local queue skips a company held by another rep.
+  Rollout needs the additive relay migration first and a signed update for each rep.
