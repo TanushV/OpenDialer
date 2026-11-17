@@ -2133,3 +2133,6 @@ test assets and admin access before asking for anything. The signed rollout foll
   Read that plan and its status after every continuation or compaction while implementing it.
 - November 17, 2026: RealValidito Settings checks read the documented DNC credit balance and show provider
   rejections with their reason. Regression tests exercise saving and checking credentials with mocked responses.
+- November 17, 2026: Codex file import verifies the existing ChatGPT session through the bundled runtime without
+  forcing a token refresh. A rejected import keeps the previous login. The owner's downloaded file imported in
+  a temporary workspace with its credential fields and refresh timestamp unchanged.

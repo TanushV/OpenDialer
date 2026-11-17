@@ -68,9 +68,18 @@ for line in sys.stdin:
  if method == "account/read":
   data = json.loads((home / "auth.json").read_text())
   if m["params"].get("refreshToken"):
+   if data["tokens"]["refresh_token"] == "fixture-refresh-unavailable":
+    send({"id":m["id"],"error":{"code":-32000,"message":"Refresh token unavailable"}})
+    continue
    data["tokens"]["refresh_token"] = "rotated-by-child"
    (home / "auth.json").write_text(json.dumps(data))
   result = {"account":{"type":"chatgpt","email":"child@example.test","planType":"pro"}}
+ if method == "account/rateLimits/read":
+  data = json.loads((home / "auth.json").read_text())
+  if data["tokens"]["access_token"] == "fixture-revoked-access":
+   send({"id":m["id"],"error":{"code":-32000,"message":"Access token revoked"}})
+   continue
+  result = {"rateLimits":{"primary":{"usedPercent":20}}}
  if method == "thread/start":
   assert m["params"]["ephemeral"] and m["params"]["environments"] == []
   assert m["params"]["sandbox"] == "read-only"
@@ -157,11 +166,31 @@ def login():
     }
 
 
+def test_file_import_uses_working_session_without_forcing_refresh(workspace, app, runtime_fixture):
+    credentials = login()
+    credentials["tokens"]["refresh_token"] = "fixture-refresh-unavailable"
+    client, headers = workspace["client"], workspace["headers"]
+    route = "/v1/inference/codex/import"
+
+    imported = client.post(route, headers=headers, json=credentials)
+    assert imported.status_code == 200, imported.text
+    assert imported.json()["account"]["email"] == "child@example.test"
+    home = runtime_fixture.profile_home(app.state.service.settings.data_dir, workspace["user_id"])
+    saved = read_private(home / "auth.json")
+    assert saved["tokens"] == credentials["tokens"]
+
+    credentials["tokens"]["access_token"] = "fixture-revoked-access"
+    rejected = client.post(route, headers=headers, json=credentials)
+    assert rejected.status_code == 400
+    assert read_private(home / "auth.json") == saved
+
+
 def test_personal_import_refresh_disconnect(workspace, app, monkeypatch):
     from app.providers.codex import CodexRuntime, profile_home, save_login
 
     async def account(self, refresh=False):
-        assert refresh
+        assert not refresh
+        # The managed runtime can refresh an older session during verification.
         path = self.home / "auth.json"
         data = read_private(path)
         data["tokens"]["refresh_token"] = "rotated-fixture-refresh"

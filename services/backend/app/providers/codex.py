@@ -234,6 +234,9 @@ class CodexRuntime:
 
     async def account(self, refresh=False):
         async with self.session():
+            # Verify the session with ChatGPT and let the runtime refresh it when needed.
+            if not refresh:
+                await self.request("account/rateLimits/read", {})
             result = await self.request("account/read", {"refreshToken": refresh})
             account = result.get("account")
             if not account or account.get("type") != "chatgpt":
@@ -514,7 +517,7 @@ def bind_api(app, service, principal):
                 candidate = Path(temporary)
                 save_login(candidate, data)
                 try:
-                    account = await CodexRuntime(candidate).account(refresh=True)
+                    account = await CodexRuntime(candidate).account()
                 except InferenceError as exc:
                     raise HTTPException(400, str(exc)) from None
                 save_login(directory, read_private(candidate / "auth.json"))
