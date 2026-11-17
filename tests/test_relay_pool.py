@@ -228,60 +228,6 @@ def shared_submit(sql, seat, ref, call, *, installation=INSTALL):
     )
 
 
-def company_hold(sql, seat, ref, prospect, *, key="a" * 32, requested=False):
-    company = quote_json({"key": key, "zone": "America/Los_Angeles", "requested": requested})
-    return json.loads(
-        sql(
-            f"select relay_pool_reserve_company('{ref}','{prospect}','{NUMBER}',false,'{seat}','{INSTALL}',{company}::jsonb);",
-            seat=seat,
-        )
-    )
-
-
-def test_two_reps_cannot_claim_different_prospects_at_the_same_company(shared_db):
-    sql = shared_db
-    barrier = Barrier(2)
-
-    def claim(seat, prospect):
-        barrier.wait(timeout=5)
-        return seat, prospect, company_hold(sql, seat, "race", prospect)
-
-    with ThreadPoolExecutor(2) as threads:
-        calls = list(threads.map(lambda args: claim(*args), [(A, PROSPECT), (B, PROSPECT_B)]))
-    winner, loser = sorted(calls, key=lambda row: "reason" in row[2])
-    seat, _, result = winner
-    other, sibling, denied = loser
-    assert result == {"phone": NUMBER}
-    assert denied == {"reason": "company"}
-    assert shared_submit(sql, seat, "race", "first")["submitted"]
-    sql(f"update relay_private.number_pool_attempts set ended_at=now() where workspace_id='{seat}';")
-    assert company_hold(sql, other, "after-call", sibling) == {"reason": "company"}
-    assert company_hold(sql, other, "different", "+14155550103", key="b" * 32)["phone"] == NUMBER
-    sql("""
-        update relay_private.number_pool_attempts set submitted_at =
-            (date_trunc('day', now() at time zone 'America/Los_Angeles') - interval '1 second')
-                at time zone 'America/Los_Angeles'
-        where call_ref='first';
-    """)
-    assert company_hold(sql, other, "tomorrow", sibling)["phone"] == NUMBER
-
-
-def test_company_hold_clears_after_an_unsent_call_and_honors_requested_calls(shared_db):
-    sql = shared_db
-    assert company_hold(sql, OTHER, "outside", PROSPECT) == {"reason": "unavailable"}
-    with pytest.raises(subprocess.CalledProcessError, match="permission denied"):
-        sql(
-            "set role anon; select public.relay_pool_reserve_company('outside','+14155550101','+12025550101');"
-        )
-    assert company_hold(sql, A, "abandoned", PROSPECT)["phone"] == NUMBER
-    assert company_hold(sql, B, "wait", PROSPECT_B) == {"reason": "company"}
-    sql(f"select relay_pool_cancel('abandoned',false,'{A}','{INSTALL}');", seat=A)
-    assert company_hold(sql, B, "reserved", PROSPECT_B)["phone"] == NUMBER
-    assert company_hold(sql, A, "requested", PROSPECT, requested=True)["phone"] == NUMBER
-    assert shared_submit(sql, A, "requested", "call-a")["submitted"]
-    assert shared_submit(sql, B, "reserved", "call-b") == {"reason": "company"}
-
-
 def context(**fields):
     return base64.b64encode(json.dumps(fields).encode()).decode()
 
@@ -702,23 +648,11 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
         def rpc(self, name, args):
             assert name in {
                 "relay_pool_reserve",
-                "relay_pool_reserve_company",
                 "relay_pool_submit",
                 "relay_pool_cancel",
                 "relay_callback_claim",
             }
-            values = ",".join(
-                field
-                + "=>"
-                + (
-                    quote_json(value) + "::jsonb"
-                    if isinstance(value, dict)
-                    else sql_string(value)
-                    if isinstance(value, str)
-                    else str(value).lower()
-                )
-                for field, value in args.items()
-            )
+            values = ",".join(sql_string(v) if isinstance(v, str) else str(v).lower() for v in args.values())
 
             async def execute():
                 return SimpleNamespace(
@@ -790,35 +724,6 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
         assert send("GET", "/v1/hubspot/lists")["lists"] == [{"id": segment, "name": f"Rep {segment}"}]
         send("POST", "/v1/hubspot/sync", {"list_id": segment, "list_name": f"Rep {segment}"})
         send("POST", "/v1/admin/jobs/run")
-        if segment == "15":
-            csv = send(
-                "POST",
-                "/v1/leads/import",
-                {
-                    "campaign_id": seeded["campaign_id"],
-                    "list_name": "Company already called",
-                    "rows": [
-                        {
-                            "name": "Another contact",
-                            "company": "Jordan",
-                            "phone": "+14155550110",
-                            "timezone": "America/Los_Angeles",
-                            "coverage_due_at": "2026-11-01T18:00:00+00:00",
-                        }
-                    ],
-                },
-            )
-            assert csv["imported"] == 1
-            send(
-                "PATCH",
-                "/v1/lists",
-                {
-                    "campaign_id": seeded["campaign_id"],
-                    "list_name": "Company already called",
-                    "action": "dialing",
-                    "script_mode": "master",
-                },
-            )
         prepared = send("POST", "/v1/preparation/lists", {"list_name": f"Rep {segment}"})
         assert prepared["marked"] == 1
         send("POST", "/v1/admin/jobs/run")
@@ -832,15 +737,9 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
                 "agent_call_control_id": "agent-fixture",
             },
         )
-        queue = {"campaign_id": seeded["campaign_id"], "list_names": [f"Rep {segment}"]}
-        if segment == "15":
-            refused = client.post("/v1/queue/next", json={**queue, "list_names": ["Company already called"]})
-            assert (
-                refused.status_code == 409
-                and "COMPANY_CONTACTED_TODAY" in refused.json()["detail"]["reasons"]
-            )
-            queue["list_names"].append("Company already called")
-        reservation = send("POST", "/v1/queue/next", queue)
+        reservation = send(
+            "POST", "/v1/queue/next", {"campaign_id": seeded["campaign_id"], "list_names": [f"Rep {segment}"]}
+        )
         assert reservation["lead"]["name"] == name and reservation["lead"]["external_id"] == segment
         assert reservation["lead"]["phone"] == phone and reservation["number"]["phone"] == NUMBER
         started = send(

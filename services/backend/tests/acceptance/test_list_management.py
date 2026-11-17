@@ -1,6 +1,6 @@
 """Owner's list controls: one contact/history, explicit scope and reversible removal."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from journey import call, event, get, hang_up, import_leads, post, ready, run_jobs, wrap_up
 
@@ -388,6 +388,36 @@ def test_callable_count_respects_company_spacing_as_well_as_the_clock(workspace)
     row = next(row for row in summary["lists"] if row["name"] == "Company group")
     assert row["total"] == 2
     assert row["callable_now"] == 0
+
+
+def test_company_spacing_follows_the_local_day_across_lists_without_a_saved_zone(workspace, clock):
+    from test_final_stage import sign_in
+
+    clock.now = datetime(2026, 11, 16, 23, 30, tzinfo=UTC)
+    sign_in(workspace)
+    for person, phone in [("One", "+14155550901"), ("Two", "+14155550902")]:
+        import_leads(
+            workspace, [{"name": person, "phone": phone, "company": "Same company"}], list_name=person
+        )
+
+    attempt = begin(workspace, choose(workspace, ["One"]), "company-local-day")
+    hang_up(workspace, attempt["id"])
+    wrap_up(workspace, attempt["id"], outcome="no_answer")
+
+    # UTC rolls over while it is still the same calling day in San Francisco.
+    clock.now += timedelta(hours=1)
+    ready(workspace)
+    denied = post(
+        workspace,
+        "/v1/queue/next",
+        {"campaign_id": workspace["campaign_id"], "list_names": ["Two"]},
+        status=409,
+    )
+    assert "COMPANY_CONTACTED_TODAY" in denied["detail"]["reasons"]
+
+    clock.now += timedelta(hours=23)
+    sign_in(workspace)
+    assert choose(workspace, ["Two"])["lead"]["name"] == "Two"
 
 
 def test_shared_preparation_progress_follows_secondary_list_membership(workspace):

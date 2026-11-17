@@ -30,7 +30,7 @@ class PoolSnapshot(BaseModel):
 
 class PoolAdmission(BaseModel):
     phone: str | None = Field(default=None, pattern=r"^\+1[0-9]{10}$")
-    reason: Literal["unavailable", "busy", "capacity", "company", "expired"] | None = None
+    reason: Literal["unavailable", "busy", "capacity", "expired"] | None = None
     submitted: bool = False
 
 

@@ -262,8 +262,6 @@ def _due_leads(s, p, campaign_id, after, now, catalog):
         page.append(model.id == p["callback_lead_id"])
     elif (names := p.get("dial_lists")) is not None:
         page.append(or_(False, *(in_list(model, name) for name in names)))
-    if excluded := p.get("excluded_companies"):
-        page.append(or_(model.op_lead_id.is_(None), model.op_lead_id.not_in(excluded)))
     if after is not None:
         priority, coverage, identity = after
         page.append(

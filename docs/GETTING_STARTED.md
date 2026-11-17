@@ -87,10 +87,10 @@ the app keeps the same lead and call history and applies the usual checks for Hu
 
 ## 6. Call
 
-After an outbound attempt to a prospect, other prospects with the same company identity wait until the next local
-calling day. Confirmed time zones take precedence, otherwise OpenDialer uses the plausible time zones for the lead.
-On a shared pool, the same rule also covers calls and reservations from the other upgraded reps. Keep the imported
-company ID, domain or company name consistent on each list. Incoming callbacks and requested calls are handled separately.
+Assign each company to one rep. After an outbound attempt, other prospects at that company in the rep's workspace
+wait until the next local calling day, even if they are on another list. OpenDialer uses the lead's confirmed time
+zone or infers it from state and area code. Keep the company ID, domain or name consistent across lists.
+Incoming callbacks and requested calls are handled separately.
 
 On **Dialer**, the paused screen says how many leads can be called now, or why none can (for example, everyone is outside
 calling hours). Press **Start calling** or Space.
