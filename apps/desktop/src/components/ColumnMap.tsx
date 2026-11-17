@@ -8,6 +8,14 @@ export type ColumnMapping = Record<
 >;
 
 const ROLE_NAMES: Record<string, string> = {
+  phone: "Dialing number",
+  name: "Full name",
+  first_name: "First name",
+  last_name: "Last name",
+  company: "Company name",
+  domain: "Company website",
+  state: "Prospect state",
+  timezone: "Time zone",
   title: "Title",
   headline: "Headline",
   company_description: "Company description",
@@ -26,23 +34,26 @@ const MULTI = new Set(["signal_summaries", "signal_dates", "signal_urls"]);
 export function ColumnMap({
   headers,
   value,
+  sample,
   onChange,
 }: {
   headers: string[];
   value: ColumnMapping | null;
+  sample?: Record<string, string>;
   onChange: (map: ColumnMapping) => void;
 }) {
-  const { api } = useWorkspace();
+  const { api, run } = useWorkspace();
   const [roles, setRoles] = useState<string[]>([]);
   const key = headers.join("\u0000");
   useEffect(() => {
     if (!headers.length) return;
     let live = true;
-    void api<{ map: ColumnMapping; roles: string[] }>(
-      "/v1/leads/column-map",
-      "POST",
-      { headers },
-    ).then((guess) => {
+    void run(async () => {
+      const guess = await api<{ map: ColumnMapping; roles: string[] }>(
+        "/v1/leads/column-map",
+        "POST",
+        { headers },
+      );
       if (!live) return;
       setRoles(guess.roles);
       onChange(guess.map);
@@ -59,6 +70,11 @@ export function ColumnMap({
   ];
   const mapped = roles.filter((role) => value[role]);
   const unmapped = roles.filter((role) => !value[role]);
+  const example = (role: string) =>
+    sample?.[value[role]?.column ?? ""]?.trim() ?? "";
+  const sampleName =
+    example("name") ||
+    [example("first_name"), example("last_name")].filter(Boolean).join(" ");
   const field = (role: string) => (
     <div key={role} className="column-map-row">
       <Select
@@ -103,10 +119,17 @@ export function ColumnMap({
   return (
     <div className="column-map" role="group" aria-label="Column map">
       <p className="small muted">
-        Mapped fields identify information such as job titles and account
-        signals. When you generate scripts, the research agent reads all columns
-        in each CSV row.
+        These mappings tell OpenDialer how to dial and interpret the row.
+        Research and scriptwriting can use mapped and unmapped columns.
       </p>
+      {sample && (
+        <p className="small">
+          First row · {sampleName || "No name"} ·{" "}
+          {example("phone") || "No dialing number mapped"}
+          {example("company") && ` · ${example("company")}`}
+          {example("live_status") && ` · ${example("live_status")}`}
+        </p>
+      )}
       {mapped.map(field)}
       {unmapped.length > 0 && (
         <details>

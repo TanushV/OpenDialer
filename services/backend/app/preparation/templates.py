@@ -49,6 +49,9 @@ ALIASES = {
 CONTEXT = {"goal", "instructions", "preparation"}
 # `# Triggers` is read by code (section 9): the agent may only claim these, inside each window.
 TRIGGERS = "triggers"
+PATHS = "paths"
+PATH_DEFINITION = re.compile(r"^([a-z][a-z0-9-]*)( \(default\))?:\s*(.+)$")
+PATH_TAG = re.compile(r"\s*\[path:\s*([^\]]+)\]\s*$", re.I)
 # How many options of each section a lead's script uses: (minimum, maximum). Objections keep all.
 PICKS = {
     "opening": (1, 1),
@@ -198,7 +201,7 @@ def parse_markdown(markdown):
                 name,
                 (
                     name
-                    if name in CONTEXT or name == TRIGGERS
+                    if name in CONTEXT or name in {TRIGGERS, PATHS}
                     else "custom:" + re.sub(r"[^a-z0-9]+", "-", name).strip("-"),
                     False,
                     "fixed",
@@ -213,7 +216,7 @@ def parse_markdown(markdown):
             continue
         if current == SKIP:
             continue
-        if heading and current and current not in CONTEXT and current != TRIGGERS:
+        if heading and current and current not in CONTEXT and current not in {TRIGGERS, PATHS}:
             card = {"title": heading[2].strip(), "line": number, "lines": []}
             raw[current]["cards"].append(card)
             continue
@@ -226,6 +229,25 @@ def parse_markdown(markdown):
         if required and key not in raw:
             errors.append({"line": 0, "message": f"Add a '# {name.title()}' section"})
     blocks, sections, facts, never = [], [], [], []
+    paths = {}
+    default_path = None
+    for number, line in raw.get(PATHS, {}).get("lines", []):
+        if not line.strip():
+            continue
+        bullet = BULLET.match(line)
+        definition = PATH_DEFINITION.fullmatch(bullet[1]) if bullet else None
+        if not definition:
+            errors.append({"line": number, "message": "Declare each path as - path-name: when to use it"})
+            continue
+        key, default, guidance = definition.groups()
+        if key in paths or default and default_path:
+            errors.append({"line": number, "message": "Use unique path names and at most one default"})
+            continue
+        paths[key] = guidance.strip()
+        if default:
+            default_path = key
+    if PATHS in raw and not paths:
+        errors.append({"line": raw[PATHS]["line"], "message": "Declare at least one path"})
 
     def ai(text, line, key, option):
         def replace(match):
@@ -261,6 +283,21 @@ def parse_markdown(markdown):
         return "\n".join(line for _, line in lines).strip()
 
     def option(lines, key, identity, title=None, inherited=""):
+        path_ids = []
+        tag = PATH_TAG.search(title or "")
+        if tag:
+            title = title[: tag.start()].strip()
+            path_ids = list(dict.fromkeys(name.strip().casefold() for name in tag[1].split(",")))
+            unknown = [name or "(empty)" for name in path_ids if name not in paths]
+            if unknown or key == "objections":
+                errors.append(
+                    {
+                        "line": lines[0][0] if lines else raw[key]["line"],
+                        "message": "Keep all objections shared"
+                        if key == "objections"
+                        else "Unknown script paths: " + ", ".join(unknown),
+                    }
+                )
         spoken, notes = split_cues(lines)
         value = text(spoken)
         if not value:
@@ -281,7 +318,13 @@ def parse_markdown(markdown):
                 )
             if len(value) > 400:
                 errors.append({"line": raw[key]["line"], "message": "Keep Screening under 400 characters"})
-        result = {"id": identity, "title": title, "text": ai(value, raw[key]["line"], key, identity)}
+        result = {
+            "id": identity,
+            "title": title[:120] if title else title,
+            "text": ai(value, raw[key]["line"], key, identity),
+        }
+        if path_ids:
+            result["paths"] = path_ids
         cues = "\n".join(v for v in (inherited, notes) if v)
         if cues:
             _placeholders(cues, raw[key]["line"], errors)
@@ -289,7 +332,7 @@ def parse_markdown(markdown):
         return result
 
     for key, entry in raw.items():
-        if key in CONTEXT or key in {TRIGGERS, "facts", "never_say", "follow_up", "voicemail"}:
+        if key in CONTEXT or key in {TRIGGERS, PATHS, "facts", "never_say", "follow_up", "voicemail"}:
             continue
         shape = HEADINGS_BY_KEY.get(key, "fixed")
         options = []
@@ -305,7 +348,7 @@ def parse_markdown(markdown):
             if key == "screening":
                 errors.append({"line": entry["line"], "message": "Screening must be plain text"})
             for index, item in enumerate(entry["cards"], 1):
-                options.append(option(item["lines"], key, f"{key}-{index}", item["title"][:120], cues))
+                options.append(option(item["lines"], key, f"{key}-{index}", item["title"], cues))
         elif shape == "cards":
             errors.append({"line": entry["line"], "message": f"Add at least one ## item to {entry['title']}"})
         else:
@@ -400,6 +443,12 @@ def parse_markdown(markdown):
                 context[key + " directions"] = cues
     if len(blocks) > MAX_BLOCKS:
         errors.append({"line": 0, "message": f"Use at most {MAX_BLOCKS} {{{{ }}}} blocks"})
+    for section in sections:
+        if section["key"] in {"opening", "close"} and any(
+            not any(not o.get("paths") or path in o["paths"] for o in section.get("options", []))
+            for path in paths
+        ):
+            errors.append({"line": raw[section["key"]]["line"], "message": "Every path needs this section"})
     if errors:
         raise ScriptError(errors)
     return {
@@ -414,6 +463,7 @@ def parse_markdown(markdown):
         "facts": facts,
         "never_say": never,
         "context": context,
+        **({"paths": paths, "default_path": default_path or next(iter(paths))} if paths else {}),
         **({"triggers": triggers} if triggers is not None else {}),
         **notes,
     }
@@ -479,6 +529,25 @@ def replace_section(template, key, body):
     return "\n".join(out).strip() + "\n"
 
 
+def sections_for_path(sections, path):
+    if not path:
+        return sections
+    result = []
+    for section in sections:
+        if section.get("spoken") is False:
+            result.append(section)
+            continue
+        options = [o for o in section["options"] if not o.get("paths") or path in o["paths"]]
+        if options:
+            pick = section["pick"]
+            if pick and len(options) == 1:
+                pick = None
+            elif pick:
+                pick = [min(limit, len(options)) for limit in pick]
+            result.append({**section, "options": options, "pick": pick})
+    return result
+
+
 def default_picks(template):
     picks = {}
     for section in template["sections"]:
@@ -496,7 +565,7 @@ def fill_fields(text, values):
     return text.format_map(values)
 
 
-def render(template, *, lead, seller, rep, picks=None, written=None):
+def render(template, *, lead, seller, rep, picks=None, written=None, path=None):
     """The script a rep reads for one lead. Without picks or written text, the seller's defaults."""
     name = (lead.get("name") or "").strip()
     values = {
@@ -506,6 +575,8 @@ def render(template, *, lead, seller, rep, picks=None, written=None):
         "seller": seller,
         "rep": rep,
     }
+    path = path if path in template.get("paths", {}) else template.get("default_path")
+    template = {**template, "sections": sections_for_path(template["sections"], path)}
     written, chosen = written or {}, {**default_picks(template), **(picks or {})}
 
     def text_of(raw):
@@ -540,7 +611,7 @@ def render(template, *, lead, seller, rep, picks=None, written=None):
                 "rank": rank.get(option["id"]),
             }
             for option in section["options"]
-            if complete(option)
+            if complete(option) and (not path or option["id"] in rank)
         ]
         if options:
             sections.append(
@@ -563,6 +634,7 @@ def render(template, *, lead, seller, rep, picks=None, written=None):
 
     return {
         "sections": sections,
+        **({"script_path": path} if path else {}),
         "picks": {key: list(value) for key, value in chosen.items()},
         "written": {key: dict(value) for key, value in written.items()},
         "opener": first("opening"),
@@ -582,12 +654,18 @@ NUMBER = re.compile(r"\$?\d[\d,]*(?:\.\d+)?%?")
 PROMISES = re.compile(r"\b(guarantee[sd]?|promise[sd]?|risk[- ]free|100%)\b", re.I)
 
 
-def check_submission(template, picks, written, facts, row, *, required_blocks=None):
+def check_submission(template, picks, written, facts, row, *, required_blocks=None, path=None):
     """Close-out rules for one lead's script. Returns a list of plain errors the agent can fix.
 
     `facts` maps saved fact ids to statements for this lead; `row` is the lead's imported row,
     whose columns can be cited as `row:<column>`.
     """
+    paths = template.get("paths", {})
+    if paths and (not isinstance(path, str) or path not in paths):
+        return [f"Choose one declared path: {', '.join(paths)}"]
+    if path and not paths:
+        return ["This master has no named paths"]
+    template = {**template, "sections": sections_for_path(template["sections"], path)}
     errors = []
     sections = {section["key"]: section for section in template["sections"]}
     for key, chosen in (picks or {}).items():

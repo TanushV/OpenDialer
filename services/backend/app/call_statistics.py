@@ -26,6 +26,7 @@ CALLS = (
     "test_call",
     "base_version",
     "script_version",
+    "script_path",
     "structure_id",
     "transcript_status",
     "rep_segments",
@@ -173,6 +174,7 @@ def export(service, p, *, include_test=False):
                     "test_call": bool(data.get("is_test")),
                     "base_version": script.get("base_version"),
                     "script_version": script.get("script_version"),
+                    "script_path": script.get("script_path"),
                     "transcript_status": "partial"
                     if has_gap and segments
                     else "missing"

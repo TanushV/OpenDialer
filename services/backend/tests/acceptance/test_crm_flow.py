@@ -40,6 +40,7 @@ class Fakes:
         self.mobile_saved_during_lookup = None
         self.existing_csv_contact_after_search = None
         self.down = False
+        self.call_history = {}
 
     def __call__(self, request):
         host, path = request.url.host, request.url.path
@@ -48,6 +49,13 @@ class Fakes:
         if self.down and host == "api.hubapi.com":
             return httpx.Response(503)
         if host == "api.hubapi.com":
+            if path == "/crm/v3/objects/calls/search":
+                filters = body["filterGroups"][0]["filters"]
+                if filters[0]["propertyName"] == "associations.contact":
+                    return httpx.Response(
+                        200, json={"results": self.call_history.get(filters[0]["value"], [])}
+                    )
+                return httpx.Response(200, json={"results": []})
             if path == "/crm/v3/owners":
                 return httpx.Response(
                     200,
@@ -121,8 +129,6 @@ class Fakes:
                 self.created_contacts.append(body["properties"])
                 self.people["9"] = body["properties"]
                 return httpx.Response(201, json={"id": "9"})
-            if path == "/crm/v3/objects/calls/search":
-                return httpx.Response(200, json={"results": []})
             if path == "/crm/v3/objects/calls":
                 self.created_calls.append(body)
                 return httpx.Response(201, json={"id": "hs-call-1"})
@@ -216,6 +222,50 @@ def setup(ws, monkeypatch):
 def crm_leads(ws):
     items = get(ws, "/v1/workspace/leads", params={"list_name": "HubSpot list"})["items"]
     return {lead["external_id"]: lead for lead in items}
+
+
+def test_csv_preflight_checks_logged_calls_before_dial_without_creating_contacts(
+    workspace, clock, monkeypatch
+):
+    ws = workspace
+    fakes = setup(ws, monkeypatch)
+    before = len(fakes.calls)
+    lead = import_leads(
+        ws, [{"name": "CSV Match", "phone": A, "timezone": "America/New_York"}], list_name="CSV history"
+    )["leads"][0]
+    assert len(fakes.calls) == before
+    fakes.call_history["1"] = [
+        {
+            "id": "previous",
+            "properties": {
+                "hs_timestamp": clock.now.isoformat(),
+                "hs_call_direction": "OUTBOUND",
+                "hs_call_status": "NO_ANSWER",
+            },
+        }
+    ]
+    ready(ws)
+    held = post(
+        ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"], "list_names": ["CSV history"]}, status=409
+    )
+    assert "CADENCE_LIMIT" in held["detail"]["reasons"]
+    packet = get(ws, f"/v1/leads/{lead['id']}/packet")
+    assert packet["lead"]["hubspot_call_history"]["attempts"] == 1
+    assert packet["lead"]["hubspot_call_history"]["last_status"] == "NO_ANSWER"
+    assert not fakes.created_contacts and not fakes.created_calls
+
+
+def test_csv_preflight_marks_unavailable_history_without_importing_it(workspace, monkeypatch):
+    ws = workspace
+    fakes = setup(ws, monkeypatch)
+    import_leads(
+        ws, [{"name": "Offline CSV", "phone": A, "timezone": "America/New_York"}], list_name="Offline CSV"
+    )
+    fakes.down = True
+    ready(ws)
+    selected = post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"], "list_names": ["Offline CSV"]})
+    assert selected["lead"]["hubspot_call_history"]["status"] == "unavailable"
+    assert not fakes.created_contacts and not fakes.created_calls
 
 
 @pytest.mark.slow

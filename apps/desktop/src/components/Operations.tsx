@@ -13,7 +13,7 @@ import { countLabel, useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { LONG_REQUEST_MS, native, openSource } from "../api/client";
 import { date, label, useWorkspace } from "../context";
-import { parseCSV } from "../state/csv";
+import { leadCSVHeaders, parseLeadCSV } from "../state/csv";
 import { ColumnMap, type ColumnMapping } from "./ColumnMap";
 import { HubSpotLists } from "./HubSpotLists";
 import type { Lead, NumberRecord, Packet } from "../types";
@@ -55,7 +55,16 @@ export function LeadsPage({
     headerKey: string;
     map: ColumnMapping;
   } | null>(null);
-  const headers = useMemo(() => csvHeaders(csv), [csv]);
+  const parsedCSV = useMemo(() => {
+    if (!csv.trim()) return null;
+    try {
+      return parseLeadCSV(csv);
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+  }, [csv]);
+  const csvData = parsedCSV instanceof Error ? null : parsedCSV;
+  const headers = csvData?.headers ?? [];
   const headerKey = headers.join("\u0000");
   const columnMap =
     mappedColumns?.headerKey === headerKey ? mappedColumns.map : null;
@@ -65,6 +74,7 @@ export function LeadsPage({
     imported: number;
     duplicates: number;
     invalid: number;
+    errors: { row: number; reason: string }[];
   } | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
   const packetLead = useRef<string | null>(null);
@@ -499,10 +509,9 @@ export function LeadsPage({
         <div>
           <h2>Import a list</h2>
           <p className="muted">
-            A CSV with <code>name</code> and <code>phone</code> columns.{" "}
-            <code>company</code>, <code>domain</code>, <code>timezone</code> and{" "}
-            <code>state</code> help, and every other column is used as research
-            context. Opted-out numbers stay blocked.
+            Use a CSV with a phone or mobile number. A name, company, and
+            location are helpful. Research and scriptwriting can use every
+            column.
           </p>
         </div>
         <div>
@@ -527,8 +536,8 @@ export function LeadsPage({
             />
           </label>
           <p className="fine">
-            Use a lead export in <code>.csv</code> format with a name and phone
-            column.
+            For multiple signals, split summaries with | and dates and links
+            with semicolons.
           </p>
           <div className="button-row">
             <OpenFile
@@ -543,33 +552,60 @@ export function LeadsPage({
               }}
             />
             <button
-              className="primary"
-              disabled={!csv.trim()}
+              className="secondary"
               onClick={() =>
                 void run(async () => {
+                  await navigator.clipboard.writeText(leadCSVHeaders);
+                  notice("Recommended CSV headers copied.");
+                })
+              }
+            >
+              Copy recommended CSV headers
+            </button>
+            <button
+              className="primary"
+              disabled={!csvData?.rows.length}
+              onClick={() =>
+                void run(async () => {
+                  if (!csvData) return;
                   const report = await api<{
                     imported: number;
                     duplicates: number;
                     invalid: number;
+                    errors: { row: number; reason: string }[];
                   }>(
                     "/v1/leads/import",
                     "POST",
                     {
                       campaign_id: w.campaign.id,
                       list_name: listName.trim(),
-                      rows: parseCSV(csv),
+                      rows: csvData.rows,
                       ...(columnMap ? { column_map: columnMap } : {}),
                     },
                     { timeoutMs: LONG_REQUEST_MS },
                   );
-                  setReport(report);
+                  setReport({
+                    ...report,
+                    invalid: report.invalid + csvData.errors.length,
+                    errors: [
+                      ...csvData.errors,
+                      ...(report.errors ?? []).map(({ row, reason }) => ({
+                        row: csvData.rowNumbers[row - 1] ?? row,
+                        reason:
+                          reason === "INVALID_PHONE"
+                            ? "No usable phone number."
+                            : label(reason),
+                      })),
+                    ],
+                  });
                   setCSV("");
                   setMappedColumns(null);
                   await refresh();
                   await reloadLeads();
                   await lists.reload();
-                  const count = `${report.imported} lead${report.imported === 1 ? "" : "s"} imported.`;
-                  notice(count);
+                  notice(
+                    `Import finished · ${report.imported} new contacts · ${report.duplicates} matched.`,
+                  );
                 })
               }
             >
@@ -578,15 +614,40 @@ export function LeadsPage({
             </button>
           </div>
           {report && (
-            <p className="small">
-              {report.imported} imported · {report.duplicates} already in the
-              list · {report.invalid} without a valid phone number
+            <div className="small">
+              <p>
+                {report.imported} imported · {report.duplicates} matched ·{" "}
+                {report.invalid} skipped
+              </p>
+              {report.errors.length > 0 && (
+                <details>
+                  <summary>Skipped row details</summary>
+                  <ul>
+                    {report.errors.map(({ row, reason }) => (
+                      <li key={row}>
+                        Row {row} · {reason}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+          {parsedCSV instanceof Error && (
+            <p role="alert">{parsedCSV.message}</p>
+          )}
+          {!!csvData?.errors.length && (
+            <p role="status">
+              {csvData.errors.length} malformed{" "}
+              {csvData.errors.length === 1 ? "row will" : "rows will"} be
+              skipped.
             </p>
           )}
           {/* Below the buttons: the guessed map arrives after the CSV is read and must not move Import leads. */}
           <ColumnMap
             headers={headers}
             value={columnMap}
+            sample={csvData?.rows[0]}
             onChange={(map) => setMappedColumns({ headerKey, map })}
           />
         </div>
@@ -665,6 +726,18 @@ export function LeadsPage({
                   ? "Script ready"
                   : "Script ready. Uses the wording from your master script."}
             </p>
+            {packet.last_generated_script && (
+              <details>
+                <summary>Last generated script · Stale</summary>
+                {packet.last_generated_script.historical_reconstructed && (
+                  <p className="fine">
+                    Reconstructed from the saved selections and the matching
+                    master.
+                  </p>
+                )}
+                <ScriptReader script={packet.last_generated_script} />
+              </details>
+            )}
             <ScriptReader script={packet.script} />
             <h3>What the agent found</h3>
             {packet.script.summary && <p>{packet.script.summary}</p>}
@@ -1336,14 +1409,4 @@ export function Empty({ text }: { text: string }) {
       <p>{text}</p>
     </div>
   );
-}
-
-/** The header names of pasted CSV text, or none until it parses. */
-function csvHeaders(text: string): string[] {
-  if (!text.trim()) return [];
-  try {
-    return Object.keys(parseCSV(text)[0] ?? {});
-  } catch {
-    return [];
-  }
 }

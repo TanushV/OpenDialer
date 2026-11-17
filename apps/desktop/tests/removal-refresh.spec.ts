@@ -38,7 +38,7 @@ const row = (page: Page, name: string) =>
     .getByRole("row")
     .filter({ has: page.getByText(name, { exact: true }) });
 
-test("remove and restore a whole list while shared contacts stay active", async ({
+test("remove and reimport a whole list while shared contacts stay active", async ({
   page,
 }) => {
   await enter(page, "remove-list-101");
@@ -71,18 +71,13 @@ test("remove and restore a whole list while shared contacts stay active", async 
   await expect(row(page, "Shared removal")).toBeHidden();
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page.getByLabel("Show removed lists", { exact: true }).check();
-  // CI, November 9: a slow restore used to reload the leads with the view shown before the switch below,
-  // replacing the Active view with Removed. Delay it so the switch always lands first.
-  await page.route("**/v1/lists", async (route) => {
-    if (route.request().method() === "PATCH")
-      await new Promise((done) => setTimeout(done, 1200));
-    await route.continue();
-  });
-  await row(page, "Remove source 101")
-    .getByRole("button", { name: "Restore list", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await expect(row(page, "Remove source 101")).toBeHidden();
   await page.getByLabel("Lead view", { exact: true }).selectOption("active");
+  await add(
+    page,
+    "Remove source 101",
+    "Full Name,Mobile Phone,Time Zone\nUnique removal,+14155550621,America/Los_Angeles",
+  );
   await expect(row(page, "Unique removal")).toBeVisible();
   await expect(badge).toHaveText(String(before + 2));
 });

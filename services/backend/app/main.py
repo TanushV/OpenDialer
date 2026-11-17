@@ -106,7 +106,7 @@ class TestListUpload(Strict):
 class ListEdit(Strict):
     campaign_id: str
     list_name: str = Field(max_length=120)
-    action: Literal["pause", "resume", "archive", "restore", "rename", "dialing"]
+    action: Literal["pause", "resume", "archive", "restore", "rename", "dialing", "delete"]
     name: str | None = Field(default=None, max_length=120)
     script_mode: Literal["prepared", "master"] = "prepared"
     max_attempts: int | None = Field(default=None, ge=1, le=20)
@@ -838,9 +838,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/leads/column-map")
     def column_map(data: ColumnMapRequest, p=Depends(administrator)):
-        from app.leads.intake import ROLES, guess_map
+        from app.leads.intake import CSV_IDENTITY, ROLES, guess_map
 
-        return {"map": guess_map(data.headers), "roles": sorted(ROLES)}
+        return {"map": guess_map(data.headers, csv_identity=True), "roles": [*CSV_IDENTITY, *sorted(ROLES)]}
 
     @app.get("/v1/leads/{lead_id}/packet")
     def packet(lead_id: str, p=Depends(principal)):

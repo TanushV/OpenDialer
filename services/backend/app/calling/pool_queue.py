@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app import ops
 from app.calling.decide import Situation, require
 from app.compliance.policy import authorize
+from app.leads.csv_call_history import apply_history, read_history
 from app.numbers.pool import cancel, request
 from app.platform.db import ActiveClaim, doc, emit, put, update, workspace
 from app.platform.errors import dt
@@ -70,7 +71,19 @@ def use_binding(service, p, provisional, selected, *, accepted):
 
 async def reserve(service, p, campaign_id, names, callback):
     managed = service.managed
-    provisional = await asyncio.to_thread(ops.reserve, service, p, campaign_id, names, callback)
+    for _ in range(8):
+        provisional = await asyncio.to_thread(ops.reserve, service, p, campaign_id, names, callback)
+        result = await read_history(service, p, provisional["lead"])
+        if result is None or await asyncio.to_thread(apply_history, service, p, provisional, result):
+            break
+    else:
+        require(
+            Situation(queue="none"),
+            {
+                "code": "NO_ELIGIBLE_LEADS",
+                "message": "HubSpot call history held eight contacts in this pass. Start calling again to check the next contacts.",
+            },
+        )
     preferred_is_bound = provisional.pop("preferred_is_bound", None)
     if preferred_is_bound is None:
         return provisional

@@ -38,6 +38,43 @@ def begin(ws, reservation, key):
     )
 
 
+def test_remove_list_frees_its_name_and_reimport_starts_fresh(workspace):
+    ws = workspace
+    name = "Replace this list"
+    old = imported(ws, name, "+14155551820")
+    manage(ws, name, "dialing", max_attempts=2, retry_days=[4])
+    attempt = begin(ws, choose(ws, [name]), "original-list")
+    hang_up(ws, attempt["id"])
+    wrap_up(ws, attempt["id"], outcome="no_answer")
+    shared = imported(ws, "Shared contact", "+14155551821")
+    import_leads(ws, [{"phone": shared["phone"]}], list_name=name)
+    bulk(ws, [old["id"]], "archive")
+    manage(ws, name, "delete")
+    assert name not in {row["name"] for row in get(ws, "/v1/list-catalog")["lists"]}
+    assert get(ws, f"/v1/leads/{shared['id']}/packet")["lead"]["list_names"] == ["Shared contact"]
+    new = imported(ws, name, old["phone"])
+    assert new["id"] == old["id"]
+    assert not new["archived"] and not new["dial_paused"] and new["attempt_count"] == 0
+    assert get(ws, f"/v1/leads/{new['id']}/packet")["previous_calls"][0]["id"] == attempt["id"]
+    assert choose(ws, [name])["lead"]["id"] == old["id"]
+
+
+def test_removing_list_with_an_active_reservation_requests_release(workspace):
+    name = "Reserved list"
+    imported(workspace, name, "+14155551822")
+    choose(workspace, [name])
+    error = call(
+        workspace,
+        "PATCH",
+        "/v1/lists",
+        status=409,
+        json={"campaign_id": workspace["campaign_id"], "list_name": name, "action": "delete"},
+    )
+    assert "Pause" in error["detail"]
+    post(workspace, "/v1/queue/release")
+    manage(workspace, name, "delete")
+
+
 def test_filter_catalog_and_bulk_selection_cover_every_matching_page(workspace):
     ws = workspace
     import_leads(

@@ -156,7 +156,12 @@ def _company_contacted(service, s, p, lead, claims, now):
     zone = company_call_zone(lead.data, now)
     today = now.astimezone(zone).date()
     return any(
-        (last := timestamp(sibling.data.get("last_attempt_at"))) and last.astimezone(zone).date() == today
+        (
+            last := timestamp(
+                sibling.data.get("last_attempt_at") or sibling.data.get("last_company_attempt_at")
+            )
+        )
+        and last.astimezone(zone).date() == today
         for sibling in siblings
     )
 

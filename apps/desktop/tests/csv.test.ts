@@ -1,5 +1,15 @@
 import { expect, it } from "vitest";
-import { parseCSV } from "../src/state/csv";
+import { parseCSV, parseLeadCSV } from "../src/state/csv";
+
+it("lead CSV accepts exported headings, blank optional tail and reports broken rows", () => {
+  const result = parseLeadCSV(
+    "Full Name,Mobile Phone,Notes\r\nAvery,+14155550184\r\nAlex,+14155550185,Good,extra",
+  );
+  expect(result.rows).toEqual([
+    { "Full Name": "Avery", "Mobile Phone": "+14155550184", Notes: "" },
+  ]);
+  expect(result.errors[0]).toMatchObject({ row: 3 });
+});
 it("imports quoted fields, escaped quotes, blank rows and multiline values", () => {
   const rows = parseCSV(
     'name,phone,company\r\n"Reed, Ada",+14155550101,"A ""Good"" Co"\r\n"Multi\nLine",+12125550102,Example\n\n',

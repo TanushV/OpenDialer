@@ -1,5 +1,9 @@
 """One pasted script, per-lead preparation before calling, company-aware calling and the per-list budget."""
 
+import base64
+import csv
+import io
+import zipfile
 from datetime import timedelta
 from uuid import uuid4
 
@@ -66,6 +70,80 @@ def save_script(ws, markdown=SCRIPT):
         "/v1/admin/script/import",
         {"markdown": markdown, "expected_version": base["version"], "preview": False},
     )
+
+
+PATH_SCRIPT = """# Paths
+- founder: The prospect is a founder.
+- sales-leader (default): The prospect leads a sales team.
+
+# Opening
+Hello {first_name}, {rep} with {seller}.
+
+# The Question
+## Founder question [path: founder]
+How did you get your first customers?
+## Sales question [path: sales-leader]
+How do your reps run discovery?
+## Shared question
+What would you change?
+
+# Objections
+## Busy
+When is better?
+
+# Close
+Would Tuesday work?
+"""
+
+
+def test_research_prepares_one_coherent_path_and_keeps_a_stale_preview(workspace):
+    ws = workspace
+    save_script(ws, PATH_SCRIPT)
+    imported = import_leads(
+        ws,
+        [
+            {"name": "Avery", "phone": "+14155551840", "title": "Founder"},
+            {"name": "Jordan", "phone": "+14155551841", "title": "Sales Leader"},
+        ],
+        list_name="Paths",
+    )
+    assert post(ws, "/v1/preparation/lists", {"list_name": "Paths"})["marked"] == 2
+    run_jobs(ws, rounds=3)
+    for lead, path, selected in zip(
+        imported["leads"], ("founder", "sales-leader"), ("Founder question", "Sales question"), strict=True
+    ):
+        script = get(ws, f"/v1/leads/{lead['id']}/packet")["script"]
+        assert script["script_path"] == path and not script["fallback"]
+        assert [section["title"] for section in script["sections"]] == [
+            "Opening",
+            "The Question",
+            "Objections",
+            "Close",
+        ]
+        assert [option["title"] for option in script["sections"][1]["options"]] == [
+            selected,
+            "Shared question",
+        ]
+        assert script["sections"][2]["options"][0]["text"] == "When is better?"
+    ready(ws)
+    next_call = post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"], "list_names": ["Paths"]})
+    placed = post(
+        ws,
+        "/v1/calls/start",
+        {"reservation_id": next_call["reservation_id"], "idempotency_key": "path-stats"},
+    )
+    path = placed["script_snapshot"]["script_path"]
+    hang_up(ws, placed["id"])
+    wrap_up(ws, placed["id"], outcome="no_answer")
+    download = get(ws, "/v1/review/call-statistics/export")["archive"]
+    with zipfile.ZipFile(io.BytesIO(base64.b64decode(download))) as archive:
+        calls = list(csv.DictReader(io.StringIO(archive.read("calls.csv").decode())))
+    assert next(row for row in calls if row["call_id"] == placed["id"])["script_path"] == path
+    save_script(ws, PATH_SCRIPT.replace("Would Tuesday work?", "How about Wednesday?"))
+    packet = get(ws, f"/v1/leads/{imported['leads'][0]['id']}/packet")
+    assert packet["script"]["fallback"] and packet["preparation"]["status"] == "stale"
+    assert packet["last_generated_script"]["closing_question"] == "Would Tuesday work?"
+    assert packet["last_generated_script"]["script_path"] == "founder"
 
 
 def test_pasted_script_is_parsed_with_every_problem_listed(workspace):

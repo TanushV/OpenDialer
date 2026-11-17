@@ -108,8 +108,8 @@ export function ListsPage({
     await refresh();
     await onChanged?.();
     notice(
-      action === "archive"
-        ? "List removed from active views and dialing. Restore it using Show removed lists. Contacts in other active lists remain."
+      action === "delete"
+        ? "List removed. You can import a new list under this name."
         : action === "restore"
           ? "List restored. Contact history and opt-outs are retained."
           : "List updated. Contact history and opt-outs are retained.",
@@ -122,8 +122,8 @@ export function ListsPage({
           <div>
             <h1>Lists</h1>
             <p>
-              Remove a whole list here, or choose which lists to call in Dialer.
-              Removed lists can be restored with their history.
+              Remove a list here, or choose which lists to call in Dialer.
+              Removing a list frees its name for a new import.
             </p>
           </div>
         </div>
@@ -206,13 +206,23 @@ export function ListsPage({
                           void run(() =>
                             edit(
                               list.name,
-                              list.archived ? "restore" : "archive",
+                              list.archived ? "restore" : "delete",
                             ),
                           )
                         }
                       >
                         {list.archived ? "Restore list" : "Remove list"}
                       </button>
+                      {list.archived && (
+                        <button
+                          className="secondary small"
+                          onClick={() =>
+                            void run(() => edit(list.name, "delete"))
+                          }
+                        >
+                          Delete removed list
+                        </button>
+                      )}
                     </div>
                     {!list.archived && (
                       <ListDialingSettings
@@ -265,9 +275,8 @@ export function ListsPage({
           Callable now checks the current calling rules, excluding the rep's
           Ready/audio state. Counts can overlap when one contact belongs to
           several lists. Paused lists stop ordinary calls; their callbacks
-          remain available for explicit review. Removed lists stop outbound from
-          that membership. Removing a list keeps history and opt-outs; contacts
-          shared with another active list remain available there.
+          remain available for explicit review. Removing a list keeps saved call
+          history and opt-outs. Contacts in another active list stay there.
         </p>
       </section>
     </>

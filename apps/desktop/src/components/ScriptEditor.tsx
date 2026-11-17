@@ -387,6 +387,17 @@ export function ScriptEditor() {
             either bullets or named options within a section.
           </li>
           <li>
+            To generate one path, add <code># Paths</code> with entries like{" "}
+            <code>- founder: The prospect still sells</code> or{" "}
+            <code>
+              - sales-leader (default): The prospect leads a sales team
+            </code>
+            . Tag named options like{" "}
+            <code>## Your question [path: founder]</code>. Use commas to share
+            an option across several paths. Leave common lines and objections
+            untagged.
+          </li>
+          <li>
             Start rep directions with <code>&gt;</code>. Put shared directions
             before the options. Put option-specific directions under its
             heading, or indent them under its bullet. Use{" "}

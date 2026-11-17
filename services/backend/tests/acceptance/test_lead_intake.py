@@ -27,6 +27,46 @@ def lead_named(ws, name):
     return next(lead for lead in page["items"] if lead["name"] == name)
 
 
+def test_csv_intake_uses_export_headers_and_keeps_aliases_as_source_columns(workspace):
+    source = {
+        "First_Name": "Avery",
+        "Last Name": "Example",
+        "Mobile Phone": "(415) 555-0184",
+        "Company Name": "Sample Co",
+        "Company Website": "example.com",
+        "Job-Title": "Founder",
+        "Company Description": "Builds warehouse software.",
+        "Phone Status": "DEAD",
+        "Extra Note": "Works with retailers.",
+    }
+    result = import_leads(workspace, [source], list_name="Aliases")
+    assert result["imported"] == 1 and not result["invalid"]
+    record = result["leads"][0]
+    assert (record["name"], record["phone"], record["company"], record["domain"]) == (
+        "Avery Example",
+        "+14155550184",
+        "Sample Co",
+        "example.com",
+    )
+    assert record["profile"]["title"] == "Founder" and record["live_status"] == "dead"
+    assert record["row"] == source
+
+
+def test_csv_map_can_choose_the_dialing_number(workspace):
+    data = {"Phone Number": "bad", "Mobile Phone": "+14155550185"}
+    result = post(
+        workspace,
+        "/v1/leads/import",
+        {
+            "campaign_id": workspace["campaign_id"],
+            "list_name": "Mapped phones",
+            "rows": [data],
+            "column_map": {"phone": {"column": "Mobile Phone", "delimiter": None}},
+        },
+    )
+    assert result["imported"] == 1 and result["leads"][0]["phone"] == "+14155550185"
+
+
 def test_csv_mapping_keeps_all_imported_columns_on_the_lead(workspace):
     result = import_leads(workspace, [ROW], list_name="Intake")
     assert result["column_map"]["signal_summaries"] == {"column": "signal summaries", "delimiter": "|"}
@@ -65,19 +105,35 @@ def test_research_agent_gets_named_and_unmapped_columns_from_the_csv(workspace, 
     from app.preparation.agent import SimulatedAgent
     from journey import run_jobs
 
-    received = []
+    received, chunks = [], []
     original = SimulatedAgent.run
 
     async def capture(self, instructions, tools, handler, first, follow_up, **kwargs):
-        received.extend(lead["row"] for lead in json.loads(first)["leads"])
+        for lead in json.loads(first)["leads"]:
+            received.append(lead["row"])
+            if "long export notes" in lead["row"]:
+                chunks.append(
+                    json.loads(
+                        await handler(
+                            "read_csv_cell",
+                            {"lead": lead["lead"], "column": "long export notes", "offset": 2000},
+                        )
+                    )
+                )
         return await original(self, instructions, tools, handler, first, follow_up, **kwargs)
 
     monkeypatch.setattr(SimulatedAgent, "run", capture)
-    row = {**ROW, "account rank": "Enterprise", "custom note": "Requested security details"}
+    row = {
+        **ROW,
+        "account rank": "Enterprise",
+        "custom note": "Requested security details",
+        "long export notes": "x" * 2000 + "Actual details beyond the prompt preview.",
+    }
     import_leads(workspace, [row], list_name="Full row")
     assert post(workspace, "/v1/preparation/lists", {"list_name": "Full row"})["marked"] == 1
     run_jobs(workspace, rounds=3)
-    assert row in received
+    assert {**row, "long export notes": "x" * 2000} in received
+    assert chunks == [{"ok": True, "text": "Actual details beyond the prompt preview.", "next_offset": None}]
 
 
 def test_a_dead_number_is_never_dialed_and_the_lead_says_why(workspace):

@@ -676,8 +676,12 @@ def should_log(call, lead):
     )
 
 
-async def link_csv_contact(hs, lead, phone, owner_id):
-    row = lead.get("row") or {}
+class AmbiguousContact(RuntimeError):
+    pass
+
+
+async def match_csv_contact(hs, lead, phone):
+    row = lead.get("csv_values") or lead.get("row") or {}
     email = next(
         (
             email
@@ -688,7 +692,7 @@ async def link_csv_contact(hs, lead, phone, owner_id):
         "",
     )
     if email and (contact := await hs.contact_id(email, "email")):
-        return contact
+        return contact, email
     found = await hs.contacts_by_phone(phone[2:], hubspot_sync.PHONE_PROPERTIES)
     if not found:
         raise RuntimeError("HubSpot did not return a contact search result. Try the write again.")
@@ -701,11 +705,31 @@ async def link_csv_contact(hs, lead, phone, owner_id):
         )
     }
     if len(matches) > 1 or found.get("paging", {}).get("next"):
-        raise RuntimeError(
+        raise AmbiguousContact(
             "Multiple HubSpot contacts match the called number. Add the contact's email to the CSV."
         )
-    if matches:
-        return matches.pop()
+    return next(iter(matches), None), email
+
+
+async def csv_outbound_calls(service, p, lead):
+    if not config(service, p).get("hubspot_service_key"):
+        return None
+    hs = hubspot(service, p)
+    contact = lead.get("external_id")
+    if not contact:
+        try:
+            contact, _ = await match_csv_contact(hs, lead, lead["phone"])
+        except AmbiguousContact:
+            return {"status": "ambiguous"}
+    if not contact:
+        return {"status": "no_match"}
+    return {"status": "checked", "calls": await hs.outbound_calls(contact)}
+
+
+async def link_csv_contact(hs, lead, phone, owner_id):
+    contact, email = await match_csv_contact(hs, lead, phone)
+    if contact:
+        return contact
     first, _, last = (lead.get("name") or "Unknown").strip().partition(" ")
     properties = {"firstname": first or "Unknown", "lastname": last, "phone": phone}
     if lead.get("company"):

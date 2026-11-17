@@ -2129,3 +2129,5 @@ test assets and admin access before asking for anything. The signed rollout foll
   the stricter applicable cadence. On startup confirmed legacy rep-audio webhook receipts are archived without replay.
 - November 17, 2026: the owner confirmed one rep per company. Same-company outbound spacing is enforced across lists
   within that rep's workspace and follows the lead's local calling day, including when the time zone is inferred.
+- November 17, 2026: the owner approved the [CSV, script paths and calling context plan](CSV_SCRIPT_PLAN.md).
+  Read that plan and its status after every continuation or compaction while implementing it.

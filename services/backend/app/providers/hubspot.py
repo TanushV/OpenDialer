@@ -190,6 +190,32 @@ class HubSpot:
         results = (found or {}).get("results", [])
         return results[0]["id"] if results else None
 
+    async def outbound_calls(self, contact_id):
+        page = await self.request(
+            "POST",
+            "/crm/v3/objects/calls/search",
+            json={
+                "filterGroups": [
+                    {
+                        "filters": [
+                            {
+                                "propertyName": "associations.contact",
+                                "operator": "EQ",
+                                "value": str(contact_id),
+                            },
+                            {"propertyName": "hs_call_direction", "operator": "EQ", "value": "OUTBOUND"},
+                        ]
+                    }
+                ],
+                "properties": ["hs_timestamp", "hs_call_direction", "hs_call_status", "opendialer_call_id"],
+                "sorts": ["-hs_timestamp"],
+                "limit": BATCH,
+            },
+        )
+        if not isinstance(page, dict) or not isinstance(page.get("results"), list):
+            raise HubSpotError("HubSpot did not return call history.")
+        return page["results"]
+
     async def create_call(self, properties, contact_id):
         body = {
             "properties": properties,

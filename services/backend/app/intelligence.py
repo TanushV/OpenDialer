@@ -33,6 +33,8 @@ def inference(service, tenant_id, role, user_id=None):
 
 
 def packet(service, p, lead_id):
+    from app.preparation.workflows import previous_script
+
     with service.db.transaction(False) as s:
         lead = ops.required(service, s, "leads", lead_id, p)
         fact_model = MODELS["research_facts"]
@@ -155,6 +157,7 @@ def packet(service, p, lead_id):
                 "suppressed": ops.suppressed(service, s, p, lead.data["phone"]),
             },
             "script": script,
+            "last_generated_script": previous_script(service, s, p, lead) if script.get("fallback") else None,
             "preparation": preparation,
             "research": {"facts": facts, "sources": sources, "fact_limit": 64},
             "bound_number_id": binding.data["number_id"] if binding else None,

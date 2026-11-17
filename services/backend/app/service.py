@@ -14,7 +14,7 @@ from app.calling.blockers import refuse, test_line_refusal
 from app.calling.state import moved, transition
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext
-from app.lead_lists import TEST_LIST, in_list, memberships, set_memberships
+from app.lead_lists import TEST_LIST, has_current_list, in_list, memberships, set_memberships
 from app.leads import intake
 from app.leads.record import csv_fields, number_view
 from app.optimization.geography import plausible_zones
@@ -329,7 +329,7 @@ def import_leads(service, p, body, *, session=None):
     headers = list(dict.fromkeys(str(k) for raw in body["rows"] for k in raw))
     column_map = body.get("column_map")
     if column_map is None:
-        column_map = intake.guess_map(headers)
+        column_map = intake.guess_map(headers, csv_identity=True)
     elif problems := intake.check_map(column_map, headers):
         fail(422, {"code": "COLUMN_MAP_INVALID", "errors": problems})
     result["column_map"] = column_map
@@ -341,7 +341,15 @@ def import_leads(service, p, body, *, session=None):
         catalog = campaign.data.get("lists", {})
         if not test_list and catalog.get(name, {}).get("test_list"):
             fail(409, "Use Settings to edit the test list.")
-        update(campaign, lists={name: {"test_list": True} if test_list else {}, **catalog})
+        if not test_list and catalog.get(name, {}).get("archived"):
+            fail(
+                409,
+                "That list was removed. Choose Show removed lists and Delete removed list to reimport under its name.",
+            )
+        update(
+            campaign,
+            lists={name: {"test_list": True} if test_list else {"budget_scope": "list:" + uid()}, **catalog},
+        )
         endpoints = {r.data["phone"]: r for r in ops.scoped(service, s, "phone_endpoints", p)}
         existing = {
             (r.data["campaign_id"], r.data["endpoint_id"]): r
@@ -349,13 +357,14 @@ def import_leads(service, p, body, *, session=None):
             if bool(r.data.get("test_list_contact")) == test_list
         }
         for index, raw in enumerate(body["rows"]):
-            phone = normalize_phone(str(raw.get("phone", "")))
+            values = {**raw, **intake.csv_identity(raw, column_map)}
+            phone = normalize_phone(str(values.get("phone", "")))
             if not phone.e164:
                 result["invalid"] += 1
                 result["errors"].append({"row": index + 1, "reason": "INVALID_PHONE"})
                 continue
-            state = normalize_state(raw.get("state"))
-            if raw.get("state") and not state:
+            state = normalize_state(values.get("state"))
+            if values.get("state") and not state:
                 result["invalid"] += 1
                 result["errors"].append({"row": index + 1, "reason": "INVALID_STATE"})
                 continue
@@ -383,8 +392,47 @@ def import_leads(service, p, body, *, session=None):
                 duplicate = ops.required(
                     service, s, "leads", existing[(body["campaign_id"], endpoint.id)].id, p, lock=True
                 )
-                names = list(dict.fromkeys([*memberships(duplicate.data), body.get("list_name", "").strip()]))
-                update(duplicate, list_names=names)
+                reset = not test_list and (
+                    duplicate.data.get("csv_reimport_reset") or not has_current_list(duplicate.data, catalog)
+                )
+                names = [*memberships(duplicate.data), name]
+                set_memberships(duplicate, [name, *names] if reset else names)
+                if reset:
+                    update(
+                        duplicate,
+                        **intake.csv_context(raw, column_map),
+                        name=(values.get("name") or "Unknown")[:200],
+                        company=str(values.get("company", ""))[:200],
+                        domain=str(values.get("domain", ""))[:250].lower(),
+                        company_key=company_key(values),
+                        source="csv",
+                        archived=False,
+                        dial_paused=False,
+                        csv_reimport_reset=False,
+                        status="eligible",
+                        attempt_count=0,
+                        imported_at=now.isoformat(),
+                        last_company_attempt_at=duplicate.data.get("last_attempt_at")
+                        or duplicate.data.get("last_company_attempt_at"),
+                        last_attempt_at=None,
+                        hubspot_call_history=None,
+                        next_attempt_at=now.isoformat(),
+                        cadence_not_before=None,
+                        pair_until=None,
+                        pair_rep_id=None,
+                        pair_of=None,
+                        pair_opened_at=None,
+                        preparation=None,
+                        last_generated_script_id=None,
+                        preparation_request_key=None,
+                        preparation_lease=None,
+                        trigger=None,
+                        trigger_label=None,
+                        bridge=None,
+                        refresh_research=True,
+                        profile={},
+                        signals={},
+                    )
                 if test_list:
                     fields = intake.read(raw, column_map, full_csv=True)
                     update(
@@ -392,18 +440,18 @@ def import_leads(service, p, body, *, session=None):
                         **fields,
                         archived=False,
                         status="eligible",
-                        name=str(raw["name"])[:200],
-                        company=str(raw.get("company", ""))[:200],
-                        domain=str(raw.get("domain", ""))[:250].lower(),
-                        company_key=company_key(raw),
+                        name=(values.get("name") or "Unknown")[:200],
+                        company=str(values.get("company", ""))[:200],
+                        domain=str(values.get("domain", ""))[:250].lower(),
+                        company_key=company_key(values),
                     )
                 elif duplicate.data.get("source") != "crm":
                     old = duplicate.data
                     fields = intake.read(raw, column_map, full_csv=True)
-                    full_row = {**(old.get("row") or {}), **raw}
+                    full_row = {**(old.get("csv_values") or old.get("row") or {}), **raw}
                     update(
                         duplicate,
-                        row=intake.model_row(full_row, column_map, full_csv=True),
+                        **intake.csv_context(full_row, column_map),
                         profile={**(old.get("profile") or {}), **fields["profile"]},
                         signals=fields["signals"]
                         if any(role in column_map for role in intake.SIGNALS)
@@ -416,25 +464,24 @@ def import_leads(service, p, body, *, session=None):
                 emit(s, p["tenant_id"], "lead.updated", duplicate, service.clock())
                 result["leads"].append(doc(duplicate))
                 continue
-            timezone = raw.get("timezone") or None
+            timezone = values.get("timezone") or None
             if timezone:
                 try:
                     ZoneInfo(timezone)
                 except (ValueError, KeyError):
                     timezone = None
             fields = intake.read(raw, column_map, full_csv=True)
-            row = fields["row"]
             lead = put(
                 s,
                 "leads",
                 p["tenant_id"],
                 p["seller_id"],
                 {
-                    "row": row,
-                    "company_key": company_key(raw),
-                    "name": str(raw.get("name", "Unknown"))[:200],
-                    "company": str(raw.get("company", ""))[:200],
-                    "domain": str(raw.get("domain", ""))[:250].lower(),
+                    **intake.csv_context(raw, column_map),
+                    "company_key": company_key(values),
+                    "name": (values.get("name") or "Unknown")[:200],
+                    "company": str(values.get("company", ""))[:200],
+                    "domain": str(values.get("domain", ""))[:250].lower(),
                     "campaign_id": body["campaign_id"],
                     "endpoint_id": endpoint.id,
                     "phone": phone.e164,
@@ -537,6 +584,7 @@ def budget_ok(service, s, p, estimated=0.001, scope="other"):
 
 def context(service, s, p, lead, number, *, permission="live", active=False):
     from app.lead_lists import attempt_limits, uses_master
+    from app.leads.csv_call_history import prior_history
 
     campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
     policy = ops.required(service, s, "policy_versions", campaign.data["policy_id"], p)
@@ -546,10 +594,15 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
     user = ops.required(service, s, "users", p["user_id"], p)
     config, presence = policy.data, user.data.get("presence", {})
     count = lead.data.get("attempt_count", 0)
+    history = prior_history(lead.data) if not p.get("test_only") else {}
+    count += history.get("prior_attempts", 0)
     maximum, retry, quick_retry = attempt_limits(service, lead.data, campaign.data, config, count)
     last = dt(lead.data.get("last_attempt_at"))
     if last and (cadence_due := dt(lead.data.get("cadence_not_before"))):
         retry = max(retry, (cadence_due - last).total_seconds())
+    external_last = dt(history.get("last_at"))
+    if external_last and (last is None or external_last > last):
+        last = external_last
     internal_suppressed = ops.suppressed(service, s, p, lead.data["phone"])
     # Registry imports and consent records are gone (R2.5); neither was ever loaded in practice.
     state_listed, state_current = False, False

@@ -48,8 +48,8 @@ test("manage lists and archive/restore selected leads without losing records", a
   await list.getByRole("button", { name: "Remove list", exact: true }).click();
   await expect(list).toBeHidden();
   await page.getByLabel("Show removed lists", { exact: true }).check();
-  await expect(list.getByText("Removed", { exact: true })).toBeVisible();
-  await list.getByRole("button", { name: "Restore list", exact: true }).click();
+  await expect(list).toBeHidden();
+  await add(page, "Managed list 091", "+14155550961");
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page
     .getByLabel("Filter leads by list")

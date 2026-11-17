@@ -20,7 +20,12 @@ test("import shows the column map, keeps per-column separators and marks a dead 
   await page.getByLabel("List name", { exact: true }).fill("Intake check");
   await page.getByLabel("CSV lead data").fill(CSV);
   const map = page.getByRole("group", { name: "Column map" });
-  await expect(map).toContainText("the research agent reads all columns");
+  await expect(map).toContainText(
+    "Research and scriptwriting can use mapped and unmapped columns",
+  );
+  await expect(map).toContainText(
+    "Liam Intake · +16175550123 · Brighterway · LIVE",
+  );
   await expect(
     map.getByRole("combobox", { name: "Company description" }),
   ).toBeHidden();

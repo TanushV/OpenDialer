@@ -46,6 +46,25 @@ export interface Lead {
   trigger?: Trigger | null;
   trigger_label?: string;
   bridge?: { text: string; is_inference: true } | null;
+  hubspot_call_history?: {
+    status: "checked" | "no_match" | "ambiguous" | "unavailable";
+    attempts?: number;
+    last_at?: string | null;
+    last_status?: string | null;
+  } | null;
+  profile?: {
+    title?: string;
+    headline?: string;
+    company_description?: string;
+  };
+  signals?: {
+    items?: {
+      summary?: string | null;
+      date?: string | null;
+      url?: string | null;
+    }[];
+    summaries?: string[];
+  };
 }
 export interface Trigger {
   type: string;
@@ -254,6 +273,7 @@ export interface Call {
   } | null;
 }
 export interface ScriptOption {
+  paths?: string[];
   notes?: string;
   id: string;
   title: string | null;
@@ -271,6 +291,8 @@ export interface ScriptSection {
   options?: ScriptOption[];
 }
 export interface ScriptTemplate {
+  paths?: Record<string, string>;
+  default_path?: string;
   context?: Record<string, string>;
   format: 2;
   markdown: string;
@@ -297,6 +319,8 @@ export interface ScriptError {
   message: string;
 }
 export interface Script {
+  script_path?: string;
+  historical_reconstructed?: boolean;
   context?: Record<string, string>;
   sections?: ScriptSection[];
   picks?: Record<string, string[]>;
@@ -364,6 +388,7 @@ export interface Packet {
   };
   lead: Lead;
   script: Script;
+  last_generated_script?: Partial<Script> | null;
   research: {
     facts: Fact[];
     sources: { id: string; title: string; url: string; retrieved_at: string }[];

@@ -50,6 +50,9 @@ future calls. **How to write it** in the editor includes a question example.
 - Use `#` for sections. Include `# Opening` and `# Close`.
 - Use `##` for named alternatives, with each branch's spoken wording beneath it. Put Hire, Funding, and other
   independent branches under separate option headings.
+- For one path per lead, add a `# Paths` section with entries such as `- founder: Use for founders who sell`.
+  Optionally mark one path with `(default)`. Tag a named option with `[path: founder]` or share it
+  across several paths with `[path: founder, sales-leader]`. Keep objections and shared options untagged.
 - Opening, Gatekeeper, Discovery, Pitch, and Close also accept bullets as options. Indent a follow-up line to keep it
   with its bullet. Use one option style per section.
 - Start rep directions with `>`. Put shared directions before the options, and put specific directions inside an option.
@@ -59,10 +62,12 @@ future calls. **How to write it** in the editor includes a question example.
 
 ## 5. Leads
 
-On **Leads**, either name a list and import a CSV with `name` and `phone`, or **Sync a HubSpot list** with a spend limit
-for number checks. The CSV preview maps recognized headers such as `account signals` and `phone status`. You can edit
-the map and separators. When you generate scripts, the research agent reads all columns of each CSV row. Reimport an
-older CSV to restore columns that earlier versions omitted. If HubSpot has no lists yet, make
+On **Leads**, name a list and open a CSV with a phone or mobile number column. **Copy recommended CSV headers**
+provides an optional template. The first-row preview shows the mapped name, number, company and phone status. Choose
+the dialing column if your export includes several numbers. Use `|` between account signals and `;` between dates
+or links. Research and scriptwriting can read imported columns even when they have no mapping. Reimport an older
+CSV to restore columns that earlier versions omitted. **Sync a HubSpot list** is also available with a spend limit
+for number checks. If HubSpot has no lists yet, make
 one in HubSpot under Contacts → Lists. In **Research and scripts**, click **Generate scripts** for the list you want
 personalized. Importing a list or saving the master leaves generation idle. By default, a prospect call needs a current
 prepared script. To dial a list using the saved master, open **Your lists → Dialing settings**, choose **Dial only · use
@@ -70,6 +75,9 @@ master script**, and save. No lead preparation is needed for that list. If you w
 **Dialer → All active lists** and check the list by name. A shared lead still needs preparation when the selected calling
 lists include a prepared-script list for that lead. The Leads table shows script and calling status together. The header
 checkbox selects the whole filtered search, including leads beyond the loaded page. Uncheck individual rows to exclude them.
+Open a lead to see its generated script and selected path. If the inputs change, **Last generated script · Stale**
+shows the earlier version while a fresh script is needed for calls. Old saved selections can be reconstructed when
+their matching master is still available.
 
 In **Dialing settings**, a list can set its own attempts per lead. Leave both cadence fields blank to inherit the workspace
 settings. Enter one wait in days between each pair of attempts, such as `2, 3` for three attempts on days 0, 2 and 5. Each
@@ -77,7 +85,13 @@ day is 24 hours. Custom waits disable the quick final retry. Call attempts are s
 the lowest attempt cap and longest applicable wait apply. Moving a lead keeps its attempt history and any wait already
 scheduled. Calling windows, suppression, screening, and number capacity still apply.
 
+**Remove list** frees its name for a fresh import and clears the preparation of leads that only belonged to that
+list. Contacts with another active membership stay there. Call receipts and opt-outs remain. For an older archived
+list, use **Show removed lists → Delete removed list** before reusing its name.
+
 CSV lists can use the shared number pool with or without a HubSpot key or membership in the assigned segment.
+With a saved key, the Dialer looks for the chosen CSV contact's logged outbound calls before offering a call and
+applies its known history to the list's cadence. Lead details show the result of that check.
 With a key saved, a connected conversation and saved outcome link the CSV lead to a matching HubSpot contact by email
 or phone and log the call. A new contact is created when there is no match. OpenDialer leaves an existing contact's
 owner alone and attributes the call to the owner selected on the rep's computer. If several contacts share the dialed
@@ -94,6 +108,7 @@ Incoming callbacks and requested calls are handled separately.
 
 On **Dialer**, the paused screen says how many leads can be called now, or why none can (for example, everyone is outside
 calling hours). Press **Start calling** or Space.
+The left Calling context panel shows the prospect's role, company description and signal when available.
 
 | Key | When | Does |
 | --- | --- | --- |

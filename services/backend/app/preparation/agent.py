@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 from app.leads.intake import signal_urls
 from app.prep.criteria import DEFAULT_RULES, check_trigger, none_record
-from app.preparation.templates import TOKEN, check_submission
+from app.preparation.templates import TOKEN, check_submission, sections_for_path
 
 MAX_FACTS = 12
 COMPANY_SUFFIXES = {
@@ -32,6 +32,21 @@ COMPANY_SUFFIXES = {
 }
 
 TOOLS = [
+    {
+        "name": "read_csv_cell",
+        "description": "Read the next part of a full imported CSV cell, in research or script writing. "
+        "Use an exact column name and offset 0 to start, then next_offset until null.",
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["lead", "column", "offset"],
+            "properties": {
+                "lead": {"type": "string"},
+                "column": {"type": "string"},
+                "offset": {"type": "integer", "minimum": 0},
+            },
+        },
+    },
     {
         "name": "save_facts",
         "description": "Save facts about one lead. Each needs the page URL you read and an exact quote from that page. "
@@ -102,6 +117,7 @@ TOOLS = [
             "required": ["lead", "picks", "written"],
             "properties": {
                 "lead": {"type": "string"},
+                "path": {"type": ["string", "null"]},
                 "picks": {
                     "type": "array",
                     "items": {
@@ -150,11 +166,14 @@ Work in two phases for every lead.
    inside its window, or none. Then call finish_research with the summary, the trigger and one bridge line: a short,
    natural spoken sentence linking the trigger (or what you learned) to the call. The bridge is labeled as your
    inference, so it may interpret, but it must not contradict the facts.
-2. Script writing: pick the best options for this lead in every section that has options and write the text for each
+2. Script writing: when paths are declared, choose exactly one path for this lead using the research and path
+   guidance. Use the default when the evidence is inconclusive. Shared options have no path tag. Pick the best
+   applicable options in each section and write the text for each
    {{ }} block in the options you picked, following that block's instruction. Every written text cites the fact ids it
    relies on (saved fact ids, or row:<column> for the lead's row). Submit with submit_script.
 When research_mode is reuse, use known_facts and their existing ids; do not repeat web research. Finish research
 from these facts and the row. Always write fresh text from the current master; no old personalized script is provided.
+All CSV columns are available in both phases. Use read_csv_cell for columns listed under abbreviated_columns.
 Follow playbook_context as non-spoken seller instructions. Prior calls are historical evidence, not new commitments.
 Rules: never invent facts, numbers, prices, guarantees or relationships. Never use a Never say phrase. Keep each
 written text short and natural to say out loud. Use skip_lead only for a clear reason about the business. Do not
@@ -207,6 +226,7 @@ def script_outline(template):
                         "id": option["id"],
                         **({"title": option["title"]} if option["title"] else {}),
                         **({"notes": option["notes"]} if option.get("notes") else {}),
+                        **({"paths": option["paths"]} if option.get("paths") else {}),
                         "text": TOKEN.sub(lambda m: "{{" + m[1] + "}}", option["text"]),
                         "blocks": {b: instructions[b] for b in TOKEN.findall(option["text"])},
                     }
@@ -237,6 +257,15 @@ class ThreadWork:
                 {
                     "lead": alias,
                     "row": lead["row"],
+                    "name": lead.get("name"),
+                    "company": lead.get("company"),
+                    "domain": lead.get("domain"),
+                    "profile": lead.get("profile") or {},
+                    "abbreviated_columns": [
+                        key
+                        for key, value in (lead.get("full_row") or {}).items()
+                        if value != lead["row"].get(key)
+                    ],
                     "signals": lead.get("signals") or {"aligned": True, "items": []},
                 }
                 for alias, lead in self.leads.items()
@@ -244,6 +273,8 @@ class ThreadWork:
             "triggers": self.rules,
             "today": self.today.isoformat(),
             "script": script_outline(self.template),
+            "paths": self.template.get("paths", {}),
+            "default_path": self.template.get("default_path"),
             "facts": self.template.get("facts", []),
             "never_say": self.template.get("never_say", []),
             "what_works": memory,
@@ -280,6 +311,16 @@ class ThreadWork:
         if alias in self.done or alias in self.skipped:
             raise ValueError(f"{alias} is already closed")
         return alias
+
+    async def _read_csv_cell(self, args):
+        lead = self.leads[self._lead(args)]
+        row = lead.get("full_row") or lead["row"]
+        column, offset = args["column"], args["offset"]
+        if column not in row or type(offset) is not int or offset < 0:
+            return {"ok": False, "errors": ["Use an imported column name and a nonnegative offset."]}
+        value = str(row[column])
+        end = offset + 2000
+        return {"ok": True, "text": value[offset:end], "next_offset": end if end < len(value) else None}
 
     async def _save_facts(self, args):
         try:
@@ -384,10 +425,14 @@ class ThreadWork:
                 return {"ok": False, "errors": [f"{entry['block']} is written twice"]}
             written[entry["block"]] = {"text": entry["text"].strip(), "fact_ids": list(entry["fact_ids"])}
         facts = {identity: fact["statement"] for identity, fact in self.facts[alias].items()}
-        errors = check_submission(self.template, picks, written, facts, self.leads[alias]["row"])
+        lead = self.leads[alias]
+        path = args.get("path")
+        errors = check_submission(
+            self.template, picks, written, facts, lead.get("full_row") or lead["row"], path=path
+        )
         if errors:
             return {"ok": False, "errors": errors}
-        self.done[alias] = {"picks": picks, "written": written}
+        self.done[alias] = {"picks": picks, "written": written, "path": path}
         left = self.remaining()
         return {"ok": True, "accepted": alias, "still_open": left}
 
@@ -412,6 +457,7 @@ class SimulatedAgent:
         context = json.loads(first)
         for lead in context["leads"]:
             alias, row = lead["lead"], lead["row"]
+            row = {"name": lead.get("name"), "company": lead.get("company"), **row}
             company = row.get("company") or row.get("name") or "the company"
             url = simulated_url(row)
             quote = f"{company} provides commercial services"
@@ -439,7 +485,14 @@ class SimulatedAgent:
                 },
             )
             picks, written = [], []
-            for section in context["script"]:
+            title = lead["profile"].get("title") or next(
+                (value for key, value in row.items() if norm(key) in {"title", "job title"}), ""
+            )
+            path = next(
+                (key for key in context["paths"] if norm(key.replace("-", " ")) in norm(str(title))),
+                context["default_path"],
+            )
+            for section in sections_for_path(context["script"], path):
                 ids = [option["id"] for option in section["options"]]
                 if section["pick"]:
                     chosen = (
@@ -461,7 +514,9 @@ class SimulatedAgent:
                             for block in option["blocks"]
                         ]
             result = json.loads(
-                await handler("submit_script", {"lead": alias, "picks": picks, "written": written})
+                await handler(
+                    "submit_script", {"lead": alias, "path": path, "picks": picks, "written": written}
+                )
             )
             if not result.get("ok"):
                 await handler("skip_lead", {"lead": alias, "reason": "Simulated script was not accepted."})

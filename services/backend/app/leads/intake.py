@@ -35,6 +35,16 @@ ROLES = {
         None,
     ),
 }
+CSV_IDENTITY = {
+    "phone": (("phone", "phone number", "mobile phone", "mobile", "mobile number", "direct phone"), None),
+    "name": (("name", "full name", "contact name", "prospect name"), None),
+    "first_name": (("first name", "given name"), None),
+    "last_name": (("last name", "surname", "family name"), None),
+    "company": (("company", "company name", "organization name", "account name", "organization"), None),
+    "domain": (("domain", "company domain", "company website", "website", "account website"), None),
+    "state": (("state", "contact state", "prospect state"), None),
+    "timezone": (("timezone", "contact timezone", "prospect timezone"), None),
+}
 SIGNALS = ("signal_summaries", "signal_dates", "signal_urls")
 # Read by import itself (who, where, which number), so they always reach the row.
 IDENTITY = (
@@ -64,11 +74,12 @@ def _key(header):
     return re.sub(r"[\W_]+", "", str(header).casefold())
 
 
-def guess_map(headers):
+def guess_map(headers, *, csv_identity=False):
     """The column map a set of headers suggests: {role: {"column": header, "delimiter": d}}. Shown for correction."""
     by_key = {_key(h): h for h in headers if str(h).strip()}
     found = {}
-    for role, (names, delimiter) in ROLES.items():
+    roles = {**CSV_IDENTITY, **ROLES} if csv_identity else ROLES
+    for role, (names, delimiter) in roles.items():
         column = next((by_key[key] for name in names if (key := _key(name)) in by_key), None)
         if column is not None:
             found[role] = {"column": column, "delimiter": delimiter}
@@ -79,7 +90,7 @@ def check_map(column_map, headers):
     """Errors in a corrected map: unknown roles, columns not in the file, or a multi-value column without a delimiter."""
     present, errors = {_key(h) for h in headers}, []
     for role, entry in column_map.items():
-        if role not in ROLES:
+        if role not in ROLES and role not in CSV_IDENTITY:
             errors.append(f"Unknown role {role!r}")
         elif _key(entry.get("column", "")) not in present:
             errors.append(f"{role}: column {entry.get('column')!r} is not in the file")
@@ -95,6 +106,24 @@ def _value(raw, column):
         wanted = _key(column)
         found = next((v for k, v in raw.items() if _key(k) == wanted), None)
     return " ".join(str(found if found is not None else "").split())
+
+
+def csv_identity(raw, column_map):
+    aliases = guess_map(raw, csv_identity=True)
+    fields = {
+        role: _value(raw, entry["column"])
+        for role in CSV_IDENTITY
+        if (entry := column_map.get(role) or aliases.get(role))
+    }
+    if not fields.get("name"):
+        fields["name"] = " ".join(fields.get(role, "") for role in ("first_name", "last_name")).strip()
+    return fields
+
+
+def csv_context(raw, column_map):
+    full = {str(key): str(value if value is not None else "") for key, value in raw.items()}
+    prompt = model_row(full, column_map, full_csv=True)
+    return {"row": prompt, "csv_values": full if full != prompt else None}
 
 
 def _split(raw, column_map, role):

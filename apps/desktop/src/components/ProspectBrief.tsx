@@ -39,10 +39,28 @@ export function ProspectBrief({
     }
   }, [brief?.meeting?.status]);
   const prospectTime = localTime(packet.lead.timezone);
+  const role = packet.lead.profile?.title || packet.lead.profile?.headline;
+  const description = packet.lead.profile?.company_description;
+  const history = packet.lead.hubspot_call_history;
   return (
     <div className="prospect-context">
       <div data-testid="calling-context" className="small">
         <strong>Calling context</strong>
+        {role && (
+          <p>
+            <strong>Role</strong> · {role}
+          </p>
+        )}
+        {description ? (
+          <p>
+            <strong>Company</strong> · {description}{" "}
+            <span className="muted">(from the imported record)</span>
+          </p>
+        ) : packet.script.summary ? (
+          <p>
+            <strong>Research summary</strong> · {packet.script.summary}
+          </p>
+        ) : null}
         {brief?.why_queued && (
           <p className="muted">Why this lead: {brief.why_queued}</p>
         )}
@@ -65,6 +83,20 @@ export function ProspectBrief({
           Last outcome:{" "}
           {brief?.last_outcome ? label(brief.last_outcome) : "none yet"}
         </p>
+        {history && (
+          <p>
+            HubSpot ·{" "}
+            {history.status === "no_match"
+              ? "No matching contact"
+              : history.status === "ambiguous"
+                ? "Several contacts match. Add an email to disambiguate."
+                : history.status === "unavailable"
+                  ? "Call history unavailable"
+                  : history.last_at
+                    ? `Last outbound call ${date(history.last_at, zone.zone)}${history.last_status ? ` · ${label(history.last_status.toLowerCase())}` : ""}`
+                    : "No logged outbound calls"}
+          </p>
+        )}
         {brief?.next_step && <p>Agreed next step: {brief.next_step}</p>}
         {brief?.next_question && <p>Next question: {brief.next_question}</p>}
         <details>
@@ -292,14 +324,21 @@ export function ProspectBrief({
 export function WhyNow({ lead }: { lead: Packet["lead"] }) {
   const trigger = lead.trigger;
   const found = trigger && trigger.type !== "none";
+  const imported = lead.signals?.items?.find((item) => item.summary) ?? {
+    summary: lead.signals?.summaries?.[0],
+    date: null,
+  };
   return (
     <div data-testid="why-now" className="small why-now">
       <p>
         <strong>Why now:</strong>{" "}
         {found
           ? `${label(trigger.type)} · ${lead.trigger_label}`
-          : "No trigger found"}
-        {found && trigger.date ? ` · ${trigger.date}` : ""}
+          : imported.summary
+            ? `${imported.summary} (from the list)`
+            : "No trigger found"}
+        {(found ? trigger.date : imported.date) &&
+          ` · ${found ? trigger.date : imported.date}`}
       </p>
       {found && trigger.quote && <p className="muted">“{trigger.quote}”</p>}
       {found && trigger.source_url && (

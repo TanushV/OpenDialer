@@ -127,7 +127,9 @@ def preparation_key(service, s, p, lead, generation=None):
     return digest(
         [
             template_version(base["template"]),
-            lead.data.get("row") or {k: lead.data.get(k) for k in ("name", "company", "domain")},
+            lead.data.get("csv_values")
+            or lead.data.get("row")
+            or {k: lead.data.get(k) for k in ("name", "company", "domain")},
             campaign.data.get("script_memory_key"),
             generation or lead.data.get("rewrite_generation"),
         ]
@@ -266,6 +268,32 @@ def script_row(service, s, p, lead):
     return row
 
 
+def previous_script(service, s, p, lead):
+    current = script_row(service, s, p, lead)
+    identity = lead.data.get("last_generated_script_id")
+    row = ops.scoped_get(service, s, p, "script_versions", identity) if identity else current
+    if row is None or row.data.get("lead_id") != lead.id:
+        return None
+    if rendered := row.data.get("rendered"):
+        return rendered
+    template = ops.lead_script_base(service, s, p, lead)["template"]
+    if not template or row.data.get("template_version") != template_version(template):
+        return None
+    return {
+        **render(
+            template,
+            lead=doc(lead),
+            seller=ops.required(service, s, "sellers", p["seller_id"], p).data["name"],
+            rep=ops.required(service, s, "users", p["user_id"], p).data["name"],
+            picks=row.data.get("picks"),
+            written=row.data.get("written"),
+            path=row.data.get("path"),
+        ),
+        "script_version": row.data["script_version"],
+        "historical_reconstructed": True,
+    }
+
+
 def selected_script(service, s, p, lead, *, assignment=None, master_only=False):
     """The script a rep sees for this lead: its prepared picks and text over the current base."""
     state = ops.preparation_state(service, s, p, lead)
@@ -307,7 +335,15 @@ def selected_script(service, s, p, lead, *, assignment=None, master_only=False):
             {i for value in written.values() for i in value.get("fact_ids", []) if not i.startswith("row:")}
         )
         script.update(
-            render(template, lead=doc(lead), seller=seller, rep=rep, picks=picks, written=written),
+            render(
+                template,
+                lead=doc(lead),
+                seller=seller,
+                rep=rep,
+                picks=picks,
+                written=written,
+                path=prepared.get("path"),
+            ),
             script_version=prepared["script_version"],
             fact_ids_used=used,
             claims=[{"text": v["text"], "fact_ids": v["fact_ids"]} for v in written.values()],
@@ -919,6 +955,7 @@ async def run_prep_thread(service, p, lead_ids, job_id=None):
     leads = [
         {
             "id": item["lead"]["id"],
+            "full_row": item["lead"].get("csv_values"),
             "row": item["lead"].get("row")
             or {
                 k: item["lead"].get(k)
@@ -928,12 +965,15 @@ async def run_prep_thread(service, p, lead_ids, job_id=None):
             "name": item["lead"].get("name"),
             "company": item["lead"].get("company"),
             "domain": item["lead"].get("domain"),
+            "profile": item["lead"].get("profile") or {},
             "signals": item["lead"].get("signals"),
         }
         for item in claimed
     ]
     if service.settings.simulation:
-        fetch = simulated_page([lead["row"] for lead in leads])
+        fetch = simulated_page(
+            [{"name": lead["name"], "company": lead["company"], **lead["row"]} for lead in leads]
+        )
     else:
         from app.platform.config import LIMITS
         from app.research.fetch import SafeFetcher
@@ -1073,10 +1113,20 @@ async def review_thread(service, p, work, owner, tracking=None):
     """One independent meaning review of every written text in the thread. Rejected text is dropped."""
     from app.grounding import accept_review, review_request
 
-    fields, sources = [], []
+    fields, sources = [], {}
     for alias, result in work.done.items():
+        lead = work.leads[alias]
+        row = lead.get("full_row") or lead["row"]
         for block, value in result["written"].items():
-            cited = [i for i in value["fact_ids"] if not i.startswith("row:")]
+            cited = []
+            for reference in value["fact_ids"]:
+                if reference.startswith("row:"):
+                    column = reference.removeprefix("row:")
+                    identity = f"{alias}/{reference}"
+                    sources[identity] = {"id": identity, "statement": f"{column}: {row[column]}"}
+                    cited.append(identity)
+                else:
+                    cited.append(reference)
             fields.append({"field": f"{alias}:{block}", "value": value["text"], "evidence": cited})
         bridge = (work.triggers.get(alias) or {}).get("bridge")
         if bridge:
@@ -1084,9 +1134,7 @@ async def review_thread(service, p, work, owner, tracking=None):
                 {"field": f"{alias}:bridge", "value": bridge["text"], "evidence": [], "inference": True}
             )
         for identity, fact in work.facts[alias].items():
-            sources.append({"id": identity, "statement": fact["statement"], "quote": fact["quote"]})
-        row = work.leads[alias]["row"]
-        sources += [{"id": f"row:{k}", "statement": f"{k}: {v}"} for k, v in row.items() if str(v).strip()]
+            sources[identity] = {"id": identity, "statement": fact["statement"], "quote": fact["quote"]}
     if not fields or service.settings.simulation:
         return {}
     provider = await asyncio.to_thread(ops.inference, service, p["tenant_id"], "script_review", p["user_id"])
@@ -1094,7 +1142,14 @@ async def review_thread(service, p, work, owner, tracking=None):
         return {"unreviewed": True}
     rejected = set()
     for start in range(0, len(fields), 100):
-        request = review_request("script", fields[start : start + 100], sources[:400])
+        batch = fields[start : start + 100]
+        wanted = {identity for field in batch for identity in field["evidence"]}
+        if any(field.get("inference") for field in batch):
+            related = {field["field"].split(":", 1)[0] for field in batch if field.get("inference")}
+            wanted.update(identity for identity in sources if identity.split("/", 1)[0] in related)
+        request = review_request(
+            "script", batch, [value for identity, value in sources.items() if identity in wanted]
+        )
         from app.model_tokens import capture
 
         async def observe_review(value, status="running", start=start):
@@ -1175,6 +1230,7 @@ def finish_thread(service, p, owner, claimed, work, failure, *, release=False, r
             elif work and alias in work.done:
                 changes.update(trigger_changes(work, alias, rejected))
                 script = ops.store_prepared_in(service, s, p, lead, work, alias, rejected, review)
+                changes["last_generated_script_id"] = script.id
                 changes["preparation"] = {
                     "status": "ready",
                     "script_id": script.id,
@@ -1297,6 +1353,16 @@ def store_prepared_in(service, s, p, lead, work, alias, rejected, review):
         ]
         or [now + timedelta(days=STABLE_DAYS)]
     )
+    version = uid()
+    rendered = render(
+        template,
+        lead=doc(lead),
+        seller=ops.required(service, s, "sellers", p["seller_id"], p).data["name"],
+        rep=ops.required(service, s, "users", p["user_id"], p).data["name"],
+        picks=result["picks"],
+        written=written,
+        path=result.get("path"),
+    )
     return put(
         s,
         "script_versions",
@@ -1304,8 +1370,10 @@ def store_prepared_in(service, s, p, lead, work, alias, rejected, review):
         p["seller_id"],
         {
             "lead_id": lead.id,
-            "script_version": uid(),
+            "script_version": version,
             "template_version": template_version(template),
+            "path": result.get("path"),
+            "rendered": {**rendered, "script_version": version},
             "picks": result["picks"],
             "written": written,
             "fact_ids_used": sorted(

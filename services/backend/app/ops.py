@@ -134,6 +134,7 @@ HOMES = {
     "context": "app.service",
     "context_rows": "app.service",
     "control_intent": "app.telephony.workflows",
+    "csv_outbound_calls": "app.crm",
     "database_integrity": "app.administration",
     "dial_blockers_in": "app.administration",
     "dial_evidence_expired": "app.telephony.recovery",
@@ -345,6 +346,7 @@ def _bundle():  # pragma: no cover
     import app.administration  # noqa: F401
     import app.billing  # noqa: F401
     import app.calling.dial  # noqa: F401
+    import app.crm  # noqa: F401
     import app.intelligence  # noqa: F401
     import app.lead_lists  # noqa: F401
     import app.number_operations  # noqa: F401

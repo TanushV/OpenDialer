@@ -8,7 +8,7 @@ from app import ops
 from app.compliance.policy import ORDINARY_RETRY_SECONDS, authorize, retry_seconds
 from app.optimization.geography import normalize_state
 from app.optimization.numbering import select_number, timestamp
-from app.platform.db import MODELS, audit, doc, emit, update
+from app.platform.db import MODELS, ActiveClaim, Job, audit, doc, emit, update
 
 TEST_LIST = "Test line"
 
@@ -46,6 +46,59 @@ def active_membership(model, removed_names):
 def set_memberships(lead, names):
     names = list(dict.fromkeys(names))
     update(lead, list_names=names, list_name=next(iter(names), ""))
+
+
+def has_current_list(lead, catalog):
+    return any(not catalog.get(name, {}).get("archived") for name in memberships(lead))
+
+
+def remove_list_in(service, s, p, catalog, name, leads):
+    from app.service import fail
+
+    ids = {lead.id for lead in leads}
+    claims = s.scalars(
+        select(ActiveClaim.lead_id).where(
+            ActiveClaim.tenant_id == p["tenant_id"],
+            ActiveClaim.seller_id == p["seller_id"],
+            or_(ActiveClaim.call_id.is_not(None), ActiveClaim.expires_at > service.clock()),
+        )
+    )
+    if ids.intersection(claims):
+        fail(
+            409, "Pause calling and finish the active call or release the reservation, then remove the list."
+        )
+    catalog.pop(name, None)
+    retired = set()
+    for lead in leads:
+        set_memberships(lead, [member for member in memberships(lead.data) if member != name])
+        if not has_current_list(lead.data, catalog):
+            retired.add(lead.id)
+            update(
+                lead,
+                archived=True,
+                csv_reimport_reset=True,
+                status="eligible" if lead.data.get("status") == "preparing" else lead.data.get("status"),
+                preparation=None,
+                last_generated_script_id=None,
+                preparation_request_key=None,
+                preparation_lease=None,
+                refresh_research=True,
+            )
+        emit(s, p["tenant_id"], "lead.updated", lead, service.clock())
+    if retired:
+        for job in s.scalars(
+            select(Job).where(
+                Job.tenant_id == p["tenant_id"], Job.queue == "research", Job.status == "queued"
+            )
+        ):
+            if job.payload.get("kind") == "prep_thread" and job.payload.get("seller_id") == p["seller_id"]:
+                remaining = [
+                    identity for identity in job.payload.get("lead_ids", []) if identity not in retired
+                ]
+                if not remaining:
+                    s.delete(job)
+                elif remaining != job.payload["lead_ids"]:
+                    job.payload = {**job.payload, "lead_ids": remaining}
 
 
 def preparation_budget_scope(service, p, name):
@@ -145,6 +198,8 @@ def list_catalog(service, p):
 
 
 def list_summary(service, p, list_names=None):
+    from app.leads.csv_call_history import prior_history
+
     with service.db.transaction(False) as s:
         campaign = ops.scoped(service, s, "campaigns", p)[0]
         model = MODELS["leads"]
@@ -191,6 +246,7 @@ def list_summary(service, p, list_names=None):
             if value.get("test_list_contact"):
                 continue
             script_status = ops.preparation_state(service, s, p, lead)["status"]
+            attempts = value.get("attempt_count", 0) + prior_history(value).get("prior_attempts", 0)
             due = timestamp(value.get("callback_due_at"))
             callback = bool(due and due <= service.clock())
             selected_p = {**p, "dial_lists": list_names}
@@ -225,8 +281,7 @@ def list_summary(service, p, list_names=None):
                 row["held"] += held
                 row["completed"] += bool(
                     value.get("conversion_goal_achieved")
-                    or value.get("attempt_count", 0)
-                    >= attempt_limits(service, value, campaign.data, policy, value.get("attempt_count", 0))[0]
+                    or attempts >= attempt_limits(service, value, campaign.data, policy, attempts)[0]
                 )
                 row["callbacks_due"] += callback
                 context = ops.context(service, s, {**p, "dial_lists": [name]}, lead, number)
@@ -298,6 +353,8 @@ def manage_list(service, p, body):
             for lead in leads:
                 set_memberships(lead, [new if n == name else n for n in memberships(lead.data)])
                 emit(s, p["tenant_id"], "lead.updated", lead, service.clock())
+        elif action == "delete":
+            remove_list_in(service, s, p, catalog, name, leads)
         elif action == "dialing":
             maximum, waits = body.get("max_attempts"), body.get("retry_days", [])
             if waits and (maximum is None or len(waits) != maximum - 1):

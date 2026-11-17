@@ -145,6 +145,9 @@ export function ScriptReader({
   }, [part, sequence]);
   return (
     <div ref={reader} className="script-reader">
+      {script.script_path && (
+        <p className="fine">Path · {script.script_path}</p>
+      )}
       {directions.length > 0 && (
         <details className="script-directions">
           <summary>Playbook directions · not spoken</summary>
