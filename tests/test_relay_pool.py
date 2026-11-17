@@ -724,6 +724,9 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
         assert send("GET", "/v1/hubspot/lists")["lists"] == [{"id": segment, "name": f"Rep {segment}"}]
         send("POST", "/v1/hubspot/sync", {"list_id": segment, "list_name": f"Rep {segment}"})
         send("POST", "/v1/admin/jobs/run")
+        prepared = send("POST", "/v1/preparation/lists", {"list_name": f"Rep {segment}"})
+        assert prepared["marked"] == 1
+        send("POST", "/v1/admin/jobs/run")
         send(
             "POST",
             "/v1/rep/presence",
