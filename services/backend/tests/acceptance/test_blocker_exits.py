@@ -419,8 +419,40 @@ def script_not_ready(workspace, app):
     )
 
 
+def master_script_required(workspace, app):
+    from app.platform.db import get as read_row
+    from app.platform.db import update
+    from journey import call, import_leads, reserve
+    from test_campaign_prep import SCRIPT, save_script
+
+    ws = workspace
+    name = "Dial with master"
+    import_leads(
+        ws, [{"name": "Dial Lead", "phone": "+12125550178", "timezone": "America/New_York"}], list_name=name
+    )
+    call(
+        ws,
+        "PATCH",
+        "/v1/lists",
+        json={
+            "campaign_id": ws["campaign_id"],
+            "list_name": name,
+            "action": "dialing",
+            "script_mode": "master",
+        },
+    )
+    with app.state.db.transaction() as s:
+        update(read_row(s, "campaigns", ws["campaign_id"], ws["tenant_id"]), script=None)
+    refused = reserve(ws, list_names=[name])
+    assert refused.status_code == 409 and "MASTER_SCRIPT_REQUIRED" in refused.json()["detail"]["reasons"]
+    assert refused.json()["detail"]["fix"] == "script"
+    save_script(ws, SCRIPT)
+    assert reserve(ws, list_names=[name]).status_code == 200
+
+
 EXIT_TESTS = {
     "SCRIPT_NOT_READY": script_not_ready,
+    "MASTER_SCRIPT_REQUIRED": master_script_required,
     "DATABASE_INTEGRITY_FAILURE": database_integrity_failure,
     "RESTORE_RECONCILIATION_REQUIRED": restore_reconciliation_required,
     "TELNYX_NOT_CONFIGURED": telnyx_not_configured,

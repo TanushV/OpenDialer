@@ -106,16 +106,37 @@ class TestListUpload(Strict):
 class ListEdit(Strict):
     campaign_id: str
     list_name: str = Field(max_length=120)
-    action: Literal["pause", "resume", "archive", "restore", "rename"]
+    action: Literal["pause", "resume", "archive", "restore", "rename", "dialing"]
     name: str | None = Field(default=None, max_length=120)
+    script_mode: Literal["prepared", "master"] = "prepared"
+    max_attempts: int | None = Field(default=None, ge=1, le=20)
+    retry_days: list[Annotated[int, Field(ge=1, le=365)]] = Field(default_factory=list, max_length=19)
+
+
+class LeadSelectionScope(Strict):
+    filter: Literal["all", "active", "removed"] = "active"
+    list_name: str | None = Field(default=None, max_length=120)
+    q: str = Field(default="", max_length=200)
+
+
+class LeadSelection(LeadSelectionScope):
+    fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    exclude: list[str] = Field(default_factory=list, max_length=10000)
 
 
 class BulkLeadEdit(Strict):
-    lead_ids: list[str] = Field(min_length=1, max_length=1000)
+    lead_ids: list[str] | None = Field(default=None, min_length=1, max_length=1000)
+    selection: LeadSelection | None = None
     action: Literal["pause", "resume", "archive", "restore", "move", "add", "remove", "location"]
     list_name: str | None = Field(default=None, max_length=120)
     timezone: str | None = Field(default=None, max_length=100)
     state: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def one_selection(self):
+        if (self.lead_ids is None) == (self.selection is None):
+            raise ValueError("Provide selected leads or a confirmed search selection")
+        return self
 
 
 class CallStart(Strict):
@@ -403,8 +424,10 @@ def create_app(settings=None, *, clock=None, carrier=None):
     db = Database(settings.database_url)
     service = AppState(db, settings, clock, carrier)
     from app.leads.backfill import backfill_leads
+    from app.telephony.ingress import archive_legacy_audio_webhooks
 
     backfill_leads(db)
+    archive_legacy_audio_webhooks(db, clock())
 
     @asynccontextmanager
     async def lifespan(app):
@@ -764,6 +787,18 @@ def create_app(settings=None, *, clock=None, carrier=None):
         list_names: list[str] | None = Query(default=None), selected: bool = False, p=Depends(principal)
     ):
         return ops.list_summary(service, p, ([] if selected else None) if list_names is None else list_names)
+
+    @app.get("/v1/list-catalog")
+    def list_catalog(p=Depends(principal)):
+        from app.lead_lists import list_catalog
+
+        return list_catalog(service, p)
+
+    @app.get("/v1/lead-selection")
+    def lead_selection(scope: Annotated[LeadSelectionScope, Query()], p=Depends(administrator)):
+        from app.workspace import lead_selection
+
+        return lead_selection(service, p, scope.model_dump())
 
     @app.patch("/v1/lists")
     def manage_list(data: ListEdit, p=Depends(administrator)):

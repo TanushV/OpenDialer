@@ -14,7 +14,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 
 from app import ops
-from app.lead_lists import budget_scope, memberships
+from app.lead_lists import budget_scope, memberships, uses_master
 from app.platform.db import MODELS, Job, doc, emit, put, uid, update
 from app.preparation.agent import INSTRUCTIONS, TOOLS, SimulatedAgent, ThreadWork, simulated_page
 from app.preparation.templates import (
@@ -84,13 +84,15 @@ def company_key(lead):
 
 
 def preparation_permitted(service, s, p, lead):
-    return (
-        lead.data.get("status") in {"eligible", "preparing"}
-        and (
-            (lead.data.get("test_list_contact") and not lead.data.get("archived"))
-            or ops.list_permitted(service, s, p, lead)
-        )
-        and not ops.suppressed(service, s, p, lead.data["phone"])
+    if lead.data.get("status") not in {"eligible", "preparing"} or ops.suppressed(
+        service, s, p, lead.data["phone"]
+    ):
+        return False
+    if lead.data.get("test_list_contact"):
+        return not lead.data.get("archived")
+    campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
+    return ops.list_permitted(service, s, p, lead) and not uses_master(
+        service, p, lead.data, campaign.data.get("lists", {})
     )
 
 
@@ -264,10 +266,10 @@ def script_row(service, s, p, lead):
     return row
 
 
-def selected_script(service, s, p, lead, *, assignment=None):
+def selected_script(service, s, p, lead, *, assignment=None, master_only=False):
     """The script a rep sees for this lead: its prepared picks and text over the current base."""
     state = ops.preparation_state(service, s, p, lead)
-    row = ops.script_row(service, s, p, lead)
+    row = None if master_only else ops.script_row(service, s, p, lead)
     script = ops.fallback_script(service, s, p, lead)
     template = script["template"]
     proposal, arm = None, None
@@ -545,10 +547,11 @@ def rewrite_scripts(
         if lead_ids is not None:
             query = query.where(model.id.in_(lead_ids))
         generation, count = uid(), 0
+        selected = {**p, "dial_lists": [list_name]} if list_name is not None else p
         for lead in s.scalars(query):
             if list_name is not None and list_name not in memberships(lead.data):
                 continue
-            if not ops.preparation_permitted(service, s, p, lead):
+            if not ops.preparation_permitted(service, s, selected, lead):
                 continue
             if remaining_only and ops.preparation_state(service, s, p, lead)["status"] == "ready":
                 continue
@@ -763,7 +766,10 @@ def preparation_status(service, p):
             summary[category] += 1
             catalog = ops.required(service, s, "campaigns", lead.data["campaign_id"], p).data.get("lists", {})
             for name in memberships(lead.data):
-                if catalog.get(name, {}).get("archived"):
+                if (
+                    catalog.get(name, {}).get("archived")
+                    or catalog.get(name, {}).get("script_mode") == "master"
+                ):
                     continue
                 entry = lists.setdefault(
                     name,

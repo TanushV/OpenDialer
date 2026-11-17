@@ -100,6 +100,8 @@ class LeadAttempts(View):
     attempt_allowance: int | None = None
     last_attempt_at: str | None = None
     next_attempt_at: str | None = None
+    cadence_not_before: str | None = None
+    coverage_due_at: str | None = None
     pair_until: str | None = None
     pair_of: str | None = None
 
@@ -113,10 +115,6 @@ class CommandView(View):
     prior_attempt: dict[str, Any] = {}
     lease_until: str | None = None
     sent_at: str | None = None
-
-
-class PolicyLimits(View):
-    max_attempts: int = 4
 
 
 class LegView(View):

@@ -39,6 +39,7 @@ TIMING_REASONS = {"OUTSIDE_CALLING_WINDOW", "NOT_DUE", "CADENCE_LIMIT", "ENDPOIN
 REGISTRY_REASONS = {"REGISTRY_NOT_CLEARED_FOR_ENDPOINT", "SCREENING_PENDING"}
 # Why nobody can be called, in the order a rep can act on it. The first reason present is shown, then the rest briefly.
 WHY_NOBODY = [
+    ({"MASTER_SCRIPT_REQUIRED"}, *CATALOG["MASTER_SCRIPT_REQUIRED"]),
     ({"SCRIPT_NOT_READY"}, *CATALOG["SCRIPT_NOT_READY"]),
     (
         {"CRM_SYNC_STALE"},

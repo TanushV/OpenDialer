@@ -635,6 +635,59 @@ def test_recovery_routes_refuse_stale_items_and_unknown_identities(workspace):
     call(ws, "POST", "/v1/admin/recovery/jobs/unknown/retry", json={"expected_attempts": 0}, status=404)
 
 
+def test_archive_only_legacy_webhooks_corroborated_by_agent_session(workspace, clock, app):
+    from app.platform.db import Job, put
+    from app.platform.db import get as read_row
+    from app.telephony.ingress import archive_legacy_audio_webhooks
+
+    service, ws = app.state.service, workspace
+    old = clock.now - timedelta(days=10)
+    with service.db.transaction() as s:
+        put(
+            s,
+            "call_legs",
+            ws["tenant_id"],
+            ws["seller_id"],
+            {"kind": "agent", "state": "ended", "provider_id": "known-agent"},
+            now=old,
+        )
+        for provider, session in [
+            ("known-agent", "rep-session"),
+            ("old-sip", "rep-session"),
+            ("unresolved", "other-session"),
+        ]:
+            receipt = put(
+                s,
+                "webhook_inbox",
+                ws["tenant_id"],
+                "",
+                {
+                    "event_type": "call.hangup",
+                    "received_at": old.isoformat(),
+                    "signature_verified": True,
+                    "status": "processed" if provider == "known-agent" else "review_required",
+                    "payload": {"call_control_id": provider, "call_session_id": session},
+                },
+                now=old,
+            )
+            if provider == "known-agent":
+                continue
+            queued = service.jobs.enqueue_in(
+                s, "webhook", {"receipt_id": receipt.id}, provider, tenant_id=ws["tenant_id"]
+            )
+            job = s.get(Job, queued["id"])
+            job.status, job.attempts, job.error = "dead", 3, "RuntimeError"
+            if provider == "old-sip":
+                stale_job, receipt_id = job.id, receipt.id
+    assert archive_legacy_audio_webhooks(service.db, clock.now) == 1
+    assert archive_legacy_audio_webhooks(service.db, clock.now) == 0
+    with service.db.transaction(False) as s:
+        assert s.get(Job, stale_job).status == "archived"
+        assert read_row(s, "webhook_inbox", receipt_id, ws["tenant_id"]).data["status"] == "ignored"
+    jobs = get(ws, "/v1/admin/recovery")["jobs"]
+    assert len(jobs) == 1 and jobs[0]["event_type"] == "call.hangup"
+
+
 @pytest.mark.parametrize("lost", [False, True])
 def test_uncertain_outbound_hangup_is_listed_then_stopped_or_reconciled_without_a_redial(
     workspace, carrier, lost

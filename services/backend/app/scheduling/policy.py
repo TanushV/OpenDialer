@@ -13,7 +13,8 @@ def parsed(value):
 def queue_decision(context, lead, *, own_claim=None, endpoint_claimed=False, by_hand=False, now=None):
     """Shared read-only eligibility for setup and the queue; never a reservation."""
     reasons = authorize(context).reasons
-    if not context.own_test_line and lead.get("status") != "eligible":
+    statuses = {"eligible", "preparing"} if context.use_master else {"eligible"}
+    if not context.own_test_line and lead.get("status") not in statuses:
         reasons.append("LEAD_NOT_ELIGIBLE")
     hold = number_hold(lead, now)
     if hold and not (context.own_test_line or (by_hand and hold in BY_HAND)):

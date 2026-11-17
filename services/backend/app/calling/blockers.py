@@ -14,7 +14,7 @@ from fastapi import HTTPException
 class Blocker:
     code: str
     message: str
-    fix: str  # Where the rep fixes it: settings, numbers, leads, dialer or attention.
+    fix: str  # Page or control where the rep can resolve this blocker.
     # Promised to clear by itself, was repaired once and is still here (R9E.6): the screen shows the real control.
     stuck: bool = False
 
@@ -73,6 +73,10 @@ CATALOG = {
         "Leads need a current script. Open Leads and choose Generate scripts under Research and scripts.",
         "leads",
     ),
+    "MASTER_SCRIPT_REQUIRED": (
+        "Save a master script on the Script page to call from this Dial only list.",
+        "script",
+    ),
     "NO_CALLER_NUMBER": ("Add a caller number in Numbers: buy one, or add one you own.", "numbers"),
     "CALLER_NUMBER_ROUTE_REQUIRED": ("In Numbers, choose Set up route on your caller number.", "numbers"),
     "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": (
@@ -123,6 +127,7 @@ EXITS = {
     "CONNECTION_DELIVERY_GAP": Exit(by_itself_within=60),
     "NO_CAMPAIGN": Exit(control="Leads: Import a list"),
     "SCRIPT_NOT_READY": Exit(control="Leads: Generate scripts"),
+    "MASTER_SCRIPT_REQUIRED": Exit(control="Script: Save script"),
     "NO_CALLER_NUMBER": Exit(control="Numbers: Buy or add a number, or ask the pool operator to add one"),
     "CALLER_NUMBER_ROUTE_REQUIRED": Exit(control="Numbers: Set up route"),
     "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": Exit(

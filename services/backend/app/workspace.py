@@ -1,5 +1,7 @@
 """Bounded workspace previews and resumable encrypted history; no new search store."""
 
+import hashlib
+
 from sqlalchemy import and_, func, literal_column, or_, select
 
 from app import ops
@@ -41,6 +43,49 @@ def active_lead_filter(campaigns, model):
         func.coalesce(model.data["archived"].as_boolean(), False).is_(False),
         or_(*memberships),
     )
+
+
+def lead_query(service, s, p, view, list_name):
+    model = MODELS["leads"]
+    query = scoped_query(model, p)
+    if list_name is not None:
+        query = query.where(in_list(model, list_name))
+    if view != "all":
+        active = active_lead_filter(ops.scoped(service, s, "campaigns", p), model)
+        query = query.where(active if view == "active" else ~active)
+    return query
+
+
+def matches_lead(value, query):
+    return (
+        not query
+        or query.casefold()
+        in " ".join(str(value.get(k, "")) for k in ("name", "company", "phone")).casefold()
+    )
+
+
+def matching_leads(service, s, p, scope, *, lock=False):
+    model = MODELS["leads"]
+    query = lead_query(service, s, p, scope["filter"], scope.get("list_name")).order_by(model.id)
+    if lock:
+        query = query.with_for_update()
+    return [row for row in s.scalars(query) if matches_lead(row.data, scope["q"])]
+
+
+def selection_fingerprint(leads):
+    return hashlib.sha256("\n".join(lead.id for lead in leads).encode()).hexdigest()
+
+
+def lead_selection(service, p, scope):
+    from app.lead_lists import memberships
+
+    with service.db.transaction(False) as s:
+        leads = matching_leads(service, s, p, scope)
+        return {
+            "total": len(leads),
+            "fingerprint": selection_fingerprint(leads),
+            "memberships": sorted({name for row in leads for name in memberships(row.data)}),
+        }
 
 
 def page_count(s, query, model):
@@ -110,12 +155,7 @@ def workspace_page(
         if section == "jobs":
             return ops._job_page(service, s, p, cursor, limit)
         model = MODELS[PAGE_TABLES[section]]
-        query = scoped_query(model, p)
-        if section == "leads" and list_name is not None:
-            query = query.where(in_list(model, list_name))
-        if section == "leads" and filter != "all":
-            active = active_lead_filter(ops.scoped(service, s, "campaigns", p), model)
-            query = query.where(active if filter == "active" else ~active)
+        query = lead_query(service, s, p, filter, list_name) if section == "leads" else scoped_query(model, p)
         if section == "tasks":
             query = query.where(or_(model.op_status != "aliased", model.op_status.is_(None)))
         if section == "registries":
@@ -141,10 +181,7 @@ def workspace_page(
         for row in records[:scan_limit]:
             examined.append(row)
             value = doc(row)
-            if (
-                q.casefold()
-                not in " ".join(str(value.get(k, "")) for k in ("name", "company", "phone")).casefold()
-            ):
+            if not matches_lead(value, q):
                 continue
             if section == "calls" and filter != "all":
                 if bool(value.get("outcome")) if filter == "unconfirmed" else value.get("outcome") != filter:

@@ -56,7 +56,7 @@ test.describe("compact desktop layout", () => {
   test("idle Dialer and Leads keep long list names inside their controls", async ({
     page,
   }) => {
-    await page.route(/\/v1\/lists(?:\?|$)/, async (route) => {
+    await page.route(/\/v1\/(?:lists|list-catalog)(?:\?|$)/, async (route) => {
       const response = await route.fetch();
       const data = await response.json();
       if (data.lists.length) data.lists[0].name = longName;
@@ -115,9 +115,10 @@ test.describe("compact desktop layout", () => {
     await expect(removeList).toBeVisible();
     expect(await textLines(removeList)).toBe(1);
     await page
-      .getByRole("checkbox", { name: "Select all visible leads" })
-      .check();
+      .getByRole("checkbox", { name: "Select all matching leads" })
+      .click();
     const bulk = page.getByRole("region", { name: "Selected lead actions" });
+    await expect(bulk).toBeVisible();
     const action = (await bulk
       .getByRole("combobox", { name: "Lead action" })
       .boundingBox())!;

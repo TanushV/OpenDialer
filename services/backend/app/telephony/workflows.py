@@ -502,7 +502,8 @@ def _offer_second_attempt(service, s, call, lead, policy):
     """
     allowance = call.data.get("attempt_allowance", policy.get("max_attempts", 4))
     if (
-        call.data.get("attempt_ordinal") != allowance - 1
+        not call.data.get("quick_retry", True)
+        or call.data.get("attempt_ordinal") != allowance - 1
         or call.data.get("pair_of")
         or lead.data.get("callback_due_at")
         or lead.data.get("outreach_hold")

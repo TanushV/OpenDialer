@@ -45,8 +45,9 @@ export function useHistory<T extends { id: string; version?: number }>(
   const total = loaded ? loaded.total : preview?.total;
   const capped = loaded ? loaded.total_capped : preview?.total_capped;
   async function load(append = false, query = "", filter = "all") {
+    if (current.current !== identity) return;
     const request = ++generation.current;
-    const scope = current.current;
+    const scope = identity;
     setBusy(true);
     try {
       const params = new URLSearchParams({

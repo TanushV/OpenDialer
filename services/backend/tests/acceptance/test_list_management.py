@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from journey import call, get, hang_up, import_leads, post, ready, wrap_up
+from journey import call, event, get, hang_up, import_leads, post, ready, run_jobs, wrap_up
 
 
 def imported(ws, name, phone, timezone="America/Los_Angeles"):
@@ -36,6 +36,106 @@ def begin(ws, reservation, key):
     return post(
         ws, "/v1/calls/start", {"reservation_id": reservation["reservation_id"], "idempotency_key": key}
     )
+
+
+def test_filter_catalog_and_bulk_selection_cover_every_matching_page(workspace):
+    ws = workspace
+    import_leads(
+        ws,
+        [{"name": f"Match {i}", "phone": f"+1415555{1000 + i}"} for i in range(53)]
+        + [{"name": "Other name", "phone": "+14155551100"}],
+        list_name="Bulk source",
+    )
+    other = imported(ws, "Match in other list", "+14155551101")
+    assert "Bulk source" in {r["name"] for r in get(ws, "/v1/list-catalog")["lists"]}
+    scope = {"filter": "active", "list_name": "Bulk source", "q": "Match"}
+    match = get(ws, "/v1/lead-selection", params=scope)
+    assert match["total"] == 53
+    page = get(ws, "/v1/workspace/leads", params=scope)
+    assert len(page["items"]) == 50 and page["next_cursor"]
+    exclude = page["items"][0]["id"]
+    result = post(
+        ws,
+        "/v1/leads/bulk",
+        {
+            "selection": {**scope, "fingerprint": match["fingerprint"], "exclude": [exclude]},
+            "action": "archive",
+        },
+    )
+    assert result["updated"] == 52
+    assert get(ws, "/v1/lead-selection", params=scope)["total"] == 1
+    assert not get(ws, f"/v1/leads/{other['id']}/packet")["lead"].get("archived")
+    post(
+        ws,
+        "/v1/leads/bulk",
+        {"selection": {**scope, "fingerprint": match["fingerprint"]}, "action": "archive"},
+        status=409,
+    )
+
+
+def test_dial_only_uses_master_and_keeps_regular_calling_safety(workspace, app):
+    from test_campaign_prep import SCRIPT, save_script
+
+    ws = workspace
+    app.state.service.require_prepared_scripts = True
+    save_script(ws, SCRIPT)
+    lead = imported(ws, "Direct list", "+14155551110")
+    manage(ws, "Direct list", "dialing", script_mode="master", max_attempts=1)
+    assert post(ws, "/v1/preparation/lists", {"list_name": "Direct list"})["marked"] == 0
+    reservation = choose(ws, ["Direct list"])
+    assert reservation["lead"]["id"] == lead["id"]
+    manage(ws, "Direct list", "dialing", script_mode="prepared", max_attempts=1)
+    denied = post(
+        ws,
+        "/v1/calls/start",
+        {"reservation_id": reservation["reservation_id"], "idempotency_key": "needs-script"},
+        status=403,
+    )
+    assert "SCRIPT_NOT_READY" in denied["detail"]["reasons"]
+    manage(ws, "Direct list", "dialing", script_mode="master", max_attempts=1)
+    placed = begin(ws, reservation, "base-script")
+    assert placed["script_snapshot"]["fallback"]
+    post(ws, "/v1/suppressions", {"phone": lead["phone"], "reason": "opt_out"})
+    assert (
+        next(row for row in get(ws, "/v1/lists")["lists"] if row["name"] == "Direct list")["callable_now"]
+        == 0
+    )
+
+
+def test_list_cadence_survives_switching_lists_and_applies_each_wait(workspace, clock):
+    from test_final_stage import sign_in
+
+    ws = workspace
+    lead = imported(ws, "Three touches", "+14155551111")
+    manage(ws, "Three touches", "dialing", max_attempts=3, retry_days=[2, 3])
+    import_leads(ws, [{"phone": lead["phone"]}], list_name="Default timing")
+
+    def dial_and_end(name, ordinal):
+        placed = begin(ws, choose(ws, [name]), f"touch-{ordinal}")
+        assert placed["attempt_ordinal"] == ordinal
+        event(ws, placed["id"], "call.hangup", hangup_cause="no_answer")
+        run_jobs(ws, rounds=2)
+
+    def refused(name):
+        ready(ws)
+        post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"], "list_names": [name]}, status=409)
+
+    dial_and_end("Three touches", 1)
+    clock.now += timedelta(days=1)
+    sign_in(ws)
+    refused("Default timing")
+    clock.now += timedelta(days=1)
+    sign_in(ws)
+    dial_and_end("Default timing", 2)
+    clock.now += timedelta(days=2)
+    sign_in(ws)
+    refused("Three touches")
+    clock.now += timedelta(days=1)
+    sign_in(ws)
+    dial_and_end("Three touches", 3)
+    clock.now += timedelta(days=4)
+    sign_in(ws)
+    refused("Default timing")
 
 
 def test_duplicate_import_links_both_lists_without_a_second_contact(workspace):

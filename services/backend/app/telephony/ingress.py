@@ -384,3 +384,73 @@ def queue_unfinished_webhooks(service):
             job = s.get(Job, queued["id"])
             if job.status == "dead":
                 update(receipt, status="review_required", error=job.error or "Processing attempts exhausted")
+
+
+def archive_legacy_audio_webhooks(db, now):
+    """Settle old unmatched SIP-leg jobs using saved evidence, without replaying provider events."""
+    inbox, legs = MODELS["webhook_inbox"], MODELS["call_legs"]
+    provider = inbox.data["payload"]["call_control_id"].as_string()
+    session = inbox.data["payload"]["call_session_id"].as_string()
+    with db.transaction() as s:
+        jobs = list(
+            s.scalars(
+                select(Job).where(Job.queue == "webhook", Job.status == "dead", Job.error == "RuntimeError")
+            )
+        )
+        if not jobs:
+            return 0
+        agent_sessions = set(
+            s.execute(
+                select(inbox.tenant_id, session)
+                .join(legs, (legs.tenant_id == inbox.tenant_id) & (legs.op_provider_id == provider))
+                .where(
+                    legs.data["kind"].as_string() == "agent",
+                    inbox.data["signature_verified"].as_boolean().is_(True),
+                    session.is_not(None),
+                )
+            )
+        )
+        archived = 0
+        for job in jobs:
+            receipt = get(s, "webhook_inbox", job.payload.get("receipt_id"), job.tenant_id)
+            if not receipt:
+                continue
+            data = receipt.data
+            payload = data.get("payload") or {}
+            target = payload.get("call_control_id")
+            received = dt(data.get("received_at"))
+            if (
+                data.get("status") != "review_required"
+                or not data.get("signature_verified")
+                or data.get("event_type") not in {"call.initiated", "call.answered", "call.hangup"}
+                or not received
+                or received > now - timedelta(days=7)
+                or payload.get("direction") == "incoming"
+                or payload.get("client_state")
+                or data.get("relay_callback")
+                or data.get("callback_call_id")
+                or not target
+                or (job.tenant_id, payload.get("call_session_id")) not in agent_sessions
+            ):
+                continue
+            matched = False
+            for table in ("call_attempts", "call_legs", "followup_tasks"):
+                model = MODELS[table]
+                if s.scalar(
+                    select(model.id)
+                    .where(model.tenant_id == job.tenant_id, model.op_provider_id == target)
+                    .limit(1)
+                ):
+                    matched = True
+                    break
+            if matched:
+                continue
+            update(
+                receipt,
+                status="ignored",
+                ignored_reason="legacy_rep_audio_companion",
+                processed_at=now.isoformat(),
+            )
+            job.status = "archived"
+            archived += 1
+        return archived

@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import and_, exists, func, or_, select
 
 from app import ops
-from app.compliance.policy import authorize
+from app.compliance.policy import ORDINARY_RETRY_SECONDS, authorize, retry_seconds
 from app.optimization.geography import normalize_state
 from app.optimization.numbering import select_number, timestamp
 from app.platform.db import MODELS, audit, doc, emit, update
@@ -53,6 +53,44 @@ def preparation_budget_scope(service, p, name):
         return budget_scope(ops.selected_campaign(service, s, p).data, name)
 
 
+def allowed_memberships(service, p, lead, catalog, *, include_paused=False):
+    selected = None if p.get("callback_lead_id") else p.get("dial_lists")
+    pool = service.managed.pool
+    return [
+        name
+        for name in memberships(lead)
+        if name != TEST_LIST
+        and (selected is None or name in selected)
+        and not catalog.get(name, {}).get("archived")
+        and (include_paused or not catalog.get(name, {}).get("paused"))
+        and (
+            pool is None or (catalog.get(name, {}).get("crm") or {}).get("list_id") in {None, pool.segment_id}
+        )
+    ]
+
+
+def uses_master(service, p, lead, catalog):
+    names = allowed_memberships(service, p, lead, catalog, include_paused=bool(p.get("callback_lead_id")))
+    return bool(names) and all(catalog.get(name, {}).get("script_mode") == "master" for name in names)
+
+
+def attempt_limits(service, lead, campaign, policy, attempts):
+    catalog = campaign.get("lists", {})
+    names = allowed_memberships(service, {}, lead, catalog, include_paused=True)
+    rules = [catalog.get(name, {}) for name in names]
+    maximum = min(
+        (row.get("max_attempts") or policy.get("max_attempts", 4) for row in rules),
+        default=policy.get("max_attempts", 4),
+    )
+    index = max(0, attempts - 1)
+    waits = [days[index] for row in rules if index < len(days := row.get("retry_days", []))]
+    return (
+        maximum,
+        max(retry_seconds(policy), max(waits, default=0) * ORDINARY_RETRY_SECONDS),
+        not any(r.get("retry_days") for r in rules),
+    )
+
+
 def list_permitted(service, s, p, lead):
     value = lead.data
     if value.get("test_list_contact"):
@@ -63,28 +101,47 @@ def list_permitted(service, s, p, lead):
         return False
     campaign = ops.required(service, s, "campaigns", value["campaign_id"], p)
     catalog = campaign.data.get("lists", {})
-    names = [name for name in memberships(value) if name != TEST_LIST]
-    if (pool := service.managed.pool) is not None:
-        names = [
-            name
-            for name in names
-            if (catalog.get(name, {}).get("crm") or {}).get("list_id") in {None, pool.segment_id}
-        ]
     if p.get("callback_lead_id"):
         due = timestamp(value.get("callback_due_at"))
         return bool(
             lead.id == p["callback_lead_id"]
             and due
             and due <= service.clock()
-            and any(not catalog.get(name, {}).get("archived") for name in names)
+            and allowed_memberships(service, p, value, catalog, include_paused=True)
         )
-    selected = p.get("dial_lists")
-    return any(
-        (selected is None or name in selected)
-        and not catalog.get(name, {}).get("paused")
-        and not catalog.get(name, {}).get("archived")
-        for name in names
-    )
+    return bool(allowed_memberships(service, p, value, catalog))
+
+
+def list_catalog(service, p):
+    """Names and visibility are independent of the callability calculation."""
+    with service.db.transaction(False) as s:
+        campaign = ops.selected_campaign(service, s, p)
+        catalog = campaign.data.get("lists", {})
+        model = MODELS["leads"]
+        stored = s.execute(
+            select(model.data["list_names"], model.data["list_name"])
+            .distinct()
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_campaign_id == campaign.id,
+            )
+        )
+        names = set(catalog)
+        for names_json, name in stored:
+            names.update(names_json if names_json is not None else [name or ""])
+        return {
+            "lists": [
+                {
+                    "name": name,
+                    "paused": bool(catalog.get(name, {}).get("paused")),
+                    "archived": bool(catalog.get(name, {}).get("archived")),
+                    "script_mode": catalog.get(name, {}).get("script_mode", "prepared"),
+                }
+                for name in sorted(names)
+                if name != TEST_LIST and not catalog.get(name, {}).get("test_list")
+            ]
+        }
 
 
 def list_summary(service, p, list_names=None):
@@ -168,13 +225,18 @@ def list_summary(service, p, list_names=None):
                 row["held"] += held
                 row["completed"] += bool(
                     value.get("conversion_goal_achieved")
-                    or value.get("attempt_count", 0) >= policy.get("max_attempts", 4)
+                    or value.get("attempt_count", 0)
+                    >= attempt_limits(service, value, campaign.data, policy, value.get("attempt_count", 0))[0]
                 )
                 row["callbacks_due"] += callback
                 context = ops.context(service, s, {**p, "dial_lists": [name]}, lead, number)
                 reasons = set(authorize(context).reasons) - {"REP_NOT_READY", "AUDIO_NOT_READY"}
                 row["callable_now"] += (
-                    value.get("status") == "eligible"
+                    (
+                        value.get("status") == "eligible"
+                        or context.use_master
+                        and value.get("status") == "preparing"
+                    )
                     and not reasons
                     and not ops._company_contacted(
                         service, s, p, lead, s.info["active_claims"], service.clock()
@@ -236,6 +298,12 @@ def manage_list(service, p, body):
             for lead in leads:
                 set_memberships(lead, [new if n == name else n for n in memberships(lead.data)])
                 emit(s, p["tenant_id"], "lead.updated", lead, service.clock())
+        elif action == "dialing":
+            maximum, waits = body.get("max_attempts"), body.get("retry_days", [])
+            if waits and (maximum is None or len(waits) != maximum - 1):
+                fail(422, "Enter one wait in days between each attempt, or leave the waits blank.")
+            state.update(script_mode=body["script_mode"], max_attempts=maximum, retry_days=waits)
+            catalog[name] = state
         else:
             state["paused" if action in {"pause", "resume"} else "archived"] = action in {
                 "pause",
@@ -275,13 +343,35 @@ def bulk_leads(service, p, body):
             fail(422, "Use a valid US state")
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        leads = [
-            ops.required(service, s, "leads", identity, p, lock=True)
-            for identity in dict.fromkeys(body["lead_ids"])
-        ]
+        selection = body.get("selection")
+        if selection:
+            from app.workspace import matching_leads, selection_fingerprint
+
+            leads = matching_leads(service, s, p, selection, lock=True)
+            if selection_fingerprint(leads) != selection["fingerprint"]:
+                fail(409, "Matching leads changed. Select all again to confirm the current results.")
+            excluded = set(selection["exclude"])
+            leads = [lead for lead in leads if lead.id not in excluded]
+            if not leads:
+                fail(422, "Select at least one lead")
+        else:
+            leads = [
+                ops.required(service, s, "leads", identity, p, lock=True)
+                for identity in dict.fromkeys(body["lead_ids"])
+            ]
         if action != "location" and any(lead.data.get("test_list_contact") for lead in leads):
             fail(409, "Use Settings to manage the test list.")
         requested = len(leads)
+        if action in {"move", "add"}:
+            name = body["list_name"].strip()
+            for identity in sorted({lead.data["campaign_id"] for lead in leads}):
+                campaign = ops.required(service, s, "campaigns", identity, p, lock=True)
+                catalog = campaign.data.get("lists", {})
+                if name == TEST_LIST or catalog.get(name, {}).get("test_list"):
+                    fail(409, "Use Settings to manage the test list.")
+                if name not in catalog:
+                    update(campaign, lists={**catalog, name: {}})
+                    emit(s, p["tenant_id"], "campaign.updated", campaign, service.clock())
         if action == "remove":
             name = body["list_name"].strip()
             leads = [lead for lead in leads if name in memberships(lead.data)]
@@ -312,11 +402,6 @@ def bulk_leads(service, p, body):
                     if action == "remove"
                     else [*previous, name],
                 )
-                if action != "remove":
-                    campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p, lock=True)
-                    if campaign.data.get("lists", {}).get(name, {}).get("test_list"):
-                        fail(409, "Use Settings to manage the test list.")
-                    update(campaign, lists={name: {}, **campaign.data.get("lists", {})})
             emit(s, p["tenant_id"], "lead.updated", lead, service.clock())
         audit(
             s,
@@ -331,5 +416,5 @@ def bulk_leads(service, p, body):
         return {
             "updated": len(leads),
             "unchanged": requested - len(leads),
-            "leads": [doc(lead) for lead in leads],
+            **({"leads": [doc(lead) for lead in leads]} if not selection else {}),
         }

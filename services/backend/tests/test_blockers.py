@@ -9,7 +9,7 @@ from app.calling.blockers import CATALOG, Facts, blocked, blockers, refuse
 from fastapi import HTTPException
 
 APP = Path(__file__).resolve().parents[1] / "app"
-FIXES = {"settings", "numbers", "leads", "dialer", "attention"}
+FIXES = {"settings", "numbers", "leads", "script", "dialer", "attention"}
 
 
 def codes(**facts):

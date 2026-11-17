@@ -27,6 +27,7 @@ const FIX_PAGE: Record<string, string> = {
   settings: "Settings",
   numbers: "Numbers",
   leads: "Leads",
+  script: "Script",
   attention: "Review",
 };
 

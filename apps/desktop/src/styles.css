@@ -2564,6 +2564,14 @@ details.transcript-card {
 .list-rename[open] > * + * {
   margin-top: 6px;
 }
+.list-dialing {
+  max-width: 16rem;
+  white-space: normal;
+}
+.list-dialing label {
+  display: grid;
+  gap: 4px;
+}
 .bulk-leads {
   display: flex;
   flex-wrap: wrap;

@@ -13,7 +13,7 @@ from app.calling import audio_leg
 from app.calling.blockers import refuse, test_line_refusal
 from app.calling.state import moved, transition
 from app.compliance.phone import normalize_phone
-from app.compliance.policy import CallContext, retry_seconds
+from app.compliance.policy import CallContext
 from app.lead_lists import TEST_LIST, in_list, memberships, set_memberships
 from app.leads import intake
 from app.leads.record import csv_fields, number_view
@@ -536,6 +536,8 @@ def budget_ok(service, s, p, estimated=0.001, scope="other"):
 
 
 def context(service, s, p, lead, number, *, permission="live", active=False):
+    from app.lead_lists import attempt_limits, uses_master
+
     campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
     policy = ops.required(service, s, "policy_versions", campaign.data["policy_id"], p)
     seller = ops.required(service, s, "sellers", p["seller_id"], p)
@@ -543,6 +545,11 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
     endpoint = ops.required(service, s, "phone_endpoints", endpoint_id, p) if endpoint_id else None
     user = ops.required(service, s, "users", p["user_id"], p)
     config, presence = policy.data, user.data.get("presence", {})
+    count = lead.data.get("attempt_count", 0)
+    maximum, retry, quick_retry = attempt_limits(service, lead.data, campaign.data, config, count)
+    last = dt(lead.data.get("last_attempt_at"))
+    if last and (cadence_due := dt(lead.data.get("cadence_not_before"))):
+        retry = max(retry, (cadence_due - last).total_seconds())
     internal_suppressed = ops.suppressed(service, s, p, lead.data["phone"])
     # Registry imports and consent records are gone (R2.5); neither was ever loaded in practice.
     state_listed, state_current = False, False
@@ -567,6 +574,7 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
     )
     pair_open = bool(
         not active
+        and quick_retry
         and (until := dt(lead.data.get("pair_until")))
         and service.clock() < until
         and lead.data.get("pair_rep_id") in {None, p["user_id"]}
@@ -579,15 +587,25 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         if p.get("test_run_id") or test_run or lead.data.get("test_list_contact")
         else ops.own_test_line(service, p, lead)
     )
-    return CallContext(
-        now=service.clock(),
-        script_ready=active
-        or own_test_line
-        or not service.require_prepared_scripts
-        or (
+    use_master = (
+        not active
+        and not own_test_line
+        and uses_master(service, p, lead.data, campaign.data.get("lists", {}))
+    )
+    script_ready = active or own_test_line or not service.require_prepared_scripts
+    if use_master:
+        script_ready = lead.data.get("status") in {"eligible", "preparing"} and bool(
+            ops.lead_script_base(service, s, p, lead)["template"]
+        )
+    elif not script_ready:
+        script_ready = (
             lead.data.get("status") == "eligible"
             and ops.preparation_state(service, s, p, lead)["status"] == "ready"
-        ),
+        )
+    return CallContext(
+        now=service.clock(),
+        use_master=use_master,
+        script_ready=script_ready,
         continuing_call=active,
         authorization_reconciled=not seller.data.get("restore_hold", False),
         outreach_hold=bool(
@@ -632,11 +650,11 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         ),
         number_healthy=bool(healthy),
         number_authorized=authorized_number,
-        attempt_count=0 if active else lead.data.get("attempt_count", 0),
-        max_attempts=config.get("max_attempts", 4),
+        attempt_count=0 if active else count,
+        max_attempts=maximum,
         next_attempt_at=None if active else dt(lead.data.get("next_attempt_at")),
-        last_attempt_at=None if active else dt(lead.data.get("last_attempt_at")),
-        min_retry_seconds=retry_seconds(config),
+        last_attempt_at=None if active else last,
+        min_retry_seconds=retry,
         callback_due=callback_due,
         pair_open=pair_open,
         # AI budgets are per lead list and never gate calling.

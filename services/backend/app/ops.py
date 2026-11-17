@@ -113,6 +113,7 @@ HOMES = {
     "add_proposal_in": "app.optimization.script_lab",
     "adopt_script_in": "app.optimization.script_lab",
     "agent_route": "app.preparation.workflows",
+    "attempt_limits": "app.lead_lists",
     "auto_disposition": "app.rep_workflows",
     "backup": "app.administration",
     "bind_dial_receipt": "app.calling.dial",

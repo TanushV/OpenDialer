@@ -23,7 +23,8 @@ import {
   ListsPage,
   leadLists,
   listLabel,
-  useLists,
+  useListCatalog,
+  type LeadSelection,
 } from "./LeadLists";
 import { PreparationPanel } from "./PreparationPanel";
 import { ScriptEditor } from "./ScriptEditor";
@@ -94,12 +95,80 @@ export function LeadsPage({
   const reloadLeads = () =>
     history.load(false, current.current.query, current.current.leadView);
   const [selected, setSelected] = useState<string[]>([]);
-  const lists = useLists();
+  const [all, setAll] = useState<
+    (LeadSelection & { total: number; memberships: string[] }) | null
+  >(null);
+  const [selecting, setSelecting] = useState(false);
+  const lists = useListCatalog();
   const history = useHistory<Lead>("leads", [], {
     filter: leadView,
     ...(filterList === null ? {} : { list_name: filterList }),
   });
   const leads = history.items;
+  const selectionScope = {
+    filter: leadView,
+    ...(filterList === null ? {} : { list_name: filterList }),
+    q: history.query,
+  };
+  const scopeKey = JSON.stringify(selectionScope);
+  const selectionScopeKey = useRef(scopeKey);
+  selectionScopeKey.current = scopeKey;
+  function clearSelection() {
+    setAll(null);
+    setSelected([]);
+  }
+  function searchLeads() {
+    clearSelection();
+    return history.load(false, query, leadView);
+  }
+  async function selectAll() {
+    const params = new URLSearchParams(selectionScope);
+    setSelecting(true);
+    try {
+      const result = await api<{
+        total: number;
+        fingerprint: string;
+        memberships: string[];
+      }>(`/v1/lead-selection?${params}`, "GET", undefined, {
+        timeoutMs: LONG_REQUEST_MS,
+      });
+      if (selectionScopeKey.current === scopeKey) {
+        setSelected([]);
+        setAll(
+          result.total ? { ...selectionScope, ...result, exclude: [] } : null,
+        );
+      }
+    } finally {
+      setSelecting(false);
+    }
+  }
+  const activeSelection =
+    all &&
+    all.filter === leadView &&
+    (all.list_name ?? null) === filterList &&
+    all.q === history.query
+      ? all
+      : null;
+  const selectedCount = activeSelection
+    ? activeSelection.total - activeSelection.exclude.length
+    : selected.length;
+  const isSelected = (id: string) =>
+    activeSelection
+      ? !activeSelection.exclude.includes(id)
+      : selected.includes(id);
+  const listSettings = new Map(
+    lists.data?.lists.map((list) => [list.name, list]),
+  );
+  const scriptLabel = (lead: Lead) => {
+    const memberships = leadLists(lead)
+      .filter((name) => filterList === null || name === filterList)
+      .map((name) => listSettings.get(name))
+      .filter((list) => !list?.archived && !list?.paused);
+    return memberships.length &&
+      memberships.every((list) => list?.script_mode === "master")
+      ? "Uses master script"
+      : SCRIPT_STATUS[lead.script_status ?? ""];
+  };
   const updateLead = history.update;
   useEffect(
     () =>
@@ -133,7 +202,7 @@ export function LeadsPage({
       ? countLabel(activeCount.total, activeCount.total_capped)
       : null);
   useEffect(() => {
-    setSelected([]);
+    clearSelection();
     void run(() => history.load(false, query, leadView));
   }, [api, filterList, leadView]);
   useEffect(() => {
@@ -203,35 +272,61 @@ export function LeadsPage({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter")
-                  void run(() => history.load(false, query, leadView));
+                if (e.key === "Enter" && !selecting) void run(searchLeads);
               }}
             />
             <button
               className="text-button"
               aria-label="Search lead history"
-              disabled={history.busy}
-              onClick={() =>
-                void run(() => history.load(false, query, leadView))
-              }
+              disabled={history.busy || selecting}
+              onClick={() => void run(searchLeads)}
             >
               Search
             </button>
           </div>
         </div>
-        {selected.length > 0 && (
+        {lists.error && (
+          <p role="alert">
+            List filters could not be loaded.{" "}
+            <button
+              className="text-button"
+              onClick={() =>
+                void run(async () => {
+                  await lists.reload();
+                  lists.setError("");
+                })
+              }
+            >
+              Retry list filters
+            </button>
+          </p>
+        )}
+        {selectedCount > 0 && (
           <BulkLeadActions
             selected={selected}
-            memberships={[
-              ...new Set(
-                leads
-                  .filter((lead) => selected.includes(lead.id))
-                  .flatMap(leadLists),
-              ),
-            ].sort()}
+            selection={
+              activeSelection
+                ? {
+                    ...selectionScope,
+                    fingerprint: activeSelection.fingerprint,
+                    exclude: activeSelection.exclude,
+                  }
+                : undefined
+            }
+            count={selectedCount}
+            memberships={
+              activeSelection?.memberships ??
+              [
+                ...new Set(
+                  leads
+                    .filter((lead) => selected.includes(lead.id))
+                    .flatMap(leadLists),
+                ),
+              ].sort()
+            }
             filteredList={filterList}
             updated={async () => {
-              setSelected([]);
+              clearSelection();
               await refresh();
               await reloadLeads();
               await lists.reload();
@@ -248,15 +343,25 @@ export function LeadsPage({
                 <th>
                   <input
                     type="checkbox"
-                    aria-label="Select all visible leads"
-                    checked={
-                      leads.length > 0 &&
-                      leads.every((lead) => selected.includes(lead.id))
+                    aria-label="Select all matching leads"
+                    ref={(node) => {
+                      if (node)
+                        node.indeterminate =
+                          selectedCount > 0 &&
+                          (!activeSelection ||
+                            activeSelection.exclude.length > 0);
+                    }}
+                    checked={Boolean(
+                      activeSelection && !activeSelection.exclude.length,
+                    )}
+                    disabled={
+                      !history.ready ||
+                      history.busy ||
+                      selecting ||
+                      (!leads.length && !history.cursor)
                     }
                     onChange={(e) =>
-                      setSelected(
-                        e.target.checked ? leads.map((lead) => lead.id) : [],
-                      )
+                      e.target.checked ? void run(selectAll) : clearSelection()
                     }
                   />
                 </th>
@@ -274,14 +379,26 @@ export function LeadsPage({
                     <input
                       type="checkbox"
                       aria-label={`Select ${lead.name}`}
-                      checked={selected.includes(lead.id)}
-                      onChange={(e) =>
-                        setSelected(
-                          e.target.checked
-                            ? [...selected, lead.id]
-                            : selected.filter((id) => id !== lead.id),
-                        )
-                      }
+                      checked={isSelected(lead.id)}
+                      disabled={history.busy || selecting}
+                      onChange={(e) => {
+                        if (activeSelection) {
+                          setAll({
+                            ...activeSelection,
+                            exclude: e.target.checked
+                              ? activeSelection.exclude.filter(
+                                  (id) => id !== lead.id,
+                                )
+                              : [...activeSelection.exclude, lead.id],
+                          });
+                        } else {
+                          setSelected(
+                            e.target.checked
+                              ? [...selected, lead.id]
+                              : selected.filter((id) => id !== lead.id),
+                          );
+                        }
+                      }}
                     />
                   </td>
                   <td>
@@ -325,9 +442,7 @@ export function LeadsPage({
                                 : label(lead.status)}
                     </span>
                     {lead.script_status && (
-                      <small className="muted">
-                        {SCRIPT_STATUS[lead.script_status]}
-                      </small>
+                      <small className="muted">{scriptLabel(lead)}</small>
                     )}
                   </td>
                   <td>{lead.attempt_count}</td>

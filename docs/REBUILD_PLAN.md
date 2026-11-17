@@ -2123,3 +2123,7 @@ test assets and admin access before asking for anything. The signed rollout foll
   The existing CRM worker links or creates CSV contacts after a connected conversation when a Service Key is saved.
 - November 16, 2026: the Leads table shows per-lead script status and open lead details refresh as scripts finish.
   Prospect calls require a saved script for the current inputs at reservation and carrier submission. Test calls can use the base script.
+- November 16, 2026: the list filter and Dialer read list names independently of queue counts. Bulk Select all uses
+  the entire applied search and verifies the matching lead IDs before editing. List dialing settings can use the saved
+  master without preparation and set the attempt cap and waits. Shared memberships keep one attempt history and use
+  the stricter applicable cadence. On startup confirmed legacy rep-audio webhook receipts are archived without replay.

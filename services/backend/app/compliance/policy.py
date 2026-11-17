@@ -19,6 +19,7 @@ class CallContext:
     authorization_reconciled: bool = True
     outreach_hold: bool = False
     script_ready: bool = True
+    use_master: bool = False
     callback_owner_matches: bool = True
     endpoint_valid: bool = False
     ownership: str = "unknown"
@@ -81,7 +82,7 @@ def authorize(c: CallContext) -> Decision:
 
     require(c.authorization_reconciled, "RESTORE_RECONCILIATION_REQUIRED")
     require(not c.outreach_hold, "OUTREACH_HOLD")
-    require(c.script_ready, "SCRIPT_NOT_READY")
+    require(c.script_ready, "MASTER_SCRIPT_REQUIRED" if c.use_master else "SCRIPT_NOT_READY")
     require(c.callback_owner_matches, "CALLBACK_ASSIGNED_TO_ANOTHER_REP")
     require(c.endpoint_valid, "INVALID_ENDPOINT")
     require(c.ownership != "wrong_party", "WRONG_PARTY")

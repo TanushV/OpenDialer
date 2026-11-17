@@ -153,14 +153,32 @@ def recovery_items(service, p):
         for job in failed:
             if ops._job_visible(service, s, p, job):
                 reason = ops._job_retry_reason(service, s, p, job)
+                receipt = (
+                    get(s, "webhook_inbox", job.payload.get("receipt_id"), p["tenant_id"])
+                    if job.queue == "webhook"
+                    else None
+                )
                 jobs.append(
                     {
                         "id": job.id,
                         "queue": job.queue,
                         "status": job.status,
                         "attempts": job.attempts,
-                        "reason": reason or error_code(job.error, "Processing attempts exhausted"),
+                        "reason": reason
+                        or (
+                            "Carrier event processing ran out of attempts. Check the original carrier record before retrying."
+                            if receipt and job.error == "RuntimeError"
+                            else error_code(job.error, "Processing attempts exhausted")
+                        ),
                         "can_retry": reason is None,
+                        **(
+                            {
+                                "event_type": receipt.data.get("event_type"),
+                                "received_at": receipt.data.get("received_at"),
+                            }
+                            if receipt
+                            else {}
+                        ),
                     }
                 )
         return {

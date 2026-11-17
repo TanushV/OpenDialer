@@ -79,12 +79,61 @@ test("manage lists and archive/restore selected leads without losing records", a
   await expect(contact.getByText("Removed", { exact: true })).toBeHidden();
 });
 
+test("the list picker and all matching leads work across pages when summary counts fail", async ({
+  page,
+}) => {
+  await enter(page);
+  await openLeads(page);
+  const items = Array.from(
+    { length: 53 },
+    (_, index) => `Bulk matching ${index},+1415555${5300 + index}`,
+  );
+  await page.getByLabel("List name", { exact: true }).fill("Bulk filter list");
+  await page
+    .getByLabel("CSV lead data")
+    .fill(["name,phone", ...items, "Unmatched,+14155555399"].join("\n"));
+  await page.getByRole("button", { name: "Import leads", exact: true }).click();
+  await expect(page.getByText(/^54 imported/)).toBeVisible();
+  await page.route("**/v1/lists", (route) =>
+    route.fulfill({ status: 503, json: { detail: "Counts unavailable" } }),
+  );
+  await page.reload();
+  await goTo(page, "Leads");
+  await page
+    .getByLabel("Filter leads by list")
+    .selectOption("Bulk filter list");
+  await page.getByLabel("Search leads", { exact: true }).fill("Bulk matching");
+  await page.getByRole("button", { name: "Search lead history" }).click();
+  await expect(page.getByText("More records remain to search.")).toBeVisible();
+  await page
+    .getByRole("checkbox", { name: "Select all matching leads" })
+    .click();
+  await expect(page.getByText("53 selected", { exact: true })).toBeVisible();
+  await page.getByLabel("Lead action", { exact: true }).selectOption("archive");
+  await page
+    .getByRole("button", { name: "Apply to selected leads", exact: true })
+    .click();
+  await expect(page.getByText(/^53 leads removed/)).toBeVisible();
+});
+
 test("Dial from selected lists reserves only that pool and keeps scope across reload", async ({
   page,
 }) => {
   await enter(page);
   await add(page, "Dial only 091", "+14155550892");
-  await page.getByRole("button", { name: "Dialer", exact: true }).click();
+  const list = page
+    .getByRole("region", { name: "Lead lists" })
+    .getByRole("row")
+    .filter({ hasText: "Dial only 091" });
+  await list.getByText("Dialing settings", { exact: true }).click();
+  await list.getByLabel("Script mode").selectOption("master");
+  await list.getByLabel("List attempts per lead").fill("3");
+  await list.getByLabel("Days between attempts").fill("2, 3");
+  await list.getByRole("button", { name: "Save dialing settings" }).click();
+  await expect(
+    list.getByText("Dial only · master script", { exact: true }),
+  ).toBeVisible();
+  await goTo(page, "Dialer");
   await page
     .getByLabel("Dial from all active lists", { exact: true })
     .uncheck();

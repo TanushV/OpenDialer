@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { label, useWorkspace } from "../context";
+import { date, label, useWorkspace } from "../context";
 import { useLoad } from "../state/useLoad";
 
 interface RecoveryItem {
@@ -27,6 +27,8 @@ interface RecoveryState {
     attempts: number;
     reason: string;
     can_retry: boolean;
+    event_type?: string;
+    received_at?: string;
   }[];
   limited: boolean;
 }
@@ -63,6 +65,31 @@ export function RecoveryPanel() {
       ...(provider ? { provider_id: provider } : {}),
     });
   };
+  const renderJob = (job: RecoveryState["jobs"][number]) => (
+    <article key={job.id} className="review-segment">
+      <strong>
+        {job.event_type ?? label(job.queue)} · {job.attempts} attempts
+      </strong>
+      {job.received_at && (
+        <p className="fine">Received {date(job.received_at)}</p>
+      )}
+      <p>{job.reason}</p>
+      {job.can_retry && (
+        <button
+          className="secondary"
+          disabled={busy !== null}
+          onClick={() =>
+            void act(job.id, `/v1/admin/recovery/jobs/${job.id}/retry`, {
+              expected_attempts: job.attempts,
+            })
+          }
+        >
+          Retry once
+        </button>
+      )}
+    </article>
+  );
+  const webhookJobs = data?.jobs.filter((job) => job.queue === "webhook") ?? [];
   const reference = (item: RecoveryItem) =>
     !item.provider_id && (
       <label>
@@ -232,29 +259,13 @@ export function RecoveryPanel() {
               )}
             </article>
           ))}
-          {data.jobs.map((job) => (
-            <article key={job.id} className="review-segment">
-              <strong>
-                {label(job.queue)} · {job.attempts} attempts
-              </strong>
-              <p>{job.reason}</p>
-              {job.can_retry && (
-                <button
-                  className="secondary"
-                  disabled={busy !== null}
-                  onClick={() =>
-                    void act(
-                      job.id,
-                      `/v1/admin/recovery/jobs/${job.id}/retry`,
-                      { expected_attempts: job.attempts },
-                    )
-                  }
-                >
-                  Retry once
-                </button>
-              )}
-            </article>
-          ))}
+          {data.jobs.filter((job) => job.queue !== "webhook").map(renderJob)}
+          {webhookJobs.length > 0 && (
+            <details>
+              <summary>Carrier events to review ({webhookJobs.length})</summary>
+              {webhookJobs.map(renderJob)}
+            </details>
+          )}
           {data.limited && (
             <p className="fine">
               Showing a bounded page. Resolve items and refresh to continue.

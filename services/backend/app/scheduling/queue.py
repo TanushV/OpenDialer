@@ -217,7 +217,7 @@ def _has_future_attempt(service, s, p, campaign_id):
         allowed = {
             name
             for name, values in catalog.items()
-            if (values.get("crm") or {}).get("list_id") == pool.segment_id
+            if (values.get("crm") or {}).get("list_id") in {None, pool.segment_id}
         }
         names = allowed if names is None else set(names) & allowed
     excluded = paused | {TEST_LIST}
@@ -233,7 +233,7 @@ def _has_future_attempt(service, s, p, campaign_id):
                 model.tenant_id == p["tenant_id"],
                 model.seller_id == p["seller_id"],
                 model.op_campaign_id == campaign_id,
-                model.op_status == "eligible",
+                _queue_lead_status(model, catalog),
                 model.op_due_at > service.clock(),
                 model.data["test_list_contact"].as_boolean().is_not(True),
                 model.data["archived"].as_boolean().is_not(True),
@@ -247,11 +247,25 @@ def _has_future_attempt(service, s, p, campaign_id):
     )
 
 
-def _due_leads(s, p, campaign_id, after, now):
+def _queue_lead_status(model, catalog):
+    master_lists = [name for name, settings in catalog.items() if settings.get("script_mode") == "master"]
+    if not master_lists:
+        return model.op_status == "eligible"
+    return or_(
+        model.op_status == "eligible",
+        and_(model.op_status == "preparing", or_(*(in_list(model, name) for name in master_lists))),
+    )
+
+
+def _due_leads(s, p, campaign_id, after, now, catalog):
     model = MODELS["leads"]
     # Exactly ix_leads_queue: promised callbacks (2), requested contact (1), then coverage
     # deadline order (overdue first). Only these top K rows are read and decrypted.
     page = []
+    if p.get("callback_lead_id"):
+        page.append(model.id == p["callback_lead_id"])
+    elif (names := p.get("dial_lists")) is not None:
+        page.append(or_(False, *(in_list(model, name) for name in names)))
     if after is not None:
         priority, coverage, identity = after
         page.append(
@@ -271,7 +285,7 @@ def _due_leads(s, p, campaign_id, after, now):
                 model.seller_id == p["seller_id"],
                 model.op_campaign_id == campaign_id,
                 model.data["test_list_contact"].as_boolean().is_not(True),
-                model.op_status == "eligible",
+                _queue_lead_status(model, catalog),
                 or_(model.op_due_at <= now, model.op_due_at.is_(None)),
                 *page,
             )
@@ -283,6 +297,7 @@ def _due_leads(s, p, campaign_id, after, now):
 
 def _selection_page(service, s, p, campaign_id, after):
     now = service.clock()
+    campaign = ops.required(service, s, "campaigns", campaign_id, p)
     if p.get("test_run_id"):
         run = test_list.test_list_run(service, s, p)
         leads = [row for row in test_list.contacts(s, p, campaign_id) if test_list.permits(run, p, row)]
@@ -291,9 +306,8 @@ def _selection_page(service, s, p, campaign_id, after):
         lead = ops.test_candidate(service, s, p, ops.test_phone(service, p), campaign_id=campaign_id)
         leads = [lead] if lead else []
     else:
-        leads = _due_leads(s, p, campaign_id, after, now)
+        leads = _due_leads(s, p, campaign_id, after, now, campaign.data.get("lists", {}))
     ops._queue_context(service, s, p, campaign_id, leads)
-    campaign = ops.required(service, s, "campaigns", campaign_id, p)
     ops._queue_presence(service, s, p)
     config = ops.optimization_config(service, s, p, campaign_id)
     # Another rep's selection may be claiming a number right now; count it as load so

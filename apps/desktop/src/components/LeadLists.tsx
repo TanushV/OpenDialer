@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
+import { LONG_REQUEST_MS } from "../api/client";
 import { date, useWorkspace } from "../context";
 import { useLoad } from "../state/useLoad";
 import type { Lead } from "../types";
 
-export interface ListSummary {
+interface ListName {
   name: string;
   paused: boolean;
   archived: boolean;
+  script_mode?: "master" | "prepared";
+}
+
+export interface ListSummary extends ListName {
   total: number;
   ready: number;
   preparing: number;
@@ -14,6 +19,16 @@ export interface ListSummary {
   held: number;
   completed: number;
   callbacks_due: number;
+  max_attempts?: number | null;
+  retry_days?: number[];
+}
+
+export interface LeadSelection {
+  filter: string;
+  list_name?: string;
+  q: string;
+  fingerprint: string;
+  exclude: string[];
 }
 export interface ListsData {
   lists: ListSummary[];
@@ -49,6 +64,20 @@ export function useLists(names: string[] | null = null) {
           void state.reload().catch(() => {});
       }),
     [subscribe, state.reload],
+  );
+  return state;
+}
+
+export function useListCatalog() {
+  const { subscribe } = useWorkspace();
+  const state = useLoad<{ lists: ListName[] }>("/v1/list-catalog");
+  useEffect(
+    () =>
+      subscribe((events) => {
+        if (events.some((event) => event.type === "campaign.updated"))
+          void state.reload().catch(() => {});
+      }),
+    [state.reload, subscribe],
   );
   return state;
 }
@@ -149,7 +178,9 @@ export function ListsPage({
                   </td>
                   <td>{list.total}</td>
                   <td>
-                    {list.ready} ready / {list.preparing} preparing
+                    {list.script_mode === "master"
+                      ? "Dial only · master script"
+                      : `${list.ready} ready / ${list.preparing} preparing`}
                   </td>
                   <td>{list.callable_now}</td>
                   <td>{list.held}</td>
@@ -183,6 +214,21 @@ export function ListsPage({
                         {list.archived ? "Restore list" : "Remove list"}
                       </button>
                     </div>
+                    {!list.archived && (
+                      <ListDialingSettings
+                        key={JSON.stringify([
+                          list.script_mode,
+                          list.max_attempts,
+                          list.retry_days,
+                        ])}
+                        list={list}
+                        saved={async () => {
+                          await lists.reload();
+                          await refresh();
+                          await onChanged?.();
+                        }}
+                      />
+                    )}
                     <details className="list-rename">
                       <summary>Rename list</summary>
                       <input
@@ -228,13 +274,106 @@ export function ListsPage({
   );
 }
 
+function ListDialingSettings({
+  list,
+  saved,
+}: {
+  list: ListSummary;
+  saved: () => Promise<void>;
+}) {
+  const { api, run, snapshot, notice } = useWorkspace();
+  const [mode, setMode] = useState(list.script_mode ?? "prepared");
+  const [maximum, setMaximum] = useState(String(list.max_attempts ?? ""));
+  const [waits, setWaits] = useState((list.retry_days ?? []).join(", "));
+  const delays = waits.trim()
+    ? waits.split(",").map((day) => Number(day.trim()))
+    : [];
+  const valid =
+    (!maximum ||
+      (Number.isInteger(Number(maximum)) &&
+        Number(maximum) >= 1 &&
+        Number(maximum) <= 20)) &&
+    (!delays.length ||
+      (delays.length === Number(maximum) - 1 &&
+        delays.every(
+          (day) => Number.isInteger(day) && day >= 1 && day <= 365,
+        )));
+  return (
+    <details className="list-dialing list-rename">
+      <summary>Dialing settings</summary>
+      <label>
+        Script mode
+        <select
+          aria-label="Script mode"
+          value={mode}
+          onChange={(event) =>
+            setMode(event.target.value === "master" ? "master" : "prepared")
+          }
+        >
+          <option value="prepared">Require prepared scripts</option>
+          <option value="master">Dial only · use master script</option>
+        </select>
+      </label>
+      <label>
+        Attempts per lead
+        <input
+          aria-label="List attempts per lead"
+          type="number"
+          min={1}
+          max={20}
+          placeholder="Workspace default"
+          value={maximum}
+          onChange={(event) => setMaximum(event.target.value)}
+        />
+      </label>
+      <label>
+        Days between attempts
+        <input
+          aria-label="Days between attempts"
+          value={waits}
+          placeholder="Workspace default"
+          onChange={(event) => setWaits(event.target.value)}
+        />
+      </label>
+      <p className="fine">
+        For 3 attempts, enter 2, 3 to call on day 0, day 2 and day 5. Leave
+        blank to use the default timing.
+      </p>
+      <button
+        className="secondary small"
+        disabled={!valid}
+        onClick={() =>
+          void run(async () => {
+            await api("/v1/lists", "PATCH", {
+              campaign_id: snapshot.campaign.id,
+              list_name: list.name,
+              action: "dialing",
+              script_mode: mode,
+              max_attempts: maximum ? Number(maximum) : null,
+              retry_days: delays,
+            });
+            await saved();
+            notice("List dialing settings saved.");
+          })
+        }
+      >
+        Save dialing settings
+      </button>
+    </details>
+  );
+}
+
 export function BulkLeadActions({
   selected,
+  selection,
+  count,
   memberships,
   filteredList,
   updated,
 }: {
   selected: string[];
+  selection?: LeadSelection;
+  count: number;
   memberships: string[];
   filteredList: string | null;
   updated: () => Promise<void>;
@@ -256,7 +395,7 @@ export function BulkLeadActions({
           : null;
   return (
     <section aria-label="Selected lead actions" className="bulk-leads">
-      <span>{selected.length} selected</span>
+      <span>{count} selected</span>
       <label>
         Lead action
         <select
@@ -330,7 +469,7 @@ export function BulkLeadActions({
       <button
         className="primary"
         disabled={
-          !selected.length ||
+          !count ||
           (action === "remove" && source === null) ||
           (action === "location" && !timezone.trim() && !state.trim())
         }
@@ -340,7 +479,7 @@ export function BulkLeadActions({
               "/v1/leads/bulk",
               "POST",
               {
-                lead_ids: selected,
+                ...(selection ? { selection } : { lead_ids: selected }),
                 action,
                 ...(moving ? { list_name: list.trim() } : {}),
                 ...(action === "remove" ? { list_name: source } : {}),
@@ -351,6 +490,7 @@ export function BulkLeadActions({
                     }
                   : {}),
               },
+              { timeoutMs: LONG_REQUEST_MS },
             );
             await updated();
             notice(
@@ -383,13 +523,19 @@ export function DialLists({
 }) {
   const { run } = useWorkspace();
   const lists = useLists(names);
+  const catalog = useListCatalog();
   return (
     <section className="card dial-lists" aria-label="Dial from">
       <div className="table-toolbar">
         <strong>Dial from</strong>
         <button
           className="secondary small"
-          onClick={() => void run(lists.reload)}
+          onClick={() =>
+            void run(async () => {
+              await catalog.reload();
+              await lists.reload();
+            })
+          }
         >
           Refresh calling lists
         </button>
@@ -409,7 +555,7 @@ export function DialLists({
         </label>
         {names !== null && (
           <div className="dial-list-choices">
-            {lists.data?.lists
+            {catalog.data?.lists
               .filter((list) => !list.archived)
               .map((list) => (
                 <label className="check" key={list.name}>
@@ -438,6 +584,10 @@ export function DialLists({
               ))}
           </div>
         )}
+        {!catalog.data && !catalog.error && names !== null && (
+          <p>Loading calling lists…</p>
+        )}
+        {catalog.error && <p role="alert">{catalog.error}</p>}
         {names?.length === 0 && (
           <p role="status">Choose at least one list to dial.</p>
         )}
