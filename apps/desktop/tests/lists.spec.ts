@@ -35,6 +35,7 @@ test("manage lists and archive/restore selected leads without losing records", a
   page,
 }) => {
   await enter(page);
+  await add(page, "Keep through removal 091", "+14155550960");
   await add(page, "Managed list 091", "+14155550961");
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   const list = page
@@ -45,8 +46,17 @@ test("manage lists and archive/restore selected leads without losing records", a
   await list.getByRole("button", { name: "Pause", exact: true }).click();
   await expect(list.getByText("Paused", { exact: true })).toBeVisible();
   await list.getByRole("button", { name: "Resume", exact: true }).click();
+  await page
+    .getByLabel("Filter leads by list")
+    .selectOption("Managed list 091");
   await list.getByRole("button", { name: "Remove list", exact: true }).click();
   await expect(list).toBeHidden();
+  await expect(page.getByLabel("Filter leads by list")).toHaveValue(
+    "__all_lists__",
+  );
+  await expect(
+    page.getByRole("button", { name: "Open lead Keep through removal 091" }),
+  ).toBeVisible();
   await page.getByLabel("Show removed lists", { exact: true }).check();
   await expect(list).toBeHidden();
   await add(page, "Managed list 091", "+14155550961");

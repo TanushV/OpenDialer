@@ -63,7 +63,7 @@ Build directly on main, test before each fix, and run the fast and full checks u
 - Baseline main `0c91171` passed Verify run 44066336901.
 - CSV alias intake, header copy/preview, row-level failures, and full-cell agent access are implemented.
   Focused backend intake and why-now tests passed. The left Calling context now reads the imported role,
-  company description and signal or the saved research summary. WebKit verification is pending.
+  company description and signal or the saved research summary.
 - Permanent local list removal and same-name reimport passed focused tests. Existing Removed lists can be deleted
   by the operator. Shared contacts, suppressed phones and saved calls stay associated with their original identities.
 - Path syntax is `# Paths`, then `- path-name: when to use it` and an optional `(default)` after the path name.
@@ -76,4 +76,5 @@ Build directly on main, test before each fix, and run the fast and full checks u
   paths, and the left-hand context panel in a simulated call. A copy of the owner's saved master was tagged
   in a private temporary file and parsed with its original section order and all nine objections on every path.
   The live workspace master was left as saved.
-- Pending: full checks, commit/push, and verify exact-commit GitHub CI.
+- Source and focused tests are complete. Before a release, verify the full pre-push suite and exact-commit
+  GitHub CI from section 12A. The installed app and hosted settings were untouched.

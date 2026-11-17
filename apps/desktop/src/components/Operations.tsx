@@ -215,10 +215,11 @@ export function LeadsPage({
   }, [api, filterList, leadView]);
   useEffect(() => {
     if (
-      leadView === "active" &&
       filterList !== null &&
-      lists.data?.lists.some(
-        (list) => list.name === filterList && list.archived,
+      lists.data &&
+      !lists.data.lists.some(
+        (list) =>
+          list.name === filterList && (leadView !== "active" || !list.archived),
       )
     )
       setFilterList(null);
