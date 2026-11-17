@@ -20,14 +20,23 @@ async function add(
   page: import("@playwright/test").Page,
   list: string,
   phone: string,
+  matched = false,
 ) {
   await openLeads(page);
   await page.getByLabel("List name", { exact: true }).fill(list);
-  await page
-    .getByLabel("CSV lead data")
-    .fill(`name,phone,timezone\n${list},${phone},America/Los_Angeles`);
+  const data = page.getByLabel("CSV lead data");
+  await data.fill(`name,phone,timezone\n${list},${phone},America/Los_Angeles`);
+  const imported = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/v1/leads/import") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Import leads", exact: true }).click();
-  await expect(page.getByText(/^1 imported/)).toBeVisible({ timeout: 30_000 });
+  expect(await (await imported).json()).toMatchObject({
+    imported: matched ? 0 : 1,
+    duplicates: matched ? 1 : 0,
+  });
+  await expect(data).toHaveValue("");
   await waitForPreparation(page);
 }
 
@@ -59,7 +68,7 @@ test("manage lists and archive/restore selected leads without losing records", a
   ).toBeVisible();
   await page.getByLabel("Show removed lists", { exact: true }).check();
   await expect(list).toBeHidden();
-  await add(page, "Managed list 091", "+14155550961");
+  await add(page, "Managed list 091", "+14155550961", true);
   await page.getByRole("button", { name: "Leads", exact: true }).click();
   await page
     .getByLabel("Filter leads by list")

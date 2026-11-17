@@ -81,3 +81,5 @@ Build directly on main, test before each fix, and run the fast and full checks u
 - The first full local suite passed. CI Chromium exposed a race in the existing ending-call fixture: an
   intercepted refresh could show Ending before the test clicked Hang up. The test now starts the simulated
   confirmation delay after the hang-up POST. Six focused Chromium replays passed.
+- CI WebKit confirmed that a same-name reimport returned zero new and one matched contact, as intended.
+  The test now awaits that exact import receipt instead of reading the previous receipt from the page.
