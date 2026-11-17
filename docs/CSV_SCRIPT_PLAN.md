@@ -83,3 +83,6 @@ Build directly on main, test before each fix, and run the fast and full checks u
   confirmation delay after the hang-up POST. Six focused Chromium replays passed.
 - CI WebKit confirmed that a same-name reimport returned zero new and one matched contact, as intended.
   The test now awaits that exact import receipt instead of reading the previous receipt from the page.
+- November 17: main `ba43dca` passed all eight Verify jobs. The owner approved publishing 2.2.4 and updating
+  this Mac. Verify the signed artifacts and installed version, and use the installed backend's API in an
+  isolated workspace to import the 306-row Downloads CSV, prepare a sample, and verify list deletion.

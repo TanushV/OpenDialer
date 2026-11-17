@@ -1,3 +1,14 @@
+# OpenDialer 2.2.4
+
+- **Import CSVs with more header formats.** Use common name, phone, company, and location headers. Preview the dialing column, copy recommended headers, and see why individual rows were skipped. Research and scriptwriting can read custom columns.
+- **Remove and re-add a list.** Removing a list frees its name. Reimporting starts fresh while saved calls, opt-outs, and other list memberships remain available.
+- **Check HubSpot call history before dialing CSV leads.** Logged outbound calls count toward the list's cadence when a HubSpot key is configured.
+- **Generate one researched script path.** Define paths in Markdown and keep shared lines and objections in their original order. Leads shows the generated script and its last saved version when stale.
+- **See the prospect brief in Dialer.** The left panel shows the prospect's role, company description, and signal when available.
+- **Control list selection and cadence.** Select all matching leads across pages, choose prepared or dial-only scripts per list, and set attempt caps and waits. Calls to others at the same company wait until the next local calling day.
+
+Updates from 1.0.x through 2.2.3 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.2.3
 
 - **Filter and select all leads.** The list picker loads independently of callability counts. Select all includes every lead matching the current list and search, across all pages.
