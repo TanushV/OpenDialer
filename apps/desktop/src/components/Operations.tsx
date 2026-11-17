@@ -88,12 +88,6 @@ export function LeadsPage({
   const [lookupStatus, setLookupStatus] = useState<Record<string, string>>({});
   const [filterList, setFilterList] = useState<string | null>(null);
   const [leadView, setLeadView] = useState("active");
-  // A reload after a save uses the view and search shown now, not the ones when the save started: a stale reload
-  // could otherwise replace the view the rep just switched to.
-  const current = useRef({ query: "", leadView: "active" });
-  current.current = { query, leadView };
-  const reloadLeads = () =>
-    history.load(false, current.current.query, current.current.leadView);
   const [selected, setSelected] = useState<string[]>([]);
   const [all, setAll] = useState<
     (LeadSelection & { total: number; memberships: string[] }) | null
@@ -104,6 +98,10 @@ export function LeadsPage({
     filter: leadView,
     ...(filterList === null ? {} : { list_name: filterList }),
   });
+  // A save can finish after the rep switched views. Reload using the current filters.
+  const latestLeadRead = useRef(() => history.load(false, query, leadView));
+  latestLeadRead.current = () => history.load(false, query, leadView);
+  const reloadLeads = () => latestLeadRead.current();
   const leads = history.items;
   const selectionScope = {
     filter: leadView,
