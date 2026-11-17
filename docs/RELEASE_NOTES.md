@@ -1,3 +1,12 @@
+# OpenDialer 2.2.3
+
+- **Filter and select all leads.** The list picker loads independently of callability counts. Select all includes every lead matching the current list and search, across all pages.
+- **Choose how each list dials.** The list's Dialing settings can use the master script directly or require a prepared script. Set a per-lead attempt cap and the wait between each attempt. A lead in several active lists keeps one attempt history.
+- **See when scripts are ready.** Leads shows script preparation status and refreshes an open lead when its script finishes. Lists that require preparation call only leads with a current script.
+- **Review carrier events with context.** Startup archives confirmed stale rep-audio events. Remaining recovery entries show the event type and receipt time.
+
+Updates from 1.0.x through 2.2.2 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.2.2
 
 - **Get a reply sooner.** The live helper listens for a shorter pause when the prospect's thought sounds complete. A quick suggestion appears while the model works, and the model can improve it when ready.
