@@ -78,3 +78,6 @@ Build directly on main, test before each fix, and run the fast and full checks u
   The live workspace master was left as saved.
 - Source and focused tests are complete. Before a release, verify the full pre-push suite and exact-commit
   GitHub CI from section 12A. The installed app and hosted settings were untouched.
+- The first full local suite passed. CI Chromium exposed a race in the existing ending-call fixture: an
+  intercepted refresh could show Ending before the test clicked Hang up. The test now starts the simulated
+  confirmation delay after the hang-up POST. Six focused Chromium replays passed.

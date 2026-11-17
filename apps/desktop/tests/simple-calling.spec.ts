@@ -297,8 +297,15 @@ test("an outcome pressed while the call is still ending is kept and saved once t
   await startDialing(page);
   await answer(page);
   await pauseCalling(page).click();
-  let ending = true;
+  let ending = false;
   await page.route(/\/v1\/calls\/[^/]+(\/hangup)?$/, async (route) => {
+    // A read triggered by Pause or the answer can still be in flight. Only
+    // simulate carrier confirmation lag once the rep's hang-up was sent.
+    if (
+      route.request().method() === "POST" &&
+      route.request().url().endsWith("/hangup")
+    )
+      ending = true;
     const response = await route.fetch();
     const body = await response.json();
     if (ending && body.state) body.state = "ENDING";
