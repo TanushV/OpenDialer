@@ -50,6 +50,40 @@ def test_the_settings_route_lists_rows_and_checks_on_request(workspace):
     assert "_setup_checks" not in settings and "setup_checks" not in settings
 
 
+def test_realvalidito_settings_distinguishes_placeholders_and_a_real_balance(workspace, monkeypatch):
+    import httpx
+
+    client, headers = workspace["client"], workspace["headers"]
+    service = client.app.state.service
+    monkeypatch.setattr(service.settings, "simulation", False)
+    requests = []
+
+    def respond(request):
+        requests.append(request.url.raw_path)
+        return httpx.Response(200, json={"status": "success", "data": {"available_credits": "19"}})
+
+    monkeypatch.setattr(
+        service, "http", httpx.AsyncClient(transport=httpx.MockTransport(respond)), raising=False
+    )
+    for pair, expected in [(("#api-key", "#api-secret"), FAILED), (("key/part", "secret#part"), OK)]:
+        assert (
+            client.put(
+                "/v1/admin/settings",
+                headers=headers,
+                json={"realvalidito_api_key": pair[0], "realvalidito_api_secret": pair[1]},
+            ).status_code
+            == 200
+        )
+        checked = client.post("/v1/settings/rows/realvalidito/check", headers=headers)
+        row = next(value for value in checked.json()["rows"] if value["id"] == "realvalidito")
+        assert row["state"] == expected
+        if expected == FAILED:
+            assert "example placeholders" in row["detail"] and not requests
+        else:
+            assert row["detail"] == "19 do-not-call credits left"
+    assert requests == [b"/dnclookup/getcredits/key%2Fpart/secret%23part"]
+
+
 async def test_key_checks_report_accepted_refused_and_unreachable():
     import httpx
     from app.providers import openrouter, telnyx

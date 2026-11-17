@@ -62,6 +62,7 @@ async def test_batches_are_at_most_1000_numbers():
         (200, {"code": 603, "message": "no credits"}, "DNC_NO_CREDITS"),
         (604, {}, "DNC_NO_CREDITS"),
         (200, {"code": "600"}, "DNC_KEY_INVALID"),
+        (200, {"status": "failed", "error": {"error_code": 604}}, "DNC_NO_CREDITS"),
         (502, {}, "DNC_UNAVAILABLE"),
         (200, {"data": [{"number": "6175550100", "federal_dnc": True}]}, "DNC_UNAVAILABLE"),
     ],
@@ -86,12 +87,54 @@ def test_results_expire_within_30_days_and_csv_leads_are_never_due():
     assert number_hold(lead) is None
 
 
-async def test_credits_are_read_for_the_settings_check():
+@pytest.mark.parametrize("body", [{"credits": 100}, {"credits": 100, "data": {}}, 100])
+async def test_legacy_credits_are_read_for_the_settings_check(body):
     seen = []
 
     def respond(request):
         seen.append(request.url.path)
-        return httpx.Response(200, json={"credits": 100})
+        return httpx.Response(200, json=body)
 
     assert await client(respond).credits() == 100
     assert seen == ["/dnclookup/getcredits/key/secret"]
+
+
+@pytest.mark.parametrize("balance", ["100", "0", 19])
+async def test_settings_reads_the_published_credits_envelope(balance):
+    provider = client(
+        lambda request: httpx.Response(
+            200, json={"status": "success", "data": {"available_credits": balance}}
+        )
+    )
+    assert await provider.credits() == int(balance)
+
+
+@pytest.mark.parametrize(
+    ("body", "reason", "detail"),
+    [
+        ({"status": "failed", "error": {"error_code": 600}}, "DNC_KEY_INVALID", "refused"),
+        (
+            {"Response": {"Status": "Failed", "Errors": {"ErrorCode": "604"}}},
+            "DNC_NO_CREDITS",
+            "No credits left",
+        ),
+        ({"status": "failed", "error": {"error_code": "616"}}, "DNC_UNAVAILABLE", "Allowed IP addresses"),
+        ({"status": "failed", "data": {"available_credits": "10"}}, "DNC_UNAVAILABLE", "rejected"),
+        ({"status": "success", "data": {"available_credits": True}}, "DNC_UNAVAILABLE", "credit balance"),
+        ({"status": "success", "data": {"available_credits": 4.5}}, "DNC_UNAVAILABLE", "credit balance"),
+        ({"credits": -1}, "DNC_UNAVAILABLE", "credit balance"),
+    ],
+)
+async def test_settings_names_rejections_and_never_accepts_an_invalid_balance(body, reason, detail):
+    with pytest.raises(DNCUnavailable, match=detail) as caught:
+        await client(lambda request: httpx.Response(200, json=body)).credits()
+    assert caught.value.reason == reason
+
+
+async def test_example_credentials_are_rejected_without_a_request():
+    def unexpected(request):
+        pytest.fail("Example credentials reached the provider")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(unexpected)) as http:
+        with pytest.raises(DNCUnavailable, match="example placeholders"):
+            await RealValidito("#api-key", "#api-secret", http=http).credits()

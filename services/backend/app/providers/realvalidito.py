@@ -6,11 +6,27 @@ key; each is definitive until the owner fixes it. Anything else unreadable is an
 number: the caller leaves the lead "DNC not checked" (section 9A).
 """
 
+from urllib.parse import quote
+
 import httpx
 
 BASE_URL = "https://app.realvalidito.com"
 BATCH = 1000
-CODES = {600: "DNC_KEY_INVALID", 603: "DNC_NO_CREDITS", 604: "DNC_NO_CREDITS"}
+EXAMPLE_CREDENTIALS = {"#api-key", "#api-secret"}
+ERRORS = {
+    "600": ("Key or secret refused by RealValidito", "DNC_KEY_INVALID"),
+    "601": ("RealValidito requires both the key and secret", "DNC_KEY_INVALID"),
+    "603": ("Not enough RealValidito do-not-call credits for this request", "DNC_NO_CREDITS"),
+    "604": ("No credits left for RealValidito do-not-call lookups", "DNC_NO_CREDITS"),
+    "605": (
+        "RealValidito rejected the credentials or DNC lookup is disabled on the account",
+        "DNC_UNAVAILABLE",
+    ),
+    "616": (
+        "RealValidito blocked this IP. Check Allowed IP addresses in the API credentials console.",
+        "DNC_UNAVAILABLE",
+    ),
+}
 
 
 class DNCUnavailable(RuntimeError):
@@ -25,14 +41,29 @@ def ten_digits(e164):
     return e164[2:]
 
 
-def _code(payload, status):
-    for value in (status, payload.get("code") if isinstance(payload, dict) else None):
-        try:
-            if int(value) in CODES:
-                return CODES[int(value)]
-        except (TypeError, ValueError):
-            continue
-    return None
+def _check_response(payload, status):
+    codes = [status]
+    failed = False
+    if isinstance(payload, dict):
+        codes.append(payload.get("code"))
+        failed = str(payload.get("status")).lower() == "failed"
+        error = payload.get("error")
+        if isinstance(error, dict):
+            codes.append(error.get("error_code"))
+        legacy = payload.get("Response")
+        if isinstance(legacy, dict):
+            failed |= str(legacy.get("Status")).lower() == "failed"
+            errors = legacy.get("Errors")
+            if isinstance(errors, dict):
+                codes.append(errors.get("ErrorCode"))
+    for code in codes:
+        error = ERRORS.get(str(code))
+        if error:
+            raise DNCUnavailable(*error)
+    if status != 200:
+        raise DNCUnavailable(f"RealValidito HTTP {status}")
+    if failed:
+        raise DNCUnavailable("RealValidito rejected the request")
 
 
 def _entries(payload):
@@ -63,6 +94,11 @@ class RealValidito:
         self.api_key, self.api_secret, self.http, self.timeout = api_key, api_secret, http, timeout
 
     async def _send(self, method, path, **kwargs):
+        if self.api_key in EXAMPLE_CREDENTIALS or self.api_secret in EXAMPLE_CREDENTIALS:
+            raise DNCUnavailable(
+                "RealValidito key and secret must replace the example placeholders", "DNC_KEY_INVALID"
+            )
+
         async def go(http):
             try:
                 response = await http.request(method, BASE_URL + path, timeout=self.timeout, **kwargs)
@@ -72,11 +108,7 @@ class RealValidito:
                     payload = {}
             except httpx.HTTPError as exc:
                 raise DNCUnavailable("RealValidito unreachable: " + type(exc).__name__) from exc
-            reason = _code(payload, response.status_code)
-            if reason:
-                raise DNCUnavailable("RealValidito refused the request", reason)
-            if response.status_code != 200:
-                raise DNCUnavailable(f"RealValidito HTTP {response.status_code}")
+            _check_response(payload, response.status_code)
             return payload
 
         if self.http:
@@ -85,12 +117,22 @@ class RealValidito:
             return await go(http)
 
     async def credits(self):
-        payload = await self._send("GET", f"/dnclookup/getcredits/{self.api_key}/{self.api_secret}")
-        value = payload.get("credits") if isinstance(payload, dict) else payload
-        try:
-            return int(value)
-        except (TypeError, ValueError) as exc:
-            raise DNCUnavailable("RealValidito credits unreadable") from exc
+        key, secret = quote(self.api_key, safe=""), quote(self.api_secret, safe="")
+        payload = await self._send("GET", f"/dnclookup/getcredits/{key}/{secret}")
+        value = payload
+        if isinstance(payload, dict):
+            value = payload.get("credits")
+            data = payload.get("data")
+            if isinstance(data, dict):
+                value = data.get("available_credits", value)
+        if type(value) in (int, str):
+            try:
+                balance = int(value)
+            except ValueError as exc:
+                raise DNCUnavailable("RealValidito returned an invalid do-not-call credit balance") from exc
+            if balance >= 0:
+                return balance
+        raise DNCUnavailable("RealValidito returned an invalid do-not-call credit balance")
 
     async def validate(self, numbers):
         """{e164: {"invalid", "lists"}} for every number asked, in batches of at most 1,000."""

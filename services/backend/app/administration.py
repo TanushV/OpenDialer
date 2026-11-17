@@ -375,12 +375,7 @@ async def check_setup_row(service, p, row_id):
             ).credits()
             ok, detail = True, f"{credits} do-not-call credits left"
         except DNCUnavailable as exc:
-            ok, detail = (
-                False,
-                {"DNC_NO_CREDITS": "No credits left", "DNC_KEY_INVALID": "Key or secret refused"}.get(
-                    exc.reason, str(exc)
-                ),
-            )
+            ok, detail = False, str(exc)
     elif row_id == "hubspot":
         from app.providers.hubspot import HubSpot
 

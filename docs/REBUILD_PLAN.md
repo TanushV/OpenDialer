@@ -2131,3 +2131,5 @@ test assets and admin access before asking for anything. The signed rollout foll
   within that rep's workspace and follows the lead's local calling day, including when the time zone is inferred.
 - November 17, 2026: the owner approved the [CSV, script paths and calling context plan](CSV_SCRIPT_PLAN.md).
   Read that plan and its status after every continuation or compaction while implementing it.
+- November 17, 2026: RealValidito Settings checks read the documented DNC credit balance and show provider
+  rejections with their reason. Regression tests exercise saving and checking credentials with mocked responses.
