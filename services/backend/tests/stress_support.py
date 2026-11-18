@@ -1,0 +1,75 @@
+"""Seed selection and failure traces for the randomized calling tests."""
+
+import json
+import os
+import shlex
+from pathlib import Path
+from threading import Lock
+
+
+def soak_count(name, default):
+    value = int(os.environ.get(name, default))
+    if value < 1:
+        raise ValueError(f"{name} must be at least 1")
+    return value
+
+
+def soak_seeds(count_var, default, pinned=()):
+    selected = os.environ.get("SOAK_SEED")
+    if selected is not None:
+        return [int(selected)]
+    start = int(os.environ.get("SOAK_SEED_START", "0"))
+    return list(dict.fromkeys((*pinned, *range(start, start + soak_count(count_var, default)))))
+
+
+class StressTrace:
+    """Keep an ordered trace of synthetic actions and effects on a failed run."""
+
+    def __init__(self, tmp_path, nodeid, seed, **replay_env):
+        self.tmp_path, self.nodeid = tmp_path, nodeid
+        self.seed = seed
+        self.replay_env = {"SOAK_SEED": seed, **replay_env}
+        self.events = []
+        self._lock = Lock()
+
+    def record(self, action, **facts):
+        with self._lock:
+            self.events.append({"step": len(self.events) + 1, "action": action, **facts})
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _type, error, _traceback):
+        if error is None:
+            return
+        destination = self.tmp_path
+        if artifact_dir := os.environ.get("SOAK_ARTIFACTS"):
+            destination = Path(artifact_dir)
+        case = self.nodeid.split("::")[-1].replace("[", "-").replace("]", "")
+        path = destination / f"{case}.json"
+        if os.name == "nt":
+            variables = " ".join(f"$env:{name} = '{value}';" for name, value in self.replay_env.items())
+            target = "'" + self.nodeid.replace("'", "''") + "'"
+        else:
+            variables = " ".join(
+                f"{name}={shlex.quote(str(value))}" for name, value in self.replay_env.items()
+            )
+            target = shlex.quote(self.nodeid)
+        replay = f"{variables} uv run pytest -x -q {target}"
+        failure = {"type": type(error).__name__, "message": str(error)}
+        report = {
+            "seed": self.seed,
+            "test": self.nodeid,
+            "replay_env": self.replay_env,
+            "replay": replay,
+            "failure": failure,
+            "events": self.events,
+        }
+        try:
+            destination.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+            artifact = f"Trace: {path}"
+        except OSError as trace_error:
+            artifact = f"Trace could not be written: {trace_error}"
+        recent = "\n".join(json.dumps(event) for event in self.events[-12:])
+        error.add_note(f"CALLING STRESS FAILURE (seed {self.seed})\nReplay: {replay}\n{artifact}\n{recent}")

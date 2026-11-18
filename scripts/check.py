@@ -4,6 +4,7 @@ uv run python scripts/check.py                 fast tier (each change, pre-commi
 uv run python scripts/check.py full            everything Verify runs (pre-push hook)
 uv run python scripts/check.py package         frozen sidecars plus a smoke start
 uv run python scripts/check.py sidecars        check the backend sidecar already built: it starts and loads search
+uv run python scripts/check.py stress          long, seeded calling stress runs against disposable data
 uv run python scripts/check.py KEYWORD         lint plus the backend and frontend tests matching KEYWORD
 uv run python scripts/check.py run STEP...     named steps; GitHub CI calls these
 uv run python scripts/check.py install-hooks   turn on the .githooks pre-commit and pre-push hooks
@@ -15,6 +16,7 @@ the installed app's data or credentials, and nothing places a call or installs a
 import glob
 import os
 import platform
+import secrets
 import socket
 import subprocess
 import sys
@@ -323,6 +325,39 @@ def _free_port():
         return probe.getsockname()[1]
 
 
+def stress():
+    env = _env()
+    defaults = {
+        "SOAK_SEED_START": str(secrets.randbits(32)),
+        "SOAK_RUNS": "512",
+        "SOAK_STEPS": "200",
+        "SOAK_SHARED_RUNS": "48",
+        "SOAK_SHARED_EVENTS": "80",
+        "SOAK_WORKERS": "6",
+        "OPENDIALER_REQUIRE_RELAY_TESTS": "1",
+    }
+    for name, value in defaults.items():
+        env.setdefault(name, value)
+    print("Calling stress " + " ".join(f"{name}={env[name]}" for name in defaults), flush=True)
+    if "SOAK_SEED" in env:
+        print(f"Replaying only SOAK_SEED={env['SOAK_SEED']}", flush=True)
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        "-n",
+        env["SOAK_WORKERS"],
+        "-p",
+        "no:cacheprovider",
+        "-x",
+        "--tb=short",
+        "services/backend/tests/test_fault_soak.py",
+        "tests/test_shared_calling_stress.py",
+    ]
+    return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode == 0  # noqa: S603
+
+
 def main(argv):
     if not argv or argv[0] == "fast":
         return run_tier("fast")
@@ -333,6 +368,8 @@ def main(argv):
         return package()
     if command == "sidecars":
         return sidecars()
+    if command == "stress":
+        return stress()
     if command == "install-hooks":
         return install_hooks()
     if command == "run":

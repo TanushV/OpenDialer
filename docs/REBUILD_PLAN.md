@@ -1804,6 +1804,17 @@ inbox, restart recovery and the saved outcome. The packaged backend also runs a 
 after it starts. The media test sends signals through local WebRTC peers and measures both directions and the
 ringback handoff. Keep failed event sequences as replayable tests.
 
+Run `uv run python scripts/check.py stress` for the extended calling suite. The normal backend checks run fixed seeds
+for the single-rep soak and the two-rep overlap test. The extended command prints its starting seed and defaults to
+512 single-rep runs of 200 steps and 48 two-rep runs. Each two-rep run holds a carrier reply open while the other rep
+calls, overlaps attempts for the same prospect, restarts the waiting authority, and delivers a shuffled backlog and a
+callback using the disposable relay. It counts HTTP requests before carrier deduplication. Use `SOAK_SEED_START` for
+the same range or copy the single-case replay command printed on failure. `SOAK_RUNS`, `SOAK_STEPS`, `SOAK_SHARED_RUNS`,
+`SOAK_SHARED_EVENTS` and `SOAK_WORKERS` control the run size and worker count. On failure, pytest prints the violated
+assertion and the latest steps. The full ordered JSON trace goes to the case's temporary directory or `SOAK_ARTIFACTS`
+when set. The replay command uses the shell syntax for the test runner's OS. GitHub uploads these traces from backend
+failures. Keep a failing seed or its reduced sequence in the suite.
+
 The calling budget in `scripts/calling_budget.py` measures the state table and decisions at dial, audio setup, hang-up
 and recovery. Carrier journey tests count actual requests before any carrier deduplication. Each normal outbound attempt
 uses one rep audio leg and one prospect leg linked on answer. Each explicit stop targets the original attempt. Review
@@ -2188,3 +2199,8 @@ live check is open.
   the original Hang up reaches only its own leg even if the stop response is lost. A late hang-up receipt can
   settle the original stop without another command, and Confirm not placed still works after local timeout.
   Passed 1,000 seeded fault sequences, 50 steps each, plus the crash, relay and calling journey tests.
+- November 17, 2026. Added the extended seeded calling suite and failure traces to the local check runner and the
+  normal backend checks. Starting seed `3773401178` passed 512 single-rep sequences of 200 steps and 48 two-rep
+  sequences using the disposable relay in 35m 48s. The two-rep runs shuffled 4,128 receipt deliveries across the
+  lost-response and restart sequence, then checked callback ownership at outbound capacity. The failure-report
+  tests verify the assertion, replay command and ordered trace, including a clean error when the trace cannot be saved.
