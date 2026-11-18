@@ -140,7 +140,7 @@ def _complete_reconciliation(service, p, claimed, receipt, error=None):
         identity, alive = verified
         kind, action = command.data["kind"], command.data.get("action")
         if kind == "dial":
-            ops.bind_dial_receipt(service, s, p, call, identity)
+            ops.bind_dial_receipt(service, s, p, call, identity, ended=not alive)
             update(command, **changes, status="completed", recovery_reason=None)
             update(
                 call,

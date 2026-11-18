@@ -953,9 +953,11 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
         timing = call_timing(call.data, event_type, payload, now=service.clock())
         if timing:
             update(call, **timing)
-        target = transition(call.data["state"], event_type)
         if payload.get("call_control_id"):
-            ops.bind_dial_receipt(service, s, p, call, payload["call_control_id"])
+            ops.bind_dial_receipt(
+                service, s, p, call, payload["call_control_id"], ended=event_type == "call.hangup"
+            )
+        target = transition(call.data["state"], event_type)
         if target == "ENDED":
             ops.finish_call(service, s, p, call, event_type)
         else:

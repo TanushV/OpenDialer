@@ -489,7 +489,7 @@ async def dispatch_call(service, p, call_id):
         await ops.hangup(service, p, call_id)
 
 
-def bind_dial_receipt(service, s, p, call, provider_id):
+def bind_dial_receipt(service, s, p, call, provider_id, *, ended=False):
     if CallView.model_validate(call.data).provider_id not in {None, provider_id}:
         fail(409, "Provider call reference conflicts with the established leg")
     update(call, provider_id=provider_id)
@@ -503,9 +503,17 @@ def bind_dial_receipt(service, s, p, call, provider_id):
     ):
         update(command, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None)
     stop = ops._by_key(service, s, p, "command_outbox", call.id + ":hangup")
-    if stop and CommandView.model_validate(stop.data).status == "unconfirmed":
-        # A requested end that lacked a carrier reference can now stop the actual leg.
-        update(stop, status="pending", provider_id=provider_id, recovery_reason=None)
+    if stop:
+        status = CommandView.model_validate(stop.data).status
+        if ended and status not in {"completed", "cancelled", "failed"}:
+            # A late hang-up is already the result we needed, even if it is the first receipt.
+            update(stop, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None)
+        elif status == "unconfirmed":
+            # A late answer gives a previously requested stop its target, without reopening the call.
+            update(
+                stop, status="pending", provider_id=provider_id, next_attempt_at=None, recovery_reason=None
+            )
+            update(call, **moved(call.data, "hangup.requested", service.clock()))
     prior = ops._by_key(service, s, p, "call_legs", provider_id)
     if not prior:
         put(
@@ -568,7 +576,12 @@ def _claim_hangup(service, p, call_id, owner, recovery_expected=None, mark_voice
             if not (view.state in ANSWERED or view.answered_at or view.bridged_at or view.machine_detected):
                 fail(409, "Wait for the call to connect before marking voicemail.")
             update(call, rep_voicemail_at=service.clock().isoformat())
-        if view.state in TERMINAL:
+        command_id = call.id + ":hangup"
+        existing = ops._by_key(service, s, p, "command_outbox", command_id)
+        if view.state in TERMINAL and not (
+            view.provider_id and existing and CommandView.model_validate(existing.data).status == "pending"
+        ):
+            # A completed local timeout can still owe a stop once its original carrier leg is verified.
             return doc(call), None, None
         # A recovery hang-up goes ahead only if the pass's decision still holds for the call as it is now.
         if recovery_expected is not None and (
@@ -596,8 +609,6 @@ def _claim_hangup(service, p, call_id, owner, recovery_expected=None, mark_voice
                 )
                 return doc(call), None, view.pool_ref
         provider_id = view.provider_id
-        command_id = call.id + ":hangup"
-        existing = ops._by_key(service, s, p, "command_outbox", command_id)
         if not existing:
             existing = put(
                 s,
@@ -633,7 +644,7 @@ def _claim_hangup(service, p, call_id, owner, recovery_expected=None, mark_voice
         update(call, **moved(call.data, "hangup.requested", service.clock()))
         ops.stop_agent_transcription_in(service, s, p, call)
         service.tips.end(call.id)
-        emit(s, workspace(p), "call.updated", call, service.clock(), {"state": "ENDING"})
+        emit(s, workspace(p), "call.updated", call, service.clock(), {"state": call.data["state"]})
         return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}, None
 
 

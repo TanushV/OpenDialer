@@ -602,22 +602,31 @@ def test_uncertain_dial_is_reconciled_by_its_carrier_reference_without_a_redial(
     assert get(ws, f"/v1/calls/{started['id']}")["provider_id"] == reference
 
 
-def test_dial_without_carrier_evidence_is_confirmed_not_placed_by_the_operator(workspace, carrier, clock):
+@pytest.mark.parametrize("local_timeout", [False, True], ids=["unconfirmed", "timed-out-locally"])
+def test_dial_without_carrier_evidence_is_confirmed_not_placed_by_the_operator(
+    workspace, carrier, clock, local_timeout
+):
     ws = workspace
     carrier.timeout_after_accept = True
     started = start(ws, "silent-key")
     carrier.timeout_after_accept = False
     clock.now += timedelta(seconds=150)
     call(ws, "POST", "/v1/admin/recovery")
+    path = f"/v1/calls/{started['id']}"
+    assert get(ws, path)["state"] == "DIAL_UNCONFIRMED"
+    if local_timeout:
+        clock.now += timedelta(seconds=301)
+        call(ws, "POST", "/v1/admin/recovery")
+        assert get(ws, path)["end_reason"] == "recovery_timeout"
     item = recovery_command(ws, started["id"])
     assert (item["status"], item["can_confirm_not_placed"]) == ("unconfirmed", True)
-    assert get(ws, f"/v1/calls/{started['id']}")["state"] == "DIAL_UNCONFIRMED"
     body = {"expected_version": item["version"], "action": "confirm_not_placed"}
     call(ws, "POST", f"/v1/admin/recovery/commands/{item['id']}", json=body, status=422)
     body["reason"] = "Carrier account shows no leg"
     call(ws, "POST", f"/v1/admin/recovery/commands/{item['id']}", json=body)
-    final = get(ws, f"/v1/calls/{started['id']}")
-    assert final["state"] == "ENDED" and final["not_placed_reason"] == "Carrier account shows no leg"
+    final = get(ws, path)
+    assert (final["state"], final["end_reason"]) == ("ENDED", "operator_confirmed_not_placed")
+    assert final["not_placed_reason"] == "Carrier account shows no leg" and not final["review_required"]
 
 
 def test_dead_webhook_job_is_listed_and_retried(workspace, clock):

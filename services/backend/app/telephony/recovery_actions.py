@@ -223,14 +223,24 @@ def recovery_items(service, p):
 
 def _confirm_not_placed(service, s, p, call, reason):
     """Operator attestation, from the carrier account, that an unconfirmed dial never rang."""
-    if call.data.get("provider_id") or call.data["state"] != "DIAL_UNCONFIRMED":
+    if call.data.get("provider_id") or (
+        call.data["state"] != "DIAL_UNCONFIRMED" and call.data.get("end_reason") != "recovery_timeout"
+    ):
         fail(409, "Only an unconfirmed dial without a carrier reference can be confirmed as not placed")
     for key in (call.id, call.id + ":hangup"):
         command = ops._by_key(service, s, p, "command_outbox", key)
         if command and command.data.get("status") in UNFINISHED:
             update(command, status="cancelled", recovery_reason="Operator confirmed not placed: " + reason)
-    update(call, not_placed_reason=reason, not_placed_by=p["user_id"])
-    ops.finish_call(service, s, p, call, "operator_confirmed_not_placed")
+    end_reason = "operator_confirmed_not_placed"
+    update(
+        call,
+        not_placed_reason=reason,
+        not_placed_by=p["user_id"],
+        end_reason=end_reason,
+        review_required=False,
+        recovery_reason=None,
+    )
+    ops.finish_call(service, s, p, call, end_reason)
 
 
 def _recovery_action(service, p, identity, expected_version, action, reason=None):

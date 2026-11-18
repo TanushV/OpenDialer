@@ -2183,3 +2183,8 @@ live check is open.
 - November 17, 2026: reproduced the hosted WebKit timeout by forcing garbage collection after a simulated
   microphone refusal. The media test now overrides the media-device prototype and keeps the forced collection.
   The same Dialer can retry after permission is restored and completes both simulated calls.
+- November 17, 2026. Replayed a lost dial response, rep disconnect, authority restart, more than seven minutes
+  without carrier events, and a burst of duplicate and reordered receipts during a second call. Verified that
+  the original Hang up reaches only its own leg even if the stop response is lost. A late hang-up receipt can
+  settle the original stop without another command, and Confirm not placed still works after local timeout.
+  Passed 1,000 seeded fault sequences, 50 steps each, plus the crash, relay and calling journey tests.
