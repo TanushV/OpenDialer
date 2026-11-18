@@ -27,7 +27,8 @@ test("real Dialer audio handoff on successive calls through local WebRTC peers",
   test.setTimeout(90_000);
   await page.addInitScript(() => {
     window.denyTestMicrophone = true;
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+    // WebKit can discard and recreate the navigator.mediaDevices wrapper.
+    Object.defineProperty(MediaDevices.prototype, "getUserMedia", {
       value: async () => {
         if (window.denyTestMicrophone)
           throw new DOMException("Permission denied", "NotAllowedError");
@@ -75,20 +76,22 @@ test("real Dialer audio handoff on successive calls through local WebRTC peers",
   );
   expect(submitted).toEqual([]);
   await page.evaluate(() => (window.denyTestMicrophone = false));
+  // WebKit may reclaim the JavaScript media-device wrapper between attempts.
+  await page.requestGC();
 
-  const startRequest = () =>
-    page.waitForResponse((response) =>
-      response.url().endsWith("/v1/calls/start"),
-    );
   const levels = () => page.evaluate(() => window.telnyxMedia.levels());
   for (const index of [0, 1]) {
-    const request = startRequest();
     const button =
       index === 0
         ? startCalling(page)
         : page.getByRole("button", { name: /^Dial now/ });
-    await button.click();
-    const response = await request;
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().endsWith("/v1/calls/start"),
+        { timeout: 20_000 },
+      ),
+      button.click(),
+    ]);
     expect(response.ok()).toBeTruthy();
     const { id } = await response.json();
     const { authorization } = await response.request().allHeaders();

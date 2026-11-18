@@ -2180,3 +2180,6 @@ live check is open.
   Chromium. A separate ad-hoc-signed Mac app ran two simulated calls using the frozen authority. Dial now
   started the second call after the first result stayed on screen, Hang up ended it while ringing, and both
   outcomes were saved. The signed carrier and hardware checks in Calling release checks remain open.
+- November 17, 2026: reproduced the hosted WebKit timeout by forcing garbage collection after a simulated
+  microphone refusal. The media test now overrides the media-device prototype and keeps the forced collection.
+  The same Dialer can retry after permission is restored and completes both simulated calls.
