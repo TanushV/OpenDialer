@@ -1,6 +1,6 @@
 import { AUTHORITY, expect, test, type Page, setUpAuthority } from "./fixtures";
 import { openScreening, clickUntil } from "./navigation";
-import { answer, hangUp, saveOutcome } from "./simulation";
+import { answer, hangUp, openLeads, saveOutcome } from "./simulation";
 
 test("the Telnyx key is saved and checked in its own row", async ({ page }) => {
   await enter(page);
@@ -329,7 +329,7 @@ test("an imported list waits for the rep to start script generation", async ({
   page,
 }) => {
   await enter(page);
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   const list = `Prep list ${Date.now()}`;
   await page.getByLabel("List name").fill(list);
   // Fictional 555-01xx range: a clock-derived exchange can start with 0 and be invalid. Fresno's
@@ -340,11 +340,20 @@ test("an imported list waits for the rep to start script generation", async ({
     .fill(
       `name,phone,company,city\nDana Reyes,${phone},Hilltop Apartments,Fresno`,
     );
-  const imported = page.waitForResponse((r) =>
-    r.url().endsWith("/v1/leads/import"),
+  await expect(page.getByText(/First row · Dana Reyes/)).toBeVisible();
+  const submit = page.getByRole("button", {
+    name: "Import leads",
+    exact: true,
+  });
+  await expect(submit).toBeEnabled();
+  const imported = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/v1/leads/import") && r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Import leads" }).click();
-  const body = (await imported).request().postDataJSON();
+  await submit.press("Enter");
+  const response = await imported;
+  expect(response.ok()).toBeTruthy();
+  const body = response.request().postDataJSON();
   expect(body.prepare ?? false).toBe(false);
   const panel = page.getByRole("region", { name: "Lead preparation" });
   const preparation = panel.getByRole("listitem").filter({ hasText: list });

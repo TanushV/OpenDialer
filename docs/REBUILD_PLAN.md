@@ -2207,3 +2207,6 @@ live check is open.
 - November 17, 2026. Hosted WebKit left the completion journey on Leads after the sidebar click and timed out waiting
   for Start calling. Dropping the first navigation click reproduced the wrong page locally. The journeys now use the
   existing navigation helper to confirm Dialer opened before requesting a call.
+- November 17, 2026. A local WebKit trace showed the import test clicking while the Leads page was loading. The
+  click triggered no import request. The test now waits for the lead table and mapped row preview, submits once
+  with Enter on the enabled Import leads button, and checks the resulting request and response.
