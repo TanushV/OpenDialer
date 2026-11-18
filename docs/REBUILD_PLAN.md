@@ -2224,3 +2224,6 @@ live check is open.
 - November 18, 2026. A CSV with 306 full-length scripts exceeded the authority's request limit. The Leads page
   now sends one file in bounded requests to the same list. Verified in WebKit that an oversized file returns one
   receipt with each ready script counted and the original line number for a rejected multiline CSV row.
+- November 18, 2026. The owner requested 2.4.0, including the CSV importer and the one-action-per-call changes.
+  Build the signed draft from the verified version commit. Test the packaged authority in a disposable workspace,
+  run the live calling release checks on the signed candidate, then publish and verify the signed update on this Mac.

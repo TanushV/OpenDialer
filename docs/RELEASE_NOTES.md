@@ -1,3 +1,12 @@
+# OpenDialer 2.4.0
+
+- **Import finished scripts from CSV.** Add a `script` column with plain text or multiline Markdown. The app opens those scripts in Leads and Dialer and marks them ready immediately. Large files import into one list.
+- **Place one call per action.** Start calling places one attempt. Dial now or a fresh Space press starts the next. After an outcome or a restart, the Dialer waits for you.
+- **Hear the voicemail greeting.** The Dialer hands ringback over to call audio. When Telnyx detects voicemail, the call stays open through the greeting. Press Space or select End as voicemail when ready.
+- **Hang up while a call is connecting.** Hang up can cancel an attempt before it reaches the carrier and can end the local audio leg while the carrier is still responding.
+
+Updates from 1.0.x through 2.3.0 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.3.0
 
 - **Hear outbound calls ring.** The Dialer plays a local ringback tone until the call answers or stops. It shows the answer while Telnyx identifies a person, voicemail, or call screening.
