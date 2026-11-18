@@ -13,7 +13,7 @@ import { countLabel, useHistory } from "../state/useHistory";
 import { HistoryMore } from "./HistoryMore";
 import { LONG_REQUEST_MS, native, openSource } from "../api/client";
 import { date, label, useWorkspace } from "../context";
-import { leadCSVHeaders, parseLeadCSV } from "../state/csv";
+import { leadCSVHeaders, leadImportBatches, parseLeadCSV } from "../state/csv";
 import { ColumnMap, type ColumnMapping } from "./ColumnMap";
 import { HubSpotLists } from "./HubSpotLists";
 import type { Lead, NumberRecord, Packet } from "../types";
@@ -44,6 +44,14 @@ const SCRIPT_STATUS: Record<string, string> = {
   missing: "Script needed",
 };
 
+type LeadImportReport = {
+  imported: number;
+  duplicates: number;
+  invalid: number;
+  scripts_imported?: number;
+  errors: { row: number; reason: string; detail?: string }[];
+};
+
 export function LeadsPage({
   onNavigate,
 }: {
@@ -70,13 +78,8 @@ export function LeadsPage({
     mappedColumns?.headerKey === headerKey ? mappedColumns.map : null;
   const [listName, setListName] = useState("");
   const [query, setQuery] = useState("");
-  const [report, setReport] = useState<{
-    imported: number;
-    duplicates: number;
-    invalid: number;
-    scripts_imported?: number;
-    errors: { row: number; reason: string }[];
-  } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [report, setReport] = useState<LeadImportReport | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
   const packetLead = useRef<string | null>(null);
   const packetReads = useNewestAnswer();
@@ -524,6 +527,7 @@ export function LeadsPage({
             List name
             <input
               value={listName}
+              disabled={importing}
               maxLength={120}
               onChange={(e) => setListName(e.target.value)}
               placeholder="e.g. California agencies"
@@ -534,6 +538,7 @@ export function LeadsPage({
             <textarea
               rows={5}
               value={csv}
+              disabled={importing}
               onChange={(e) => setCSV(e.target.value)}
               placeholder={
                 "name,phone,company,timezone\nJordan Example,+14155550101,Example Co,America/Los_Angeles"
@@ -548,6 +553,7 @@ export function LeadsPage({
             <OpenFile
               label="Open lead list (.csv)"
               accept=".csv,text/csv"
+              disabled={importing}
               onOpen={(file) => {
                 void run(async () => {
                   const text = await file.text();
@@ -569,44 +575,67 @@ export function LeadsPage({
             </button>
             <button
               className="primary"
-              disabled={!csvData?.rows.length}
+              disabled={importing || !csvData?.rows.length}
               onClick={() =>
                 void run(async () => {
-                  if (!csvData) return;
-                  const report = await api<{
-                    imported: number;
-                    duplicates: number;
-                    invalid: number;
-                    scripts_imported?: number;
-                    errors: { row: number; reason: string; detail?: string }[];
-                  }>(
-                    "/v1/leads/import",
-                    "POST",
-                    {
-                      campaign_id: w.campaign.id,
-                      list_name: listName.trim(),
-                      rows: csvData.rows,
-                      ...(columnMap ? { column_map: columnMap } : {}),
-                    },
-                    { timeoutMs: LONG_REQUEST_MS },
-                  );
-                  setReport({
-                    ...report,
-                    invalid: report.invalid + csvData.errors.length,
-                    errors: [
-                      ...csvData.errors,
-                      ...(report.errors ?? []).map(
-                        ({ row, reason, detail }) => ({
-                          row: csvData.rowNumbers[row - 1] ?? row,
+                  if (!csvData || importing) return;
+                  const fields = {
+                    campaign_id: w.campaign.id,
+                    list_name: listName.trim(),
+                    ...(columnMap ? { column_map: columnMap } : {}),
+                  };
+                  const batches = leadImportBatches(csvData, fields);
+                  const report = {
+                    imported: 0,
+                    duplicates: 0,
+                    invalid: csvData.errors.length,
+                    scripts_imported: 0,
+                    errors: [...csvData.errors],
+                  };
+                  let offset = 0;
+                  setImporting(true);
+                  setReport(null);
+                  try {
+                    for (const rows of batches) {
+                      const receipt = await api<LeadImportReport>(
+                        "/v1/leads/import",
+                        "POST",
+                        { ...fields, rows },
+                        { timeoutMs: LONG_REQUEST_MS },
+                      );
+                      report.imported += receipt.imported;
+                      report.duplicates += receipt.duplicates;
+                      report.invalid += receipt.invalid;
+                      report.scripts_imported += receipt.scripts_imported ?? 0;
+                      for (const { row, reason, detail } of receipt.errors ??
+                        []) {
+                        report.errors.push({
+                          row:
+                            csvData.rowNumbers[offset + row - 1] ??
+                            offset + row,
                           reason:
                             detail ||
                             (reason === "INVALID_PHONE"
                               ? "No usable phone number."
                               : label(reason)),
-                        }),
-                      ),
-                    ],
-                  });
+                        });
+                      }
+                      offset += rows.length;
+                    }
+                  } catch (error) {
+                    if (!offset) throw error;
+                    setReport(report);
+                    const detail =
+                      error instanceof Error
+                        ? error.message
+                        : "The workspace request failed.";
+                    throw new Error(
+                      `Import stopped near CSV row ${csvData.rowNumbers[offset]}. ${detail} Reimport this file to continue.`,
+                    );
+                  } finally {
+                    setImporting(false);
+                  }
+                  setReport(report);
                   setCSV("");
                   setMappedColumns(null);
                   await refresh();
@@ -618,7 +647,7 @@ export function LeadsPage({
                 })
               }
             >
-              Import leads
+              {importing ? "Importing…" : "Import leads"}
               <ArrowRight size={15} />
             </button>
           </div>

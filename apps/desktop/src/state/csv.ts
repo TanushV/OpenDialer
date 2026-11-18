@@ -102,3 +102,37 @@ export function parseLeadCSV(text: string) {
   }
   return { headers, rows, rowNumbers, errors };
 }
+
+export function leadImportBatches(
+  { rows, rowNumbers }: ReturnType<typeof parseLeadCSV>,
+  fields: object,
+) {
+  if (rows.length > 10_000)
+    throw new Error("Import up to 10,000 leads per CSV.");
+
+  // The local authority applies a 5 MB limit per JSON request.
+  const limit = 5_000_000;
+  const encoder = new TextEncoder();
+  const envelope = encoder.encode(
+    JSON.stringify({ ...fields, rows: [] }),
+  ).length;
+  const batches: (typeof rows)[] = [];
+  let batch: typeof rows = [];
+  let bytes = envelope;
+  for (const [index, row] of rows.entries()) {
+    const size = encoder.encode(JSON.stringify(row)).length;
+    if (envelope + size > limit)
+      throw new Error(
+        `CSV row ${rowNumbers[index]} exceeds the 5 MB import limit.`,
+      );
+    if (bytes + Number(batch.length > 0) + size > limit) {
+      batches.push(batch);
+      batch = [];
+      bytes = envelope;
+    }
+    bytes += Number(batch.length > 0) + size;
+    batch.push(row);
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}

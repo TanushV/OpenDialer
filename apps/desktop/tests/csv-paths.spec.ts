@@ -73,6 +73,59 @@ test("a CSV opens a finished multiline script in Leads and on the call", async (
   }
 });
 
+test("one CSV can import finished scripts beyond the request limit", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  const sample = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await sample.isVisible()) await sample.click();
+  await openLeads(page);
+
+  const script = `# Opening\n${"Café food orders · ".repeat(1700).trim()}\n\n# Close\nCould we talk Thursday?`;
+  const rows = Array.from({ length: 150 }, (_, index) => {
+    const phone = `+12025551${String(index).padStart(3, "0")}`;
+    return `Batch lead ${index + 1},${phone},"${script}"`;
+  });
+  const csv = Buffer.from(
+    [
+      "name,phone,script",
+      ...rows,
+      "Unfinished,+12025551999,{{ write the opening }}",
+    ].join("\n"),
+  );
+  expect(csv.byteLength).toBeGreaterThan(5_000_000);
+  const invalidRow = 2 + rows.length * script.split("\n").length;
+
+  await page.getByLabel("Open lead list (.csv)").setInputFiles({
+    name: "Bulk scripts.csv",
+    mimeType: "text/csv",
+    buffer: csv,
+  });
+  await expect(page.getByText(/First row · Batch lead 1\b/)).toBeVisible();
+  const first = page.waitForRequest((request) =>
+    request.url().endsWith("/v1/leads/import"),
+  );
+  await page
+    .getByRole("button", { name: "Import leads", exact: true })
+    .press("Enter");
+  expect((await (await first).response())?.status()).toBe(200);
+  await expect(
+    page.getByText("150 scripts ready", { exact: true }),
+  ).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(
+    page.getByText("150 imported · 0 matched · 1 skipped"),
+  ).toBeVisible();
+  await page.getByText("Skipped row details", { exact: true }).click();
+  await expect(
+    page.getByText(`Row ${invalidRow} · Fill the script`),
+  ).toBeVisible();
+});
+
 test("generated CSV paths match the Dialer and the prospect brief stays on the left", async ({
   page,
 }) => {

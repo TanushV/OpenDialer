@@ -20,6 +20,8 @@ Build directly on main, test before each fix, and run the fast and full checks u
 - An optional `script` column carries the lead's finished text. Quoted multiline Markdown and plain text both work.
   Import saves a complete script as ready for that contact. Blank cells follow ordinary preparation. A row with an
   unfinished or malformed script names the problem in the import receipt.
+- Import large CSVs into one list through bounded requests. Combine the counts in one receipt and show the original
+  CSV line for each skipped row, including scripts with multiline cells.
 
 ## 2. Remove and reimport
 

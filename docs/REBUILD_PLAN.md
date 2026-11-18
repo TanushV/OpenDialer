@@ -2221,3 +2221,6 @@ live check is open.
   through master edits and ordinary generation requests. Blank cells keep the usual preparation path. A file upload
   in WebKit and a CSV produced by the signed-in Codex CLI both reached simulated calls with their supplied scripts and
   without preparation work.
+- November 18, 2026. A CSV with 306 full-length scripts exceeded the authority's request limit. The Leads page
+  now sends one file in bounded requests to the same list. Verified in WebKit that an oversized file returns one
+  receipt with each ready script counted and the original line number for a rejected multiline CSV row.
