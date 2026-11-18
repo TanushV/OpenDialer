@@ -49,7 +49,10 @@ STEPS = {
     ],
     "edge": [(node_tests(), ROOT)],
     # Size caps and code-rule bans; warnings until Phase 3 (R3.10) adds --strict.
-    "rules": [([sys.executable, "scripts/rules.py"], ROOT)],
+    "rules": [
+        ([sys.executable, "scripts/rules.py"], ROOT),
+        ([sys.executable, "scripts/calling_budget.py"], ROOT),
+    ],
     "backend-fast": [([*PYTEST, "-m", "not slow"], ROOT)],
     "backend": [(PYTEST, ROOT)],
     "rust": [
@@ -196,6 +199,8 @@ def sidecars():
 
 
 def smoke(backend):
+    import httpx
+
     # Windows can hold a just-stopped sidecar's files for a moment; a leftover temp folder is not a failure (R9D.1).
     with tempfile.TemporaryDirectory(prefix="opendialer-smoke-", ignore_cleanup_errors=True) as data:
         port = _free_port()
@@ -218,13 +223,84 @@ def smoke(backend):
                     with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as reply:  # noqa: S310
                         if reply.status == 200:
                             print("  pass  frozen backend answered /health")
-                            return True
+                        break
                 except OSError:
                     time.sleep(0.5)
-            print("  FAIL  frozen backend did not answer /health within 90 seconds")
-            return False
+            else:
+                print("  FAIL  frozen backend did not answer /health within 90 seconds")
+                return False
+            with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=10, trust_env=False) as client:
+                packaged_calls(client, env["OPENDIALER_LOCAL_TOKEN"])
+            print("  pass  frozen backend placed and settled two isolated test attempts")
+            return True
         finally:
             stop(process)
+
+
+def packaged_calls(client, token):
+    """Exercise the packaged authority through its ordinary API on an empty practice workspace."""
+
+    def request(method, path, data=None):
+        response = client.request(method, path, json=data)
+        assert response.is_success, f"{method} {path}: {response.status_code} {response.text[:400]}"
+        return response.json()
+
+    health = request("GET", "/health")
+    assert health["simulation"] and not health["initialized"], "Calling smoke requires a fresh simulator"
+    client.headers["X-Local-Token"] = token
+    setup = request("POST", "/v1/setup", {"seller_name": "Packaged calling test", "campaign_name": "Smoke"})
+    client.headers["Authorization"] = "Bearer " + setup["access_token"]
+    seeded = request("POST", "/v1/simulation/seed")
+    phones = ["+12025550181", "+12025550182"]
+    request(
+        "PUT",
+        "/v1/settings/test-list",
+        {"rows": [{"name": f"Fixture {i}", "phone": phone} for i, phone in enumerate(phones)]},
+    )
+    run = request("POST", "/v1/settings/test-list/start")
+    queue = {"campaign_id": seeded["campaign_id"], "test_run_id": run["id"], "test_only": True}
+
+    def event(call_id, kind, **payload):
+        request(
+            "POST",
+            "/v1/simulation/event",
+            {"call_id": call_id, "event_type": kind, "event_id": f"{call_id}:{kind}", "payload": payload},
+        )
+
+    called = []
+    for index, outcome in enumerate(("voicemail", "no_answer")):
+        agent = request("POST", "/v1/telephony/agent")["agent_call_control_id"]
+        request(
+            "POST",
+            "/v1/rep/presence",
+            {
+                "status": "ready",
+                "audio_ready": True,
+                "telephony_ready": True,
+                "agent_call_control_id": agent,
+            },
+        )
+        reservation = request("POST", "/v1/queue/next", queue)
+        called.append(reservation["lead"]["phone"])
+        reservation_id = reservation["reservation_id"]
+        data = {"reservation_id": reservation_id, "idempotency_key": reservation_id}
+        call = request("POST", "/v1/calls/start", data)
+        assert call["is_test"] and call["provider_id"], call
+        assert request("POST", "/v1/calls/start", data)["id"] == call["id"]
+        call_id = call["id"]
+        path = f"/v1/calls/{call_id}"
+        if outcome == "voicemail":
+            event(call_id, "call.answered")
+            event(call_id, "call.machine.premium.detection.ended:machine")
+            event(call_id, "call.machine.premium.greeting.ended:beep_detected")
+            assert request("GET", path)["state"] == "VOICEMAIL_READY"
+            request("POST", path + "/hangup", {"mark_voicemail": True})
+        else:
+            event(call_id, "call.hangup", hangup_source="callee", hangup_cause="no_answer")
+        settled = request("GET", path)
+        assert (settled["state"], settled["outcome"]) == ("FINALIZED", outcome)
+        assert len(request("GET", "/v1/workspace/calls")["items"]) == index + 1
+    assert sorted(called) == phones
 
 
 def stop(process):

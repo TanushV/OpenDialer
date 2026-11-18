@@ -78,6 +78,7 @@ class CallView(View):
     rep_voicemail_at: str | None = None
     ended_at: str | None = None
     provider_id: str | None = None
+    pool_ref: str | None = None
     max_call_seconds: int | None = None
     rep_id: str | None = None
     attempt_ordinal: int | None = None

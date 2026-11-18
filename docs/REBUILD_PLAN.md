@@ -1796,6 +1796,26 @@ this Mac for the pilot. The live results identify the shared host.
 The owner chooses or approves the account-owned pilot caller number and authorizes the live test. Check available
 test assets and admin access before asking for anything. The signed rollout follows section 12A.
 
+### Calling release checks
+
+Run `scripts/check.py full` locally and require Verify on the exact candidate commit. The calling checks use an
+empty workspace and synthetic destinations. They exercise the desktop controls, the carrier HTTP adapter, the relay
+inbox, restart recovery and the saved outcome. The packaged backend also runs a two-number test list through its API
+after it starts. The media test sends signals through local WebRTC peers and measures both directions and the
+ringback handoff. Keep failed event sequences as replayable tests.
+
+The calling budget in `scripts/calling_budget.py` measures the state table and decisions at dial, audio setup, hang-up
+and recovery. Carrier journey tests count actual requests before any carrier deduplication. Each normal outbound attempt
+uses one rep audio leg and one prospect leg linked on answer. Each explicit stop targets the original attempt. Review
+any added state, timer or effect against the tested behavior before raising a budget.
+
+Before publishing a calling change, run L1 through L8 and the affected recovery cases on the exact signed candidate.
+Start with voicemail through the beep, an explicit Space to end, a wait with no new dial, and another deliberate call
+with ringback and audible speech both ways. Use the approved test phones and record the version, artifact digest,
+platform, call results and recovery results. Use the Phase 12 pilot cases to verify the shared route. Record Windows
+and Ubuntu device checks separately when those packages are in scope. Keep the candidate in draft while a required
+live check is open.
+
 ## 14. Risks
 
 | # | Risk | Handling |
@@ -2153,3 +2173,10 @@ test assets and admin access before asking for anything. The signed rollout foll
   continues, and the mailbox stays open until the rep ends it or the carrier disconnects. Ringback and call audio
   share the output route. Simulated carrier and WebKit checks cover the handoff and playback failures. A signed
   candidate still needs the live playback checks in L3 to L6.
+- November 17, 2026: added calling complexity limits and end-to-end checks for the Telnyx request sequence,
+  relay delivery, restart after a lost dial response, callback priority, and audio across consecutive calls.
+  Hang up now cancels an unclaimed dial and can end the local WebRTC leg while the carrier request is pending.
+  The full local check passed with the disposable relay and 175 WebKit tests. The new media test also passed in
+  Chromium. A separate ad-hoc-signed Mac app ran two simulated calls using the frozen authority. Dial now
+  started the second call after the first result stayed on screen, Hang up ended it while ringing, and both
+  outcomes were saved. The signed carrier and hardware checks in Calling release checks remain open.

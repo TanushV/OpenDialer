@@ -464,10 +464,21 @@ def test_return_call_routes_to_the_rep_who_called_and_completes_the_callback(wor
     wrap_up(ws, started["id"], outcome="not_interested")
     telnyx = Telnyx(ws, clock)
     ready_as(ws, rep)
+    pending = next_lead(ws, rep)
     telnyx.deliver("call.initiated", inbound("in-1", lead_row(ws, started["lead_id"])["phone"]), "evt-in-1")
     run_jobs(ws)
     task = inbound_task(ws, "in-1")
     assert (task["route"], task["routed_rep_id"]) == ("rep", rep_id)
+    # A callback wins over a mere reservation. The original outbound button's
+    # request can arrive late, but it must never reach the carrier.
+    post(
+        ws,
+        "/v1/calls/start",
+        {"reservation_id": pending["reservation_id"], "idempotency_key": "callback-beat-outbound"},
+        headers=rep,
+        status=409,
+    )
+    assert len(carrier.dials) == 1
     call(ws, "POST", "/v1/admin/control/run")
     assert transfers(carrier) == ["sip:rep-line-1@sip.telnyx.com"]
     attempt = task["routing_attempts"][0]

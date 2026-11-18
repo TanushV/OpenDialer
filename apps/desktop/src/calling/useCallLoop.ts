@@ -703,20 +703,30 @@ export function useCallLoop() {
     const still = () => callRef.current?.id === current.id;
     let result: Call;
     try {
-      result = await api<Call>(
+      const stop = api<Call>(
         `/v1/calls/${current.id}/hangup`,
         "POST",
         markVoicemail ? { mark_voicemail: true } : undefined,
       );
+      // Either path can end the call even when the other hangs. Voicemail
+      // first needs its disposition recorded by the authority.
+      if (!markVoicemail && identity)
+        void telephony.current
+          .emergencyHangup(identity)
+          .catch((error) =>
+            console.warn("Local call audio could not end:", error),
+          );
+      result = await stop;
     } catch (error) {
       // The server did not take the hang-up: show the call as it is, with Hang up, again.
       setIntent((value) =>
         value?.call_id === current.id ? { ...value, hangup: false } : value,
       );
       if (
+        markVoicemail &&
         identity &&
         still() &&
-        (!markVoicemail || !(error instanceof ApiError && error.status < 500))
+        !(error instanceof ApiError && error.status < 500)
       )
         await telephony.current.emergencyHangup(identity);
       throw error;
@@ -725,7 +735,8 @@ export function useCallLoop() {
     if (!still()) return;
     ++readGeneration.current;
     applyCall(result);
-    if (identity) await telephony.current.emergencyHangup(identity);
+    if (markVoicemail && identity)
+      await telephony.current.emergencyHangup(identity);
   }
   /** Space while dialing: end this attempt and save No answer (section 6, Skipped). */
   async function skip() {

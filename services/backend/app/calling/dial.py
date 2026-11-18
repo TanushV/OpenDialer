@@ -569,13 +569,32 @@ def _claim_hangup(service, p, call_id, owner, recovery_expected=None, mark_voice
                 fail(409, "Wait for the call to connect before marking voicemail.")
             update(call, rep_voicemail_at=service.clock().isoformat())
         if view.state in TERMINAL:
-            return doc(call), None
+            return doc(call), None, None
         # A recovery hang-up goes ahead only if the pass's decision still holds for the call as it is now.
         if recovery_expected is not None and (
             view.provider_id != recovery_expected.get("provider_id")
             or next_step(call.data, service.clock()) not in {"hangup.requested", "call.ended"}
         ):
-            return doc(call), None
+            return doc(call), None, None
+        if view.state == "AUTHORIZED" and not view.submitted_at:
+            # The send claim and this check lock the same call. Cancel only an intent that
+            # has never been claimed. A possibly sent dial must keep its durable stop.
+            dial = ops._by_key(service, s, p, "command_outbox", call.id)
+            if (
+                dial
+                and (intent := CommandView.model_validate(dial.data)).status == "pending"
+                and not intent.sent_at
+            ):
+                update(dial, status="cancelled", reason="unsent_intent_cancelled")
+                _finish_failed_dial(
+                    service,
+                    s,
+                    p,
+                    call,
+                    "unsent_intent_cancelled",
+                    "You ended this attempt before the dial was sent to Telnyx.",
+                )
+                return doc(call), None, view.pool_ref
         provider_id = view.provider_id
         command_id = call.id + ":hangup"
         existing = ops._by_key(service, s, p, "command_outbox", command_id)
@@ -597,9 +616,9 @@ def _claim_hangup(service, p, call_id, owner, recovery_expected=None, mark_voice
             )
         prior = CommandView.model_validate(existing.data)
         if prior.lease_until and dt(prior.lease_until) > service.clock():
-            return doc(call), None
+            return doc(call), None, None
         if prior.status == "completed":
-            return doc(call), None
+            return doc(call), None, None
         update(
             existing,
             status="sending" if provider_id else "review_required",
@@ -615,7 +634,7 @@ def _claim_hangup(service, p, call_id, owner, recovery_expected=None, mark_voice
         ops.stop_agent_transcription_in(service, s, p, call)
         service.tips.end(call.id)
         emit(s, workspace(p), "call.updated", call, service.clock(), {"state": "ENDING"})
-        return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}
+        return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}, None
 
 
 def _hangup_completed(service, p, call_id, command_id, owner, error=None):
@@ -645,9 +664,11 @@ def _hangup_completed(service, p, call_id, command_id, owner, error=None):
 
 async def hangup(service, p, call_id, *, recovery_expected=None, mark_voicemail=False):
     owner = uid()
-    call, command = await asyncio.to_thread(
+    call, command, unsent_pool_ref = await asyncio.to_thread(
         ops._claim_hangup, service, p, call_id, owner, recovery_expected, mark_voicemail
     )
+    if unsent_pool_ref:
+        await pool.cancel(service.managed, unsent_pool_ref, unsent=True)
     if command:
         error = None
         if command["provider_id"]:
