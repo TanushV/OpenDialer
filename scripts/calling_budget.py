@@ -16,8 +16,8 @@ BUDGET = {
     "timed_states": 11,
     "calling/audio_leg.py:create": 14,
     "calling/dial.py:_prepare_call": 6,
-    "calling/dial.py:_claim_dial": 7,
-    "calling/dial.py:dispatch_call": 10,
+    "calling/dial.py:_claim_dial": 8,  # Refuse a rep's request that expired before the carrier send.
+    "calling/dial.py:_dispatch_call": 10,
     "calling/dial.py:_claim_hangup": 14,  # An explicit stop may cancel a still-unclaimed dial and free its hold.
     "calling/dial.py:hangup": 7,
     "calling/recovery.py:next_step": 3,

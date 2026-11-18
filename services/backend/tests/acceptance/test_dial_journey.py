@@ -9,7 +9,7 @@ from threading import Event
 
 import httpx
 import pytest
-from app import ops
+from app.calling import dial as calling_dial
 from app.calling.state import TERMINAL
 from app.main import create_app
 from app.managed_webhooks import deliver
@@ -306,13 +306,15 @@ def test_late_stop_after_recovery_timeout_does_not_touch_the_next_call(
         carrier.dial_budget(2)
 
 
-@pytest.mark.parametrize("action", ["hangup", "pause", "opt_out"])
-def test_stopping_before_carrier_submission_cancels_the_pending_dial(workspace, carrier, monkeypatch, action):
+@pytest.mark.parametrize("action", ["hangup", "pause", "opt_out", "expires"])
+def test_stopping_before_carrier_submission_cancels_the_pending_dial(
+    workspace, carrier, monkeypatch, clock, action
+):
     client, headers = workspace["client"], workspace["headers"]
     reservation = reserve(workspace)
     assert reservation.is_success, reservation.text
     data = {"reservation_id": reservation.json()["reservation_id"], "idempotency_key": "held-dial"}
-    dispatch = ops.dispatch_call
+    dispatch = calling_dial._dispatch_call
     entered, resume = Event(), Event()
 
     async def held_dispatch(service, principal, call_id):
@@ -320,7 +322,7 @@ def test_stopping_before_carrier_submission_cancels_the_pending_dial(workspace, 
         assert await asyncio.to_thread(resume.wait, 15)
         await dispatch(service, principal, call_id)
 
-    monkeypatch.setattr(ops, "dispatch_call", held_dispatch)
+    monkeypatch.setattr(calling_dial, "_dispatch_call", held_dispatch)
     with ThreadPoolExecutor(max_workers=1) as executor:
         starting = executor.submit(client.post, "/v1/calls/start", headers=headers, json=data)
         try:
@@ -335,13 +337,17 @@ def test_stopping_before_carrier_submission_cancels_the_pending_dial(workspace, 
                 stop = client.post(
                     "/v1/rep/presence", headers=headers, json={"status": "paused", "telephony_ready": False}
                 )
-            else:
+            elif action == "opt_out":
                 stop = client.post(
                     "/v1/suppressions",
                     headers=headers,
                     json={"phone": reservation.json()["lead"]["phone"], "reason": "opt_out"},
                 )
-            assert stop.is_success, stop.text
+            else:
+                # The original request resumes after the authorization expired, before the next recovery tick.
+                clock.now += timedelta(seconds=31)
+                stop = None
+            assert stop is None or stop.is_success, stop.text if stop else None
         finally:
             resume.set()
         result = starting.result(timeout=15)
@@ -350,5 +356,8 @@ def test_stopping_before_carrier_submission_cancels_the_pending_dial(workspace, 
     assert not carrier.dials, f"{action} arrived before the carrier request was claimed"
     assert result.json()["state"] in TERMINAL
     assert result.json()["provider_id"] is None
+    if action == "expires":
+        assert result.json()["end_reason"] == "dial_not_sent"
+        assert result.json()["dial_error"]
     assert client.post("/v1/calls/start", headers=headers, json=data).json()["id"] == call["id"]
     assert not carrier.dials

@@ -17,7 +17,7 @@ PAGES = {
     "leads": "Open Leads",
     "dialer": "Open Dialer",
 }
-# What to do about leads held back from auto-dial, per hold.
+# What to do about leads held from calling, per hold.
 HOLD_FIX = {
     "NUMBER_CONFLICT": ("leads", "Check them in Leads; dial by hand if you are sure"),
     "CRM_SYNC_STALE": ("leads", "Sync the HubSpot list in Leads"),

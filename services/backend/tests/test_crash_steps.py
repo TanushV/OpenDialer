@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import pytest
 from app import ops
+from app.calling import dial
 from app.platform.db import MODELS
 from conftest import ready, reserve
 from helpers import bound
@@ -46,7 +47,7 @@ def stop_at(point, service, carrier, monkeypatch):
         raise Crash(point)
 
     if point == "before_dispatch":
-        monkeypatch.setattr(ops, "dispatch_call", bound(crash_async))
+        monkeypatch.setattr(dial, "_dispatch_call", crash_async)
     elif point == "before_carrier_request":
         monkeypatch.setattr(carrier, "dial", crash_async)
     elif point == "after_carrier_accepted":
@@ -76,11 +77,31 @@ def test_a_crash_at_any_dial_step_never_dials_twice_and_never_loses_the_call(
         body = {"reservation_id": packet["reservation_id"], "idempotency_key": "crash-" + point}
         asyncio.run(ops.start_call(service, principal(ws), body))
     monkeypatch.undo()
+    if point == "before_dispatch":
+        asyncio.run(ops.recover(service, principal(ws)))
+        assert not carrier.dials, "Recovery cannot send the abandoned dial even before its deadline"
     recover_for_a_while(service, ws, clock)
     attempts = calls_for(service, lead_id)
     assert len(attempts) == 1, "recovery never makes a second call record"
-    assert len(carrier.calls) <= 1 and len(carrier.dials) <= 1, "the carrier placed at most one call"
+    dispatched = point in {"after_carrier_accepted", "before_receipt_saved"}
+    assert len(carrier.dials) == int(dispatched), (
+        "Recovery must never send a dial the rep's request did not send"
+    )
+    assert len(carrier.calls) == int(dispatched)
     assert attempts[0]["state"] in {"ENDED", "FINALIZED"}, attempts[0]["state"]
+    if point == "before_dispatch":
+        assert attempts[0]["state"] == "FINALIZED"
+        assert attempts[0]["end_reason"] == "dial_not_sent" and attempts[0].get("dial_error")
+        client, headers = ws["client"], ws["headers"]
+        assert (
+            client.post("/v1/calls/start", headers=headers, json=body).json()["end_reason"] == "dial_not_sent"
+        )
+        assert not carrier.dials, "Repeating the interrupted request cannot send it"
+        new_hold = begin(ws)
+        fresh = {"reservation_id": new_hold["reservation_id"], "idempotency_key": "pressed-again"}
+        placed = client.post("/v1/calls/start", headers=headers, json=fresh)
+        assert placed.is_success, placed.text
+        assert len(carrier.dials) == 1 and placed.json()["provider_id"]
 
 
 @pytest.mark.slow

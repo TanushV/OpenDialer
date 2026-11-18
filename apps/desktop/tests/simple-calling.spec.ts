@@ -373,6 +373,9 @@ test("ringback returns on the next explicit call, and voicemail stays open until
   const receipt = await firstDial;
   const first = await receipt.json();
   const headers = await receipt.request().allHeaders();
+  // Holding a key while the current call ends must not activate the newly available dial button.
+  await page.locator(".dialer-body").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.down("Enter");
   const event = await page.request.post(`${AUTHORITY}/v1/simulation/event`, {
     headers: { authorization: headers.authorization },
     data: {
@@ -386,10 +389,19 @@ test("ringback returns on the next explicit call, and voicemail stays open until
   await expect(callStatus(page)).toContainText("No answer saved");
   await expect(root).toHaveAttribute("data-end-tone-count", "1");
   await expect(root).toHaveAttribute("data-ringback", "stopped");
+  const dialNow = page.getByRole("button", { name: /^Dial now/ });
+  await dialNow.focus();
+  await page.keyboard.down("Enter");
+  await page.keyboard.up("Enter");
+  await dialNow.evaluate((button) => (button as HTMLButtonElement).click());
+  await page.locator(".dialer-body").dispatchEvent("keydown", {
+    key: " ",
+    code: "Space",
+  });
   await page.waitForTimeout(3200); // Exceed the old automatic advance delay.
   expect(starts).toBe(1);
 
-  await page.getByRole("button", { name: /^Dial now/ }).click();
+  await dialNow.press("Enter");
   await expect(root).toHaveAttribute("data-ringback-count", "2");
   await page
     .getByRole("button", { name: "Mailbox greeting", exact: true })
@@ -402,8 +414,10 @@ test("ringback returns on the next explicit call, and voicemail stays open until
     page.getByRole("button", { name: /^End as voicemail/ }),
   ).toBeEnabled();
   await page.locator(".dialer-body").click({ position: { x: 5, y: 5 } });
-  await page.keyboard.press("Space");
+  await page.keyboard.down("Space");
   await expect(callStatus(page)).toContainText("Voicemail saved");
+  await page.keyboard.down("Space");
+  await page.keyboard.up("Space");
   await expect(root).toHaveAttribute("data-end-tone-count", "2");
   await page.waitForTimeout(3200);
   expect(starts).toBe(2);

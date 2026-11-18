@@ -1,7 +1,7 @@
 """The do-not-call decision for CRM leads (D23, section 9A). Pure: the caller stores the result and the suppression.
 
 A result is good for 30 days (the federal rule wants a fresh scrub within 31). CSV leads are never checked. A CRM lead
-whose check is missing, stale or failed is held back from auto-dial by `number_hold` until it passes.
+whose check is missing, stale or failed is held from calling by `number_hold` until it passes.
 """
 
 from datetime import timedelta
@@ -10,7 +10,7 @@ FRESH = timedelta(days=30)
 
 
 def due(lead, now):
-    """Whether a CRM lead needs a (re)check before it may be auto-dialed."""
+    """Whether a CRM lead needs a (re)check before it may be dialed."""
     if lead.get("source") != "crm" or not lead.get("phone"):
         return False
     state = lead.get("dnc") or {}

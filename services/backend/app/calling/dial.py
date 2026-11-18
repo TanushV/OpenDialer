@@ -222,7 +222,8 @@ async def start_call(service, p, data):
     call, created = await asyncio.to_thread(ops._prepare_call, service, p, data)
     if not created:
         return call
-    await ops.dispatch_call(service, p, call["id"])
+    # Only this request can send the dial it just prepared. A retry can read its result.
+    await _dispatch_call(service, p, call["id"])
     latest = await asyncio.to_thread(ops._call_snapshot, service, p, call["id"])
     if latest.get("dial_error") and latest.get("is_test") and not latest["dial_scope"].get("test_run_id"):
         await asyncio.to_thread(ops.presence, service, p, {"status": "paused", "telephony_ready": False})
@@ -244,10 +245,14 @@ def _claim_dial(service, p, call_id, owner):
                 model.op_kind == "dial",
             )
         )
-        if not command or CommandView.model_validate(command.data).call_id != call_id:
+        if not command or (intent := CommandView.model_validate(command.data)).call_id != call_id:
             fail(409, "Original dial intent is missing; review this call before retrying")
-        if command.data["status"] != "pending":
+        view = CallView.model_validate(call.data)
+        if intent.status != "pending" or view.state != "AUTHORIZED" or view.submitted_at or intent.sent_at:
             return
+        if next_step(call.data, service.clock()) == "dial.unconfirmed":
+            expire_unsent_dial_in(service, s, p, call, command)
+            return None, doc(call), None, None
         # A blocker acquired after authorization still wins. Settle the original command so
         # recovery cannot place this call after the rep has been shown a refusal.
         if blockers := ops.dial_blockers_in(service, s, p, rep=False):
@@ -345,6 +350,23 @@ def _finish_failed_dial(service, s, p, call, reason, message, fix=None):
     emit(s, workspace(p), "call.updated", call, service.clock(), {"state": call.data["state"]})
 
 
+def expire_unsent_dial_in(service, s, p, call, command):
+    if (
+        command
+        and (intent := CommandView.model_validate(command.data)).status == "pending"
+        and not intent.sent_at
+    ):
+        update(command, status="cancelled", reason="DIAL_NOT_SENT")
+    _finish_failed_dial(
+        service,
+        s,
+        p,
+        call,
+        "dial_not_sent",
+        "This attempt was interrupted before the dial was sent to Telnyx. Start calling again to place a new call.",
+    )
+
+
 def _rejection_message(response):
     # Keep the provider's diagnostic code without copying a response body that can include phone numbers.
     body = body_of(response)
@@ -435,9 +457,9 @@ def _dial_completed(service, p, call_id, claimed, owner, receipt):
     return cancel
 
 
-async def dispatch_call(service, p, call_id):
+async def _dispatch_call(service, p, call_id):
     owner = uid()
-    claimed = await asyncio.to_thread(ops._claim_dial, service, p, call_id, owner)
+    claimed = await asyncio.to_thread(_claim_dial, service, p, call_id, owner)
     if not claimed:
         return
     pool_ref = claimed[1].get("pool_ref")
@@ -487,49 +509,6 @@ async def dispatch_call(service, p, call_id):
     cancel = await asyncio.to_thread(ops._dial_completed, service, p, call_id, claimed, owner, receipt)
     if cancel:
         await ops.hangup(service, p, call_id)
-
-
-def bind_dial_receipt(service, s, p, call, provider_id, *, ended=False):
-    if CallView.model_validate(call.data).provider_id not in {None, provider_id}:
-        fail(409, "Provider call reference conflicts with the established leg")
-    update(call, provider_id=provider_id)
-    command = ops._by_key(service, s, p, "command_outbox", call.id)
-    if (
-        command
-        and CommandView.model_validate(command.data).call_id == call.id
-        and CommandView.model_validate(command.data).kind == "dial"
-        and CommandView.model_validate(command.data).status
-        in {"sending", "uncertain", "reconciling", "review_required", "unconfirmed"}
-    ):
-        update(command, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None)
-    stop = ops._by_key(service, s, p, "command_outbox", call.id + ":hangup")
-    if stop:
-        status = CommandView.model_validate(stop.data).status
-        if ended and status not in {"completed", "cancelled", "failed"}:
-            # A late hang-up is already the result we needed, even if it is the first receipt.
-            update(stop, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None)
-        elif status == "unconfirmed":
-            # A late answer gives a previously requested stop its target, without reopening the call.
-            update(
-                stop, status="pending", provider_id=provider_id, next_attempt_at=None, recovery_reason=None
-            )
-            update(call, **moved(call.data, "hangup.requested", service.clock()))
-    prior = ops._by_key(service, s, p, "call_legs", provider_id)
-    if not prior:
-        put(
-            s,
-            "call_legs",
-            workspace(p),
-            p["seller_id"],
-            {
-                "call_id": call.id,
-                "provider_id": provider_id,
-                "kind": "prospect",
-                "state": call.data["state"],
-            },
-            key=provider_id,
-            now=service.clock(),
-        )
 
 
 def finish_call(service, s, p, call, reason=None):

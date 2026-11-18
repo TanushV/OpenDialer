@@ -1,4 +1,4 @@
-"""Read-only carrier reconciliation before any retry of an uncertain effect."""
+"""Bind carrier receipts and recover interrupted calls and controls."""
 
 import asyncio
 import base64
@@ -6,14 +6,15 @@ import json
 import logging
 from datetime import timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 
 from app import ops
 from app.calling import audio_leg
-from app.calling.records import CallView
+from app.calling.records import CallView, CommandView
 from app.calling.recovery import next_step, pollable
 from app.calling.state import TERMINAL, moved
-from app.platform.db import MODELS, ActiveClaim, doc, emit, uid, update
+from app.numbers import pool
+from app.platform.db import MODELS, ActiveClaim, doc, emit, put, uid, update, workspace
 from app.platform.leases import owns_effect
 from app.service import dt, fail
 
@@ -52,6 +53,48 @@ def call_receipt(receipt, provider_id, *, simulation=False):
             return None
         alive = state in {"ringing", "answered"}
     return identity, alive
+
+
+def bind_dial_receipt(service, s, p, call, provider_id, *, ended=False):
+    if CallView.model_validate(call.data).provider_id not in {None, provider_id}:
+        fail(409, "Provider call reference conflicts with the established leg")
+    update(call, provider_id=provider_id)
+    command = ops._by_key(service, s, p, "command_outbox", call.id)
+    if (
+        command
+        and (intent := CommandView.model_validate(command.data)).call_id == call.id
+        and intent.kind == "dial"
+        and intent.status in {"sending", "uncertain", "reconciling", "review_required", "unconfirmed"}
+    ):
+        update(command, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None)
+    stop = ops._by_key(service, s, p, "command_outbox", call.id + ":hangup")
+    if stop:
+        status = CommandView.model_validate(stop.data).status
+        if ended and status not in {"completed", "cancelled", "failed"}:
+            # A late hang-up is already the result we needed, even if it is the first receipt.
+            update(stop, status="completed", provider_id=provider_id, lease_owner=None, lease_until=None)
+        elif status == "unconfirmed":
+            # A late answer gives a previously requested stop its target, without reopening the call.
+            update(
+                stop, status="pending", provider_id=provider_id, next_attempt_at=None, recovery_reason=None
+            )
+            update(call, **moved(call.data, "hangup.requested", service.clock()))
+    prior = ops._by_key(service, s, p, "call_legs", provider_id)
+    if not prior:
+        put(
+            s,
+            "call_legs",
+            workspace(p),
+            p["seller_id"],
+            {
+                "call_id": call.id,
+                "provider_id": provider_id,
+                "kind": "prospect",
+                "state": call.data["state"],
+            },
+            key=provider_id,
+            now=service.clock(),
+        )
 
 
 def _claim_reconciliation(service, p, command_id, *, provider_id=None, expected_version=None):
@@ -224,8 +267,9 @@ def _recovery_snapshot(service, p):
                     commands.tenant_id == p["tenant_id"],
                     commands.seller_id == p["seller_id"],
                     commands.op_kind.in_(CALL_COMMAND_KINDS),
-                    commands.op_status.in_(
-                        ["pending", "sending", "uncertain", "reconciling", "review_required"]
+                    or_(
+                        commands.op_status.in_(["sending", "uncertain", "reconciling", "review_required"]),
+                        and_(commands.op_status == "pending", commands.op_kind == "hangup"),
                     ),
                     or_(commands.op_due_at.is_(None), commands.op_due_at <= service.clock()),
                 )
@@ -366,7 +410,8 @@ async def _recover_call(service, p, call):
     if step == "hangup.requested":
         await ops.hangup(service, p, call["id"], recovery_expected=call)
     elif step == "dial.unconfirmed":
-        await asyncio.to_thread(ops._settle_unacknowledged, service, p, call)
+        ref = await asyncio.to_thread(ops._settle_unacknowledged, service, p, call)
+        await pool.cancel(service.managed, ref, unsent=True)
     elif step == "call.ended":
         await asyncio.to_thread(ops._end_unsettled, service, p, call)
 
@@ -409,11 +454,10 @@ def _settle_unacknowledged(service, p, snapshot):
         if call.data.get("submitted_at"):
             ops.dial_unconfirmed_in(service, s, p, call)
             return
-        # Nothing was sent: the dial claim sets submitted_at before any request leaves.
+        # An abandoned, unsubmitted request expires without making any carrier call.
         command = ops._by_key(service, s, p, "command_outbox", call.id)
-        if command and command.data.get("status") == "pending" and not command.data.get("sent_at"):
-            update(command, status="cancelled", reason="DIAL_NOT_SENT")
-        ops.finish_call(service, s, p, call, "dial_not_sent")
+        ops.expire_unsent_dial_in(service, s, p, call, command)
+        return call.data.get("pool_ref")
 
 
 def _end_unsettled(service, p, snapshot):
@@ -481,9 +525,7 @@ async def recover(service, p):
     async def recover_one(command):
         async with limit:
             if command["status"] == "pending":
-                if command["kind"] == "dial":
-                    await ops.dispatch_call(service, p, command["call_id"])
-                elif command["kind"] == "hangup":
+                if command["kind"] == "hangup":
                     await ops.hangup(service, p, command["call_id"])
             else:
                 result = await ops.reconcile_command(service, p, command["id"])

@@ -36,7 +36,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D2 | Mac, Windows and Linux. The Windows build came out in R2.1 and returned in Phase 9D. The first Linux package targets Ubuntu 24.04 LTS x86-64. Each computer uses its own SQLite workspace and can join the shared pool. | Owner decisions, November 8 and November 13 |
 | D3 | StatML stays and must actually learn. Repair it rather than cut it. | Owner decision |
 | D4 | Coaching goes. The live helper stays, plus one AI after-call summary with a suggested outcome, because follow-up scripts read that summary. | Owner decision; the summary is an assumption the owner may veto |
-| D5 | Start calling dials the first eligible lead. Each later dial requires the rep to press Space or Dial now. One call at a time. | Owner decision, November 17. Replaces automatic advancement. |
+| D5 | Each outbound call requires a fresh rep action. Start calling places the first attempt. Dial now or a fresh Space press places one later attempt. One call at a time. An interrupted request that never reached the carrier expires. | Owner decisions, November 17 and 18. |
 | D6 | Voicemail detection is advisory. The rep hears the greeting and decides when to hang up. Space or End as voicemail ends the active attempt and saves Voicemail. | Owner decision, November 17. Replaces the seven-second skip. |
 | D7 | Keep transcript text on this Mac for 30 days, replacing the 5-minute lifetime. | Approved default; see risk R3 |
 | D8 | ChatGPT agent stays primary. DeepSeek V4.1 Flash on OpenRouter with local DDGS search is the fallback. | Owner decision |
@@ -65,7 +65,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D32 | The rep speaks into voicemail normally. No recorded drop. The rep controls hang-up on every attempt (D6). | Owner, November 10. Hang-up updated November 17. |
 | D33 | In 2.1, reps share one Telnyx Call Control application, one SIP connection and a number pool. Each rep has a private computer profile, a WebRTC audio credential and one HubSpot segment. Each prospect keeps the same caller ID, and return calls ring the computer that placed the last confirmed call from the dialed number. The rolling 24-hour limit is at most 90 outbound attempts per number. Inbound callbacks use no outbound capacity. | Owner, November 11. Phase 12 specifies the rollout. |
 | D34 | The rep starts scripts for a chosen list in Leads. Prospect calls require a current prepared script. Importing contacts and saving the base script leave new generation idle. HubSpot number checks still run after sync. | Owner, November 13, updated November 16 |
-| D35 | Settings saves one repeatable list of approved test phones per workspace. The rep starts the list explicitly from the Dialer, which pauses at the end. Test calls use the normal audio, script and caller ID flow without prospect calling hours, retry spacing or the app's call timer. | Owner, November 13 |
+| D35 | Settings saves one repeatable list of approved test phones per workspace. Each test call requires its own rep action in the Dialer, which pauses at the end of the list. Test calls use the normal audio, script and caller ID flow without prospect calling hours, retry spacing or the app's call timer. | Owner, November 13 and 18 |
 | D36 | Markdown defines the order of the script and its options. During calls the rep's finalized speech moves the script panel to a confident match, including after manual scrolling. Review exports observed paths and stage counts with the version and structure each call used. | Owner, November 13 |
 | D37 | The live helper uses a fitting prepared script line or suggests a short reply when the conversation goes off script. A direct-audio request can use the latest transcript once prospect audio confirms a pause. Finalization of the same text does not send a second request. | Owner follow-up, November 15 |
 | D26 | Withdrawn by D27. One shared number pool. Any seat can call from any pool number. The relay picks the number for each call (local area code first, then least used today) and counts daily use across all seats, so the per-number cap holds for the team. Pool numbers sit on one shared incoming route, and a callback rings the seat that last called that prospect, or goes to voicemail and a task on that seat. | Owner decision, November 8; that a Call Control dial may present any number on the account is confirmed in L23 |
@@ -232,6 +232,7 @@ Each guarantee has an automated test where software can prove it, and a live che
 | G8 | The Mac stays awake while the rep is calling. | Hold an awake assertion while Ready, released on Pause. | Unit | L12 |
 | G9 | Two seats never call the same contact, and an opt-out on one seat stops every seat. | A seat syncs only its owner's contacts; the last-contacted guard; opt-outs go to HubSpot at once and every sync adds them; sync before each session and every 30 minutes while calling. | Two-seat sync tests over recorded responses | L22 |
 | G10 | Nothing that stops calling reaches the rep unannounced or without a way out. Every way calling can stop, in any area, either repairs itself within its promise or shows the one control that fixes it. | One calling model checked over every reachable state; a fault soak; a readiness self-test and watchdog in the app (Phase 9E) | Model check and soak in CI | L12, L13 |
+| G11 | One fresh rep action can place one outbound call. | A trusted click or fresh keypress grants a single start request. Only that request can submit its new intent. Recovery closes expired unsent attempts and reconciles existing calls. | Dial journey, crash replay, randomized tests and browser input tests | L3 to L8 |
 
 | Outage | Behavior after the rebuild |
 |---|---|
@@ -259,7 +260,7 @@ Each guarantee has an automated test where software can prove it, and a live che
 | Talking | Timer, script, helper | Nothing | `Esc` hang up, `M` mute |
 | Ended | "They hung up · 0:23" or "You ended the call · 0:23", with a short sound and outcome buttons | Nothing | `1` to `6` save the outcome |
 | Saved | The outcome stays visible | Dial now | `P` pause, `C` change outcome |
-| Finished | Reason and next action for an empty queue | Check again | `P` pause |
+| Finished | Reason and next action for an empty queue | Try dialing again | `P` pause |
 
 Rules:
 
@@ -268,7 +269,8 @@ Rules:
 - Carrier facts (no answer, busy, failure) save immediately, without waiting for a job or an AI request.
   Voicemail requires the rep's confirmation. Every next call requires a separate rep action.
 - A suggested outcome is preselected, and the rep confirms it with one key.
-- Auto-dial stops on Pause, a blocker, an incoming call, an unsynced opt-out or an empty queue.
+- Pause, a blocker, an incoming call, an unsynced opt-out or an empty queue prevents a dial. Once clear, the Dialer waits for the rep.
+- An expired unsent attempt closes with its reason. Timers, outcome saves, and recovered state leave the next action to the rep.
 - `wrong_party` is one of the six outcome keys. It stops dialing that number.
 - A number with a `DEAD` live status is not dialed, and the lead says why.
 - Start calling syncs the chosen HubSpot list first, with a short timeout. A failed sync warns and calling continues,
@@ -1224,8 +1226,8 @@ Done when: the audit passes and the owner confirms it reads clearly.
 
 ### Phase 6: auto-dial and voicemail
 
-The November 17 owner decision replaces the automatic advancement and mailbox hang-up described in R6.2 and R6.3.
-Section 6 describes current behavior.
+The November 17 and 18 owner decisions replace the automatic advancement and mailbox hang-up described in R6.2 and R6.3.
+Section 6 describes current behavior and requires a separate action before every outbound call.
 
 Goal: the loop runs with almost no decisions.
 
@@ -2210,3 +2212,8 @@ live check is open.
 - November 17, 2026. A local WebKit trace showed the import test clicking while the Leads page was loading. The
   click triggered no import request. The test now waits for the lead table and mapped row preview, submits once
   with Enter on the enabled Import leads button, and checks the resulting request and response.
+- November 18, 2026. Reproduced a recovery pass submitting an interrupted dial and a delayed request submitting after
+  its authorization expired. Only the original live start request now has a path to carrier submission. Expired
+  unsent attempts close with a clear result and release their claims. Verified one dial per fresh input with WebKit
+  and Chromium. Held keys, scripted clicks, reloads and recovery produced zero additional dials. Starting seed
+  `1003265768` passed 19,200 single-rep steps and 16 two-rep cases with the one-action invariant.

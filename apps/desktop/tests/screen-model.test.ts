@@ -4,7 +4,7 @@
  * Laws, for every reachable input:
  * - a phase is always produced (no unhandled state);
  * - the rep always has a way forward: a key in this phase, or a control on screen (a blocker's fix, or Pause
- *   or Check again while the queue is empty);
+ *   or Try dialing again while the queue is empty);
  * - Pause is reachable whenever calling is on and no one is on the line;
  * - a call that ended unsaved can always be saved with 1 to 6, and nothing dials until it is;
  * - a blocker prevents dialing;

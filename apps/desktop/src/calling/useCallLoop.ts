@@ -54,6 +54,8 @@ const SELF_CLEARING = new Set(["REP_AUDIO_NOT_READY"]);
 const owesOutcome = (call: Call | null) =>
   !!call && isTerminal(call) && call.state !== "FINALIZED";
 
+type PlaceDial = (reservationId: string) => Promise<Call>;
+
 export function useCallLoop() {
   const {
     snapshot: w,
@@ -96,6 +98,7 @@ export function useCallLoop() {
   const [audioStatus, setAudioStatus] = useState("");
   const busy = useRef(false);
   const starting = useRef(false);
+  const usedDialInputs = useRef(new WeakSet<Event>());
   const skipping = useRef<string | null>(null);
   // R9E.8: the rep's own Hang up, Skip and outcome key show at once, for the call they were pressed on,
   // and a re-read from before the server saw them cannot bring the used control back.
@@ -464,7 +467,42 @@ export function useCallLoop() {
   ]);
 
   // ---- Actions.
-  async function nextCall(fromNextButton = false) {
+  function fromDialInput(
+    event: Event,
+    work: (placeDial: PlaceDial) => Promise<void>,
+  ) {
+    const freshKey =
+      event instanceof KeyboardEvent &&
+      event.type === "keydown" &&
+      (event.code === "Space" || event.key === "Enter") &&
+      !event.repeat &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey;
+    if (
+      !event?.isTrusted ||
+      event.eventPhase === Event.NONE ||
+      usedDialInputs.current.has(event) ||
+      (event.type !== "click" && !freshKey)
+    )
+      return Promise.resolve();
+    usedDialInputs.current.add(event);
+
+    // Only a current rep action creates this single-use route to the dial endpoint.
+    let used = false;
+    return run(() =>
+      work((reservationId) => {
+        if (used)
+          throw new ApiError("Press Dial now to place another call.", 409);
+        used = true;
+        return api<Call>("/v1/calls/start", "POST", {
+          reservation_id: reservationId,
+          idempotency_key: reservationId,
+        });
+      }),
+    );
+  }
+  async function nextCall(placeDial: PlaceDial, fromNextButton = false) {
     if (busy.current || !callingRef.current) return;
     if (owesOutcome(callRef.current) || isActiveCall(callRef.current)) return;
     busy.current = true;
@@ -530,10 +568,7 @@ export function useCallLoop() {
         );
       let placed: Call;
       try {
-        placed = await api<Call>("/v1/calls/start", "POST", {
-          reservation_id: next.reservation_id,
-          idempotency_key: next.reservation_id,
-        });
+        placed = await placeDial(next.reservation_id);
       } catch (error) {
         // A lost response is different from a refusal. There may be a live call: reload it
         // without replaying the request or releasing its audio leg.
@@ -578,7 +613,10 @@ export function useCallLoop() {
   }
   const listsKey = `dial-lists:${session.tenant_id}:${session.seller_id}:${session.user_id}`;
 
-  async function startCalling(armTestPhone?: () => Promise<void>) {
+  async function startCalling(
+    placeDial: PlaceDial,
+    armTestPhone?: () => Promise<void>,
+  ) {
     if (starting.current || busy.current) return;
     starting.current = true;
     pausing.current = false;
@@ -623,7 +661,7 @@ export function useCallLoop() {
       }
       if (await pausedMeanwhile(false)) return;
       callingRef.current = true;
-      await nextCall();
+      await nextCall(placeDial);
     } catch (error) {
       if (!pausing.current || testing) {
         setProblem(startProblem(error, testing));
@@ -838,21 +876,21 @@ export function useCallLoop() {
     }
   }, [call?.id, call?.state]);
   /** A failed dial pauses the loop with its reason, so the screen never sits on "Dialing". */
-  async function nextOrPause() {
+  async function nextOrPause(placeDial: PlaceDial) {
     try {
-      await nextCall(true);
+      await nextCall(placeDial, true);
     } catch (error) {
       setProblem(startProblem(error, testRun.current));
       await stopAfterFailure(testRun.current && !testRunId.current);
     }
   }
-  const advance = () => {
+  const advance = (event: Event) => {
     if (
       editing ||
       (callRef.current?.is_test && !callRef.current.dial_scope?.test_run_id)
     )
       return Promise.resolve();
-    return run(nextOrPause);
+    return fromDialInput(event, nextOrPause);
   };
   const testListComplete = Boolean(
     call?.dial_scope?.test_run_id &&
@@ -883,10 +921,10 @@ export function useCallLoop() {
   }, [syncOptouts]);
 
   const act = {
-    start: () => run(startCalling),
-    testPhone: (openSettings: () => void) =>
-      run(() =>
-        startCalling(async () => {
+    start: (event: Event) => fromDialInput(event, startCalling),
+    testPhone: (event: Event, openSettings: () => void) =>
+      fromDialInput(event, (placeDial) =>
+        startCalling(placeDial, async () => {
           try {
             await api("/v1/settings/test-call", "POST");
           } catch (error) {

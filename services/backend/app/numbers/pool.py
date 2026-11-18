@@ -82,7 +82,7 @@ async def request(managed, method, params):
 
 
 async def cancel(managed, ref, *, unsent=False):
-    if managed.client is None:
+    if not ref or managed.client is None:
         return
     try:
         await managed.client.rpc(

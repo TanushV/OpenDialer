@@ -6,14 +6,14 @@ column still applies to both sources, because it is free: a `dead` number is nev
 
 from datetime import timedelta
 
-# Why a lead's number is held back from auto-dial, with the words Leads and the Dialer show.
+# Why a lead's number is held from calling, with the words Leads and the Dialer show.
 HOLDS = {
     "NUMBER_DEAD": "The list marks this number dead, so it is not dialed.",
     "NUMBER_CONFLICT": "The number check says this number belongs to someone else. Dial it by hand if you are sure.",
     "NUMBER_BAD": "This number is invalid or was marked wrong, so it is not dialed.",
     "NO_VALID_NUMBER": "No valid number was found for this lead.",
     "NEEDS_NUMBER": "This lead has no number yet.",
-    "DNC_NOT_CHECKED": "The do-not-call check has not run on this number yet, so it is not auto-dialed.",
+    "DNC_NOT_CHECKED": "This number needs a do-not-call check before you can dial it.",
     "CRM_SYNC_STALE": "This HubSpot list has not synced for a day, so its leads wait. Sync the list on Leads.",
 }
 # Section 5: a HubSpot list not synced for a day stops dialing its leads, so a HubSpot opt-out is not missed for long.
@@ -59,7 +59,7 @@ def csv_fields():
 
 
 def number_hold(lead, now=None):
-    """The code that keeps this lead's number from auto-dial, or None when it may be dialed."""
+    """The code that holds this lead's number from calling, or None when it may be dialed."""
     if now is not None and lead.get("source") == "crm":
         from datetime import datetime
 

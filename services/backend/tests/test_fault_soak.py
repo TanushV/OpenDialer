@@ -4,6 +4,7 @@ Each run starts from the simulated workspace and takes random steps: go ready or
 hangs up, save an outcome, opt a number out, deliver an event twice or late, and jump the clock by minutes to a day.
 After every step:
 - no request fails with a server error;
+- only a fresh dial action may submit one call to the carrier;
 - the rep never has two calls open at once (G2);
 - a number opted out is never dialed again;
 - a paused rep is never offered a lead (Pause is always honored);
@@ -253,10 +254,16 @@ def test_calling_laws_hold_under_random_faults(
             step = schedule.choice(Run.STEPS)
             run.rng.seed(schedule.getrandbits(64))
             trace.record("choose", number=index + 1, operation=step.__name__, now=clock.now.isoformat())
+            submitted = len(run.submissions)
             step(run)
+            assert len(run.submissions) - submitted <= int(step is Run.dial), (
+                f"{step.__name__} sent a carrier dial without a fresh dial action for it"
+            )
             run.check()
         trace.record("recover")
+        submitted = len(run.submissions)
         run.recover()
+        assert len(run.submissions) == submitted, "Recovering the workspace submitted another dial"
         run.check()
     if os.environ.get("SOAK_STATS"):
         calls = run.request("GET", "/v1/workspace/calls?filter=all&q=").json()["items"]

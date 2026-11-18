@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 from app import ops
 from app.administration import no_lead_detail
+from app.calling import dial
 from conftest import ready
 from helpers import finish
 
@@ -88,14 +89,14 @@ def test_a_blocker_between_reserving_and_dispatch_is_final_not_a_delayed_dial(
     client, headers = workspace["client"], workspace["headers"]
     save_phone(workspace)
     _, packet = start(workspace)
-    original = ops.dispatch_call
+    original = dial._dispatch_call
 
     async def block_then_dispatch(service, p, call_id):
         service.configs.write(scope(p), {"channel_limited_until": "2099-01-01T00:00:00+00:00"})
         return await original(service, p, call_id)
 
     with monkeypatch.context() as patch:
-        patch.setattr(ops, "dispatch_call", block_then_dispatch)
+        patch.setattr(dial, "_dispatch_call", block_then_dispatch)
         stopped = client.post(
             "/v1/calls/start",
             headers=headers,

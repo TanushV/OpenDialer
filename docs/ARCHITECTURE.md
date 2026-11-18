@@ -32,10 +32,10 @@ Everything that decides whether the next call happens is small and checked.
 | Watchdog | `calling/watchdog.py` | A self-clearing blocker that outlives its promise is repaired (the relay loop restarts), then shown as stuck with Reconnect. |
 | Readiness | `/v1/calling/readiness` | While paused, the Dialer shows how many leads can be called now, or the plain reason none can. |
 | Screen | `calling/screen.ts` | The Dialer's phase is a pure function of one state; `keys()` says what each key does in it. |
-| Loop | `calling/useCallLoop.ts` | Start calling places one attempt. Another attempt requires Dial now or Space from the saved result. |
+| Rep action | `calling/useCallLoop.ts` | Each trusted click or fresh keyboard action grants one request to start an outbound call. The Dialer waits for another action after the result. |
 | Call states | `calling/state.py` | `DIALING` to `RINGING`, `HUMAN` or a mailbox, `ENDED` (waiting for an outcome) and `FINALIZED` (saved). |
 | One decision | `calling/decide.py` | `decide(situation)` says whether the next dial happens, checked over every combination of its inputs. |
-| Dial safety | `calling/dial.py` | A durable dial record and carrier command ID: a lead is never dialed twice, and a call can always be ended. |
+| Dial safety | `calling/dial.py` | Only a live start request can submit the fresh dial it created. Recovery closes expired unsent attempts and uses the original carrier reference to reconcile or stop submitted attempts. |
 | Callbacks | `telephony/callbacks.py` | While the app is open its call client stays registered and says so every 30 seconds; a callback from anyone rings it (D29). Otherwise, or unanswered, the greeting plays and a follow-up is kept. |
 | Rep's audio | `calling/audio_leg.py`, `telephony/client.ts` | The carrier and desktop verify the rep's leg before dialing. The desktop checks that the browser can play its audio and routes ringback, the end tone and the call to the selected output. |
 

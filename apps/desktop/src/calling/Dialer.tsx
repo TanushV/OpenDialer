@@ -2,7 +2,7 @@
  * The Dialer in three fixed regions (R5.3): a status bar, the lead and script in their own scroll, and an
  * action bar. Each region has its own error boundary (R5.10), so the action bar survives a crash elsewhere.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { label, useWorkspace } from "../context";
 import { isActiveCall } from "../types";
 import { ApiError, openSource } from "../api/client";
@@ -188,25 +188,27 @@ function StatusBar({
             </Button>
           )}
           {!test && (
-            <Button
+            <DialButton
               disabled={settling}
-              onClick={() => void act.testPhone(() => onNavigate?.("Settings"))}
+              onDial={(event) =>
+                act.testPhone(event, () => onNavigate?.("Settings"))
+              }
             >
               Test call
-            </Button>
+            </DialButton>
           )}
-          <Button
+          <DialButton
             variant="primary"
             kbd="Space"
             disabled={settling || !!phase.blocker}
-            onClick={() => void act.start()}
+            onDial={act.start}
           >
             {testList
               ? "Run test list"
               : testPhone
                 ? "Call test phone"
                 : "Start calling"}
-          </Button>
+          </DialButton>
         </>
       ) : (
         <Button variant="secondary" kbd="P" onClick={() => void act.pause()}>
@@ -623,29 +625,25 @@ function ActionBar({ loop }: { loop: Loop }) {
       )}
       {phase.kind === "saved" && (
         <>
-          <Button
+          <DialButton
             variant="primary"
             kbd="Space"
             disabled={
               loop.editing || (call?.is_test && !call.dial_scope?.test_run_id)
             }
-            onClick={() => void act.dial_now()}
+            onDial={act.dial_now}
           >
             Dial now
-          </Button>
+          </DialButton>
           <Button variant="text" kbd="C" onClick={act.change_outcome}>
             Change outcome
           </Button>
         </>
       )}
       {phase.kind === "finished" && (
-        <Button
-          variant="primary"
-          kbd="Space"
-          onClick={() => void act.dial_now()}
-        >
-          Check again
-        </Button>
+        <DialButton variant="primary" kbd="Space" onDial={act.dial_now}>
+          Try dialing again
+        </DialButton>
       )}
       {keypad && call && phase.kind === "talking" && (
         <Keypad key={call.id} callId={call.id} close={() => setKeypad(false)} />
@@ -667,6 +665,26 @@ function HangUp({ act, disabled }: { act: Loop["act"]; disabled?: boolean }) {
   );
 }
 
+function DialButton({
+  onDial,
+  ...props
+}: Omit<ComponentProps<typeof Button>, "onClick" | "onKeyDown"> & {
+  onDial: (event: Event) => Promise<void>;
+}) {
+  return (
+    <Button
+      {...props}
+      onClick={(event) => void onDial(event.nativeEvent)}
+      onKeyDown={(event) => {
+        if (event.code !== "Space" && event.key !== "Enter") return;
+        // A held key can synthesize clicks on a focused button. Only handle its fresh keydown.
+        event.preventDefault();
+        void onDial(event.nativeEvent);
+      }}
+    />
+  );
+}
+
 /** Keys follow `keys(phase)`; typing in a field never triggers them. Enter confirms a suggested outcome. */
 function useKeys(
   phase: Phase,
@@ -681,6 +699,7 @@ function useKeys(
       const { phase, act, visible, suggested } = latest.current;
       if (
         !visible ||
+        event.defaultPrevented ||
         event.repeat ||
         event.altKey ||
         event.ctrlKey ||
@@ -711,6 +730,8 @@ function useKeys(
         void act.save(OUTCOME_KEYS[action.save - 1][0]);
       else if (action === "mute") act.mute();
       else if (action === "change_outcome") act.change_outcome();
+      else if (action === "start" || action === "dial_now")
+        void act[action](event);
       else void act[action]();
     };
     window.addEventListener("keydown", handler);
