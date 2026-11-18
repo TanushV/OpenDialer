@@ -320,9 +320,19 @@ def suppressed(service, s, p, phone):
 
 def import_leads(service, p, body, *, session=None):
     from app.optimization.geography import AREA_STATES, normalize_state
+    from app.preparation.csv_scripts import split_script, store_script_in
+    from app.preparation.templates import ScriptError
     from app.preparation.workflows import company_key
 
-    result = {"imported": 0, "duplicates": 0, "invalid": 0, "errors": [], "leads": [], "preparing": 0}
+    result = {
+        "imported": 0,
+        "duplicates": 0,
+        "invalid": 0,
+        "errors": [],
+        "leads": [],
+        "preparing": 0,
+        "scripts_imported": 0,
+    }
     created = []
     if len(body["rows"]) > service.settings.max_import_rows:
         fail(413, "Import row limit exceeded")
@@ -357,6 +367,12 @@ def import_leads(service, p, body, *, session=None):
             if bool(r.data.get("test_list_contact")) == test_list
         }
         for index, raw in enumerate(body["rows"]):
+            try:
+                raw, template = (raw, None) if test_list else split_script(raw)
+            except ScriptError as exc:
+                result["invalid"] += 1
+                result["errors"].append({"row": index + 1, "reason": "INVALID_SCRIPT", "detail": str(exc)})
+                continue
             values = {**raw, **intake.csv_identity(raw, column_map)}
             phone = normalize_phone(str(values.get("phone", "")))
             if not phone.e164:
@@ -461,7 +477,11 @@ def import_leads(service, p, body, *, session=None):
                         if old.get("live_status") == "dead"
                         else fields["live_status"] or old.get("live_status"),
                     )
-                emit(s, p["tenant_id"], "lead.updated", duplicate, service.clock())
+                if template:
+                    store_script_in(service, s, p, duplicate, template)
+                    result["scripts_imported"] += 1
+                else:
+                    emit(s, p["tenant_id"], "lead.updated", duplicate, service.clock())
                 result["leads"].append(doc(duplicate))
                 continue
             timezone = values.get("timezone") or None
@@ -520,6 +540,9 @@ def import_leads(service, p, body, *, session=None):
                 key=("test-list:" if test_list else "") + body["campaign_id"] + ":" + endpoint.id,
                 now=now,
             )
+            if template:
+                store_script_in(service, s, p, lead, template)
+                result["scripts_imported"] += 1
             existing[(body["campaign_id"], endpoint.id)] = lead
             result["imported"] += 1
             created.append(lead)
@@ -542,7 +565,7 @@ def import_leads(service, p, body, *, session=None):
             "leads.imported",
             body["campaign_id"],
             now,
-            {k: result[k] for k in ("imported", "duplicates", "invalid")},
+            {k: result[k] for k in ("imported", "duplicates", "invalid", "scripts_imported")},
         )
     if result["preparing"]:
         ops.prepare_tick(service, p)

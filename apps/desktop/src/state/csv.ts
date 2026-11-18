@@ -61,7 +61,7 @@ export function parseCSV(
 }
 
 export const leadCSVHeaders =
-  "name,phone,email,company,domain,title,linkedin,headline,company description,industry,company size,state,timezone,number source,phone status,account signals,signal dates,signal links";
+  "name,phone,email,company,domain,title,linkedin,headline,company description,industry,company size,state,timezone,number source,phone status,account signals,signal dates,signal links,script";
 
 export function parseLeadCSV(text: string) {
   const input = readCSV(text);

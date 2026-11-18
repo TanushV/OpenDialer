@@ -242,6 +242,11 @@ def fallback_script(service, s, p, lead):
 
 def preparation_state(service, s, p, lead):
     state = dict(lead.data.get("preparation") or {"status": "missing"})
+    if state.get("source") == "csv" and state.get("status") == "ready":
+        row = ops.script_row(service, s, p, lead)
+        if not row or row.data.get("source") != "csv" or not row.data.get("rendered"):
+            state["status"] = "stale"
+        return state
     if state.get("status") in {"ready", "skipped"} and (
         state.get("key") != ops.preparation_key(service, s, p, lead)
         or (state.get("expires_at") and dt(state["expires_at"]) <= service.clock())
@@ -317,16 +322,17 @@ def selected_script(service, s, p, lead, *, assignment=None, master_only=False):
     """The script a rep sees for this lead: its prepared picks and text over the current base."""
     state = ops.preparation_state(service, s, p, lead)
     row = None if master_only else ops.script_row(service, s, p, lead)
-    script = ops.fallback_script(service, s, p, lead)
+    imported = row and state["status"] == "ready" and row.data.get("source") == "csv"
+    script = dict(row.data["rendered"]) if imported else ops.fallback_script(service, s, p, lead)
     template = script["template"]
     proposal, arm = None, None
-    if assignment and assignment.get("family") == "script":
+    if not imported and assignment and assignment.get("family") == "script":
         testing = ops.testing_proposal(service, s, p, lead.data["campaign_id"], assignment["comparison_id"])
         if testing:
             arm = assignment.get("arm")
             proposal = testing if arm == "candidate" else None
             template = testing["template" if proposal else "control_template"]
-    prepared = dict(row.data) if row else None
+    prepared = dict(row.data) if row and not imported else None
     if (
         prepared
         and template
@@ -617,7 +623,9 @@ def rewrite_scripts(
                 continue
             if not ops.preparation_permitted(service, s, selected, lead):
                 continue
-            if remaining_only and ops.preparation_state(service, s, p, lead)["status"] == "ready":
+            if (
+                remaining_only or (lead.data.get("preparation") or {}).get("source") == "csv"
+            ) and ops.preparation_state(service, s, p, lead)["status"] == "ready":
                 continue
             if sample_size is not None and count >= sample_size:
                 break

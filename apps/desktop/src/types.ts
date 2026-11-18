@@ -321,6 +321,7 @@ export interface ScriptError {
   message: string;
 }
 export interface Script {
+  source?: "csv";
   script_path?: string;
   historical_reconstructed?: boolean;
   context?: Record<string, string>;

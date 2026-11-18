@@ -2217,3 +2217,7 @@ live check is open.
   unsent attempts close with a clear result and release their claims. Verified one dial per fresh input with WebKit
   and Chromium. Held keys, scripted clicks, reloads and recovery produced zero additional dials. Starting seed
   `1003265768` passed 19,200 single-rep steps and 16 two-rep cases with the one-action invariant.
+- November 18, 2026. CSV import detects finished scripts and saves them as ready for the lead. They stay ready
+  through master edits and ordinary generation requests. Blank cells keep the usual preparation path. A file upload
+  in WebKit and a CSV produced by the signed-in Codex CLI both reached simulated calls with their supplied scripts and
+  without preparation work.

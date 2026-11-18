@@ -17,6 +17,9 @@ Build directly on main, test before each fix, and run the fast and full checks u
 - Keep every imported cell under the existing file/row-count limits and use one row in the research and writing
   stages. Bound the prompt view for wide rows, with an agent tool to fetch an individual full cell. Review resolves
   only the source cells cited for each claim. Treat cell contents as data. Import does not start generation.
+- An optional `script` column carries the lead's finished text. Quoted multiline Markdown and plain text both work.
+  Import saves a complete script as ready for that contact. Blank cells follow ordinary preparation. A row with an
+  unfinished or malformed script names the problem in the import receipt.
 
 ## 2. Remove and reimport
 

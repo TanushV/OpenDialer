@@ -74,6 +74,7 @@ export function LeadsPage({
     imported: number;
     duplicates: number;
     invalid: number;
+    scripts_imported?: number;
     errors: { row: number; reason: string }[];
   } | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
@@ -514,6 +515,9 @@ export function LeadsPage({
             location are helpful. Research and scriptwriting can use every
             column.
           </p>
+          <p className="fine">
+            Add an optional script column to import finished scripts.
+          </p>
         </div>
         <div>
           <label>
@@ -573,7 +577,8 @@ export function LeadsPage({
                     imported: number;
                     duplicates: number;
                     invalid: number;
-                    errors: { row: number; reason: string }[];
+                    scripts_imported?: number;
+                    errors: { row: number; reason: string; detail?: string }[];
                   }>(
                     "/v1/leads/import",
                     "POST",
@@ -590,13 +595,16 @@ export function LeadsPage({
                     invalid: report.invalid + csvData.errors.length,
                     errors: [
                       ...csvData.errors,
-                      ...(report.errors ?? []).map(({ row, reason }) => ({
-                        row: csvData.rowNumbers[row - 1] ?? row,
-                        reason:
-                          reason === "INVALID_PHONE"
-                            ? "No usable phone number."
-                            : label(reason),
-                      })),
+                      ...(report.errors ?? []).map(
+                        ({ row, reason, detail }) => ({
+                          row: csvData.rowNumbers[row - 1] ?? row,
+                          reason:
+                            detail ||
+                            (reason === "INVALID_PHONE"
+                              ? "No usable phone number."
+                              : label(reason)),
+                        }),
+                      ),
                     ],
                   });
                   setCSV("");
@@ -620,6 +628,12 @@ export function LeadsPage({
                 {report.imported} imported · {report.duplicates} matched ·{" "}
                 {report.invalid} skipped
               </p>
+              {!!report.scripts_imported && (
+                <p>
+                  {report.scripts_imported}{" "}
+                  {report.scripts_imported === 1 ? "script" : "scripts"} ready
+                </p>
+              )}
               {report.errors.length > 0 && (
                 <details>
                   <summary>Skipped row details</summary>
@@ -723,9 +737,11 @@ export function LeadsPage({
                   packet.preparation.reason
                   ? `Script skipped. ${packet.preparation.reason}`
                   : SCRIPT_STATUS[packet.preparation?.status ?? "missing"]
-                : Object.keys(packet.script.written ?? {}).length
-                  ? "Script ready"
-                  : "Script ready. Uses the wording from your master script."}
+                : packet.script.source === "csv"
+                  ? "Script ready. Imported with this lead."
+                  : Object.keys(packet.script.written ?? {}).length
+                    ? "Script ready"
+                    : "Script ready. Uses the wording from your master script."}
             </p>
             {packet.last_generated_script && (
               <details>

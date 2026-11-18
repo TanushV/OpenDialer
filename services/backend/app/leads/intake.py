@@ -68,10 +68,15 @@ IDENTITY = (
 VALUE_LIMIT = 2000
 ROW_LIMIT = 24000
 DEAD = {"dead", "disconnected", "not_in_service"}
+SCRIPT_COLUMNS = {"script", "callscript", "finishedscript", "preparedscript", "scriptmarkdown", "scripttext"}
 
 
 def _key(header):
     return re.sub(r"[\W_]+", "", str(header).casefold())
+
+
+def is_script_column(header):
+    return _key(header) in SCRIPT_COLUMNS
 
 
 def guess_map(headers, *, csv_identity=False):

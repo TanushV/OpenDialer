@@ -25,6 +25,54 @@ When is better?
 Would Tuesday work?
 `;
 
+test("a CSV opens a finished multiline script in Leads and on the call", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("Opening your workspace…")).toBeHidden();
+  const sample = page.getByRole("button", {
+    name: "Try a simulated workspace",
+  });
+  if (await sample.isVisible()) await sample.click();
+  await openLeads(page);
+  const opening = 'Hi Casey, are you still working on "rush orders"?';
+  const script = `# Opening\n${opening}\n\n# Discovery\nWho owns the dispatch schedule?\n\n# Close\nWould Monday work?`;
+  await page.getByLabel("Open lead list (.csv)").setInputFiles({
+    name: "Finished scripts.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(
+      `name,phone,timezone,Script\nCasey CSV,+14155550127,America/Los_Angeles,"${script.replaceAll('"', '""')}"\n`,
+    ),
+  });
+  await expect(page.getByText(/First row · Casey CSV/)).toBeVisible();
+  await page
+    .getByRole("button", { name: "Import leads", exact: true })
+    .press("Enter");
+  await expect(page.getByText("1 script ready", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Open lead Casey CSV" }).click();
+  const packet = page.getByRole("dialog", { name: "Lead packet" });
+  await expect(packet.getByText(opening)).toBeVisible();
+  await packet.getByRole("button", { name: "Close", exact: true }).click();
+
+  await goTo(page, "Dialer");
+  await page.getByLabel("Dial from all active lists").uncheck();
+  await page.getByLabel("Dial list Finished scripts").check();
+  try {
+    const started = page.waitForResponse((response) =>
+      response.url().endsWith("/v1/calls/start"),
+    );
+    await startCalling(page).click();
+    const receipt = await started;
+    expect(receipt.ok(), await receipt.text()).toBeTruthy();
+    expect((await receipt.json()).script_snapshot.source).toBe("csv");
+    const visible = page.getByTestId("prepared-script");
+    await expect(visible.getByText(opening)).toBeVisible();
+    await expect(visible.getByText("Would Monday work?")).toBeVisible();
+  } finally {
+    await finishCall(page);
+  }
+});
+
 test("generated CSV paths match the Dialer and the prospect brief stays on the left", async ({
   page,
 }) => {

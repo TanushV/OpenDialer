@@ -181,7 +181,7 @@ def _bullet_groups(lines):
     return groups, "\n".join(shared_cues).strip(), loose_text
 
 
-def parse_markdown(markdown):
+def parse_markdown(markdown, *, finished=False):
     """Parse a Markdown playbook once; blockquotes are cues, never spoken wording."""
     if len(markdown.encode()) > MAX_BYTES:
         raise ScriptError([{"line": 0, "message": "Keep the script under 40 KB"}])
@@ -226,7 +226,7 @@ def parse_markdown(markdown):
             continue
         (card["lines"] if card is not None else raw[current]["lines"]).append((number, line))
     for name, (key, required, _) in HEADINGS.items():
-        if required and key not in raw:
+        if not finished and required and key not in raw:
             errors.append({"line": 0, "message": f"Add a '# {name.title()}' section"})
     blocks, sections, facts, never = [], [], [], []
     paths = {}
@@ -307,7 +307,7 @@ def parse_markdown(markdown):
                     "message": f"'{title or TITLES.get(key, key)}' has no spoken text",
                 }
             )
-        if key == "screening":
+        if key == "screening" and not finished:
             if BLOCK.search(value):
                 errors.append(
                     {"line": raw[key]["line"], "message": "Screening must be fixed text, without {{ }}"}
@@ -349,7 +349,7 @@ def parse_markdown(markdown):
                 errors.append({"line": entry["line"], "message": "Screening must be plain text"})
             for index, item in enumerate(entry["cards"], 1):
                 options.append(option(item["lines"], key, f"{key}-{index}", item["title"], cues))
-        elif shape == "cards":
+        elif shape == "cards" and not finished:
             errors.append({"line": entry["line"], "message": f"Add at least one ## item to {entry['title']}"})
         else:
             items, shared, plain = (
@@ -379,7 +379,11 @@ def parse_markdown(markdown):
             errors.append(
                 {"line": entry["line"], "message": f"Use at most {MAX_OPTIONS} items in {entry['title']}"}
             )
-        if key == "opening" and any("{rep}" not in o["text"] or "{seller}" not in o["text"] for o in options):
+        if (
+            not finished
+            and key == "opening"
+            and any("{rep}" not in o["text"] or "{seller}" not in o["text"] for o in options)
+        ):
             errors.append(
                 {
                     "line": entry["line"],
