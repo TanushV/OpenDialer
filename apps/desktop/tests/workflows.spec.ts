@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { clickUntil, openSettingRow } from "./navigation";
+import { clickUntil, goTo, openSettingRow } from "./navigation";
 import {
   answer,
   callStatus,
@@ -76,8 +76,10 @@ test("local setup, readiness, calling, evidence, human notes and opt-out", async
   await page.getByRole("button", { name: "Save notes" }).click();
   await expect(page.getByText("Notes saved")).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Review", exact: true }).click();
-  await reviewCall.click();
+  await goTo(page, "Review");
+  await clickUntil(reviewCall, () =>
+    expect(page.getByLabel("Your notes")).toBeVisible({ timeout: 2_000 }),
+  );
   await expect(page.getByLabel("Your notes")).toHaveValue(
     "Keep this human correction after final processing.",
   );

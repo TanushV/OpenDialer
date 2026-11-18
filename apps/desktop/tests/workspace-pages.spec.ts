@@ -1,5 +1,6 @@
 import { expect, test } from "./fixtures";
 import { openMoreSettings, clickUntil, goTo } from "./navigation";
+import { openLeads } from "./simulation";
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -96,11 +97,14 @@ test("lead search continues beyond an empty bounded page without hiding older le
     });
   });
   await enter(page);
-  await page.getByRole("button", { name: "Leads", exact: true }).click();
+  await openLeads(page);
   await page.getByRole("textbox", { name: "Search leads" }).fill("needle");
-  await page
-    .getByRole("button", { name: "Search lead history", exact: true })
-    .click();
+  const search = page.getByRole("button", {
+    name: "Search lead history",
+    exact: true,
+  });
+  await expect(search).toBeEnabled();
+  await search.press("Enter");
   await expect(
     page.getByText("More records remain to search.", { exact: true }),
   ).toBeVisible();
