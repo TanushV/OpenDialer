@@ -235,6 +235,7 @@ test("a saved outcome stays saved when loading the next lead fails", async ({
   );
   await saveOutcome(page, "not_interested");
   await saved;
+  await page.getByRole("button", { name: /^Dial now/ }).click();
   // The next call cannot load: calling pauses with the reason and the outcome stays saved.
   await expect(page.getByText(/Synthetic packet outage/)).toBeVisible();
   await expect(startCalling(page)).toBeVisible();

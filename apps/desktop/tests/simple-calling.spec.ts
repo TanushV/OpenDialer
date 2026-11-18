@@ -64,7 +64,13 @@ test("incoming audio stops synthetic ringback before a delayed answer event", as
   page,
 }) => {
   await page.addInitScript(() => {
+    const start = OscillatorNode.prototype.start;
     const stop = OscillatorNode.prototype.stop;
+    OscillatorNode.prototype.start = function (when?: number) {
+      if (this.frequency.value === 440)
+        document.documentElement.dataset.ringback = "playing";
+      return start.call(this, when);
+    };
     OscillatorNode.prototype.stop = function (when?: number) {
       if (this.frequency.value === 440)
         document.documentElement.dataset.ringback = "stopped";
@@ -74,6 +80,10 @@ test("incoming audio stops synthetic ringback before a delayed answer event", as
   await enter(page);
   await prepareSimulationCall(page, "Early prospect audio", "+14155550781");
   await startDialing(page);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ringback",
+    "playing",
+  );
   await page.evaluate(async () => {
     const modulePath = "/src/telephony/speech.ts";
     const { sessionAudio } = await import(modulePath);
@@ -88,7 +98,7 @@ test("incoming audio stops synthetic ringback before a delayed answer event", as
     gain.gain.value = 0.08;
     tone.connect(gain).connect(remote);
     tone.start();
-    tone.stop(audio.currentTime + 1);
+    tone.stop(audio.currentTime + 15);
   });
   await expect(page.locator("html")).toHaveAttribute(
     "data-ringback",
@@ -541,9 +551,7 @@ test("Esc and the outcome keys work while a button has focus, as after any click
     .getByRole("button", { name: /Not interested$/ })
     .focus();
   await page.keyboard.press("Digit3");
-  await expect(callStatus(page)).toContainText(
-    /Saved|Start calling|Dialing|Ringing/,
-  );
+  await expect(callStatus(page)).toContainText("Not interested saved");
 });
 
 test("Pause pressed while the next lead is loading places no call and shows no error", async ({

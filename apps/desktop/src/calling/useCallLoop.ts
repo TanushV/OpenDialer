@@ -614,7 +614,13 @@ export function useCallLoop() {
       if (await pausedMeanwhile(false)) return;
       setStarted(true);
       callingRef.current = true;
-      await refresh();
+      try {
+        await refresh();
+      } catch (error) {
+        // The workspace read can trigger session renewal. This same Start action checks
+        // authorization again before it can reserve a lead.
+        if (!(error instanceof ApiError && error.status === 401)) throw error;
+      }
       if (await pausedMeanwhile(false)) return;
       callingRef.current = true;
       await nextCall();

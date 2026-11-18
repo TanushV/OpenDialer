@@ -4,12 +4,12 @@
  * Laws, for every reachable input:
  * - a phase is always produced (no unhandled state);
  * - the rep always has a way forward: a key in this phase, or a control on screen (a blocker's fix, or Pause
- *   while the queue is empty, which also re-reads by itself);
+ *   or Check again while the queue is empty);
  * - Pause is reachable whenever calling is on and no one is on the line;
  * - a call that ended unsaved can always be saved with 1 to 6, and nothing dials until it is;
- * - a blocker always stops the loop: no countdown, no dial;
+ * - a blocker prevents dialing;
  * - an empty queue never claims to be "finished" while a call is open;
- * - R9E.8: the rep's own Hang up, Stay and outcome key show at once whatever the last re-read said: a used
+ * - R9E.8: the rep's own Hang up and outcome key show at once whatever the last re-read said: a used
  *   control never comes back, and only one save can be in flight.
  */
 import { describe, expect, it } from "vitest";
@@ -151,7 +151,7 @@ describe("the Dialer screen over every input (R9E.2)", () => {
           context,
         );
 
-      // A blocker stops the loop: no countdown and no dial while it is there (a call on screen still finishes).
+      // A blocker prevents dialing. A call already on screen can finish.
       if (input.blockers.length && !open && call?.state !== "ENDED")
         law(
           phase.kind === "paused" || phase.kind === "connecting",

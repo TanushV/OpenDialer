@@ -48,7 +48,7 @@ export async function openScreening(page: Page) {
 }
 
 export async function openMoreSettings(page: Page, section: string) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await goTo(page, "Settings");
   const more = page.locator("details.more-settings");
   await openDetails(more);
   const item = more

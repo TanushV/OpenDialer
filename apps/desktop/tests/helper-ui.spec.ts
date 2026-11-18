@@ -192,6 +192,7 @@ test("a delayed helper read cannot bring back a previous call after the next one
       r.url().endsWith("/v1/calls/start"),
     );
     await saveOutcome(page, "not_interested");
+    await page.getByRole("button", { name: /^Dial now/ }).click();
     const current = await (await next).json();
     expect(current.id).not.toBe(original.id);
     release();

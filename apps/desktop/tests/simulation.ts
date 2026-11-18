@@ -170,7 +170,7 @@ export const pauseCalling = (page: Page) =>
 export const callStatus = (page: Page) =>
   page.getByRole("status", { name: "Call status" });
 
-/** Start the calling loop; it dials the next lead by itself. */
+/** The rep starts the first call. */
 export async function startDialing(page: Page) {
   await startCalling(page).click();
   await expect(callStatus(page)).toContainText(/Dialing|Ringing|No one left/);
