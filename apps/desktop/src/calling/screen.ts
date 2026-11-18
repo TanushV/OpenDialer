@@ -21,7 +21,6 @@ export interface ScreenCall {
   outcome?: string | null;
   outcome_source?: string | null;
   voicemail_turn?: boolean;
-  stay_on_voicemail?: boolean;
   machine_detected?: boolean;
   screening_detected?: boolean;
   answered_at?: string | null;
@@ -54,11 +53,10 @@ export type Phase =
   | { kind: "paused"; blocker: Blocker | null }
   | { kind: "connecting" }
   | { kind: "dialing"; ringing: boolean }
-  | { kind: "voicemail_skipping" }
-  | { kind: "voicemail_final" }
+  | { kind: "voicemail"; final: boolean }
   | {
       kind: "talking";
-      answer?: "identifying" | "person" | "screening" | "voicemail";
+      answer?: "identifying" | "person" | "screening";
     }
   | {
       kind: "ended";
@@ -67,22 +65,10 @@ export type Phase =
       /** The outcome being saved now; no other key acts until it answers. */
       saving?: string | null;
     }
-  | { kind: "saved"; outcome: string; countdown_ms: number }
-  | { kind: "skipped"; outcome: string; countdown_ms: number }
+  | { kind: "saved"; outcome: string }
   | ({ kind: "finished" } & QueueStatus);
 
 export type PhaseKind = Phase["kind"];
-
-/** Seconds before the next call starts by itself (section 6). */
-export const SAVED_COUNTDOWN_MS = 3000;
-export const SKIPPED_COUNTDOWN_MS = 1500;
-/** Outcomes where the call never reached a person; saved by the carrier or by the rep skipping. */
-export const CARRIER_OUTCOMES = new Set([
-  "no_answer",
-  "busy",
-  "voicemail",
-  "temporary_failure",
-]);
 
 const DIALING = new Set([
   "AUTHORIZED",
@@ -99,8 +85,6 @@ const MAILBOX = new Set(["VOICEMAIL_GREETING", "VOICEMAIL_READY"]);
 export interface Intent {
   /** Hang up or Skip was pressed. */
   hangup?: boolean;
-  /** S was pressed on a mailbox. */
-  stay?: boolean;
 }
 
 export function withIntent<T extends ScreenCall>(
@@ -115,8 +99,6 @@ export function withIntent<T extends ScreenCall>(
     if (!shown.provider_hangup_source)
       shown = { ...shown, provider_hangup_source: "caller" };
   }
-  if (intent.stay && !shown.stay_on_voicemail)
-    shown = { ...shown, stay_on_voicemail: true };
   return shown;
 }
 
@@ -133,25 +115,11 @@ export function screen(input: ScreenInput): Phase {
     return { ...ended(call), saving: input.saving ?? null };
   // Opening the rep's audio shows as such, even before presence says Ready.
   if (input.connecting) return { kind: "connecting" };
-  // Pausing or a blocker stops the loop before any countdown runs.
+  // Pausing or a blocker stops the loop before the next call can be requested.
   if (!input.calling || input.blockers.length)
     return { kind: "paused", blocker: input.blockers[0] ?? null };
   if (input.finished) return { kind: "finished", ...input.finished };
-  if (call?.outcome) {
-    // No answer, busy, a skipped mailbox or a carrier failure: nobody to talk about, so a shorter wait.
-    const skipped = CARRIER_OUTCOMES.has(call.outcome);
-    return skipped
-      ? {
-          kind: "skipped",
-          outcome: call.outcome,
-          countdown_ms: SKIPPED_COUNTDOWN_MS,
-        }
-      : {
-          kind: "saved",
-          outcome: call.outcome,
-          countdown_ms: SAVED_COUNTDOWN_MS,
-        };
-  }
+  if (call?.outcome) return { kind: "saved", outcome: call.outcome };
   return { kind: "dialing", ringing: false };
 }
 
@@ -160,11 +128,8 @@ function live(call: ScreenCall): Phase {
   if (call.state === "HUMAN") return { kind: "talking", answer: "person" };
   if (call.state === "SCREENING" || call.screening_detected)
     return { kind: "talking", answer: "screening" };
-  if (call.voicemail_turn) return { kind: "voicemail_final" };
   if (MAILBOX.has(call.state) || call.machine_detected)
-    return call.stay_on_voicemail
-      ? { kind: "talking", answer: "voicemail" }
-      : { kind: "voicemail_skipping" };
+    return { kind: "voicemail", final: Boolean(call.voicemail_turn) };
   if (
     call.state === "ANSWERED_UNCLASSIFIED" ||
     call.answered_at ||
@@ -190,7 +155,7 @@ export type Action =
   | "start"
   | "pause"
   | "skip"
-  | "stay"
+  | "voicemail"
   | "hangup"
   | "mute"
   | "dial_now"
@@ -206,10 +171,8 @@ export function keys(phase: Phase): Record<string, Action> {
       return { KeyP: "pause" };
     case "dialing":
       return { Space: "skip", Escape: "hangup", KeyP: "pause" };
-    case "voicemail_skipping":
-      return { Space: "skip", Escape: "hangup", KeyS: "stay" };
-    case "voicemail_final":
-      return { Escape: "hangup" };
+    case "voicemail":
+      return { Space: "voicemail", Escape: "hangup", KeyM: "mute" };
     case "talking":
       return { Escape: "hangup", KeyM: "mute" };
     case "ended":
@@ -221,10 +184,8 @@ export function keys(phase: Phase): Record<string, Action> {
           );
     case "saved":
       return { Space: "dial_now", KeyP: "pause", KeyC: "change_outcome" };
-    case "skipped":
-      return { Space: "dial_now", KeyP: "pause" };
     case "finished":
-      return { KeyP: "pause" };
+      return { Space: "dial_now", KeyP: "pause" };
     default:
       return unreachable(phase);
   }
@@ -239,16 +200,15 @@ export function headline(phase: Phase): string {
       return "Connecting audio";
     case "dialing":
       return phase.ringing ? "Ringing" : "Dialing";
-    case "voicemail_skipping":
-      return "Voicemail: skipping";
-    case "voicemail_final":
-      return "Leave your message";
+    case "voicemail":
+      return phase.final
+        ? "Voicemail detected · leave a message"
+        : "Voicemail detected";
     case "talking":
       return {
         identifying: "Answered · identifying",
         person: "Talking · person",
         screening: "Call screening",
-        voicemail: "Voicemail",
         unknown: "Talking",
       }[phase.answer ?? "unknown"];
     case "ended": {
@@ -262,9 +222,7 @@ export function headline(phase: Phase): string {
       return phase.seconds == null ? who : `${who} · ${clock(phase.seconds)}`;
     }
     case "saved":
-      return "Saved. Next call in 3 seconds";
-    case "skipped":
-      return "Skipped. Next call in a moment";
+      return "Saved";
     case "finished":
       return phase.reason || "No one left to call right now";
     default:

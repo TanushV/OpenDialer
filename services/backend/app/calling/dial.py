@@ -23,7 +23,7 @@ from app.calling.records import (
     LegView,
     ReservationView,
 )
-from app.calling.recovery import next_step
+from app.calling.recovery import ANSWERED, next_step
 from app.calling.state import TERMINAL, moved
 from app.compliance.policy import Decision, authorize
 from app.numbers import pool
@@ -556,20 +556,27 @@ def finish_call(service, s, p, call, reason=None):
     emit(s, workspace(p), "call.updated", call, service.clock(), {"state": call.data["state"]})
 
 
-def _claim_hangup(service, p, call_id, owner, recovery_expected=None):
+def _claim_hangup(service, p, call_id, owner, recovery_expected=None, mark_voicemail=False):
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
         call = ops.required(service, s, "call_attempts", call_id, p)
         s.refresh(call, with_for_update=True)
-        if call.data["state"] in TERMINAL:
+        view = CallView.model_validate(call.data)
+        if mark_voicemail and view.state != "FINALIZED" and not view.rep_voicemail_at:
+            if view.rep_id != p["user_id"]:
+                fail(404, "Object not found")
+            if not (view.state in ANSWERED or view.answered_at or view.bridged_at or view.machine_detected):
+                fail(409, "Wait for the call to connect before marking voicemail.")
+            update(call, rep_voicemail_at=service.clock().isoformat())
+        if view.state in TERMINAL:
             return doc(call), None
         # A recovery hang-up goes ahead only if the pass's decision still holds for the call as it is now.
         if recovery_expected is not None and (
-            CallView.model_validate(call.data).provider_id != recovery_expected.get("provider_id")
+            view.provider_id != recovery_expected.get("provider_id")
             or next_step(call.data, service.clock()) not in {"hangup.requested", "call.ended"}
         ):
             return doc(call), None
-        provider_id = CallView.model_validate(call.data).provider_id
+        provider_id = view.provider_id
         command_id = call.id + ":hangup"
         existing = ops._by_key(service, s, p, "command_outbox", command_id)
         if not existing:
@@ -581,7 +588,7 @@ def _claim_hangup(service, p, call_id, owner, recovery_expected=None):
                 {
                     "kind": "hangup",
                     "call_id": call.id,
-                    "rep_id": CallView.model_validate(call.data).rep_id,
+                    "rep_id": view.rep_id,
                     "provider_id": provider_id,
                     "status": "pending",
                 },
@@ -636,18 +643,24 @@ def _hangup_completed(service, p, call_id, command_id, owner, error=None):
         return doc(call)
 
 
-async def hangup(service, p, call_id, *, recovery_expected=None):
+async def hangup(service, p, call_id, *, recovery_expected=None, mark_voicemail=False):
     owner = uid()
-    call, command = await asyncio.to_thread(ops._claim_hangup, service, p, call_id, owner, recovery_expected)
-    if not command:
-        return call
-    error = None
-    if command["provider_id"]:
-        try:
-            provider = await asyncio.to_thread(ops.carrier, service, workspace(p))
-            await provider.hangup(command["provider_id"], command["command_id"])
-        except Exception as exc:
-            error = exc
-            logging.getLogger(__name__).warning("Durable hangup pending: %s", type(exc).__name__)
-    sent = command["id"] if command["provider_id"] else None
-    return await asyncio.to_thread(ops._hangup_completed, service, p, call_id, sent, owner, error)
+    call, command = await asyncio.to_thread(
+        ops._claim_hangup, service, p, call_id, owner, recovery_expected, mark_voicemail
+    )
+    if command:
+        error = None
+        if command["provider_id"]:
+            try:
+                provider = await asyncio.to_thread(ops.carrier, service, workspace(p))
+                await provider.hangup(command["provider_id"], command["command_id"])
+            except Exception as exc:
+                error = exc
+                logging.getLogger(__name__).warning("Durable hangup pending: %s", type(exc).__name__)
+        sent = command["id"] if command["provider_id"] else None
+        call = await asyncio.to_thread(ops._hangup_completed, service, p, call_id, sent, owner, error)
+    if call.get("rep_voicemail_at") and call["state"] == "ENDED":
+        saved = await asyncio.to_thread(ops.auto_disposition, service, p, call_id)
+        if saved:
+            return saved
+    return call

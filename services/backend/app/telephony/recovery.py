@@ -338,9 +338,12 @@ def dial_unconfirmed_in(service, s, p, call):
 
 def finish_terminal_in(service, s, p, call, receipt):
     """Carrier evidence says the prospect leg is gone; an expired status read needs review."""
+    reason = "carrier_status_expired" if receipt.get("status_expired") else "provider_terminal_reconciliation"
+    ops.finish_call(service, s, p, call, reason)
+    if call.data.get("rep_voicemail_at"):
+        ops.enqueue_aftercall(service, s, p, call)
     if not receipt.get("status_expired"):
-        return ops.finish_call(service, s, p, call, "provider_terminal_reconciliation")
-    ops.finish_call(service, s, p, call, "carrier_status_expired")
+        return
     update(
         call,
         review_required=True,

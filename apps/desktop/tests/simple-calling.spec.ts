@@ -60,6 +60,89 @@ for (const end of ["answer", "hang up"] as const) {
   });
 }
 
+test("incoming audio stops synthetic ringback before a delayed answer event", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const stop = OscillatorNode.prototype.stop;
+    OscillatorNode.prototype.stop = function (when?: number) {
+      if (this.frequency.value === 440)
+        document.documentElement.dataset.ringback = "stopped";
+      return stop.call(this, when);
+    };
+  });
+  await enter(page);
+  await prepareSimulationCall(page, "Early prospect audio", "+14155550781");
+  await startDialing(page);
+  await page.evaluate(async () => {
+    const modulePath = "/src/telephony/speech.ts";
+    const { sessionAudio } = await import(modulePath);
+    const audio = sessionAudio() as AudioContext;
+    const remote = audio.createMediaStreamDestination();
+    const element = document.querySelector<HTMLAudioElement>(".dialer audio")!;
+    element.srcObject = remote.stream;
+    await element.play();
+    const tone = audio.createOscillator();
+    tone.frequency.value = 310;
+    const gain = audio.createGain();
+    gain.gain.value = 0.08;
+    tone.connect(gain).connect(remote);
+    tone.start();
+    tone.stop(audio.currentTime + 1);
+  });
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-ringback",
+    "stopped",
+  );
+  await expect(callStatus(page)).toContainText(/Dialing|Ringing/);
+  await expect(hangUp(page)).toBeEnabled();
+  await finishCall(page);
+});
+
+test("a playback refusal blocks the dial and the rep can retry audio", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+      if (this.srcObject && !document.documentElement.dataset.allowAudio)
+        return Promise.reject(
+          new DOMException("Playback denied", "NotAllowedError"),
+        );
+      return play.call(this);
+    };
+  });
+  await enter(page);
+  await prepareSimulationCall(page, "Playback retry", "+14155550780");
+  let starts = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/v1/calls/start")) starts++;
+  });
+  await startCalling(page).click();
+  await expect(page.getByRole("alert", { name: "Call problem" })).toContainText(
+    "Call sounds: audio playback was blocked",
+  );
+  expect(starts).toBe(0);
+  await page.evaluate(() => {
+    document.documentElement.dataset.allowAudio = "yes";
+  });
+  await startDialing(page);
+  await expect.poll(() => starts).toBe(1);
+  await page
+    .locator(".dialer audio")
+    .last()
+    .evaluate((element: HTMLAudioElement) => element.pause());
+  await expect(
+    page.getByRole("alert", { name: "Audio playback problem" }),
+  ).toContainText("Ringback playback stopped. The call is still dialing.");
+  await page.getByRole("button", { name: "Retry on system output" }).click();
+  await expect(
+    page.getByRole("alert", { name: "Audio playback problem" }),
+  ).toHaveCount(0);
+  expect(starts).toBe(1);
+  await finishCall(page);
+});
+
 test("a late answer received during Skip leaves the outcome for the rep", async ({
   page,
 }) => {
@@ -234,52 +317,91 @@ test("a background script adoption cannot silently replace open edits", async ({
   await expect(editor).toHaveValue(/New team script/);
 });
 
-for (const pause of [false, true]) {
-  test(`a skipped voicemail ${pause ? "stops when the rep pauses" : "dials the next lead by itself"}`, async ({
-    page,
-  }) => {
-    await enter(page);
-    await prepareSimulationCall(
-      page,
-      `Voicemail advance ${pause}`,
-      pause ? "+14155550775" : "+14155550773",
-      [
-        {
-          name: "Next scheduled prospect",
-          phone: pause ? "+14155550776" : "+14155550774",
-        },
-      ],
-    );
-    let starts = 0;
-    page.on("request", (request) => {
-      if (request.url().endsWith("/v1/calls/start")) starts++;
-    });
-    await startDialing(page);
-    await page
-      .getByRole("button", { name: "Mailbox greeting", exact: true })
-      .click();
-    await expect(callStatus(page)).toContainText("Voicemail: skipping");
-    await expect(page.getByRole("button", { name: /^Stay/ })).toBeVisible();
-    await page
-      .getByRole("button", { name: "Mailbox beep", exact: true })
-      .click();
-    if (pause) {
-      // The skip waits at least 7 seconds after the answer (D6), then the carrier result is saved.
-      await expect(callStatus(page)).toContainText("Skipped", {
-        timeout: 30_000,
-      });
-      await pauseCalling(page).click();
-      await expect(startCalling(page)).toBeVisible();
-      // Pass the countdown: no hidden timer may place a call.
-      await page.waitForTimeout(2500);
-      expect(starts).toBe(1);
-    } else {
-      // The next call follows the seven-second mailbox hold and the queue countdown.
-      await expect.poll(() => starts, { timeout: 30_000 }).toBe(2);
-      await finishCall(page);
-    }
+test("ringback returns on the next explicit call, and voicemail stays open until Space", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const start = OscillatorNode.prototype.start;
+    const stop = OscillatorNode.prototype.stop;
+    OscillatorNode.prototype.start = function (when?: number) {
+      const state = document.documentElement.dataset;
+      if (this.frequency.value === 440) {
+        state.ringbackCount = String(Number(state.ringbackCount || 0) + 1);
+        state.ringback = "playing";
+      }
+      if (this.frequency.value === 660)
+        state.endToneCount = String(Number(state.endToneCount || 0) + 1);
+      return start.call(this, when);
+    };
+    OscillatorNode.prototype.stop = function (when?: number) {
+      if (this.frequency.value === 440)
+        document.documentElement.dataset.ringback = "stopped";
+      return stop.call(this, when);
+    };
   });
-}
+  await enter(page);
+  await prepareSimulationCall(page, "First prospect", "+14155550773", [
+    {
+      name: "Another prospect",
+      phone: "+14155550774",
+    },
+    {
+      name: "Third prospect",
+      phone: "+14155550776",
+    },
+  ]);
+  let starts = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/v1/calls/start")) starts++;
+  });
+  const firstDial = page.waitForResponse((response) =>
+    response.url().endsWith("/v1/calls/start"),
+  );
+  await startDialing(page);
+  const root = page.locator("html");
+  await expect(root).toHaveAttribute("data-ringback-count", "1");
+  const receipt = await firstDial;
+  const first = await receipt.json();
+  const headers = await receipt.request().allHeaders();
+  const event = await page.request.post(`${AUTHORITY}/v1/simulation/event`, {
+    headers: { authorization: headers.authorization },
+    data: {
+      event_id: "first-prospect-no-answer",
+      event_type: "call.hangup",
+      call_id: first.id,
+      payload: { hangup_cause: "no_answer" },
+    },
+  });
+  expect(event.ok()).toBeTruthy();
+  await expect(callStatus(page)).toContainText("No answer saved");
+  await expect(root).toHaveAttribute("data-end-tone-count", "1");
+  await expect(root).toHaveAttribute("data-ringback", "stopped");
+  await page.waitForTimeout(3200); // Exceed the old automatic advance delay.
+  expect(starts).toBe(1);
+
+  await page.getByRole("button", { name: /^Dial now/ }).click();
+  await expect(root).toHaveAttribute("data-ringback-count", "2");
+  await page
+    .getByRole("button", { name: "Mailbox greeting", exact: true })
+    .click();
+  await expect(callStatus(page)).toContainText("Voicemail detected");
+  await expect(root).toHaveAttribute("data-ringback", "stopped");
+  await page.getByRole("button", { name: "Mailbox beep", exact: true }).click();
+  await page.waitForTimeout(8500); // Exceed the old mailbox hang-up delay.
+  await expect(
+    page.getByRole("button", { name: /^End as voicemail/ }),
+  ).toBeEnabled();
+  await page.locator(".dialer-body").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("Space");
+  await expect(callStatus(page)).toContainText("Voicemail saved");
+  await expect(root).toHaveAttribute("data-end-tone-count", "2");
+  await page.waitForTimeout(3200);
+  expect(starts).toBe(2);
+  await page.keyboard.press("Space");
+  await expect.poll(() => starts).toBe(3);
+  await expect(root).toHaveAttribute("data-ringback-count", "3");
+  await finishCall(page);
+});
 
 test("Pause stays on screen after Start even while the workspace re-read is slow", async ({
   page,

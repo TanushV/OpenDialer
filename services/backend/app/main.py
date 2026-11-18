@@ -201,6 +201,10 @@ class NoteEdit(Strict):
     text: str = Field(max_length=20000)
 
 
+class HangupRequest(Strict):
+    mark_voicemail: bool = False
+
+
 class Disposition(Strict):
     audio_result: Literal["unknown", "two_way", "problem"] | None = None
     screened: bool | None = None
@@ -753,8 +757,8 @@ def create_app(settings=None, *, clock=None, carrier=None):
         return ops.stay_on_call(service, p, call_id)
 
     @app.post("/v1/calls/{call_id}/hangup")
-    async def hangup(call_id: str, p=Depends(principal)):
-        return await ops.hangup(service, p, call_id)
+    async def hangup(call_id: str, data: HangupRequest | None = None, p=Depends(principal)):
+        return await ops.hangup(service, p, call_id, mark_voicemail=bool(data and data.mark_voicemail))
 
     @app.delete("/v1/calls/{call_id}/transcript")
     def delete_transcript(call_id: str, p=Depends(principal)):

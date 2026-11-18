@@ -1,5 +1,6 @@
 import type { TelnyxRTC } from "@telnyx/webrtc";
 import type { Call } from "@telnyx/webrtc/lib/src/Modules/Verto/webrtc/Call";
+import { playOutput, setPlaybackOutput } from "./playback";
 
 const providerId = (call: Call | null) => call?.telnyxIDs?.telnyxCallControlId;
 const ended = (call: Call) => ["hangup", "destroy"].includes(call.state);
@@ -141,7 +142,7 @@ export class Telephony {
     this.audio = audio;
     client.remoteElement = audio;
     if (this.inputId) client.micId = this.inputId;
-    if (this.outputId) client.speaker = this.outputId;
+    if (this.outputId) await setPlaybackOutput(audio, this.outputId);
     const current = () => session === this.session && client === this.client;
     client.on("telnyx.notification", (event) => {
       if (current() && event.type === "callUpdate" && event.call)
@@ -324,7 +325,43 @@ export class Telephony {
       providerId(agent) === id &&
       this.expectedAgent === id &&
       !this.closed.has(id) &&
-      !ended(agent)
+      agent.state === "active"
+    );
+  }
+  private agentPlayback(id: string) {
+    const stream =
+      this.holdsAgent(id) && !this.returnCall ? this.agent?.remoteStream : null;
+    return stream?.getAudioTracks().some((track) => track.readyState === "live")
+      ? stream
+      : null;
+  }
+  hasAgentMedia(id: string) {
+    return Boolean(this.agentPlayback(id));
+  }
+  /** The verified rep leg can receive audio before the prospect answers. */
+  async playAgent(id: string) {
+    const audio = this.audio;
+    const stream = this.agentPlayback(id);
+    if (!audio || !stream)
+      throw new Error("The verified call audio track is unavailable.");
+    if (audio.srcObject !== stream) audio.srcObject = stream;
+    await playOutput(audio, "Call audio");
+    if (
+      this.audio !== audio ||
+      this.agentPlayback(id) !== stream ||
+      audio.srcObject !== stream
+    )
+      throw new Error("The call audio changed while playback was starting.");
+  }
+  hasAgentPlayback(id: string) {
+    const stream = this.agentPlayback(id);
+    return Boolean(
+      stream &&
+      this.audio?.srcObject === stream &&
+      !this.audio.paused &&
+      !this.audio.muted &&
+      this.audio.volume > 0 &&
+      !this.audio.error,
     );
   }
   audioStreams(id: string) {
@@ -348,11 +385,24 @@ export class Telephony {
       if (call) await call.setAudioInDevice(id);
     this.onStatus(this.status);
   }
-  async output(id: string) {
+  get outputDevice() {
+    return this.outputId;
+  }
+  async output(id: string, cues?: HTMLAudioElement, voice = this.audio) {
+    const elements = [voice, cues].filter(
+      (element): element is HTMLAudioElement => !!element,
+    );
+    try {
+      for (const element of elements) await setPlaybackOutput(element, id);
+    } catch (error) {
+      await Promise.allSettled(
+        elements.map((element) => setPlaybackOutput(element, this.outputId)),
+      );
+      const reason =
+        error instanceof Error ? error.message : "Output selection failed.";
+      throw new Error(`Could not switch call audio output. ${reason}`);
+    }
     this.outputId = id;
-    if (this.client) this.client.speaker = id;
-    for (const call of [this.agent, this.returnCall])
-      if (call) await call.setAudioOutDevice(id);
   }
   async devices() {
     return navigator.mediaDevices.enumerateDevices();

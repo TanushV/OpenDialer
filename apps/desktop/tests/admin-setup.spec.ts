@@ -545,6 +545,7 @@ test("Settings imports a test CSV and the Dialer calls only those destinations",
   ).toContainText("+12025550199");
   await page.getByRole("button", { name: /^Run test list/ }).click();
   for (let i = 0; i < 2; i++) {
+    if (i) await page.getByRole("button", { name: /^Dial now/ }).click();
     await answer(page);
     await hangUp(page).click();
     await saveOutcome(page, "not_interested");

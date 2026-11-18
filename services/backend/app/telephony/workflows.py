@@ -175,34 +175,16 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
                 if outcome:
                     update(call, carrier_outcome=outcome)
                     ops._offer_second_attempt(service, s, call, lead, policy)
-            changes, hang_up_at = events.machine(
-                call.data, event_type, final=events.final_attempt(call.data, policy), now=service.clock()
-            )
+            changes = events.machine(call.data, event_type, final=events.final_attempt(call.data, policy))
             if changes:
                 update(call, **changes)
-                if hang_up_at:
-                    command = ops.control_intent(
-                        service, s, p, call_id, "hangup", {}, suffix="machine-hangup"
-                    )
-                    if hang_up_at > service.clock():
-                        # The maintenance pass sends it once due; Space skips sooner.
-                        update(command, not_before=hang_up_at.isoformat())
-                    elif session is not None:
-                        result["voicemail_control"] = (p, command.id)
                 emit(s, p["tenant_id"], "call.updated", call, service.clock())
             changes = events.screening(call.data, event_type)
             if changes:
-                # Call screening is a person's gate, never a mailbox: a pending skip is withdrawn (R6.3).
-                waiting = ops._by_key(service, s, p, "command_outbox", f"{call_id}:machine-hangup")
-                if waiting and waiting.data["status"] == "pending" and not waiting.data.get("sent_at"):
-                    update(waiting, status="cancelled", reason="SCREENING_DETECTED")
                 update(call, **changes)
                 emit(s, p["tenant_id"], "call.updated", call, service.clock())
             changes, first_answer = events.human(call.data, event_type, service.clock())
             if changes:
-                waiting = ops._by_key(service, s, p, "command_outbox", f"{call_id}:machine-hangup")
-                if waiting and waiting.data["status"] == "pending":
-                    update(waiting, status="cancelled", reason="HUMAN_ANSWERED")
                 update(call, **changes)
                 if first_answer:
                     ops._keep_callback_promise(service, s, p, call, lead)
@@ -223,11 +205,10 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
             if (
                 event_type == "call.hangup"
                 and call.data["state"] in TERMINAL
-                and call.data.get("carrier_outcome")
+                and (call.data.get("carrier_outcome") or call.data.get("rep_voicemail_at"))
             ):
                 ops.enqueue_aftercall(service, s, p, call)
-                # R4.9: a carrier fact (no answer, busy, voicemail, failure) is saved as soon as this
-                # event commits, never after a job or an AI request.
+                # Carrier outcomes and the rep's explicit voicemail outcome need no summary.
                 result["save_outcome"] = (p, call_id)
             receipt = ops._by_key(service, s, p, "provider_events", event_id)
             update(receipt, effects_complete=True)
@@ -320,6 +301,9 @@ def _claim_control(service, p, command_id):
         s.refresh(current, with_for_update=True)
         command = doc(current)
         if current.data["status"] != "pending":
+            return None
+        if command.get("payload", {}).get("command_id") == f"{command['call_id']}:machine-hangup":
+            update(current, status="cancelled", reason="AUTOMATIC_VOICEMAIL_HANGUP_REMOVED")
             return None
         if (
             service.managed.enabled(p["tenant_id"])

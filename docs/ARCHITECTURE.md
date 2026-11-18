@@ -32,12 +32,12 @@ Everything that decides whether the next call happens is small and checked.
 | Watchdog | `calling/watchdog.py` | A self-clearing blocker that outlives its promise is repaired (the relay loop restarts), then shown as stuck with Reconnect. |
 | Readiness | `/v1/calling/readiness` | While paused, the Dialer shows how many leads can be called now, or the plain reason none can. |
 | Screen | `calling/screen.ts` | The Dialer's phase is a pure function of one state; `keys()` says what each key does in it. |
-| Loop | `calling/useCallLoop.ts` | Start, dial, voicemail skip, hang-up, save and the next call. Every key decides the screen at once. |
+| Loop | `calling/useCallLoop.ts` | Start calling places one attempt. Another attempt requires Dial now or Space from the saved result. |
 | Call states | `calling/state.py` | `DIALING` to `RINGING`, `HUMAN` or a mailbox, `ENDED` (waiting for an outcome) and `FINALIZED` (saved). |
 | One decision | `calling/decide.py` | `decide(situation)` says whether the next dial happens, checked over every combination of its inputs. |
 | Dial safety | `calling/dial.py` | A durable dial record and carrier command ID: a lead is never dialed twice, and a call can always be ended. |
 | Callbacks | `telephony/callbacks.py` | While the app is open its call client stays registered and says so every 30 seconds; a callback from anyone rings it (D29). Otherwise, or unanswered, the greeting plays and a follow-up is kept. |
-| Rep's audio | `calling/audio_leg.py` | Each call joins an audio leg this run of the app opened and the carrier reports live; any other is ended and a fresh one dialed. The Dialer dials only once its own audio client holds the leg, so the rep is heard and the transcript has sound. |
+| Rep's audio | `calling/audio_leg.py`, `telephony/client.ts` | The carrier and desktop verify the rep's leg before dialing. The desktop checks that the browser can play its audio and routes ringback, the end tone and the call to the selected output. |
 
 The queue (`scheduling/queue.py`) offers callbacks due first, then leads never called, then the one waiting longest
 since its last try (D31), inside each lead's calling hours
@@ -52,7 +52,7 @@ why in plain words. A test call to the rep's own phone skips hours and attempt l
 | Every combination of blocker facts | `tests/test_blockers.py` | Anything wrong names a blocker; each has a way out. |
 | Each blocker in and out | `tests/acceptance/test_blocker_exits.py` | All 21 blockers clear through their real code path. A new blocker without a test fails CI. |
 | Fault soak | `tests/test_fault_soak.py` | Random runs with clock jumps, duplicate and late events and opt-outs: no server error, never two open calls, no dial after an opt-out, Pause honored, and recovery always dials or says why. |
-| The rep's own key | `apps/desktop/tests/screen-model.test.ts`, `simple-calling.spec.ts` | Hang up, Skip, Stay and the outcome keys show at once over any re-read (`withIntent`); one save at a time; a Pause pressed during any start step wins. |
+| The rep's own key | `apps/desktop/tests/screen-model.test.ts`, `simple-calling.spec.ts` | Hang up and the outcome keys show at once over any re-read. Playback failures are visible, and only the rep can dial the next lead or end a detected mailbox. |
 | Layout | `apps/desktop/tests/layout-audit.spec.ts` | On every page, at both window sizes, the main control stays uncovered and still. |
 
 Every screen that re-reads on events shows only the newest answer (`state/newest.ts`), so a slow older read never
@@ -89,7 +89,8 @@ hiding a defect.
 - **After the call** (`aftercall/summary.py`): one request over the whole transcript returns a summary, a suggested
   outcome and a next step; each field is checked on its own, and a failed summary has Retry. It is shown in the
   wrap-up and in Review, read by the next call's script and brief, and added to HubSpot. The rep confirms the
-  suggested outcome; only carrier facts (no answer, busy, a mailbox) save themselves.
+  suggested outcome. The carrier can save facts such as no answer or busy. The rep decides when to end and log
+  a voicemail.
 - **Transcripts** are kept on this computer for 30 days, then deleted; the rep can delete one sooner. There are no
   recordings.
 

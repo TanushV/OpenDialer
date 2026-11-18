@@ -2,8 +2,8 @@
 
 A desktop dialer for one rep per computer, on Mac, Windows or Linux. Import a CSV or sync a HubSpot list, paste your call script
 once, and an AI agent researches each lead and writes that lead's version of your script. Press Start calling and the
-app dials lead after lead, skips voicemail, shows the script and live tips while you talk, and writes a summary with a
-suggested outcome when the call ends.
+app dials the first eligible lead, shows the script and live tips while you talk, and writes a summary with a
+suggested outcome when the call ends. The rep starts each subsequent call.
 
 [Download the latest release](https://github.com/TanushV/OpenDialer/releases/latest) · [Setup guide](docs/GETTING_STARTED.md) ·
 [How it works](docs/ARCHITECTURE.md) · [What's new](docs/RELEASE_NOTES.md) · [Example script](docs/examples/script.md)
@@ -39,7 +39,8 @@ Settings opens with one row per thing to set. A row turns green only after a rea
 2. **Leads:** import a CSV or sync a HubSpot list. Each lead is researched and gets its own script.
 3. **Dialer:** while paused it says how many leads can be called now, or why none can. Press **Start calling** (Space).
    **P** pauses after the call. When a call ends, press **1** to **6** to save the outcome, or Enter to accept the
-   suggested one. The next call starts by itself.
+   suggested one. While listening to voicemail, press Space or **End as voicemail** to end the call and save Voicemail.
+   Press **Dial now** or Space from the saved outcome when you're ready for the next call.
 4. **Review:** opens with what needs you and the one thing to do about each, then follow-ups, past calls and what the
    app has learned about your best hours and triggers.
 

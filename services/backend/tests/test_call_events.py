@@ -29,36 +29,31 @@ def test_carrier_outcomes_are_settled_only_when_no_person_answered():
     assert events.carrier_outcome({}, {"hangup_cause": "user_busy"}) == "busy"
     assert events.carrier_outcome({}, {"hangup_cause": "normal_clearing"}) is None
     assert events.carrier_outcome({"answered_at": "x"}, {"hangup_cause": "timeout"}) is None
-    assert events.carrier_outcome({"answered_at": "x", "machine_detected": True}, {}) == "voicemail"
+    assert events.carrier_outcome({"machine_detected": True}, {"hangup_cause": "timeout"}) is None
     assert events.carrier_outcome({"human_answered_at": "x", "machine_detected": True}, {}) is None
     assert events.carrier_outcome({"sip_block_code": "603"}, {"hangup_cause": "timeout"}) is None
 
 
-def test_voicemail_is_skipped_at_detection_but_never_before_seven_seconds():
-    """D6, R6.3: detection skips at the later of now and 7 seconds after the answer."""
-    from datetime import timedelta
-
+def test_machine_and_beep_mark_an_open_mailbox_for_the_rep():
     machine = "call.machine.premium.detection.ended:machine"
     beep = "call.machine.premium.greeting.ended:beep_detected"
-    early = {"state": "VOICEMAIL_GREETING", "answered_at": (NOW - timedelta(seconds=2)).isoformat()}
-    late = {"state": "VOICEMAIL_GREETING", "answered_at": (NOW - timedelta(seconds=9)).isoformat()}
-    assert events.machine(early, machine, final=False, now=NOW) == (
-        {"machine_detected": True},
-        NOW + timedelta(seconds=5),
-    )
-    assert events.machine(late, beep, final=False, now=NOW) == ({"machine_detected": True}, NOW)
+    for event in (machine, beep):
+        assert events.machine({"state": "VOICEMAIL_GREETING"}, event, final=False) == {
+            "machine_detected": True
+        }
 
 
-def test_voicemail_stays_open_on_a_final_attempt_stay_screening_or_ending():
+def test_voicemail_on_a_final_attempt_offers_a_message_and_ignores_late_guesses():
     machine = "call.machine.premium.detection.ended:machine"
-    assert events.machine({}, machine, final=True, now=NOW) == (
-        {"machine_detected": True, "voicemail_turn": True},
-        None,
-    )
-    for call in ({"stay_on_voicemail": True}, {"screening_detected": True}, {"state": "ENDING"}):
-        assert events.machine(call, machine, final=False, now=NOW)[1] is None
-    assert events.machine({"human_answered_at": "x"}, machine, final=False, now=NOW) == ({}, None)
-    assert events.machine({}, "call.answered", final=False, now=NOW) == ({}, None)
+    assert events.machine({}, machine, final=True) == {"machine_detected": True, "voicemail_turn": True}
+    for call in (
+        {"screening_detected": True},
+        {"state": "ENDING"},
+        {"state": "FINALIZED"},
+        {"human_answered_at": "x"},
+    ):
+        assert events.machine(call, machine, final=False) == {}
+    assert events.machine({}, "call.answered", final=False) == {}
 
 
 def test_final_attempt_reads_the_allowance_or_the_policy():
@@ -86,7 +81,7 @@ def test_a_confirmed_person_clears_machine_and_outcome_and_reports_the_first_ans
 
 
 def test_a_carrier_outcome_is_saved_when_the_hangup_arrives_without_any_job(workspace):
-    """R4.9: no answer, busy and voicemail are carrier facts, saved at once."""
+    """R4.9: a carrier timeout is saved at once."""
     from conftest import start
 
     client, headers = workspace["client"], workspace["headers"]

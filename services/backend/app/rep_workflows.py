@@ -782,22 +782,21 @@ def report_meeting(service, p, lead_id, data):
 
 
 def auto_disposition(service, p, call_id):
-    """Save a carrier fact (no answer, busy, voicemail) as the outcome, never over a rep's own save."""
+    """Save a carrier fact or a rep-confirmed mailbox once the call ends."""
     from fastapi import HTTPException
 
     with service.db.transaction(False) as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         if call.data["state"] not in TERMINAL or call.data.get("edit_version", 0) or call.data.get("outcome"):
             return
-        outcome = call.data.get("carrier_outcome")
-        if call.data.get("machine_detected") and not call.data.get("human_answered_at"):
-            outcome = "voicemail"
-        if not outcome:
-            return  # Only carrier facts save themselves; a person's answer waits for the rep (section 6).
-        source, role = "carrier", "unknown"
+        confirmed = call.data.get("rep_voicemail_at")
+        outcome = "voicemail" if confirmed else call.data.get("carrier_outcome")
+        if not outcome or outcome == "voicemail" and not confirmed:
+            return
+        source = "rep_reported" if confirmed else "carrier"
         body = {
             "outcome": outcome,
-            "contact_role": role,
+            "contact_role": "unknown",
             "request_id": uid(),
             "expected_version": call.version,
             "expected_edit_version": 0,
@@ -805,13 +804,13 @@ def auto_disposition(service, p, call_id):
             "callback_at": None,
         }
     try:
-        ops.save_disposition(service, p, call_id, body, source=source)
+        return ops.save_disposition(service, p, call_id, body, source=source, only_if_unsaved=True)
     except HTTPException as exc:
         if exc.status_code != 409:
             raise
 
 
-def save_disposition(service, p, call_id, data, *, source="rep_reported"):
+def save_disposition(service, p, call_id, data, *, source="rep_reported", only_if_unsaved=False):
     """Save the rep's (or a tool's) outcome for an ended call, with its effects, in one transaction."""
     outcome = data["outcome"]
     due = zoned_time(data.get("callback_at"))
@@ -831,7 +830,7 @@ def save_disposition(service, p, call_id, data, *, source="rep_reported"):
         )
         edit_version = call.data.get("edit_version", 0)
         replayed = bool(identity[2])
-        if source != "rep_reported" and (edit_version or call.data.get("outcome")):
+        if (only_if_unsaved or source != "rep_reported") and (edit_version or call.data.get("outcome")):
             fail(409, "A human or previous tool already saved this outcome")
         previous_outcome = call.data.get("outcome")
         correcting_confirmed = call.data["state"] == "FINALIZED"

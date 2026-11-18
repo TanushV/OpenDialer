@@ -60,13 +60,13 @@ function* calls(): Generator<ScreenCall | null> {
   for (const state of CALL_STATES)
     for (const outcome of [null, "no_answer", "not_interested"])
       for (const voicemail_turn of [false, true])
-        for (const stay_on_voicemail of [false, true])
+        for (const machine_detected of [false, true])
           for (const provider_hangup_source of [null, "callee", "caller"])
             yield {
               state,
               outcome,
               voicemail_turn,
-              stay_on_voicemail,
+              machine_detected,
               provider_hangup_source,
               connected_seconds: 12,
             };
@@ -87,11 +87,7 @@ function law(ok: boolean, name: string, context: () => unknown) {
   if (!ok) expect.fail(`${name}: ${JSON.stringify(context())}`);
 }
 
-const INTENTS: Intent[] = [
-  { hangup: true },
-  { stay: true },
-  { hangup: true, stay: true },
-];
+const INTENTS: Intent[] = [{}, { hangup: true }];
 
 describe("the Dialer screen over every input (R9E.2)", () => {
   it("obeys the calling laws in every combination", () => {
@@ -135,7 +131,7 @@ describe("the Dialer screen over every input (R9E.2)", () => {
       if (
         input.calling &&
         !input.blockers.length &&
-        ["connecting", "dialing", "saved", "skipped"].includes(phase.kind)
+        ["connecting", "dialing", "saved", "finished"].includes(phase.kind)
       )
         law(actions.includes("pause"), "Pause not reachable", context);
 
@@ -185,7 +181,9 @@ describe("the Dialer screen over every input (R9E.2)", () => {
         // The intent belongs to this call: once it has finished, the next call's phase is its own.
         if (intent.hangup && open) {
           law(
-            !available.includes("hangup") && !available.includes("skip"),
+            !available.includes("hangup") &&
+              !available.includes("skip") &&
+              !available.includes("voicemail"),
             "Hang up or Skip offered again",
             context,
           );
@@ -203,8 +201,6 @@ describe("the Dialer screen over every input (R9E.2)", () => {
             context,
           );
         }
-        if (intent.stay && !intent.hangup)
-          law(!available.includes("stay"), "Stay offered again", context);
         // The overlay never invents an outcome or changes a finished call.
         law(shown.outcome === call.outcome, "the outcome changed", context);
         if (!open)

@@ -5,7 +5,6 @@ commands and starting jobs stays with the caller, so every rule here is testable
 """
 
 import re
-from datetime import datetime, timedelta
 
 from app.calling.state import HUMAN_EVENTS, TERMINAL
 
@@ -49,9 +48,12 @@ def carrier_outcome(call, payload):
     """The outcome the carrier already settled at hangup, or None when the rep must choose it."""
     if call.get("human_answered_at") or call.get("sip_block_code"):
         return None
-    if call.get("machine_detected"):
-        return "voicemail"
-    if call.get("answered_at"):
+    if (
+        call.get("answered_at")
+        or call.get("bridged_at")
+        or call.get("machine_detected")
+        or call.get("screening_detected")
+    ):
         return None
     return CAUSE_OUTCOMES.get(payload.get("hangup_cause"))
 
@@ -60,31 +62,16 @@ def final_attempt(call, policy):
     return call.get("attempt_ordinal", 0) >= call.get("attempt_allowance", policy.get("max_attempts", 4))
 
 
-# D6: a skipped voicemail is never hung up sooner than this after the answer, so a slow "hello" is not cut off.
-VOICEMAIL_MIN_SECONDS = 7
-
-
-def machine(call, event_type, *, final, now):
-    """(changes, when to hang up or None) for a machine or beep result (D6, R6.3).
-
-    Detection skips the mailbox at the later of now and 7 seconds after the answer. A final attempt keeps the line
-    open for the rep's message, and Stay or detected call screening keeps it open too.
-    """
-    if event_type not in MACHINE_EVENTS | BEEP_EVENTS or call.get("human_answered_at"):
-        return {}, None
-    if final:
-        return {"machine_detected": True, "voicemail_turn": True}, None
+def machine(call, event_type, *, final):
+    """Report mailbox detection to the rep. Detection never sends a carrier command."""
     if (
-        call.get("stay_on_voicemail")
+        event_type not in MACHINE_EVENTS | BEEP_EVENTS
+        or call.get("human_answered_at")
         or call.get("screening_detected")
         or call.get("state") in TERMINAL | {"ENDING"}
     ):
-        return {"machine_detected": True}, None
-    answered = call.get("answered_at")
-    earliest = (
-        datetime.fromisoformat(answered) + timedelta(seconds=VOICEMAIL_MIN_SECONDS) if answered else now
-    )
-    return {"machine_detected": True}, max(now, earliest)
+        return {}
+    return {"machine_detected": True, **({"voicemail_turn": True} if final else {})}
 
 
 def screening(call, event_type):

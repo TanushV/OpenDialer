@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from app import crm
 from app.aftercall import crm_log
 from app.leads import hubspot_sync as sync
 from app.providers.hubspot import HubSpot, HubSpotError
@@ -139,6 +140,12 @@ def test_every_outcome_maps_or_setup_says_which_does_not():
         and mapped["not_interested"] == "d-c"
     )
     assert sorted(missing) == ["voicemail", "wrong_party"]
+
+
+def test_ending_a_mailbox_never_claims_a_message_was_left():
+    call = {"outcome": "voicemail", "rep_voicemail_at": NOW.isoformat()}
+    assert crm.call_outcome(call) == "voicemail_skipped"
+    assert crm.call_outcome({**call, "outcome": "not_interested"}) == "not_interested"
 
 
 async def test_a_retry_after_an_uncertain_write_leaves_one_record_and_never_sends_a_transcript():

@@ -433,10 +433,7 @@ def test_a_machine_result_alone_never_hangs_up(workspace, app, carrier):
     assert saved["machine_detected"] is True and not saved.get("voicemail_turn")
 
 
-def test_a_detected_voicemail_ends_an_ordinary_attempt_at_seven_seconds(workspace, carrier, clock):
-    """D6, R6.3: skipped at detection, but never sooner than 7 seconds after the answer."""
-    from datetime import timedelta
-
+def test_a_detected_voicemail_leaves_an_ordinary_attempt_open(workspace, carrier, clock):
     call = start(workspace)
     event(workspace, call, "call.answered")
     event(workspace, call, "call.machine.premium.detection.ended:machine")
@@ -445,7 +442,7 @@ def test_a_detected_voicemail_ends_an_ordinary_attempt_at_seven_seconds(workspac
     assert carrier.hangups == []
     clock.now += timedelta(seconds=5)
     run_controls(workspace)
-    assert [h["provider_id"] for h in carrier.hangups] == [call["provider_id"]]
+    assert carrier.hangups == []
 
 
 def test_a_rep_can_stay_before_the_beep(workspace, carrier):
@@ -467,16 +464,32 @@ def test_outbound_ring_time_can_be_changed(workspace, carrier):
     assert carrier.dials[-1]["timeout_secs"] == 45
 
 
-def test_a_late_beep_ends_the_call_at_once(workspace, carrier, clock):
-    from datetime import timedelta
-
+def test_a_late_beep_does_not_end_the_call(workspace, carrier, clock):
     call = start(workspace)
     event(workspace, call, "call.answered")
     event(workspace, call, "call.machine.premium.detection.ended:machine")
     clock.now += timedelta(seconds=12)
     event(workspace, call, "call.machine.premium.greeting.ended:beep_detected")
     run_controls(workspace)
-    assert [h["provider_id"] for h in carrier.hangups] == [call["provider_id"]]
+    assert carrier.hangups == []
+
+
+@pytest.mark.parametrize("sent", [False, True])
+def test_upgrade_never_dispatches_an_old_mailbox_stop(workspace, app, carrier, sent):
+    placed = start(workspace)
+    event(workspace, placed, "call.answered")
+    service = app.state.service
+    with service.db.transaction() as s:
+        command = ops.control_intent(
+            service, s, principal(workspace), placed["id"], "hangup", {}, suffix="machine-hangup"
+        )
+        if sent:
+            update(command, sent_at=service.clock().isoformat())
+        command_id = command.id
+    run_controls(workspace)
+    assert carrier.hangups == []
+    with service.db.transaction(False) as s:
+        assert get(s, "command_outbox", command_id).data["status"] == "cancelled"
 
 
 def test_the_final_attempt_stays_on_the_line_to_leave_a_voicemail(workspace, app, carrier, clock):

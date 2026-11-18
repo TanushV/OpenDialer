@@ -31,9 +31,10 @@ Settings shows one row per thing to set, and a status at the top: **Ready to cal
 8. **Test list.** Under **Test list**, select **Open test list CSV** and choose a CSV with a `phone` column and up to
    50 approved test phones. Add `name`, `company`, and `domain` for personalized scripts. Click **Save test list**.
    To prepare scripts, open **Leads → Research and scripts** and choose **Generate scripts** for **Test calls**.
-   Back in Settings, select **Open test list in Dialer**, then **Run test list**. The Dialer calls each test phone
-   once per run and pauses when it finishes. Begin another run from Settings. Calling hours, retry spacing and the
-   app's call timer are lifted for the test list. Carrier limits and opt-outs still apply.
+   Back in Settings, select **Open test list in Dialer**, then **Run test list**. Press **Dial now** or Space
+   after saving each outcome to continue. Each phone is called once per run. Begin another run from Settings.
+   Calling hours, retry spacing and the app's call timer are lifted for the test list. Carrier limits and opt-outs
+   still apply.
 
 ## 3. Numbers
 
@@ -117,16 +118,18 @@ The left Calling context panel shows the prospect's role, company description an
 | Key | When | Does |
 | --- | --- | --- |
 | Space | Paused | Start calling |
-| Space | Dialing or a mailbox | Skip this call |
-| S | Voicemail is being skipped | Stay on the line |
+| Space | Dialing | Skip this call |
+| Space | Voicemail detected | End the call and save Voicemail |
+| Space | Saved outcome | Dial the next eligible lead |
 | P | Any time | Pause after this call |
 | Esc | Dialing, identifying an answer, or talking | Hang up |
 | 1 to 6 | Call ended | Meeting booked, Callback, Not interested, Gatekeeper, Wrong number, Voicemail |
 | Enter | Call ended with a suggestion | Accept the suggested outcome |
 
-After you save, the next call starts in 3 seconds. The wrap-up shows the call's summary and next step.
-The outbound ringback tone plays locally until answer or hangup. Once the far end answers, the Dialer shows the
-answering status while Telnyx identifies the person, call screening, or voicemail and the rep can hear the line.
+The saved outcome stays on screen until the rep chooses the next call. The wrap-up shows the call's summary
+and next step. The local ringback and call audio use the selected speaker or headset. Ringback stops when
+the remote audio arrives, the carrier reports an answer, or the call ends. Voicemail detection keeps the line
+open for listening or leaving a message. Use **Check audio → Play test tone** to verify the output before dialing.
 
 ## 7. Review
 
@@ -140,4 +143,4 @@ section and option titles, and omit transcript text and contact details.
 ## When something is blocked
 
 Read the reason and next step in the Dialer's status bar. For example, **Open Numbers** shows caller-ID availability,
-and **Open Settings** takes you to screening setup. The Dialer retries while calling stays on.
+and **Open Settings** takes you to screening setup. Use **Check again** when the list is ready to dial.

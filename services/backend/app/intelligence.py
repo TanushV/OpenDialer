@@ -471,6 +471,8 @@ async def summarize_call(service, p, call_id):
     from app.aftercall.summary import summarize
     from app.helper.live import script_parts
 
+    # A recovered hang-up can lack a carrier event. Settle its known outcome even if the model is slow.
+    await asyncio.to_thread(ops.auto_disposition, service, p, call_id)
     with service.db.transaction(False) as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         lead = ops.required(service, s, "leads", call.data["lead_id"], p)
@@ -517,8 +519,6 @@ async def summarize_call(service, p, call_id):
             from app import crm
 
             crm.enqueue_summary(service, s, p, call)
-    # A mailbox or other carrier fact the hang-up could not save yet is saved now; a person's answer never is.
-    await asyncio.to_thread(ops.auto_disposition, service, p, call_id)
 
 
 def call_summary(service, s, p, call_id):

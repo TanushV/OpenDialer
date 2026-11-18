@@ -13,9 +13,8 @@ export type SpeechStop =
   | "bad_message";
 
 /**
- * One audio engine for the whole calling session. WebKit starts an AudioContext only from the rep's own click or
- * key, and auto-dialed calls start from a timer, so Start calling unlocks it once and every call reuses it
- * (live check, November 10: with a new engine per call, no transcript ever started).
+ * One audio engine for the whole calling session. WebKit starts an AudioContext from the rep's click or key.
+ * Start calling and Dial now resume it for the call sounds and live transcript.
  */
 let shared: AudioContext | null = null;
 let worklet: Promise<void> | null = null;

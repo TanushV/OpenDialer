@@ -30,20 +30,11 @@ describe("the Dialer screen phases (section 6)", () => {
     ["opening audio", { connecting: true }, "connecting"],
     ["dialing", { call: { state: "DIALING" } }, "dialing"],
     ["ringing", { call: { state: "RINGING" } }, "dialing"],
-    [
-      "mailbox",
-      { call: { state: "VOICEMAIL_GREETING" } },
-      "voicemail_skipping",
-    ],
-    [
-      "mailbox, rep stays",
-      { call: { state: "VOICEMAIL_GREETING", stay_on_voicemail: true } },
-      "talking",
-    ],
+    ["mailbox", { call: { state: "VOICEMAIL_GREETING" } }, "voicemail"],
     [
       "final attempt mailbox",
       { call: { state: "VOICEMAIL_READY", voicemail_turn: true } },
-      "voicemail_final",
+      "voicemail",
     ],
     ["person", { call: { state: "HUMAN" } }, "talking"],
     ["screening", { call: { state: "SCREENING" } }, "talking"],
@@ -63,7 +54,7 @@ describe("the Dialer screen phases (section 6)", () => {
           outcome_source: "rep_reported",
         },
       },
-      "skipped",
+      "saved",
     ],
     [
       "carrier no answer",
@@ -74,7 +65,7 @@ describe("the Dialer screen phases (section 6)", () => {
           outcome_source: "carrier",
         },
       },
-      "skipped",
+      "saved",
     ],
     [
       "saved, then paused",
@@ -109,7 +100,7 @@ describe("the Dialer screen phases (section 6)", () => {
       ["ANSWERED_UNCLASSIFIED", "Answered · identifying"],
       ["HUMAN", "Talking · person"],
       ["SCREENING", "Call screening"],
-      ["VOICEMAIL_GREETING", "Voicemail: skipping"],
+      ["VOICEMAIL_GREETING", "Voicemail detected"],
     ]) {
       const phase = screen({ ...base, call: { state } });
       expect(keys(phase).Escape).toBe("hangup");
@@ -145,9 +136,9 @@ describe("the Dialer screen phases (section 6)", () => {
       KeyP: "pause",
     });
     expect(at({ call: { state: "VOICEMAIL_GREETING" } })).toEqual({
-      Space: "skip",
+      Space: "voicemail",
       Escape: "hangup",
-      KeyS: "stay",
+      KeyM: "mute",
     });
     expect(at({ call: { state: "HUMAN" } })).toEqual({
       Escape: "hangup",

@@ -72,13 +72,15 @@ test("auto-answer requires the exact authority-confirmed agent identity", async 
 
 test("the outbound audio leg uses the configured microphone and the Dialer playback element", async () => {
   const phone = new Telephony();
-  const playback = {} as HTMLAudioElement;
+  const playback = {
+    setSinkId: vi.fn(async () => {}),
+  } as unknown as HTMLAudioElement;
   await phone.input("rep-microphone");
   await phone.output("rep-speakers");
   await phone.connect("synthetic-token", playback);
   const client = sdk.clients.at(-1);
   expect(client.micId).toBe("rep-microphone");
-  expect(client.speaker).toBe("rep-speakers");
+  expect(playback.setSinkId).toHaveBeenCalledWith("rep-speakers");
   expect(client.remoteElement).toBe(playback);
   phone.expectAgentLeg("agent");
   const agent = call("agent");
@@ -88,6 +90,61 @@ test("the outbound audio leg uses the configured microphone and the Dialer playb
     remoteElement: playback,
     video: false,
   });
+});
+
+test("call audio and call sounds follow the headset and switch back to system output together", async () => {
+  const phone = new Telephony();
+  const voice = { setSinkId: vi.fn(async () => {}) };
+  const cues = { setSinkId: vi.fn(async () => {}) };
+  await phone.connect("synthetic-token", voice as unknown as HTMLAudioElement);
+  await phone.output("rep-headset", cues as unknown as HTMLAudioElement);
+  await phone.output("", cues as unknown as HTMLAudioElement);
+  for (const element of [voice, cues]) {
+    expect(element.setSinkId.mock.calls).toEqual([["rep-headset"], [""]]);
+  }
+});
+
+test("an unsupported or lost headset cannot leave the voice and ringback on different outputs", async () => {
+  const phone = new Telephony();
+  const voice = { setSinkId: vi.fn(async () => {}) };
+  const cues = { setSinkId: vi.fn(async () => {}) };
+  cues.setSinkId.mockRejectedValueOnce(
+    new DOMException("Headset unplugged", "NotFoundError"),
+  );
+  await phone.connect("synthetic-token", voice as unknown as HTMLAudioElement);
+  await expect(
+    phone.output("rep-headset", cues as unknown as HTMLAudioElement),
+  ).rejects.toThrow("Could not switch call audio output");
+  expect(voice.setSinkId.mock.calls).toEqual([["rep-headset"], [""]]);
+  expect(phone.outputDevice).toBe("");
+});
+
+test("a stale SDK leg cannot replace the verified agent audio or report it as playing", async () => {
+  const phone = new Telephony();
+  const voice = { srcObject: null, play: vi.fn(async () => {}) };
+  await phone.connect("synthetic-token", voice as unknown as HTMLAudioElement);
+  const client = sdk.clients.at(-1);
+  const makeAgent = (id: string) => ({
+    ...call(id, "active"),
+    remoteStream: {
+      id: `media-${id}`,
+      getAudioTracks: () => [{ readyState: "live" }],
+    },
+  });
+  phone.expectAgentLeg("verified");
+  const agent = makeAgent("verified");
+  client.emit(agent);
+  await phone.playAgent("verified");
+  expect(voice.srcObject).toBe(agent.remoteStream);
+  expect(voice.play).toHaveBeenCalledTimes(1);
+  await expect(phone.playAgent("old-agent")).rejects.toThrow();
+  expect(voice.srcObject).toBe(agent.remoteStream);
+  voice.play.mockRejectedValueOnce(
+    new DOMException("Playback denied", "NotAllowedError"),
+  );
+  await expect(phone.playAgent("verified")).rejects.toThrow(
+    "Call audio: audio playback was blocked",
+  );
 });
 
 test("agent ringing before the HTTP receipt is held until that identity arrives", async () => {

@@ -36,8 +36,8 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D2 | Mac, Windows and Linux. The Windows build came out in R2.1 and returned in Phase 9D. The first Linux package targets Ubuntu 24.04 LTS x86-64. Each computer uses its own SQLite workspace and can join the shared pool. | Owner decisions, November 8 and November 13 |
 | D3 | StatML stays and must actually learn. Repair it rather than cut it. | Owner decision |
 | D4 | Coaching goes. The live helper stays, plus one AI after-call summary with a suggested outcome, because follow-up scripts read that summary. | Owner decision; the summary is an assumption the owner may veto |
-| D5 | Auto-dial replaces manual-only dialing. One call at a time, with the rep present. | Owner decision; see risk R1 |
-| D6 | Skip voicemail on detection, never before 7 seconds, unless the call is a final attempt or the rep presses Stay. | Approved default; see risk R2 |
+| D5 | Start calling dials the first eligible lead. Each later dial requires the rep to press Space or Dial now. One call at a time. | Owner decision, November 17. Replaces automatic advancement. |
+| D6 | Voicemail detection is advisory. The rep hears the greeting and decides when to hang up. Space or End as voicemail ends the active attempt and saves Voicemail. | Owner decision, November 17. Replaces the seven-second skip. |
 | D7 | Keep transcript text on this Mac for 30 days, replacing the 5-minute lifetime. | Approved default; see risk R3 |
 | D8 | ChatGPT agent stays primary. DeepSeek V4.1 Flash on OpenRouter with local DDGS search is the fallback. | Owner decision |
 | D9 | Automatic recovery stays, trimmed. The manual recovery panel becomes a small Needs attention list. | Follows the owner's question |
@@ -62,7 +62,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D29 | A callback rings the app whenever it is open, on any page and paused or not, with a ring tone; otherwise the caller hears the greeting and a missed-call task is kept. Forwarding to a phone comes later (D30). | Owner, November 10 ("if someone calls back and the app is open it should show in the app") |
 | D30 | Forwarding to the rep's phone is deferred; its field is hidden until it works with the app closed. | Owner, November 10 ("you can push off forwarding") |
 | D31 | StatML is archived (tagged, then removed). The one learning view kept is stage drop-off: where answered calls end in the script. | Owner, November 10 ("archive statml"; "the main use it has is stage dropoff") |
-| D32 | No voicemail feature: the skip at detection stays; the rep speaks into a voicemail by pressing Stay or on the last attempt. No recorded drop. | Owner, November 10 ("we just let the rep speak into the voicemail normally"; "keep skip") |
+| D32 | The rep speaks into voicemail normally. No recorded drop. The rep controls hang-up on every attempt (D6). | Owner, November 10. Hang-up updated November 17. |
 | D33 | In 2.1, reps share one Telnyx Call Control application, one SIP connection and a number pool. Each rep has a private computer profile, a WebRTC audio credential and one HubSpot segment. Each prospect keeps the same caller ID, and return calls ring the computer that placed the last confirmed call from the dialed number. The rolling 24-hour limit is at most 90 outbound attempts per number. Inbound callbacks use no outbound capacity. | Owner, November 11. Phase 12 specifies the rollout. |
 | D34 | The rep starts scripts for a chosen list in Leads. Prospect calls require a current prepared script. Importing contacts and saving the base script leave new generation idle. HubSpot number checks still run after sync. | Owner, November 13, updated November 16 |
 | D35 | Settings saves one repeatable list of approved test phones per workspace. The rep starts the list explicitly from the Dialer, which pauses at the end. Test calls use the normal audio, script and caller ID flow without prospect calling hours, retry spacing or the app's call timer. | Owner, November 13 |
@@ -254,20 +254,19 @@ Each guarantee has an automated test where software can prove it, and a live che
 |---|---|---|---|
 | Paused | Start calling, or the current blocker with its fix | Start | |
 | Connecting | "Connecting audio" | Nothing | `P` pause |
-| Dialing or ringing | Lead and script | Skip to next | `P` pause |
-| Voicemail, skipping | "Voicemail: skipping" | Skip now | `S` stay |
-| Voicemail, final attempt | "Leave your message" | Nothing | `Esc` hang up |
+| Dialing or ringing | Lead, script and ringback | End this attempt | `P` pause, `Esc` hang up |
+| Voicemail | "Voicemail detected", with a message prompt on the final attempt | End and save Voicemail | `Esc` hang up, `M` mute |
 | Talking | Timer, script, helper | Nothing | `Esc` hang up, `M` mute |
 | Ended | "They hung up · 0:23" or "You ended the call · 0:23", with a short sound and outcome buttons | Nothing | `1` to `6` save the outcome |
-| Saved | 3-second countdown to the next call | Dial now | `P` pause, `C` change outcome |
-| Skipped | No answer or busy saved; 1.5-second countdown | Dial now | `P` pause |
-| Finished | "No one left to call right now" with the next eligible time | | |
+| Saved | The outcome stays visible | Dial now | `P` pause, `C` change outcome |
+| Finished | Reason and next action for an empty queue | Check again | `P` pause |
 
 Rules:
 
 - One click or key saves an outcome. Everything else moves under Add detail.
 - The screen shows "Call ended" as soon as the audio leg ends, then adds who hung up when the event arrives.
 - Carrier facts (no answer, busy, failure) save immediately, without waiting for a job or an AI request.
+  Voicemail requires the rep's confirmation. Every next call requires a separate rep action.
 - A suggested outcome is preselected, and the rep confirms it with one key.
 - Auto-dial stops on Pause, a blocker, an incoming call, an unsynced opt-out or an empty queue.
 - `wrong_party` is one of the six outcome keys. It stops dialing that number.
@@ -275,7 +274,10 @@ Rules:
 - Start calling syncs the chosen HubSpot list first, with a short timeout. A failed sync warns and calling continues,
   under the 24-hour rule in section 5.
 
-**Audio.** There is no Dial option to park the rep's leg, and a separate bridge after `call.answered` would add dead air
+**Audio.** Ringback, call audio and the end cue follow the selected output. The Dialer checks playback before dialing.
+Ringback ends as soon as remote sound arrives, the carrier reports an answer, or the call ends. Playback failures
+show a retry during the call and produce a local status entry, with no audio stored. There is no Dial option to park
+the rep's leg, and a separate bridge after `call.answered` would add dead air
 through the relay. So a fresh rep leg is created right after each call. The WebRTC client stays registered and only the
 leg is renewed. Target: under 1.5 seconds, measured live.
 
@@ -559,8 +561,8 @@ Rules:
 - A local opt-out always wins. A sync can add a suppression and can never remove one.
 - CSV leads are created in HubSpot only on their first connected call, so cold rows do not flood the CRM.
   The worker reuses a matching email or unambiguous phone and leaves existing contact ownership intact.
-- One outcome map. `no_answer` and a skipped voicemail become No answer; `busy` becomes Busy; a final-attempt voicemail
-  becomes Left voicemail; `wrong_party` and `invalid_endpoint` become Wrong number. Anything where a person answered
+- One outcome map. `no_answer` and End as voicemail become No answer; `busy` becomes Busy; a manually saved voicemail
+  after a regular hang-up becomes Left voicemail; `wrong_party` and `invalid_endpoint` become Wrong number. Anything where a person answered
   becomes Connected or a matching custom outcome such as Meeting Booked, read from the dispositions API at setup. An
   unmapped outcome shows at setup, not after a call.
 - The summary goes to HubSpot; the transcript never does.
@@ -652,9 +654,9 @@ Line: **203-821-1101**, the owner's own phone.
 |---|---|---|
 | L1 | Owner answers, rep hangs up | "You ended the call"; outcome keys work; no Go ready |
 | L2 | Owner answers, owner hangs up | "They hung up" within 2 seconds; no false flag; no block |
-| L3 | Owner ignores the call | No answer saved; next call starts without a click |
-| L4 | Owner declines | Busy or no answer saved; next call starts |
-| L5 | Goes to voicemail | Skipped at detection, not before 7 seconds; next call starts |
+| L3 | Owner ignores the call | Ringback and one end cue heard. No answer saved. The next lead waits for Dial now. |
+| L4 | Owner declines | Carrier result visible. The next lead waits for Dial now. |
+| L5 | Goes to voicemail | Greeting heard from the start. Call remains open through detection and any beep. Space ends and saves Voicemail. Another Space starts the next call. |
 | L6 | Final attempt reaches voicemail | Line stays open; rep can speak and hang up |
 | L7 | Opt-out during a call | Call ends; number suppressed; never redialed |
 | L8 | Owner calls the number back | Rings in the app; answer works; missed call makes a task |
@@ -1221,6 +1223,9 @@ Goal: nothing moves, nothing gets covered, and the rep always knows what is happ
 Done when: the audit passes and the owner confirms it reads clearly.
 
 ### Phase 6: auto-dial and voicemail
+
+The November 17 owner decision replaces the automatic advancement and mailbox hang-up described in R6.2 and R6.3.
+Section 6 describes current behavior.
 
 Goal: the loop runs with almost no decisions.
 
@@ -1796,7 +1801,7 @@ test assets and admin access before asking for anything. The signed rollout foll
 | # | Risk | Handling |
 |---|---|---|
 | R1 | Automated dialing can fall under state telemarketing laws. Florida is the first to check; this is from memory and unverified. | Tests dial only the owner's phone. Lawyer check before real lists. One call at a time with the rep present. |
-| R2 | Voicemail detection can hang up on a real person. Jacob Pepper's call was flagged as a machine and marked gatekeeper. | `S` to stay; screening excluded; 50-call accuracy report; change the rule if false positives are high. |
+| R2 | Voicemail detection can mistake a real person for a mailbox. | Keep the line open. Only the rep can end and log a call as voicemail. |
 | R3 | Live transcription can raise consent issues in some states, however long text is kept. Keeping it 30 days adds exposure. | Include in the lawyer check. Local only, delete control, easy to shorten. |
 | R4 | Automatic promotion removes a manual check. | Models only reorder leads. Hours, attempts and opt-outs are separate hard rules. Comparison group and automatic rollback. |
 | R5 | Removing the parking parameter could behave differently than the spec reads. | L9 and L10 test it on real calls in Phase 0 and Phase 4. |
@@ -2143,3 +2148,8 @@ test assets and admin access before asking for anything. The signed rollout foll
 - November 17, 2026: the owner approved publishing 2.3.0 and installing it on this Mac. The feature commit
   `0018496` passed all eight Verify jobs. Verify the versioned commit and signed builds before publishing, then
   check the native updater, installed workspace and the outbound call behavior.
+- November 17, 2026: after a live call reached a mailbox and the app automatically dialed another prospect, the
+  owner replaced automatic advancement and mailbox hang-up (D5, D6). The Dialer keeps the result until the rep
+  continues, and the mailbox stays open until the rep ends it or the carrier disconnects. Ringback and call audio
+  share the output route. Simulated carrier and WebKit checks cover the handoff and playback failures. A signed
+  candidate still needs the live playback checks in L3 to L6.

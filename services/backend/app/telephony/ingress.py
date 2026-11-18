@@ -133,9 +133,6 @@ async def process_webhook(service, tenant_id, receipt_id):
     root = await asyncio.to_thread(callback_root) if shared_pool else None
     claim = await service.managed.claim_callback(tenant_id, root) if root else None
     result = await asyncio.to_thread(ops._process_webhook, service, tenant_id, receipt_id, claim)
-    if control := result.pop("voicemail_control", None):
-        principal, command_id = control
-        await ops.dispatch_controls(service, principal, command_id=command_id)
     if saved := result.pop("save_outcome", None):
         await asyncio.to_thread(ops.auto_disposition, service, *saved)
     return result

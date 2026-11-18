@@ -661,7 +661,10 @@ def _store_dnc(service, p, results):
 
 
 def call_outcome(call):
-    return (call.get("disposition") or {}).get("outcome") or call.get("outcome") or "no_answer"
+    outcome = (call.get("disposition") or {}).get("outcome") or call.get("outcome") or "no_answer"
+    if outcome == "voicemail" and call.get("rep_voicemail_at"):
+        return "voicemail_skipped"
+    return outcome
 
 
 def should_log(call, lead):

@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import pytest
-from journey import event, get, run_jobs, start, wrap_up
+from journey import event, get, post, run_jobs, start, wrap_up
 
 
 @pytest.mark.slow
@@ -20,16 +20,15 @@ def test_carrier_outcome_is_saved_without_rep_form_and_can_be_corrected(workspac
     assert get(workspace, f"/v1/calls/{placed['id']}")["outcome"] == "busy"
 
 
-def test_voicemail_auto_save_keeps_playback_receipt_boundary(workspace):
+def test_carrier_mailbox_detection_does_not_save_an_outcome(workspace):
     placed = start(workspace)
     event(workspace, placed["id"], "call.answered")
     event(workspace, placed["id"], "call.machine.detection.ended:machine")
     event(workspace, placed["id"], "call.hangup")
     run_jobs(workspace, rounds=2)
     result = get(workspace, f"/v1/calls/{placed['id']}")
-    assert result["state"] == "FINALIZED"
-    assert result["outcome"] == "voicemail"
-    assert not result.get("voicemail_result")  # Reaching a mailbox is not a delivered message.
+    assert result["state"] == "ENDED"
+    assert not result.get("outcome")
 
 
 def test_unknown_hangup_does_not_invent_an_outcome(workspace):
@@ -85,30 +84,57 @@ def test_answered_but_unclassified_call_is_not_saved_as_no_answer(workspace):
     assert not get(workspace, f"/v1/calls/{placed['id']}").get("outcome")
 
 
-def test_confirmed_mailbox_is_saved_after_rep_hangup_receipt(workspace):
-    from journey import post
-
+@pytest.mark.parametrize("detected", [False, True])
+def test_the_rep_can_end_and_log_voicemail_in_one_action(workspace, carrier, detected):
     placed = start(workspace)
     event(workspace, placed["id"], "call.answered")
-    event(workspace, placed["id"], "call.machine.detection.ended:machine")
-    post(workspace, f"/v1/calls/{placed['id']}/hangup")
-    run_jobs(workspace, rounds=2)
-    result = get(workspace, f"/v1/calls/{placed['id']}")
+    if detected:
+        event(workspace, placed["id"], "call.machine.detection.ended:machine")
+    path = f"/v1/calls/{placed['id']}/hangup"
+    result = post(workspace, path, {"mark_voicemail": True})
+    post(workspace, path, {"mark_voicemail": True})
     assert result["state"] == "FINALIZED"
     assert result["outcome"] == "voicemail"
-    assert result["outcome_source"] == "carrier"
+    assert result["outcome_source"] == "rep_reported"
+    assert not result.get("voicemail_result")  # Logging voicemail does not claim a delivered message.
+    assert [h["provider_id"] for h in carrier.hangups] == [placed["provider_id"]]
 
 
-def test_mailbox_auto_hangup_saves_outcome_without_rep_hangup(workspace, clock):
-    from journey import post
-
+def test_mailbox_beep_leaves_the_call_open_for_the_rep(workspace, clock):
     placed = start(workspace)
     event(workspace, placed["id"], "call.answered")
     event(workspace, placed["id"], "call.machine.greeting.ended:beep_detected")
-    clock.now += timedelta(seconds=8)  # A skip waits until 7 seconds after the answer (D6).
+    clock.now += timedelta(seconds=15)
     post(workspace, "/v1/admin/control/run")
     run_jobs(workspace, rounds=2)
     result = get(workspace, f"/v1/calls/{placed['id']}")
-    assert result["state"] == "FINALIZED"
-    assert result["outcome"] == "voicemail"
-    assert result["outcome_source"] == "carrier"
+    assert result["state"] == "VOICEMAIL_READY"
+    assert not result.get("outcome")
+
+
+def test_mark_voicemail_cannot_hang_up_a_call_that_is_still_dialing(workspace, carrier):
+    placed = start(workspace)
+    post(workspace, f"/v1/calls/{placed['id']}/hangup", {"mark_voicemail": True}, status=409)
+    assert not carrier.hangups
+
+
+def test_voicemail_choice_survives_a_lost_hangup_receipt(workspace, carrier, clock, monkeypatch):
+    placed = start(workspace)
+    event(workspace, placed["id"], "call.answered")
+    send = carrier.hangup
+
+    async def receipt_lost(*args):
+        await send(*args)
+        raise TimeoutError("Simulated lost hangup response")
+
+    monkeypatch.setattr(carrier, "hangup", receipt_lost)
+    path = f"/v1/calls/{placed['id']}"
+    ending = post(workspace, path + "/hangup", {"mark_voicemail": True})
+    assert ending["state"] == "ENDING" and not ending.get("outcome")
+    clock.now += timedelta(seconds=31)
+    post(workspace, "/v1/admin/recovery")
+    run_jobs(workspace, rounds=2)
+    recovered = get(workspace, path)
+    assert recovered["state"] == "FINALIZED" and recovered["outcome_source"] == "rep_reported"
+    assert recovered["outcome"] == "voicemail"
+    assert len(carrier.hangups) == 1

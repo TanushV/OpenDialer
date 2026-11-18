@@ -16,10 +16,9 @@ import { ProspectBrief } from "../components/ProspectBrief";
 import { revealScriptPart, ScriptReader } from "../components/ScriptReader";
 import { CallbackReviewNotice, WrapUp } from "../components/WrapUp";
 import { Button } from "../ui/kit";
-import { createRinger } from "../telephony/ringer";
-import { sessionAudio } from "../telephony/speech";
 import { headline, keys, type Action, type Phase } from "./screen";
 import { OUTCOME_KEYS, useCallLoop } from "./useCallLoop";
+import { useCallPlayback } from "./useCallPlayback";
 
 type Loop = ReturnType<typeof useCallLoop>;
 
@@ -40,29 +39,22 @@ export function Dialer({
   /** Opens the page that fixes the current blocker. */
   onNavigate?: (page: string) => void;
 }) {
-  const loop = useCallLoop(visible);
+  const loop = useCallLoop();
   const { phase, act, call } = loop;
   useKeys(phase, act, visible, loop.call?.suggested_outcome?.code);
-  usePhaseSound(phase);
-  const ringbackCall =
-    phase.kind === "dialing" && call?.provider_id && !loop.inbound
-      ? call.id
-      : null;
-  useEffect(() => {
-    if (!ringbackCall) return;
-    const tone = createRinger();
-    try {
-      tone.start();
-    } catch {
-      // The Dialer still shows the call's progress when audio is unavailable.
-    }
-    return () => tone.stop();
-  }, [ringbackCall]);
+  const playback = useCallPlayback(
+    call,
+    phase.kind === "dialing" && !!call?.provider_id && !loop.inbound,
+    loop.audio,
+    loop.cueAudio,
+    loop.telephony.current,
+  );
   return (
     <div className="dialer" data-phase={phase.kind}>
       <audio ref={loop.audio} autoPlay />
+      <audio ref={loop.cueAudio} />
       <ErrorBoundary>
-        <StatusBar loop={loop} onNavigate={onNavigate} />
+        <StatusBar loop={loop} playback={playback} onNavigate={onNavigate} />
       </ErrorBoundary>
       <div className="dialer-body">
         <ErrorBoundary>
@@ -78,12 +70,16 @@ export function Dialer({
 
 function StatusBar({
   loop,
+  playback,
   onNavigate,
 }: {
   loop: Loop;
+  playback: ReturnType<typeof useCallPlayback>;
   onNavigate?: (page: string) => void;
 }) {
   const { phase, packet, act, testPhone, testList, problem, settling } = loop;
+  const { run } = useWorkspace();
+  const outcome = loop.call?.state === "FINALIZED" ? loop.call.outcome : null;
   const lead = packet?.lead;
   const identity = lead?.company
     ? `${lead.name} · ${lead.company}`
@@ -112,7 +108,9 @@ function StatusBar({
             ? testList
               ? "Test list"
               : "Test call"
-            : headline(phase)}
+            : phase.kind === "saved"
+              ? `${label(phase.outcome)} saved`
+              : headline(phase)}
         </strong>
         {problem && (
           <div className="call-problem" role="alert" aria-label="Call problem">
@@ -129,8 +127,23 @@ function StatusBar({
             )}
           </div>
         )}
+        {playback.warning && (
+          <div
+            className="call-problem"
+            role="alert"
+            aria-label="Audio playback problem"
+          >
+            <span>{playback.warning}</span>
+            <Button variant="text" onClick={() => void run(playback.retry)}>
+              Retry on system output
+            </Button>
+          </div>
+        )}
         {paused && !test && !phase.blocker && (
           <Readiness onNavigate={onNavigate} />
+        )}
+        {paused && outcome && (
+          <span className="muted">{label(outcome)} saved</span>
         )}
         {identity && !paused && phase.kind !== "finished" && (
           <span className="muted status-lead" title={identity}>
@@ -252,12 +265,11 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
       )}
       {phase.kind === "paused" && (
         <>
-          <AudioCheck telephony={telephony.current} />
+          <AudioCheck telephony={telephony.current} act={loop.act} />
           {testList ? (
             <section className="card padded" aria-label="Test destinations">
               <p>
-                Run test list dials these phones once each. You can test at any
-                hour.
+                Call each test phone with Dial now. You can test at any hour.
               </p>
               <ul>
                 {testList.phones.map((phone) => (
@@ -275,7 +287,8 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
         </>
       )}
       {between && !testing && <DueTasks />}
-      {(phase.kind === "talking" || phase.kind === "voicemail_final") &&
+      {(phase.kind === "talking" ||
+        (phase.kind === "voicemail" && phase.final)) &&
         call && (
           <LiveCoach
             call={call}
@@ -427,11 +440,14 @@ function SimulationTools({ callId }: { callId: string }) {
 /** Choose the microphone and headset before calling. */
 function AudioCheck({
   telephony,
+  act,
 }: {
   telephony: Loop["telephony"]["current"];
+  act: Loop["act"];
 }) {
   const { snapshot: w, run } = useWorkspace();
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [output, setOutput] = useState(telephony.outputDevice);
   const pick = (
     kind: MediaDeviceKind,
     name: string,
@@ -439,7 +455,13 @@ function AudioCheck({
   ) => (
     <label>
       {name}
-      <select onChange={(e) => void run(() => choose(e.target.value))}>
+      <select
+        value={kind === "audiooutput" ? output : undefined}
+        onChange={(e) => {
+          const id = e.target.value;
+          void run(() => choose(id));
+        }}
+      >
         <option value="">System default</option>
         {devices
           .filter((d) => d.kind === kind)
@@ -462,7 +484,13 @@ function AudioCheck({
       <summary>Check audio</summary>
       <div className="two-column">
         {pick("audioinput", "Microphone", (id) => telephony.input(id))}
-        {pick("audiooutput", "Speaker / headset", (id) => telephony.output(id))}
+        {pick("audiooutput", "Speaker / headset", async (id) => {
+          await act.output(id);
+          setOutput(id);
+        })}
+        <Button variant="secondary" onClick={() => void act.sampleAudio()}>
+          Play test tone
+        </Button>
       </div>
     </details>
   );
@@ -509,8 +537,7 @@ function ActionBar({ loop }: { loop: Loop }) {
   const [keypad, setKeypad] = useState(false);
   useEffect(() => setKeypad(false), [call?.id]);
   const suggested = call?.suggested_outcome?.code;
-  if ((phase.kind === "paused" && !phase.blocker) || phase.kind === "finished")
-    return null;
+  if (phase.kind === "paused" && !phase.blocker) return null;
   return (
     <footer className="action-bar" aria-label="Call actions">
       {phase.kind === "paused" && phase.blocker && (
@@ -543,26 +570,18 @@ function ActionBar({ loop }: { loop: Loop }) {
           <HangUp act={act} disabled={!call} />
         </>
       )}
-      {phase.kind === "voicemail_skipping" && (
+      {phase.kind === "voicemail" && (
         <>
           <Button
-            variant="secondary"
+            variant="primary"
             kbd="Space"
-            onClick={() => void act.skip()}
+            onClick={() => void act.voicemail()}
           >
-            Skip now
+            End as voicemail
           </Button>
-          <Button variant="secondary" kbd="S" onClick={() => void act.stay()}>
-            Stay
+          <Button variant="secondary" kbd="M" onClick={act.mute}>
+            {muted ? "Unmute" : "Mute"}
           </Button>
-          <HangUp act={act} />
-        </>
-      )}
-      {phase.kind === "voicemail_final" && (
-        <>
-          <span className="muted">
-            Leave a short message: who you are, why you called, your number.
-          </span>
           <HangUp act={act} />
         </>
       )}
@@ -577,6 +596,11 @@ function ActionBar({ loop }: { loop: Loop }) {
           <button className="secondary" onClick={() => void act.optOut()}>
             Opt out
           </button>
+          {phase.answer === "identifying" && (
+            <Button variant="secondary" onClick={() => void act.voicemail()}>
+              End as voicemail
+            </Button>
+          )}
           <HangUp act={act} />
         </>
       )}
@@ -597,25 +621,31 @@ function ActionBar({ loop }: { loop: Loop }) {
           </Button>
         </div>
       )}
-      {(phase.kind === "saved" || phase.kind === "skipped") && (
+      {phase.kind === "saved" && (
         <>
-          <span className="muted">
-            {label(phase.outcome)}
-            {phase.kind === "skipped" ? " saved by the carrier" : " saved"}
-          </span>
           <Button
             variant="primary"
             kbd="Space"
+            disabled={
+              loop.editing || (call?.is_test && !call.dial_scope?.test_run_id)
+            }
             onClick={() => void act.dial_now()}
           >
             Dial now
           </Button>
-          {phase.kind === "saved" && (
-            <Button variant="text" kbd="C" onClick={act.change_outcome}>
-              Change outcome
-            </Button>
-          )}
+          <Button variant="text" kbd="C" onClick={act.change_outcome}>
+            Change outcome
+          </Button>
         </>
+      )}
+      {phase.kind === "finished" && (
+        <Button
+          variant="primary"
+          kbd="Space"
+          onClick={() => void act.dial_now()}
+        >
+          Check again
+        </Button>
       )}
       {keypad && call && phase.kind === "talking" && (
         <Keypad key={call.id} callId={call.id} close={() => setKeypad(false)} />
@@ -686,33 +716,6 @@ function useKeys(
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
-}
-
-/** A short tone when a call ends, so the rep hears it without looking (R5.8). */
-function usePhaseSound(phase: Phase) {
-  const previous = useRef(phase.kind);
-  useEffect(() => {
-    if (phase.kind === "ended" && previous.current !== "ended") tone();
-    previous.current = phase.kind;
-  }, [phase.kind]);
-}
-
-function tone() {
-  try {
-    // The session's one engine, which Start calling unlocked; a new one per call could start suspended.
-    const context = sessionAudio();
-    void context.resume().catch(() => undefined);
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.frequency.value = 660;
-    gain.gain.setValueAtTime(0.08, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.25);
-    oscillator.connect(gain).connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.25);
-  } catch {
-    /* No audio output: the status line still says the call ended. */
-  }
 }
 
 interface ReadinessCheck {

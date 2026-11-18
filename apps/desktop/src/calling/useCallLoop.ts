@@ -9,7 +9,12 @@ import { OptOutJournal } from "../state/optouts";
 import { nextLeadWithRetry } from "../state/queue";
 import { afterAudioStatus, Telephony } from "../telephony/client";
 import { createReachabilityHeartbeat } from "../telephony/reachability";
-import { captureSpeech, unlockSpeechAudio } from "../telephony/speech";
+import {
+  callSoundsPlaying,
+  playEndTone,
+  prepareCallSounds,
+} from "../telephony/ringer";
+import { captureSpeech } from "../telephony/speech";
 import type { Call, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
 import {
@@ -49,7 +54,7 @@ const SELF_CLEARING = new Set(["REP_AUDIO_NOT_READY"]);
 const owesOutcome = (call: Call | null) =>
   !!call && isTerminal(call) && call.state !== "FINALIZED";
 
-export function useCallLoop(visible: boolean) {
+export function useCallLoop() {
   const {
     snapshot: w,
     runtime,
@@ -62,16 +67,16 @@ export function useCallLoop(visible: boolean) {
   } = useWorkspace();
   const telephony = useRef(new Telephony());
   const audio = useRef<HTMLAudioElement>(null);
+  const cueAudio = useRef<HTMLAudioElement>(null);
   // Pause takes effect here at once; the server's presence follows.
-  const [held, setHeld] = useState(false);
   // The rep's own Start and Pause decide the screen at once; a workspace re-read that left before the
   // server saw them must not swap Pause for "Calling stops" and back (a click in between was lost).
-  const [started, setStarted] = useState<boolean | null>(null);
+  const [started, setStarted] = useState(false);
   const testPhone = w.test_phone ?? null;
   const testList = w.test_run ?? null;
   const testRun = useRef(Boolean(testPhone || testList));
   const testRunId = useRef<string | null>(testList?.id ?? null);
-  const calling = (started ?? w.user.presence.status === "ready") && !held;
+  const calling = started;
   const callingRef = useRef(calling);
   callingRef.current = calling;
   const [connecting, setConnecting] = useState(false);
@@ -92,7 +97,7 @@ export function useCallLoop(visible: boolean) {
   const busy = useRef(false);
   const starting = useRef(false);
   const skipping = useRef<string | null>(null);
-  // R9E.8: the rep's own Hang up, Skip, Stay and outcome key show at once, for the call they were pressed on,
+  // R9E.8: the rep's own Hang up, Skip and outcome key show at once, for the call they were pressed on,
   // and a re-read from before the server saw them cannot bring the used control back.
   const [intent, setIntent] = useState<
     (Intent & { call_id: string; saving?: string | null }) | null
@@ -279,12 +284,13 @@ export function useCallLoop(visible: boolean) {
         );
       // The server's word is not enough: this app's own audio client must hold the leg, or the prospect would hear
       // nobody (live check, November 10: calls went out on a leg from four days earlier).
-      for (let i = 0; i < 20 && !telephony.current.holdsAgent(agent); i++)
+      for (let i = 0; i < 20 && !telephony.current.hasAgentMedia(agent); i++)
         await new Promise((r) => setTimeout(r, 250));
-      if (!telephony.current.holdsAgent(agent))
+      if (!telephony.current.hasAgentMedia(agent))
         throw new Error(
-          "Your audio did not connect, so no call was placed. Press Start calling to try again.",
+          "The rep's audio track did not connect. Check your connection and press Start calling to try again.",
         );
+      await telephony.current.playAgent(agent);
     }
     await api("/v1/rep/presence", "POST", {
       status: "ready",
@@ -458,18 +464,22 @@ export function useCallLoop(visible: boolean) {
   ]);
 
   // ---- Actions.
-  async function nextCall() {
+  async function nextCall(fromNextButton = false) {
     if (busy.current || !callingRef.current) return;
     if (owesOutcome(callRef.current) || isActiveCall(callRef.current)) return;
     busy.current = true;
     try {
+      if (fromNextButton) await prepareCallSounds(cueAudio.current!);
       // The server's blockers, not this render's snapshot, say whether the audio leg needs renewing.
       const found = await readBlockers();
       const blocked = local[0] ?? found.find((b) => !SELF_CLEARING.has(b.code));
       if (blocked) {
         throw new ApiError(blocked.message, 409, blocked.code, blocked.fix);
       }
-      if (found.some((b) => b.code === "REP_AUDIO_NOT_READY")) {
+      if (
+        found.some((b) => b.code === "REP_AUDIO_NOT_READY") ||
+        (!w.simulation && !agentPlaybackReady())
+      ) {
         await withConnecting(connectAudio);
         if (await pausedMeanwhile(false)) return;
       }
@@ -511,6 +521,13 @@ export function useCallLoop(visible: boolean) {
       setPacket(await api<Packet>(`/v1/leads/${next.lead.id}/packet`));
       // Pause pressed while the lead was reserved or loading: no call is placed and the lead is given back.
       if (await pausedMeanwhile(true)) return;
+      if (
+        !callSoundsPlaying(cueAudio.current) ||
+        (!w.simulation && !agentPlaybackReady())
+      )
+        throw new Error(
+          "Audio playback stopped before we could dial. Check your speaker or headset and try again.",
+        );
       let placed: Call;
       try {
         placed = await api<Call>("/v1/calls/start", "POST", {
@@ -547,6 +564,10 @@ export function useCallLoop(visible: boolean) {
       busy.current = false;
     }
   }
+  function agentPlaybackReady() {
+    const id = telephony.current.activeIdentity;
+    return id !== null && telephony.current.hasAgentPlayback(id);
+  }
   function dialLists(): string[] | null {
     try {
       const saved = JSON.parse(localStorage.getItem(listsKey) || "null");
@@ -563,9 +584,9 @@ export function useCallLoop(visible: boolean) {
     pausing.current = false;
     const testing = Boolean(armTestPhone || testPhone || testList);
     try {
-      // WebKit unlocks audio only while the rep's click or key is still current.
-      unlockSpeechAudio();
       setProblem(null);
+      // WebKit unlocks audio only while the rep's click or key is still current.
+      await prepareCallSounds(cueAudio.current!);
       if (local.length)
         throw new ApiError(local[0].message, 409, local[0].code, local[0].fix);
       await syncOptouts();
@@ -588,20 +609,12 @@ export function useCallLoop(visible: boolean) {
       }
       testRunId.current = armTestPhone ? null : (testList?.id ?? null);
       testRun.current = testing;
-      setHeld(false);
       setFinished(null);
       await withConnecting(connectAudio);
       if (await pausedMeanwhile(false)) return;
       setStarted(true);
       callingRef.current = true;
-      try {
-        await refresh();
-      } catch (error) {
-        // This read can trigger local session renewal after presence already went ready.
-        // Let the loop start with the renewed API; no reservation or dial was sent yet.
-        if (error instanceof ApiError && error.status === 401) return;
-        throw error;
-      }
+      await refresh();
       if (await pausedMeanwhile(false)) return;
       callingRef.current = true;
       await nextCall();
@@ -632,7 +645,6 @@ export function useCallLoop(visible: boolean) {
   function holdCalling() {
     pausing.current = true;
     callingRef.current = false;
-    setHeld(true);
     setStarted(false);
   }
   async function pauseCalling() {
@@ -669,25 +681,37 @@ export function useCallLoop(visible: boolean) {
     testRunId.current = null;
     await refresh();
   }
-  async function hangup() {
+  async function hangup(markVoicemail = false) {
     const current = callRef.current;
     if (!current || !isActiveCall(current)) return;
-    const identity = telephony.current.activeIdentity;
-    setIntent((value) => ({
-      ...(value?.call_id === current.id ? value : {}),
+    const prior =
+      intentRef.current?.call_id === current.id ? intentRef.current : null;
+    if (prior?.hangup) return;
+    const identity = current.agent_provider_id;
+    intentRef.current = {
+      ...prior,
       call_id: current.id,
       hangup: true,
-    }));
+    };
+    setIntent(intentRef.current);
     const still = () => callRef.current?.id === current.id;
     let result: Call;
     try {
-      result = await api<Call>(`/v1/calls/${current.id}/hangup`, "POST");
+      result = await api<Call>(
+        `/v1/calls/${current.id}/hangup`,
+        "POST",
+        markVoicemail ? { mark_voicemail: true } : undefined,
+      );
     } catch (error) {
       // The server did not take the hang-up: show the call as it is, with Hang up, again.
       setIntent((value) =>
         value?.call_id === current.id ? { ...value, hangup: false } : value,
       );
-      if (identity && still())
+      if (
+        identity &&
+        still() &&
+        (!markVoicemail || !(error instanceof ApiError && error.status < 500))
+      )
         await telephony.current.emergencyHangup(identity);
       throw error;
     }
@@ -700,32 +724,15 @@ export function useCallLoop(visible: boolean) {
   /** Space while dialing: end this attempt and save No answer (section 6, Skipped). */
   async function skip() {
     const current = callRef.current;
-    if (!current) return;
     if (
-      current.state === "VOICEMAIL_GREETING" ||
-      current.state === "VOICEMAIL_READY"
+      !current ||
+      !isActiveCall(current) ||
+      current.answered_at ||
+      current.bridged_at
     )
-      return hangup(); // The carrier settles a skipped mailbox as voicemail.
+      return;
     skipping.current = current.id;
     await hangup();
-  }
-  async function stay() {
-    const current = callRef.current;
-    if (!current) return;
-    setIntent((value) => ({
-      ...(value?.call_id === current.id ? value : {}),
-      call_id: current.id,
-      stay: true,
-    }));
-    try {
-      await api(`/v1/calls/${current.id}/stay`, "POST");
-    } catch (error) {
-      setIntent((value) =>
-        value?.call_id === current.id ? { ...value, stay: false } : value,
-      );
-      throw error;
-    }
-    await reloadCall(current.id);
   }
   function mute() {
     telephony.current.mute();
@@ -809,45 +816,47 @@ export function useCallLoop(visible: boolean) {
   useEffect(() => {
     if (call && skipping.current === call.id && owesOutcome(call)) {
       skipping.current = null;
-      if (!call.answered_at && !call.bridged_at)
+      if (!call.answered_at && !call.bridged_at && !call.machine_detected)
         void run(() => save("no_answer"));
     }
   }, [call?.id, call?.state]);
   /** A failed dial pauses the loop with its reason, so the screen never sits on "Dialing". */
   async function nextOrPause() {
     try {
-      await nextCall();
+      await nextCall(true);
     } catch (error) {
       setProblem(startProblem(error, testRun.current));
       await stopAfterFailure(testRun.current && !testRunId.current);
     }
   }
-  const advance = () => run(nextOrPause);
-  // The loop: dial when idle, and after a saved or skipped call's countdown (R6.2).
+  const advance = () => {
+    if (
+      editing ||
+      (callRef.current?.is_test && !callRef.current.dial_scope?.test_run_id)
+    )
+      return Promise.resolve();
+    return run(nextOrPause);
+  };
+  const testListComplete = Boolean(
+    call?.dial_scope?.test_run_id &&
+    testList?.id === call.dial_scope.test_run_id &&
+    testList.phones.length === 0,
+  );
+  // End a completed test without making another queue request. Only a rep action can dial.
   useEffect(() => {
-    if (!visible) return;
-    if (phase.kind === "dialing" && !call) {
-      if (!starting.current) void advance();
-      return;
-    }
-    if ((phase.kind === "saved" || phase.kind === "skipped") && !editing) {
-      if (call?.is_test && !call.dial_scope?.test_run_id) {
-        // A test call is one call: stop here rather than count down to a prospect (live check, November 10).
-        void run(async () => {
-          await pauseCalling();
-          if (!callProblem(call))
-            notice("Test call finished. Calling is paused.");
-        });
-        return;
+    if (!calling || call?.state !== "FINALIZED" || !call.is_test) return;
+    if (call.dial_scope?.test_run_id && !testListComplete) return;
+    void run(async () => {
+      if (testListComplete) {
+        await endTest();
+        notice("Test list complete. Start another test from Settings.");
+      } else {
+        await pauseCalling();
+        if (!callProblem(call))
+          notice("Test call finished. Calling is paused.");
       }
-      const timer = setTimeout(() => void advance(), phase.countdown_ms);
-      return () => clearTimeout(timer);
-    }
-    if (phase.kind === "finished") {
-      const timer = setTimeout(() => void advance(), 60_000);
-      return () => clearTimeout(timer);
-    }
-  }, [phase.kind, call?.id, call?.state, editing, visible, api]);
+    });
+  }, [calling, call?.id, call?.state, testListComplete]);
   // Pending opt-outs retry when the network returns.
   useEffect(() => {
     void syncOptouts().catch(() => {});
@@ -873,13 +882,17 @@ export function useCallLoop(visible: boolean) {
     endTest: () => run(endTest),
     pause: () => run(pauseCalling),
     skip: () => run(skip),
-    stay: () => run(stay),
-    hangup: () => run(hangup),
+    voicemail: () => run(() => hangup(true)),
+    hangup: () => run(() => hangup()),
     mute,
     dial_now: advance,
     change_outcome: () => setEditing(true),
     save: (code: string) => run(() => save(code)),
     optOut: () => run(optOut),
+    output: (id: string) =>
+      telephony.current.output(id, cueAudio.current!, audio.current),
+    sampleAudio: () =>
+      run(async () => playEndTone(await prepareCallSounds(cueAudio.current!))),
     reload: () =>
       callRef.current ? reloadCall(callRef.current.id) : Promise.resolve(),
     saved,
@@ -895,6 +908,7 @@ export function useCallLoop(visible: boolean) {
     muted,
     editing,
     audio,
+    cueAudio,
     telephony,
     audioStatus,
     inbound,

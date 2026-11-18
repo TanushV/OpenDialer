@@ -73,6 +73,9 @@ class CallView(View):
     submitted_at: str | None = None
     started_at: str | None = None
     answered_at: str | None = None
+    bridged_at: str | None = None
+    machine_detected: bool = False
+    rep_voicemail_at: str | None = None
     ended_at: str | None = None
     provider_id: str | None = None
     max_call_seconds: int | None = None

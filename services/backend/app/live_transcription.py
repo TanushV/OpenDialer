@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from time import monotonic
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import Body, Depends, WebSocket, WebSocketDisconnect
@@ -59,6 +60,22 @@ def gap(service, p, call_id):
 
 def bind_api(app, service, principal):
     active = set()
+
+    @app.post("/v1/calls/{call_id}/playback")
+    def report_playback(
+        call_id: str,
+        event: Literal[
+            "ringback_playing", "ringback_unavailable", "remote_playing", "remote_unavailable"
+        ] = Body(embed=True),
+        p=Depends(principal),
+    ):
+        # Only playback status is stored in the local log, with no audio or device details.
+        with service.db.transaction(False) as s:
+            call = ops.required(service, s, "call_attempts", call_id, p)
+            if call.data.get("rep_id") != p["user_id"]:
+                fail(404, "Object not found")
+        log.info("Call playback %s: %s", call_id, event)
+        return {"status": "recorded"}
 
     @app.post("/v1/calls/{call_id}/audio-gap")
     def report_gap(call_id: str, body: dict | None = Body(default=None), p=Depends(principal)):
