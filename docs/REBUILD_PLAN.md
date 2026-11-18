@@ -2204,3 +2204,6 @@ live check is open.
   sequences using the disposable relay in 35m 48s. The two-rep runs shuffled 4,128 receipt deliveries across the
   lost-response and restart sequence, then checked callback ownership at outbound capacity. The failure-report
   tests verify the assertion, replay command and ordered trace, including a clean error when the trace cannot be saved.
+- November 17, 2026. Hosted WebKit left the completion journey on Leads after the sidebar click and timed out waiting
+  for Start calling. Dropping the first navigation click reproduced the wrong page locally. The journeys now use the
+  existing navigation helper to confirm Dialer opened before requesting a call.

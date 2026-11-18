@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./fixtures";
-import { openMoreSettings, openSettingRow } from "./navigation";
+import { goTo, openMoreSettings, openSettingRow } from "./navigation";
 import {
   answer,
   finishCall,
@@ -137,7 +137,7 @@ for (const connected of [false]) {
       .click();
     await expect(page.getByText(/1 imported/)).toBeVisible({ timeout: 30_000 });
     await waitForPreparation(page);
-    await page.getByRole("button", { name: "Dialer", exact: true }).click();
+    await goTo(page, "Dialer");
     await startDialing(page);
     try {
       await expect(page.getByRole("button", { name: /^Skip/ })).toBeEnabled();
@@ -170,7 +170,7 @@ for (const connected of [false]) {
         timeout: 30_000,
       });
       await waitForPreparation(page);
-      await page.getByRole("button", { name: "Dialer", exact: true }).click();
+      await goTo(page, "Dialer");
       await startDialing(page);
       await expect(page.getByTestId("prospect-brief")).toBeVisible();
       // R9.8: the checked trigger and the number status (the bridge is covered by test_why_now.py).
