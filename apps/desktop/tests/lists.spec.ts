@@ -164,7 +164,6 @@ test("Dial from selected lists reserves only that pool and keeps scope across re
   await startDialing(page);
   await expect(page.getByTestId("lead-name")).toHaveText("Dial only 091");
   await finishCall(page);
-  await page.getByLabel("Dial from all active lists", { exact: true }).check();
 });
 
 test("a dialing-list choice survives reload while the previous queue release is pending", async ({
@@ -194,7 +193,6 @@ test("a dialing-list choice survives reload while the previous queue release is 
     release();
     await page.unrouteAll({ behavior: "ignoreErrors" });
   }
-  await page.getByLabel("Dial from all active lists", { exact: true }).check();
 });
 
 test("a rejected dialing-list change restores the saved choice", async ({
@@ -231,5 +229,4 @@ test("a rejected dialing-list change restores the saved choice", async ({
     reject();
     await page.unrouteAll({ behavior: "ignoreErrors" });
   }
-  await page.getByLabel("Dial from all active lists", { exact: true }).check();
 });
