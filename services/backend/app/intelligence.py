@@ -182,9 +182,14 @@ def call_review(service, p, call_id):
         segments = ops.transcript_rows(service, s, p, call_id, metadata=metadata)
         note = ops._by_key(service, s, p, "notes", call_id)
         stable = [r.data for r in metadata if r.data.get("is_final") and not r.data.get("system_audio")]
+        lead = (
+            None
+            if call.data.get("test_contact")
+            else ops.required(service, s, "leads", call.data["lead_id"], p)
+        )
         return {
             "call": doc(call),
-            "lead_timezone": ops.required(service, s, "leads", call.data["lead_id"], p).data.get("timezone"),
+            "lead_timezone": lead.data.get("timezone") if lead is not None else None,
             "summary": ops.call_summary(service, s, p, call_id),
             "human_notes": note.data.get("human_text") if note else None,
             "transcript": segments,
@@ -198,14 +203,15 @@ def edit_notes(service, p, call_id, text):
     """The rep's own note on a call. One writer, so the last save is the note (R3.6)."""
     with service.db.transaction() as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
-        lead = ops.required(service, s, "leads", call.data["lead_id"], p)
         note = ops._by_key(service, s, p, "notes", call_id)
         values = {"call_id": call_id, "human_text": text, "editor_id": p["user_id"]}
         if note:
             update(note, **values)
         else:
             put(s, "notes", p["tenant_id"], p["seller_id"], values, key=call_id, now=service.clock())
-        ops.refresh_packet_in(service, s, p, lead)
+        if not call.data.get("test_contact"):
+            lead = ops.required(service, s, "leads", call.data["lead_id"], p)
+            ops.refresh_packet_in(service, s, p, lead)
         audit(s, p["tenant_id"], p["seller_id"], p["user_id"], "notes.edited", call_id, service.clock())
         return {"human_notes": text}
 
@@ -434,7 +440,7 @@ async def maintenance_tick(service):
 def enqueue_aftercall(service, s, p, call, *, retry=False):
     """R10.2: one after-call summary per transcript version, queued when the call ends or its transcript changes.
     A retry is its own job, so a failed summary can be written again (R10.4)."""
-    if call.data.get("state") not in {"ENDED", "FINALIZED", "ENDING"}:
+    if call.data.get("test_contact") or call.data.get("state") not in {"ENDED", "FINALIZED", "ENDING"}:
         return None
     version = call.data.get("transcript_version", 0)
     key = f"aftercall-summary:{call.id}:{version}" + (f":retry:{uid()}" if retry else "")

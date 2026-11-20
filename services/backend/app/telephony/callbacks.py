@@ -11,7 +11,7 @@ from datetime import timedelta
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import delete, select
 
-from app import ops
+from app import ops, test_list
 from app.compliance.operating import COSTS
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, get, put, uid, update
 from app.service import dt, fail
@@ -202,7 +202,11 @@ def _route_inbound(service, s, p, task, *, after=None):
     attempts = [dict(a) for a in task.data.get("routing_attempts", [])]
     tried = {a.get("rep_id") for a in attempts}
     claims = list(s.scalars(select(ActiveClaim).where(ActiveClaim.tenant_id == p["tenant_id"])))
-    lead = get(s, "leads", task.data.get("lead_id"), p["tenant_id"]) if task.data.get("lead_id") else None
+    lead = (
+        get(s, test_list.recipient_kind(task.data), task.data["lead_id"], p["tenant_id"])
+        if task.data.get("lead_id")
+        else None
+    )
     workspace_sip = service.configs.read(p["tenant_id"]).get("sip_username")
     candidates = []
     for user in ops.scoped(service, s, "users", p):
@@ -364,7 +368,9 @@ def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, rec
             and previous.seller_id == number.seller_id
             and previous.data.get("number_id") == number.id
         ):
-            candidate = get(s, "leads", previous.data.get("lead_id"), tenant_id)
+            candidate = get(
+                s, test_list.recipient_kind(previous.data), previous.data.get("lead_id"), tenant_id
+            )
             endpoint = get(s, "phone_endpoints", previous.data.get("endpoint_id"), tenant_id)
             if (
                 candidate
@@ -378,7 +384,11 @@ def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, rec
                 previous = None
         else:
             previous = None
-        if lead is None and len(leads) > 1:
+        if (
+            previous is None
+            and len(endpoints) == 1
+            and (len(leads) > 1 or ops._by_key(service, s, p, "test_contacts", payload.get("from")))
+        ):
             # A test-list copy can share an endpoint with an outreach contact. Prefer the
             # actual last call on this caller ID; keep arbitrary duplicate contacts unresolved.
             calls = MODELS["call_attempts"]
@@ -394,8 +404,10 @@ def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, rec
                 .order_by(calls.created_at.desc(), calls.id.desc())
                 .limit(1)
             )
-            if matched and matched.data.get("dial_scope", {}).get("test_run_id"):
-                candidate = get(s, "leads", matched.data["lead_id"], tenant_id)
+            if matched and (
+                matched.data.get("test_contact") or matched.data.get("dial_scope", {}).get("test_run_id")
+            ):
+                candidate = get(s, test_list.recipient_kind(matched.data), matched.data["lead_id"], tenant_id)
                 if candidate and candidate.seller_id == number.seller_id:
                     lead, previous = candidate, matched
             elif any(row.data.get("test_list_contact") for row in leads):
@@ -437,6 +449,7 @@ def _receive_inbound(service, tenant_id, payload, event_id, *, session=None, rec
                 "called_phone": number.data["phone"],
                 "callback_phone": payload.get("from"),
                 "lead_id": lead.id if lead else None,
+                "test_contact": bool(previous and previous.data.get("test_contact")),
                 "ambiguous": lead is None and len(leads) > 1,
                 "previous_call_id": previous.id if previous else None,
                 "responsible_rep_id": responsible,
@@ -616,6 +629,8 @@ def inbound_event(service, tenant_id, payload, event_type, *, session=None, rece
                         completed_at=service.clock().isoformat(),
                     )
                     lead_id = task.data.get("lead_id")
+                    if task.data.get("test_contact"):
+                        lead_id = None
                     related = ops.lead_records(service, s, p, "followup_tasks", lead_id) if lead_id else []
                     for promised in related:
                         if (
@@ -632,8 +647,8 @@ def inbound_event(service, tenant_id, payload, event_type, *, session=None, rece
                                 inbound_task_id=task.id,
                             )
                             emit(s, tenant_id, "task.updated", promised, service.clock())
-                    if task.data.get("lead_id"):
-                        lead = ops.required(service, s, "leads", task.data["lead_id"], p)
+                    if lead_id:
+                        lead = ops.required(service, s, "leads", lead_id, p)
                         ops._sync_callback(service, s, p, lead)
                         ops.refresh_packet_in(service, s, p, lead)
             else:

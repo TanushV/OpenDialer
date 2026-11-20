@@ -65,7 +65,7 @@ can and does no harm. Section 5 lists those guarantees and how each is tested.
 | D32 | The rep speaks into voicemail normally. No recorded drop. The rep controls hang-up on every attempt (D6). | Owner, November 10. Hang-up updated November 17. |
 | D33 | In 2.1, reps share one Telnyx Call Control application, one SIP connection and a number pool. Each rep has a private computer profile, a WebRTC audio credential and one HubSpot segment. Each prospect keeps the same caller ID, and return calls ring the computer that placed the last confirmed call from the dialed number. The rolling 24-hour limit is at most 90 outbound attempts per number. Inbound callbacks use no outbound capacity. | Owner, November 11. Phase 12 specifies the rollout. |
 | D34 | The rep starts scripts for a chosen list in Leads. Prospect calls require a current prepared script. Importing contacts and saving the base script leave new generation idle. HubSpot number checks still run after sync. | Owner, November 13, updated November 16 |
-| D35 | Settings saves one repeatable list of approved test phones per workspace. Each test call requires its own rep action in the Dialer, which pauses at the end of the list. Test calls use the normal audio, script and caller ID flow without prospect calling hours, retry spacing or the app's call timer. | Owner, November 13 and 18 |
+| D35 | Settings saves an approved test phone and a repeatable test list per workspace. Each call requires its own rep action in the Dialer. Test calls use the same audio, caller numbers, carrier commands and recovery as outreach. They keep local diagnostic receipts and bypass lead lists, CRM, script work, prospect hours and retry limits. The Dialer pauses after a single test or at the end of the list. | Owner, November 13, 18 and 20 |
 | D36 | Markdown defines the order of the script and its options. During calls the rep's finalized speech moves the script panel to a confident match, including after manual scrolling. Review exports observed paths and stage counts with the version and structure each call used. | Owner, November 13 |
 | D37 | The live helper uses a fitting prepared script line or suggests a short reply when the conversation goes off script. A direct-audio request can use the latest transcript once prospect audio confirms a pause. Finalization of the same text does not send a second request. | Owner follow-up, November 15 |
 | D26 | Withdrawn by D27. One shared number pool. Any seat can call from any pool number. The relay picks the number for each call (local area code first, then least used today) and counts daily use across all seats, so the per-number cap holds for the team. Pool numbers sit on one shared incoming route, and a callback rings the seat that last called that prospect, or goes to voicemail and a task on that seat. | Owner decision, November 8; that a Call Control dial may present any number on the account is confirmed in L23 |
@@ -1808,10 +1808,12 @@ ringback handoff. Keep failed event sequences as replayable tests.
 
 Run `uv run python scripts/check.py stress` for the extended calling suite. The normal backend checks run fixed seeds
 for the single-rep soak and the two-rep overlap test. The extended command prints its starting seed and defaults to
-512 single-rep runs of 200 steps and 48 two-rep runs. Each two-rep run holds a carrier reply open while the other rep
+512 single-rep outreach runs and 64 test-phone runs of 200 steps each, plus 48 two-rep runs. The test-phone runs
+alternate single phones and saved lists, and check that the matching prospect records keep their original attempts and
+outcomes. Each two-rep run holds a carrier reply open while the other rep
 calls, overlaps attempts for the same prospect, restarts the waiting authority, and delivers a shuffled backlog and a
 callback using the disposable relay. It counts HTTP requests before carrier deduplication. Use `SOAK_SEED_START` for
-the same range or copy the single-case replay command printed on failure. `SOAK_RUNS`, `SOAK_STEPS`, `SOAK_SHARED_RUNS`,
+the same range or copy the single-case replay command printed on failure. `SOAK_RUNS`, `SOAK_STEPS`, `SOAK_TEST_RUNS`, `SOAK_SHARED_RUNS`,
 `SOAK_SHARED_EVENTS` and `SOAK_WORKERS` control the run size and worker count. On failure, pytest prints the violated
 assertion and the latest steps. The full ordered JSON trace goes to the case's temporary directory or `SOAK_ARTIFACTS`
 when set. The replay command uses the shell syntax for the test runner's OS. GitHub uploads these traces from backend
@@ -2227,3 +2229,7 @@ live check is open.
 - November 18, 2026. The owner requested 2.4.0, including the CSV importer and the one-action-per-call changes.
   Build the signed draft from the verified version commit. Test the packaged authority in a disposable workspace,
   run the live calling release checks on the signed candidate, then publish and verify the signed update on this Mac.
+- November 20, 2026. The Dialer and Settings use independent test contacts for single-phone and saved-list calls.
+  Test calls share carrier, callback, playback and recovery paths. Prospect lists, prior outreach and scheduled CRM
+  work stay untouched by test dialing. Saved legacy test phones migrate on first use. The extended stress run
+  passed 624 cases starting at seed `1319960606`, including 64 test-phone cases and 48 two-rep relay cases.

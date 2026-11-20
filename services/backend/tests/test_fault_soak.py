@@ -28,6 +28,7 @@ pytestmark = pytest.mark.slow
 
 REGRESSION_SEEDS = []
 STEPS = soak_count("SOAK_STEPS", 50)
+TEST_PHONES = ["+12025550185", "+12025550186", "+12025550187"]
 OUTCOMES = ["no_answer", "not_interested", "voicemail", "callback_requested", "gatekeeper"]
 TERMINAL = {"ENDED", "FINALIZED"}  # ENDED: hung up, waiting for its outcome; FINALIZED: saved
 
@@ -85,6 +86,9 @@ class Run:
     def go_ready(self):
         ready(self.ws)
 
+    def offer(self):
+        return self.request("POST", "/v1/queue/next", json=self.queue)
+
     def pause(self):
         self.request(
             "POST",
@@ -94,14 +98,14 @@ class Run:
         if not self.open_call():
             self.request("POST", "/v1/queue/release", json={})
         # Pause is always honored: no lead is offered to a paused rep.
-        offered = self.request("POST", "/v1/queue/next", json=self.queue)
+        offered = self.offer()
         assert offered.status_code == 409, f"a paused rep was offered a lead: {offered.text[:200]}"
 
     def dial(self):
         if self.open_call():
             return
         self.go_ready()
-        offered = self.request("POST", "/v1/queue/next", json=self.queue)
+        offered = self.offer()
         if offered.status_code != 200:
             detail = offered.json()["detail"]
             message = detail.get("message") if isinstance(detail, dict) else detail
@@ -210,11 +214,83 @@ class Run:
         self.go_ready()
         readiness = self.request("GET", "/v1/calling/readiness").json()
         assert readiness["blockers"] or readiness["callable_now"] or readiness["why_none"], readiness
-        offered = self.request("POST", "/v1/queue/next", json=self.queue)
+        offered = self.offer()
         if offered.status_code != 200:
             detail = offered.json()["detail"]
             message = detail.get("message") if isinstance(detail, dict) else detail
             assert message, f"stuck with no reason after recovery: {offered.text[:200]}"
+
+
+class TestPhoneRun(Run):
+    __test__ = False
+
+    def __init__(self, workspace, carrier, clock, seed, trace):
+        super().__init__(workspace, carrier, clock, seed, trace)
+        self.from_list = bool(seed % 2)
+        self.run_id = None
+        self.phone = TEST_PHONES[0]
+
+    def offer(self):
+        return self.request("POST", "/v1/calls/test/reserve", json={"test_run_id": self.run_id})
+
+    def dial(self):
+        if self.open_call():
+            return
+        view = self.request("GET", "/v1/workspace").json()
+        if self.from_list and not view["test_run"]:
+            self.pause()
+            if not self.request(
+                "PUT", "/v1/settings/test-list", json={"rows": [{"phone": phone} for phone in TEST_PHONES]}
+            ).is_success:
+                return
+            armed = self.request("POST", "/v1/settings/test-list/start", json={})
+            if not armed.is_success:
+                return
+            self.run_id = armed.json()["id"]
+        elif not self.from_list and not view["test_phone"]:
+            self.phone = self.rng.choice(TEST_PHONES)
+            assert self.request("PUT", "/v1/admin/settings", json={"test_phone": self.phone}).is_success
+            if not self.request("POST", "/v1/settings/test-call", json={}).is_success:
+                return
+        super().dial()
+
+    def end_test(self):
+        self.request("DELETE", "/v1/settings/test-call")
+
+    def check(self):
+        super().check()
+        assert all(d["to"] in TEST_PHONES and "time_limit_secs" not in d for d in self.carrier.dials)
+        leads = self.request("GET", "/v1/workspace/leads?filter=active&q=").json()["items"]
+        assert all(not lead.get("attempt_count") and not lead.get("last_outcome") for lead in leads)
+
+    STEPS = [*Run.STEPS, end_test]
+
+
+def exercise(run, seed, clock, trace, monkeypatch):
+    dial = run.carrier.dial
+
+    async def observe_dial(payload):
+        run.submissions.append(payload["command_id"])
+        trace.record("carrier dial", command=payload["command_id"], phone=payload["to"])
+        return await dial(payload)
+
+    monkeypatch.setattr(run.carrier, "dial", observe_dial)
+    schedule = random.Random(seed)
+    for index in range(STEPS):
+        step = schedule.choice(run.STEPS)
+        run.rng.seed(schedule.getrandbits(64))
+        trace.record("choose", number=index + 1, operation=step.__name__, now=clock.now.isoformat())
+        submitted = len(run.submissions)
+        run.dial() if step is Run.dial else step(run)
+        assert len(run.submissions) - submitted <= int(step is Run.dial), (
+            f"{step.__name__} sent a carrier dial without a fresh dial action for it"
+        )
+        run.check()
+    trace.record("recover")
+    submitted = len(run.submissions)
+    run.recover()
+    assert len(run.submissions) == submitted, "Recovering the workspace submitted another dial"
+    run.check()
 
 
 @pytest.mark.parametrize("seed", soak_seeds("SOAK_RUNS", 25, REGRESSION_SEEDS))
@@ -241,33 +317,30 @@ def test_calling_laws_hold_under_random_faults(
         )
         assert imported.status_code == 200, imported.text
         run = Run(workspace, carrier, clock, seed, trace)
-        dial = carrier.dial
-
-        async def observe_dial(payload):
-            run.submissions.append(payload["command_id"])
-            trace.record("carrier dial", command=payload["command_id"], phone=payload["to"])
-            return await dial(payload)
-
-        monkeypatch.setattr(carrier, "dial", observe_dial)
-        schedule = random.Random(seed)
-        for index in range(STEPS):
-            step = schedule.choice(Run.STEPS)
-            run.rng.seed(schedule.getrandbits(64))
-            trace.record("choose", number=index + 1, operation=step.__name__, now=clock.now.isoformat())
-            submitted = len(run.submissions)
-            step(run)
-            assert len(run.submissions) - submitted <= int(step is Run.dial), (
-                f"{step.__name__} sent a carrier dial without a fresh dial action for it"
-            )
-            run.check()
-        trace.record("recover")
-        submitted = len(run.submissions)
-        run.recover()
-        assert len(run.submissions) == submitted, "Recovering the workspace submitted another dial"
-        run.check()
+        exercise(run, seed, clock, trace, monkeypatch)
     if os.environ.get("SOAK_STATS"):
         calls = run.request("GET", "/v1/workspace/calls?filter=all&q=").json()["items"]
         print(
             f"SOAKSTAT dials={len(carrier.dials)} calls={len(calls)} saved={sum(bool(c.get('outcome')) for c in calls)} "
             f"answered={sum(c.get('answered_at') is not None for c in calls)} optouts={len(run.opted_out)}"
         )
+
+
+@pytest.mark.parametrize("seed", soak_seeds("SOAK_TEST_RUNS", 8))
+def test_test_phones_stay_separate_under_random_faults(
+    seed, workspace, carrier, clock, request, tmp_path, monkeypatch
+):
+    with StressTrace(tmp_path, request.node.nodeid, seed, SOAK_STEPS=STEPS) as trace:
+        run = TestPhoneRun(workspace, carrier, clock, seed, trace)
+        imported = run.request(
+            "POST",
+            "/v1/leads/import",
+            json={
+                "campaign_id": workspace["campaign_id"],
+                "list_name": "Soak",
+                "prepare": False,
+                "rows": [{"name": f"Outreach {i}", "phone": phone} for i, phone in enumerate(TEST_PHONES)],
+            },
+        )
+        assert imported.is_success, imported.text
+        exercise(run, seed, clock, trace, monkeypatch)

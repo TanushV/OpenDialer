@@ -12,7 +12,7 @@ interface TestList {
 export function TestListSettings({
   onNavigate,
 }: {
-  onNavigate: (page: "Leads" | "Dialer") => void;
+  onNavigate: (page: "Dialer") => void;
 }) {
   const { api, refresh, run, snapshot } = useWorkspace();
   const [saved, setSaved] = useState<TestList | null>(null);
@@ -46,8 +46,8 @@ export function TestListSettings({
     <Panel className="padded" aria-label="Test list">
       <h2>Test list</h2>
       <p className="muted">
-        Use a CSV with a phone column. Add name, company, and domain for
-        personalized scripts. Include only phones you have permission to test.
+        Use a CSV with a phone column and an optional name column. Include only
+        phones you have permission to test.
       </p>
       <div className="button-row">
         <OpenFile
@@ -91,9 +91,6 @@ export function TestListSettings({
             ))}
           </ul>
           <div className="button-row">
-            <Button variant="text" onClick={() => onNavigate("Leads")}>
-              Generate scripts in Leads
-            </Button>
             <Button
               disabled={busy || Boolean(draft)}
               onClick={() =>

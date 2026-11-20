@@ -71,7 +71,11 @@ def queue_confirmed_turn(service, p, call_id, transcript_version, prospect_segme
 
 def _live(service, s, p, call):
     """Whether the helper may answer on this call now."""
-    if call.data["state"] in TERMINAL | {"ENDING"} or call.data.get("transcription_disabled"):
+    if (
+        call.data.get("test_contact")
+        or call.data["state"] in TERMINAL | {"ENDING"}
+        or call.data.get("transcription_disabled")
+    ):
         return False
     lead = ops.required(service, s, "leads", call.data["lead_id"], p)
     return not ops.suppressed(service, s, p, lead.data["phone"])

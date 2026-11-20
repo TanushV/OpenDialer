@@ -194,7 +194,7 @@ def _complete_reconciliation(service, p, claimed, receipt, error=None):
                 ),
             )
             if alive:
-                lead = ops.required(service, s, "leads", call.data["lead_id"], p)
+                lead = ops.call_recipient(service, s, p, call.data)
                 if ops.suppressed(service, s, p, lead.data["phone"]):
                     update(call, **moved(call.data, "hangup.requested", service.clock()))
                     ops.control_intent(

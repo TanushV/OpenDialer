@@ -387,6 +387,8 @@ def schedule_syncs(service, p, *, starting=False):
     now = service.clock()
     with service.db.transaction() as s:
         user = ops.required(service, s, "users", p["user_id"], p)
+        if ops.in_test_session(service, p) or user.data.get("test_run"):
+            return 0
         if not starting and (user.data.get("presence") or {}).get("status") != "ready":
             return 0
         queued = 0

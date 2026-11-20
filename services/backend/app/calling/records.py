@@ -69,6 +69,7 @@ class CallView(View):
     """The call fields dialing, hang-up and recovery read (R3.5, R4.5)."""
 
     state: str
+    test_contact: bool = False
     state_at: str | None = None
     submitted_at: str | None = None
     started_at: str | None = None
@@ -89,6 +90,7 @@ class ReservationView(View):
     """What a reservation carries into the dial it becomes."""
 
     dial_scope: dict[str, Any] = {}
+    test_contact: bool = False
     treatment_variant_id: str | None = None
     feature_snapshot_id: str | None = None
     policy_decision_id: str | None = None

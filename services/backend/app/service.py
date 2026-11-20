@@ -14,7 +14,7 @@ from app.calling.blockers import refuse, test_line_refusal
 from app.calling.state import moved, transition
 from app.compliance.phone import normalize_phone
 from app.compliance.policy import CallContext
-from app.lead_lists import TEST_LIST, has_current_list, in_list, memberships, set_memberships
+from app.lead_lists import has_current_list, memberships, set_memberships
 from app.leads import intake
 from app.leads.record import csv_fields, number_view
 from app.optimization.geography import plausible_zones
@@ -631,11 +631,7 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
     state_listed, state_current = False, False
     granted, revoked = False, False
     healthy = number and ops.number_readiness_in(service, s, p, number)["outbound_ready"]
-    authorized_number = bool(
-        number
-        and number.seller_id == p["seller_id"]
-        and (service.settings.simulation or not number.data.get("synthetic"))
-    )
+    authorized_number = ops.number_authorized(service, p, number)
     from app.compliance.operating import screening_capability, screening_snapshot
 
     national = screening_capability(
@@ -868,68 +864,22 @@ def refuse_outside_test_line(service, p, lead):
     )
 
 
-def test_candidate(service, s, p, phone, *, campaign_id=None):
-    """Find the saved endpoint by index, preferring its HubSpot contact over a CSV copy."""
-    endpoint = ops._by_key(service, s, p, "phone_endpoints", phone)
-    if endpoint is None:
-        return None
-    model = MODELS["leads"]
-    scope = [
-        model.tenant_id == p["tenant_id"],
-        model.seller_id == p["seller_id"],
-        model.op_endpoint_id == endpoint.id,
-        model.data["test_list_contact"].as_boolean().is_not(True),
-    ]
-    if campaign_id is not None:
-        scope += [model.op_campaign_id == campaign_id, in_list(model, TEST_LIST)]
-    return s.scalar(
-        select(model)
-        .where(*scope)
-        .order_by((model.data["source"].as_string() == "crm").desc(), model.created_at, model.id)
-        .limit(1)
-    )
-
-
 def start_test_session(service, p):
-    """Stage the rep's test phone without changing any existing contact's outreach status."""
+    """Arm the one-off test phone."""
+    from app import test_list
+
     phone = ops.test_phone(service, p)
     if not phone:
         fail(409, "Type your phone number in Test phone first")
-    with service.db.transaction(False) as s:
-        from app import test_list
-        from app.administration import test_phone_issue
-
-        if test_list.test_list_run(service, s, p):
-            fail(409, "End the test list in the Dialer before starting a single test call.")
-        if issue := test_phone_issue(service, s, p, phone):
-            fail(409, issue.message)
-        campaign = next(iter(ops.scoped(service, s, "campaigns", p)), None)
-        # R11.7: the owner's HubSpot test contact, when it has this number, is the one dialed, so its calls land there.
-        existing = test_candidate(service, s, p, phone)
-    if not campaign:
-        fail(409, "Import a lead list first")
-    if existing is None:
-        ops.import_leads(
-            service,
-            p,
-            {
-                "campaign_id": campaign.id,
-                "list_name": TEST_LIST,
-                "rows": [{"name": "Your test phone", "phone": phone, "company": "Test call"}],
-                "prepare": False,
-            },
-        )
     with service.db.transaction() as s:
         service.db.authorize_stream(s, p)
-        lead = test_candidate(service, s, p, phone)
-        if lead is None:
-            fail(409, "Test phone changed while preparing the call. Press Test call again.")
-        if TEST_LIST not in memberships(lead.data):
-            set_memberships(lead, [*memberships(lead.data), TEST_LIST])
-            emit(s, p["tenant_id"], "lead.updated", lead, service.clock())
-        lead_id = lead.id
+        if test_list.test_list_run(service, s, p):
+            fail(409, "End the test list in the Dialer before starting a single test call.")
+        if issue := ops.test_phone_issue(service, s, p, phone):
+            fail(409, issue.message)
+        recipient = test_list.save_test_contact(service, s, p, phone)
     service.configs.write(p["tenant_id"], {"test_session": True})
-    return {"test_session": True, "lead_id": lead_id, "phone": phone}
+    return {"test_session": True, "lead_id": recipient.id, "phone": phone}
 
 
 def end_test_session(service, p):

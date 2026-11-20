@@ -552,10 +552,23 @@ test("Settings imports a test CSV and the Dialer calls only those destinations",
   await expect(
     page.getByRole("region", { name: "Test destinations" }),
   ).toContainText("+12025550199");
+  const prospectRequests: string[] = [];
+  page.on("request", (request) => {
+    if (/\/v1\/(queue\/next|leads\/[^/]+\/packet)$/.test(request.url()))
+      prospectRequests.push(request.url());
+  });
+  const submitted: string[] = [];
+  page.on("response", (response) => {
+    if (response.url().endsWith("/v1/calls/start") && response.ok())
+      submitted.push(response.url());
+  });
   await page.getByRole("button", { name: /^Run test list/ }).click();
   for (let i = 0; i < 2; i++) {
     if (i) await page.getByRole("button", { name: /^Dial now/ }).click();
     await answer(page);
+    await expect(
+      page.getByRole("region", { name: "Test phone" }),
+    ).toContainText(i ? "Test Bob" : "Test Alice");
     await hangUp(page).click();
     await saveOutcome(page, "not_interested");
   }
@@ -565,6 +578,8 @@ test("Settings imports a test CSV and the Dialer calls only those destinations",
   await expect(
     page.getByRole("button", { name: /^Start calling/ }),
   ).toBeVisible();
+  expect(prospectRequests).toEqual([]);
+  expect(submitted).toHaveLength(2);
 });
 
 test("the Dialer can call the saved test phone repeatedly outside prospect calling hours", async ({
@@ -606,7 +621,7 @@ test("the Dialer can call the saved test phone repeatedly outside prospect calli
     /outside calling hours/i,
   );
   const reserved = page.waitForResponse(
-    (r) => r.url().endsWith("/v1/queue/next") && r.ok(),
+    (r) => r.url().endsWith("/v1/calls/test/reserve") && r.ok(),
   );
   const placed = page.waitForResponse(
     (r) => r.url().endsWith("/v1/calls/start") && r.ok(),
@@ -616,7 +631,7 @@ test("the Dialer can call the saved test phone repeatedly outside prospect calli
     .click({ timeout: 4_000 });
   const reservation = await reserved;
   expect(reservation.request().postDataJSON()).toMatchObject({
-    test_only: true,
+    test_run_id: null,
   });
   expect((await reservation.json()).lead.phone).toBe("+12025550199");
   const first = await (await placed).json();

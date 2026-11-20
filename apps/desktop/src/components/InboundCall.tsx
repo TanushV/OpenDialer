@@ -42,7 +42,7 @@ export function InboundCall({
   const [prospect, setProspect] = useState<Packet | null>(null);
   const leadId = task.lead_id;
   useEffect(() => {
-    if (!leadId) return;
+    if (!leadId || task.test_contact) return;
     let current = true;
     void api<Packet>(`/v1/leads/${encodeURIComponent(leadId)}/packet`).then(
       (packet) => {
@@ -53,7 +53,7 @@ export function InboundCall({
     return () => {
       current = false;
     };
-  }, [api, leadId]);
+  }, [api, leadId, task.test_contact]);
   const matched = prospect?.lead.id === leadId ? prospect : null;
   const brief = matched?.prospect_brief;
   const connected = task.inbound_state === "connected";

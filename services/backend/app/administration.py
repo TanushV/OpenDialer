@@ -236,7 +236,12 @@ def dial_blockers_in(service, s, p, *, rep, integrity_ok=True):
                 signature_key=bool(conf.get("telnyx_public_key")),
                 audio_setup=bool(conf.get("sip_username") and conf.get("telephony_credential_id")),
                 connection=service.managed.connection_code(p["tenant_id"]),
-                campaign=bool(next(iter(ops.scoped(service, s, "campaigns", p)), None)),
+                campaign=bool(
+                    p.get("test_only")
+                    or ops.in_test_session(service, p)
+                    or test_list.test_list_run(service, s, p)
+                    or next(iter(ops.scoped(service, s, "campaigns", p)), None)
+                ),
                 number=ops.number_setup_blocker(service, s, p, numbers),
                 test_number=next(
                     (
@@ -515,6 +520,10 @@ def preflight(service, p, *, full=True, deep=False):
 
 def calling_readiness(service, p):
     """R9E.5: what pressing Start would do now. Run while idle, so a problem shows before Start, not after."""
+    from app.calling.test_calls import readiness
+
+    if test := readiness(service, p):
+        return test
     check = ops.preflight(service, p, full=True)
     screening = check.get("screening") or {}
     callable_now = screening.get("callable_when_ready_count", 0)
@@ -547,28 +556,17 @@ def database_integrity(service, *, deep=False):
 
 
 def _preflight_queue(service, s, p, campaign, numbers, screening, blockers, warnings):
-    from app.lead_lists import TEST_LIST
     from app.optimization.numbering import select_number
     from app.scheduling.policy import queue_decision
 
     lead_model = MODELS["leads"]
-    if run := test_list.test_list_run(service, s, p):
-        p = {**p, "dial_lists": [test_list.NAME], "test_only": True, "test_run_id": run["id"]}
-        leads = [lead for lead in test_list.contacts(s, p, campaign.id) if test_list.permits(run, p, lead)]
-        total = len(leads)
-    elif ops.in_test_session(service, p):
-        p = {**p, "dial_lists": [TEST_LIST], "test_only": True}
-        lead = ops.test_candidate(service, s, p, ops.test_phone(service, p), campaign_id=campaign.id)
-        leads = [lead] if lead else []
-        total = len(leads)
-    else:
-        scope = (
-            lead_model.tenant_id == p["tenant_id"],
-            lead_model.seller_id == p["seller_id"],
-            lead_model.data["test_list_contact"].as_boolean().is_not(True),
-        )
-        total = s.scalar(select(func.count()).select_from(lead_model).where(*scope))
-        leads = list(s.scalars(select(lead_model).where(*scope).order_by(lead_model.id).limit(500)))
+    scope = (
+        lead_model.tenant_id == p["tenant_id"],
+        lead_model.seller_id == p["seller_id"],
+        lead_model.data["test_list_contact"].as_boolean().is_not(True),
+    )
+    total = s.scalar(select(func.count()).select_from(lead_model).where(*scope))
+    leads = list(s.scalars(select(lead_model).where(*scope).order_by(lead_model.id).limit(500)))
     ops._queue_context(service, s, p, campaign.id, leads)
     inventory = ops.inventory_evidence(service, s, p, fast=True)
     claims = s.info["active_claims"]
@@ -711,6 +709,24 @@ def test_phone_issue(service, s, p, phone) -> TestPhoneIssue | None:
 def no_lead_detail(service, s, p, reasons):
     """The refusal for Next call: the plain reason nobody can be called, most useful first."""
     reasons = set(reasons)
+    if p and p.get("test_only"):
+        test_reasons = {
+            "TEST_SESSION_TEST_LINE_ONLY": (
+                "The saved test phone or session changed. Press Test call or reopen the test list.",
+                "settings",
+            ),
+            "REP_NOT_READY": ("The Dialer is paused. Start the test again when ready.", "dialer"),
+            "ROUTE_NOT_ALLOWED": ("Choose an approved +1 test phone in Settings.", "settings"),
+            "ENDPOINT_CLAIMED": ("A test phone is already on a call. Finish that call first.", "dialer"),
+        }
+        for code, (message, fix) in test_reasons.items():
+            if code in reasons:
+                return {
+                    "code": "NO_ELIGIBLE_LEADS",
+                    "reasons": sorted(reasons),
+                    "message": message,
+                    "fix": fix,
+                }
     if reasons & {"INTERNAL_SUPPRESSION", "WRONG_PARTY", "INVALID_ENDPOINT"} and not reasons & NUMBER_REASONS:
         message = None
         if p.get("test_run_id"):

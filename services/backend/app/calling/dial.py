@@ -13,6 +13,7 @@ import httpx
 from sqlalchemy import select
 
 from app import ops
+from app.calling import test_calls
 from app.calling.carrier_errors import PAUSE_SECONDS as CHANNEL_PAUSE
 from app.calling.carrier_errors import is_channel_limit
 from app.calling.decide import Situation, require
@@ -97,6 +98,17 @@ def _authorize_script(service, s, p, lead, number, held):
     return script, comparison
 
 
+def _dial_script(service, s, p, lead, number, held):
+    if not held.test_contact:
+        ops.refuse_outside_test_line(service, p, lead)
+        return _authorize_script(service, s, p, lead, number, held)
+    decision = test_calls.authorized(service, s, p, lead, number, held.dial_scope)
+    if not decision.allowed:
+        detail = ops.no_lead_detail(service, s, {**p, **held.dial_scope}, decision.reasons)
+        fail(403, {**detail, "code": "CALL_DENIED"})
+    return None, None
+
+
 def _prepare_call(service, p, data):
     now = service.clock()
     with service.db.transaction() as s:
@@ -112,7 +124,7 @@ def _prepare_call(service, p, data):
         reservation, claim, held = _held_reservation(service, s, p, data["reservation_id"], now)
         if service.managed.pool is not None and not held.pool_ref:
             require(Situation(step="dial", reservation_ok=False), "Reserve the shared number before dialing.")
-        lead = ops.required(service, s, "leads", reservation.data["lead_id"], p)
+        lead = ops.call_recipient(service, s, p, reservation.data)
         require(
             Situation(
                 blockers=tuple(ops.dial_blockers_in(service, s, p, rep=True)),
@@ -122,11 +134,10 @@ def _prepare_call(service, p, data):
             "The prospect's phone number changed. Start calling to reserve its current number.",
         )
         agent = ops.required(service, s, "users", p["user_id"], p).data["presence"]["agent_call_control_id"]
-        ops.refuse_outside_test_line(service, p, lead)
         number = ops.required(service, s, "number_inventory", reservation.data["number_id"], p)
         service.managed.require_number(workspace(p), number.data)
         test_only = bool(held.dial_scope.get("test_only"))
-        script, script_comparison = _authorize_script(service, s, p, lead, number, held)
+        script, script_comparison = _dial_script(service, s, p, lead, number, held)
         call = put(
             s,
             "call_attempts",
@@ -135,6 +146,7 @@ def _prepare_call(service, p, data):
             {
                 "rep_id": p["user_id"],
                 "lead_id": lead.id,
+                "test_contact": held.test_contact,
                 "endpoint_id": lead.data["endpoint_id"],
                 "number_id": number.id,
                 "from_number": number.data["phone"],
@@ -255,31 +267,18 @@ def _claim_dial(service, p, call_id, owner):
             return None, doc(call), None, None
         # A blocker acquired after authorization still wins. Settle the original command so
         # recovery cannot place this call after the rep has been shown a refusal.
-        if blockers := ops.dial_blockers_in(service, s, p, rep=False):
+        direct_test = view.test_contact
+        if blockers := ops.dial_blockers_in(service, s, p, rep=direct_test):
             first = blockers[0]
             update(command, status="cancelled", reasons=[first.code])
             _finish_failed_dial(service, s, p, call, "policy_cancelled", first.message, first.fix)
             return None, doc(call), None, None
-        lead = ops.required(service, s, "leads", call.data["lead_id"], p, lock=True)
+        lead = ops.call_recipient(service, s, p, call.data, lock=True)
         payload = command.data["payload"]
-        if payload["to"] == lead.data["phone"]:
-            ops.refuse_outside_test_line(service, p, lead)
-            number = ops.required(service, s, "number_inventory", call.data["number_id"], p)
-            service.managed.require_number(workspace(p), number.data)
-            context = ops.context(
-                service, s, {**p, **CallView.model_validate(call.data).dial_scope}, lead, number
-            )
-            decision = authorize(context)
-            if (
-                decision.allowed
-                and (service.require_prepared_scripts or context.use_master)
-                and not context.own_test_line
-            ):
-                script = ops.selected_script(service, s, p, lead, master_only=context.use_master)[0]
-                update(call, script_snapshot=script)
-        else:
-            decision = Decision(False, ["RESERVATION_INVALID"])
-        submission_decision = ops.record_decision(service, s, p, lead, decision)
+        decision, context = _submission_policy(service, s, p, call, lead, payload)
+        submission = {}
+        if not direct_test:
+            submission["submission_decision_id"] = ops.record_decision(service, s, p, lead, decision).id
         if not decision.allowed:
             update(command, status="cancelled", reasons=decision.reasons)
             detail = ops.no_lead_detail(
@@ -287,56 +286,69 @@ def _claim_dial(service, p, call_id, owner):
             )
             _finish_failed_dial(service, s, p, call, "policy_cancelled", detail["message"], detail.get("fix"))
             return None, doc(call), None, None
-        campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
-        policy = ops.required(service, s, "policy_versions", campaign.data["policy_id"], p)
-        attempts = LeadAttempts.model_validate(lead.data)
-        ordinal = (attempts.attempt_count or 0) + 1
-        allowance, retry, quick_retry = ops.attempt_limits(
-            service, lead.data, campaign.data, policy.data, ordinal
-        )
-        next_attempt = (service.clock() + timedelta(seconds=retry)).isoformat()
+        prior = _record_outreach_attempt(service, s, p, call, lead, context) if context else {}
+        now = service.clock()
         update(
             command,
             status="sending",
             attempts=1,
-            submitted_at=service.clock().isoformat(),
-            sent_at=service.clock().isoformat(),
+            submitted_at=now.isoformat(),
+            sent_at=now.isoformat(),
             lease_owner=owner,
-            lease_until=(service.clock() + timedelta(seconds=30)).isoformat(),
-            # Restored only if the request provably never reached the carrier.
-            prior_attempt={
-                k: getattr(attempts, k)
-                for k in (
-                    "attempt_count",
-                    "last_attempt_at",
-                    "next_attempt_at",
-                    "cadence_not_before",
-                    "coverage_due_at",
-                    "attempt_allowance",
-                )
-            },
+            lease_until=(now + timedelta(seconds=30)).isoformat(),
+            **prior,
         )
-        update(
-            call,
-            **moved(call.data, "dial.sent", service.clock()),
-            submission_decision_id=submission_decision.id,
-            submitted_at=service.clock().isoformat(),
-        )
-        update(call, attempt_ordinal=ordinal, attempt_allowance=allowance, quick_retry=quick_retry)
-        if context.pair_open:
-            update(call, pair_of=attempts.pair_of)
-        update(lead, pair_until=None, pair_rep_id=None, pair_of=None, pair_opened_at=None)
-        update(
-            lead,
-            attempt_count=ordinal,
-            attempt_allowance=allowance,
-            last_attempt_at=service.clock().isoformat(),
-            next_attempt_at=next_attempt,
-            cadence_not_before=next_attempt,
-            # Coverage restarts from this attempt, so tried leads cannot crowd out first calls.
-            coverage_due_at=next_attempt,
-        )
+        update(call, **moved(call.data, "dial.sent", now), submitted_at=now.isoformat(), **submission)
         return command.id, doc(call), lead.data["phone"], payload
+
+
+def _submission_policy(service, s, p, call, lead, payload):
+    if payload["to"] != lead.data["phone"]:
+        return Decision(False, ["RESERVATION_INVALID"]), None
+    number = ops.required(service, s, "number_inventory", call.data["number_id"], p)
+    service.managed.require_number(workspace(p), number.data)
+    view = CallView.model_validate(call.data)
+    scope = view.dial_scope
+    if view.test_contact:
+        return test_calls.authorized(service, s, p, lead, number, scope), None
+    ops.refuse_outside_test_line(service, p, lead)
+    context = ops.context(service, s, {**p, **scope}, lead, number)
+    decision = authorize(context)
+    if (
+        decision.allowed
+        and (service.require_prepared_scripts or context.use_master)
+        and not context.own_test_line
+    ):
+        script = ops.selected_script(service, s, p, lead, master_only=context.use_master)[0]
+        update(call, script_snapshot=script)
+    return decision, context
+
+
+def _record_outreach_attempt(service, s, p, call, lead, context):
+    campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
+    policy = ops.required(service, s, "policy_versions", campaign.data["policy_id"], p)
+    attempts = LeadAttempts.model_validate(lead.data)
+    ordinal = (attempts.attempt_count or 0) + 1
+    allowance, retry, quick_retry = ops.attempt_limits(
+        service, lead.data, campaign.data, policy.data, ordinal
+    )
+    next_attempt = (service.clock() + timedelta(seconds=retry)).isoformat()
+    update(call, attempt_ordinal=ordinal, attempt_allowance=allowance, quick_retry=quick_retry)
+    if context.pair_open:
+        update(call, pair_of=attempts.pair_of)
+    update(lead, pair_until=None, pair_rep_id=None, pair_of=None, pair_opened_at=None)
+    update(
+        lead,
+        attempt_count=ordinal,
+        attempt_allowance=allowance,
+        last_attempt_at=service.clock().isoformat(),
+        next_attempt_at=next_attempt,
+        cadence_not_before=next_attempt,
+        # Coverage restarts from this attempt, so tried leads cannot crowd out first calls.
+        coverage_due_at=next_attempt,
+    )
+    # Restored only if the request provably never reached the carrier.
+    return {"prior_attempt": attempts.model_dump(exclude={"pair_of"})}
 
 
 def _finish_failed_dial(service, s, p, call, reason, message, fix=None):
@@ -399,12 +411,13 @@ def _dial_failed(service, p, call_id, command_id, owner, exc):
             )
             if unsent:
                 # Nothing reached the carrier: no contact, so the attempt is not counted.
-                lead = ops.required(service, s, "leads", call.data["lead_id"], p)
-                if (
-                    LeadAttempts.model_validate(lead.data).attempt_count
-                    == CallView.model_validate(call.data).attempt_ordinal
-                ):
-                    update(lead, **CommandView.model_validate(command.data).prior_attempt)
+                if not CallView.model_validate(call.data).test_contact:
+                    lead = ops.required(service, s, "leads", call.data["lead_id"], p)
+                    if (
+                        LeadAttempts.model_validate(lead.data).attempt_count
+                        == CallView.model_validate(call.data).attempt_ordinal
+                    ):
+                        update(lead, **CommandView.model_validate(command.data).prior_attempt)
                 if limited:
                     _finish_failed_dial(
                         service,

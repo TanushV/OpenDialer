@@ -115,17 +115,73 @@ def test_a_blocker_between_reserving_and_dispatch_is_final_not_a_delayed_dial(
     assert not carrier.dials
 
 
+def test_changing_the_saved_test_phone_before_dispatch_refuses_with_the_exact_reason(
+    workspace, carrier, monkeypatch
+):
+    client, headers = workspace["client"], workspace["headers"]
+    save_phone(workspace)
+    _, held = start(workspace)
+    original = dial._dispatch_call
+
+    async def change_then_dispatch(service, p, call_id):
+        service.configs.write(p["tenant_id"], {"test_phone": "+12025550196"})
+        return await original(service, p, call_id)
+
+    monkeypatch.setattr(dial, "_dispatch_call", change_then_dispatch)
+    response = client.post(
+        "/v1/calls/start",
+        headers=headers,
+        json={"reservation_id": held.json()["reservation_id"], "idempotency_key": "changed-phone"},
+    )
+    assert response.is_success, response.text
+    assert response.json()["state"] == "FINALIZED"
+    assert "saved test phone or session changed" in response.json()["dial_error"]["message"]
+    assert not carrier.dials
+
+
+def test_opt_out_during_a_test_requests_hangup_without_a_speech_command(workspace, app):
+    from helpers import principal
+
+    client, headers = workspace["client"], workspace["headers"]
+    save_phone(workspace)
+    _, held = start(workspace)
+    placed = client.post(
+        "/v1/calls/start",
+        headers=headers,
+        json={"reservation_id": held.json()["reservation_id"], "idempotency_key": "test-call-opt-out"},
+    ).json()
+    stopped = client.post("/v1/suppressions", headers=headers, json={"phone": PHONE, "reason": "opt_out"})
+    assert stopped.is_success, stopped.text
+    service = app.state.service
+    with service.db.transaction(False) as session:
+        p = principal(workspace)
+        assert ops._by_key(service, session, p, "command_outbox", placed["id"] + ":hangup")
+        assert (
+            ops._by_key(service, session, p, "command_outbox", placed["id"] + ":transcription_stop") is None
+        )
+
+
 def test_the_test_phone_can_be_called_again_even_if_its_crm_record_is_stale(workspace, app, carrier, clock):
     from app.platform.db import update
     from helpers import principal
 
     service = app.state.service
     client, headers = workspace["client"], workspace["headers"]
+    imported = client.post(
+        "/v1/leads/import",
+        headers=headers,
+        json={
+            "campaign_id": workspace["campaign_id"],
+            "list_name": "CRM leads",
+            "rows": [{"name": "CRM prospect", "phone": PHONE}],
+            "prepare": False,
+        },
+    )
+    assert imported.is_success, imported.text
+    source_id = imported.json()["leads"][0]["id"]
     save_phone(workspace)
-    _, packet = start(workspace)
-    assert packet.status_code == 200, packet.text
     with service.db.transaction() as s:
-        lead = ops.required(service, s, "leads", packet.json()["lead"]["id"], principal(workspace))
+        lead = ops.required(service, s, "leads", source_id, principal(workspace))
         update(
             lead,
             source="crm",
@@ -135,7 +191,6 @@ def test_the_test_phone_can_be_called_again_even_if_its_crm_record_is_stale(work
             last_attempt_at=clock.now.isoformat(),
             next_attempt_at=(clock.now + timedelta(days=1)).isoformat(),
         )
-    client.post("/v1/queue/release", headers=headers)
     clock.now = datetime(2026, 10, 15, 1, 0, tzinfo=UTC)
     for index in range(2):
         _, packet = start(workspace)
@@ -175,7 +230,7 @@ def test_a_stale_test_request_cannot_fall_through_to_prospects(workspace):
     assert "Test call" in refused.text
 
 
-def test_a_test_call_revives_an_archived_lead_with_the_same_number(workspace, app):
+def test_a_test_call_leaves_an_archived_lead_with_the_same_number_archived(workspace, app):
     client, headers = workspace["client"], workspace["headers"]
     imported = client.post(
         "/v1/leads/import",
@@ -203,8 +258,9 @@ def test_a_test_call_revives_an_archived_lead_with_the_same_number(workspace, ap
     save_phone(workspace)
     started, packet = start(workspace)
     assert packet.status_code == 200, packet.text
-    assert packet.json()["lead"]["id"] == started["lead_id"] == lead.id
-    assert packet.json()["lead"]["archived"] is True
+    assert packet.json()["lead"]["id"] == started["lead_id"] != lead.id
+    with app.state.service.db.transaction(False) as s:
+        assert ops.required(app.state.service, s, "leads", lead.id, principal(workspace)).data["archived"]
 
 
 def test_the_test_line_list_is_excluded_from_normal_calling(workspace):

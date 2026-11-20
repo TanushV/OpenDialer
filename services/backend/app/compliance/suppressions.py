@@ -178,7 +178,7 @@ def revoke_effects(service, s, p, endpoint_id, permissions):
         if call.data["state"] in TERMINAL:
             continue
         version = call.version
-        if "transcription" in permissions or "live" in permissions:
+        if not call.data.get("test_contact") and ("transcription" in permissions or "live" in permissions):
             if not call.data.get("transcription_disabled"):
                 update(
                     call,

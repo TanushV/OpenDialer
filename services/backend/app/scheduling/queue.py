@@ -3,12 +3,11 @@
 import threading
 import time
 from collections import OrderedDict
-from datetime import timedelta
 
 from sqlalchemy import and_, delete, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 
-from app import ops, test_list
+from app import ops
 from app.calling.decide import Situation, require
 from app.compliance.policy import authorize
 from app.lead_lists import TEST_LIST, active_membership, in_list
@@ -299,15 +298,7 @@ def _due_leads(s, p, campaign_id, after, now, catalog):
 def _selection_page(service, s, p, campaign_id, after):
     now = service.clock()
     campaign = ops.required(service, s, "campaigns", campaign_id, p)
-    if p.get("test_run_id"):
-        run = test_list.test_list_run(service, s, p)
-        leads = [row for row in test_list.contacts(s, p, campaign_id) if test_list.permits(run, p, row)]
-    elif p.get("test_only"):
-        # Normal retry dates must not hide the explicitly staged test phone.
-        lead = ops.test_candidate(service, s, p, ops.test_phone(service, p), campaign_id=campaign_id)
-        leads = [lead] if lead else []
-    else:
-        leads = _due_leads(s, p, campaign_id, after, now, campaign.data.get("lists", {}))
+    leads = _due_leads(s, p, campaign_id, after, now, campaign.data.get("lists", {}))
     ops._queue_context(service, s, p, campaign_id, leads)
     ops._queue_presence(service, s, p)
     config = ops.optimization_config(service, s, p, campaign_id)
@@ -478,41 +469,23 @@ def _claim_in(service, s, p, campaign_id, plan):
         if service.require_prepared_scripts
         else ops.comparison_assignment(service, s, p, campaign, lead, "script", rep_id=p["user_id"])
     )
-    reservation = put(
+    from app.calling.reservations import hold
+
+    reservation = hold(
         s,
-        "reservations",
-        p["tenant_id"],
-        p["seller_id"],
+        p,
+        lead,
+        number,
         {
-            "rep_id": p["user_id"],
-            "lead_id": lead.id,
-            "endpoint_id": lead.data["endpoint_id"],
-            "number_id": number.id,
-            "expires_at": (now + timedelta(minutes=2)).isoformat(),
-            "status": "reserved",
             "dial_scope": {
                 "dial_lists": p.get("dial_lists"),
                 "callback_lead_id": p.get("callback_lead_id"),
-                **({"test_only": True} if p.get("test_only") else {}),
-                **({"test_run_id": p["test_run_id"]} if p.get("test_run_id") else {}),
             },
             "policy_id": campaign.data["policy_id"],
             "coaching_comparison": coach_comparison,
             "script_comparison": script_comparison,
         },
         now=now,
-    )
-    s.add(
-        ActiveClaim(
-            tenant_id=p["tenant_id"],
-            seller_id=p["seller_id"],
-            endpoint_id=lead.data["endpoint_id"],
-            lead_id=lead.id,
-            rep_id=p["user_id"],
-            number_id=number.id,
-            reservation_id=reservation.id,
-            expires_at=now + timedelta(minutes=2),
-        )
     )
     binding = ops._by_key(service, s, p, "lead_number_bindings", lead.id)
     shared = service.managed.pool is not None

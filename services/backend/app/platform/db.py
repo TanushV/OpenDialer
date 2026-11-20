@@ -107,6 +107,7 @@ TABLES = [
     "policy_versions",
     "leads",
     "phone_endpoints",
+    "test_contacts",
     "suppressions",
     "registry_snapshots",
     "compliance_decisions",

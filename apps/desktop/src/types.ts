@@ -13,6 +13,7 @@ export interface Runtime {
   simulation: boolean;
 }
 export interface Lead {
+  test_contact?: boolean;
   id: string;
   version: number;
   name: string;
@@ -76,6 +77,7 @@ export interface Trigger {
   from_row: boolean;
 }
 export interface FollowupTask {
+  test_contact?: boolean;
   lead_name?: string;
   lead_company?: string;
   id: string;
@@ -184,6 +186,7 @@ export interface Coach {
   remaining_ms?: number;
 }
 export interface Call {
+  test_contact?: boolean;
   /** A call to the rep's own test phone: excluded from learning, and calling pauses after it. */
   is_test?: boolean;
   dial_scope?: { test_only?: boolean; test_run_id?: string };

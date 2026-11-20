@@ -125,9 +125,11 @@ export function WrapUp({
         { ...body, request_id: pending.current.request_id },
       );
       notice(
-        outcome === "meeting_booked" || outcome === "meeting_held"
-          ? "Meeting recorded as rep-reported. Outreach is paused."
-          : "Outcome saved. Analysis continues in the background.",
+        call.test_contact
+          ? "Test outcome saved."
+          : outcome === "meeting_booked" || outcome === "meeting_held"
+            ? "Meeting recorded as rep-reported. Outreach is paused."
+            : "Outcome saved. Analysis continues in the background.",
       );
       // The saved outcome is final; later refresh work reports its own errors.
       onSaved(result);
@@ -208,7 +210,7 @@ export function WrapUp({
           </select>
         </label>
       </details>
-      {outcome === "callback_requested" && (
+      {!call.test_contact && outcome === "callback_requested" && (
         <label>
           Confirmed callback time ({zoneCaption(zone)})
           <input

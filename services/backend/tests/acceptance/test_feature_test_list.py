@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from helpers import finish
 from journey import call, get, post, ready, run_jobs
-from test_feature_calling import Telnyx, inbound, inbound_task
+from test_feature_calling import Telnyx, edit_task, inbound, inbound_task
 
 PHONES = ["+12025550198", "+12025550199"]
 ROWS = [
@@ -14,7 +14,9 @@ ROWS = [
 ]
 
 
-def test_settings_test_list_reuses_script_and_queue_without_touching_outreach(workspace, carrier, clock):
+def test_settings_test_list_calls_each_phone_without_preparation_or_outreach_changes(
+    workspace, carrier, clock
+):
     ws = workspace
     campaign = ws["campaign_id"]
     production = post(
@@ -32,18 +34,16 @@ def test_settings_test_list_reuses_script_and_queue_without_touching_outreach(wo
     assert not carrier.dials
 
     prep = get(ws, "/v1/preparation")
-    assert next(row for row in prep["lists"] if row["list_name"] == list_name)["unrequested"] == 2
-    assert post(ws, "/v1/preparation/lists", {"list_name": list_name})["marked"] == 2
-    run_jobs(ws, rounds=4)
+    assert all(row["list_name"] != list_name for row in prep["lists"])
     clock.now = datetime(2026, 10, 15, 1, 0, tzinfo=UTC)
     for iteration in range(2):
         run = post(ws, "/v1/settings/test-list/start")
         assert run["phones"] == PHONES
         ready(ws)
-        request = {**queue, "test_only": True, "test_run_id": run["id"]}
+        request = {"test_run_id": run["id"]}
         called = []
         for index in range(2):
-            reservation = post(ws, "/v1/queue/next", request)
+            reservation = post(ws, "/v1/calls/test/reserve", request)
             called.append(reservation["lead"]["phone"])
             placed = post(
                 ws,
@@ -53,14 +53,16 @@ def test_settings_test_list_reuses_script_and_queue_without_touching_outreach(wo
                     "idempotency_key": f"test-{iteration}-{index}",
                 },
             )
-            assert placed["is_test"] and placed["script_snapshot"]["fallback"] is False
+            assert placed["is_test"] and placed["script_snapshot"] is None
             assert "time_limit_secs" not in carrier.dials[-1]
             assert carrier.dials[-1]["answering_machine_detection"] == "premium"
             finish(ws, placed, outcome="not_interested")
         assert sorted(called) == PHONES
-        assert post(ws, "/v1/queue/next", request, status=409)["detail"]["code"] == "TEST_LIST_COMPLETE"
+        assert (
+            post(ws, "/v1/calls/test/reserve", request, status=409)["detail"]["code"] == "TEST_LIST_COMPLETE"
+        )
         assert get(ws, "/v1/workspace")["test_run"] is None
-        post(ws, "/v1/queue/next", request, status=409)
+        post(ws, "/v1/calls/test/reserve", request, status=409)
     other = get(ws, f"/v1/leads/{production['id']}/packet")["lead"]
     assert other["attempt_count"] == 0 and not other.get("last_outcome")
 
@@ -145,13 +147,18 @@ def test_callback_matches_the_test_contact_that_placed_the_call(workspace, clock
         },
     )
     finish(ws, placed, outcome="not_interested")
-    Telnyx(ws, clock).deliver(
-        "call.initiated",
-        inbound("test-list-return", PHONES[0], carrier.dials[-1]["from"]),
-        "test-list-return",
-    )
+    call(ws, "DELETE", "/v1/settings/test-call")
+    events = Telnyx(ws, clock)
+    callback = inbound("test-list-return", PHONES[0], carrier.dials[-1]["from"])
+    events.deliver("call.initiated", callback, "test-list-return")
     run_jobs(ws)
     task = inbound_task(ws, "test-list-return")
     assert task["lead_id"] == uploaded["contacts"][0]["id"]
+    assert task["lead_name"] == ROWS[0]["name"]
     assert task["previous_call_id"] == placed["id"]
     assert task["ambiguous"] is False
+    events.deliver("call.hangup", callback, "test-list-return-ended")
+    run_jobs(ws)
+    ended = inbound_task(ws, "test-list-return")
+    assert ended["inbound_state"] == "ended"
+    assert edit_task(ws, ended, status="completed")["status"] == "completed"

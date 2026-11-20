@@ -368,8 +368,9 @@ def test_csv_writeback_uses_the_selected_owner_and_resolves_the_prospect(workspa
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("is_test", [False, True], ids=["outreach", "test-phone"])
 def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_relay(
-    workspace, carrier, monkeypatch
+    workspace, carrier, monkeypatch, is_test
 ):
     ws = workspace
     setup(ws, monkeypatch)
@@ -414,8 +415,15 @@ def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_rela
     status = get(ws, "/v1/preparation")
     assert not status["threads"]
     assert next(row for row in status["lists"] if row["list_name"] == "HubSpot list")["unrequested"] == 1
+    if is_test:
+        call(ws, "PUT", "/v1/admin/settings", json={"test_phone": A})
+        post(ws, "/v1/settings/test-call")
     ready(ws)
-    selected = post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"], "list_names": ["HubSpot list"]})
+    selected = (
+        post(ws, "/v1/calls/test/reserve")
+        if is_test
+        else post(ws, "/v1/queue/next", {"campaign_id": ws["campaign_id"], "list_names": ["HubSpot list"]})
+    )
     assert selected["lead"]["phone"] == A and selected["number"]["phone"] == chosen
     response = post(
         ws,
@@ -426,8 +434,17 @@ def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_rela
         },
     )
     assert response["number_id"] == selected["number"]["id"]
+    assert response["is_test"] is is_test
     assert carrier.dials[-1]["from"] == chosen
     assert [name for name, _ in requests] == ["relay_pool_reserve", "relay_pool_submit"]
+    if is_test:
+        from app import ops
+        from helpers import principal
+
+        service = ws["client"].app.state.service
+        p = principal(ws)
+        with service.db.transaction(False) as s:
+            assert not ops.scoped(service, s, "lead_number_bindings", p)
 
 
 def test_a_hubspot_list_syncs_checks_numbers_and_do_not_call_then_logs_the_call(workspace, monkeypatch):
@@ -667,13 +684,15 @@ def test_a_test_call_to_a_hubspot_number_remains_local(workspace, monkeypatch):
     fakes = setup(ws, monkeypatch)
     post(ws, "/v1/hubspot/sync", {"list_id": "77", "list_name": "HubSpot list"})
     run_jobs(ws, rounds=3)
+    before_test = list(fakes.calls)
     response = ws["client"].put("/v1/admin/settings", headers=ws["headers"], json={"test_phone": A})
     assert response.status_code == 200, response.text
     post(ws, "/v1/settings/test-call")
     reservation = reserve(ws)
     assert reservation.status_code == 200, reservation.text
     packet = reservation.json()
-    assert packet["lead"]["external_id"] == "1" and packet["lead"]["phone"] == A
+    assert packet["lead"]["test_contact"] and packet["lead"]["phone"] == A
+    assert packet["lead"]["id"] != crm_leads(ws)["1"]["id"]
     call = post(
         ws, "/v1/calls/start", {"reservation_id": packet["reservation_id"], "idempotency_key": "crm-test-1"}
     )
@@ -682,6 +701,7 @@ def test_a_test_call_to_a_hubspot_number_remains_local(workspace, monkeypatch):
     before = list(fakes.writes)
     wrap_up(ws, call["id"], outcome="wrong_party")
     run_jobs(ws, rounds=3)
+    assert fakes.calls == before_test
     assert get(ws, f"/v1/calls/{call['id']}")["is_test"] is True
     assert not fakes.created_calls
     assert fakes.writes == before
@@ -694,7 +714,7 @@ def test_a_test_call_to_a_hubspot_number_remains_local(workspace, monkeypatch):
     p = principal(ws)
     with service.db.transaction() as s:
         update(ops.required(service, s, "call_attempts", call["id"], p), crm_logged="old-test-activity")
-        update(ops._by_key(service, s, p, "call_summaries", call["id"]), summary="Test call")
+        assert ops._by_key(service, s, p, "call_summaries", call["id"]) is None
     assert client.portal.call(crm.log_job, service, p, call["id"]) == {"skipped": True}
     assert client.portal.call(crm.summary_job, service, p, call["id"]) == {"skipped": True}
     assert not fakes.created_calls and fakes.writes == before
@@ -729,18 +749,19 @@ def test_a_test_call_uses_the_saved_hubspot_phone_before_screening(
     held = reserve(ws, list_names=["HubSpot list"])
     assert held.status_code == 409 and "DNC_NOT_CHECKED" in held.text
 
-    # A previous Test session left the built-in test number in the Test line list.
+    # A previously armed test destination cannot override the phone now in Settings.
     client, headers = ws["client"], ws["headers"]
     assert client.put("/v1/admin/settings", headers=headers, json={"test_phone": "+12038211101"}).is_success
     post(ws, "/v1/settings/test-call")
     assert client.put("/v1/admin/settings", headers=headers, json={"test_phone": A}).is_success
     started = post(ws, "/v1/settings/test-call")
-    assert started["lead_id"] == crm_leads(ws)["1"]["id"]
+    outreach_id = crm_leads(ws)["1"]["id"]
+    assert started["lead_id"] != outreach_id
     if retry_scheduled:
         # Maintenance can schedule a CRM lead again while the Test session is still armed.
         service = client.app.state.service
         with service.db.transaction() as s:
-            lead = ops.required(service, s, "leads", started["lead_id"], principal(ws))
+            lead = ops.required(service, s, "leads", outreach_id, principal(ws))
             update(lead, next_attempt_at=(clock.now + timedelta(days=1)).isoformat())
 
     assert get(ws, "/v1/calling/readiness")["callable_now"] == 1

@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from app import ops
+from app.calling import test_calls
 from app.calling.decide import Situation, require
 from app.compliance.policy import authorize
 from app.leads.csv_call_history import apply_history, read_history
@@ -31,46 +32,52 @@ def use_binding(service, p, provisional, selected, *, accepted):
         )
         if not live:
             return False
-        lead = ops.required(service, s, "leads", saved["lead_id"], p)
+        lead = ops.call_recipient(service, s, p, saved)
         number = ops._by_key(service, s, p, "number_inventory", selected) if selected else None
-        if number is not None and claim.endpoint_id == lead.data["endpoint_id"]:
-            binding = ops._by_key(service, s, p, "lead_number_bindings", lead.id)
-            if binding is None:
-                put(
-                    s,
-                    "lead_number_bindings",
-                    scope,
-                    p["seller_id"],
-                    {"lead_id": lead.id, "number_id": number.id},
-                    key=lead.id,
-                    now=service.clock(),
-                )
-            elif doc(binding)["number_id"] != number.id:
-                update(binding, number_id=number.id)
-            if accepted:
-                decision = authorize(ops.context(service, s, {**p, **saved["dial_scope"]}, lead, number))
-                if decision.allowed:
-                    decision_row = ops.required(
-                        service, s, "policy_decisions", saved["policy_decision_id"], p
-                    )
-                    allocation = doc(decision_row)["allocation"]
-                    if allocation["number_id"] != number.id:
-                        update(
-                            decision_row,
-                            allocation={**allocation, "number_id": number.id, "reason": "existing_binding"},
-                        )
-                    update(reservation, number_id=number.id, pool_ref=reservation.id)
-                    claim.number_id = number.id
-                    provisional["number"] = doc(number)
-                    emit(s, scope, "reservation.created", reservation, service.clock())
-                    return True
+        if (
+            number is not None
+            and claim.endpoint_id == lead.data["endpoint_id"]
+            and _accept_number(service, s, p, lead, number, saved, accepted)
+        ):
+            update(reservation, number_id=number.id, pool_ref=reservation.id)
+            claim.number_id = number.id
+            provisional["number"] = doc(number)
+            emit(s, scope, "reservation.created", reservation, service.clock())
+            return True
         update(reservation, status="cancelled")
         s.delete(claim)
         return False
 
 
+def _accept_number(service, s, p, lead, number, saved, accepted):
+    if saved.get("test_contact"):
+        return accepted and test_calls.authorized(service, s, p, lead, number, saved["dial_scope"]).allowed
+    binding = ops._by_key(service, s, p, "lead_number_bindings", lead.id)
+    if binding is None:
+        put(
+            s,
+            "lead_number_bindings",
+            workspace(p),
+            p["seller_id"],
+            {"lead_id": lead.id, "number_id": number.id},
+            key=lead.id,
+            now=service.clock(),
+        )
+    elif doc(binding)["number_id"] != number.id:
+        update(binding, number_id=number.id)
+    if (
+        not accepted
+        or not authorize(ops.context(service, s, {**p, **saved["dial_scope"]}, lead, number)).allowed
+    ):
+        return False
+    decision = ops.required(service, s, "policy_decisions", saved["policy_decision_id"], p)
+    allocation = doc(decision)["allocation"]
+    if allocation["number_id"] != number.id:
+        update(decision, allocation={**allocation, "number_id": number.id, "reason": "existing_binding"})
+    return True
+
+
 async def reserve(service, p, campaign_id, names, callback):
-    managed = service.managed
     for _ in range(8):
         provisional = await asyncio.to_thread(ops.reserve, service, p, campaign_id, names, callback)
         result = await read_history(service, p, provisional["lead"])
@@ -84,6 +91,11 @@ async def reserve(service, p, campaign_id, names, callback):
                 "message": "HubSpot call history held eight contacts in this pass. Start calling again to check the next contacts.",
             },
         )
+    return await assign(service, p, provisional)
+
+
+async def assign(service, p, provisional):
+    managed = service.managed
     preferred_is_bound = provisional.pop("preferred_is_bound", None)
     if preferred_is_bound is None:
         return provisional

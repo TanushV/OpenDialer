@@ -80,7 +80,7 @@ function StatusBar({
   const { phase, packet, act, testPhone, testList, problem, settling } = loop;
   const { run } = useWorkspace();
   const outcome = loop.call?.state === "FINALIZED" ? loop.call.outcome : null;
-  const lead = packet?.lead;
+  const lead = packet?.lead ?? loop.testContact;
   const identity = lead?.company
     ? `${lead.name} · ${lead.company}`
     : lead?.name;
@@ -291,7 +291,8 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
       {between && !testing && <DueTasks />}
       {(phase.kind === "talking" ||
         (phase.kind === "voicemail" && phase.final)) &&
-        call && (
+        call &&
+        !call.test_contact && (
           <LiveCoach
             call={call}
             onChange={loop.act.reload}
@@ -305,6 +306,12 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
           timezone={packet?.lead.timezone}
           onSaved={loop.act.saved}
         />
+      )}
+      {loop.testContact && (
+        <section className="card lead-card" aria-label="Test phone">
+          <h2 data-testid="lead-name">{loop.testContact.name}</h2>
+          <p className="muted">{loop.testContact.phone}</p>
+        </section>
       )}
       {packet && script ? (
         <div className="lead-and-script">
@@ -354,14 +361,23 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
         </div>
       ) : null}
       {import.meta.env.DEV && w.simulation && call && isActiveCall(call) && (
-        <SimulationTools callId={call.id} />
+        <SimulationTools
+          callId={call.id}
+          allowTranscript={!call.test_contact}
+        />
       )}
     </>
   );
 }
 
 /** Development only: drive a simulated call the way the carrier would. */
-function SimulationTools({ callId }: { callId: string }) {
+function SimulationTools({
+  callId,
+  allowTranscript,
+}: {
+  callId: string;
+  allowTranscript: boolean;
+}) {
   const { api, run } = useWorkspace();
   const [text, setText] = useState("");
   const simulate = (type: string) =>
@@ -417,24 +433,26 @@ function SimulationTools({ callId }: { callId: string }) {
           Mailbox beep
         </button>
       </div>
-      <div className="input-row">
-        <input
-          aria-label="Simulation transcript"
-          value={text}
-          placeholder="Add a fictional prospect turn…"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void run(addTurn);
-          }}
-        />
-        <button
-          className="icon-button"
-          aria-label="Add prospect turn"
-          onClick={() => void run(addTurn)}
-        >
-          +
-        </button>
-      </div>
+      {allowTranscript && (
+        <div className="input-row">
+          <input
+            aria-label="Simulation transcript"
+            value={text}
+            placeholder="Add a fictional prospect turn…"
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void run(addTurn);
+            }}
+          />
+          <button
+            className="icon-button"
+            aria-label="Add prospect turn"
+            onClick={() => void run(addTurn)}
+          >
+            +
+          </button>
+        </div>
+      )}
     </div>
   );
 }

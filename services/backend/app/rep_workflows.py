@@ -501,8 +501,9 @@ def edit_task(service, p, task_id, data):
         # promise) so post-call work and packet refresh wait instead of going stale.
         if task.data.get("call_id"):
             get(s, "call_attempts", task.data["call_id"], p["tenant_id"], lock=True)
-        if task.data.get("lead_id"):
-            get(s, "leads", task.data["lead_id"], p["tenant_id"], lock=True)
+        lead_id = None if task.data.get("test_contact") else task.data.get("lead_id")
+        if lead_id:
+            get(s, "leads", lead_id, p["tenant_id"], lock=True)
         s.refresh(task, with_for_update=True)
         identity = ops.local_edit_in(service, s, p, "task", task_id, task, data, "owner_id")
         if identity[2]:
@@ -557,8 +558,8 @@ def edit_task(service, p, task_id, data):
             edited_at=service.clock().isoformat(),
             edited_by=p["user_id"],
         )
-        if task.data.get("lead_id"):
-            lead = ops.required(service, s, "leads", task.data["lead_id"], p)
+        if lead_id:
+            lead = ops.required(service, s, "leads", lead_id, p)
             ops._sync_callback(service, s, p, lead)
             ops.refresh_packet_in(service, s, p, lead)
         audit(
@@ -823,7 +824,6 @@ def save_disposition(service, p, call_id, data, *, source="rep_reported", only_i
         identity = ops.local_edit_in(service, s, p, "disposition", call_id, call, data, "rep_id")
         if call.data["state"] not in TERMINAL:
             fail(409, "End the call before wrap-up")
-        lead = ops.required(service, s, "leads", call.data["lead_id"], p, lock=True)  # Call, then lead.
         canonical = disposition_input(call.data, data, outcome, due)
         duplicate = (
             call.data.get("disposition_input") == canonical and call.data.get("outcome_source") == source
@@ -832,6 +832,11 @@ def save_disposition(service, p, call_id, data, *, source="rep_reported", only_i
         replayed = bool(identity[2])
         if (only_if_unsaved or source != "rep_reported") and (edit_version or call.data.get("outcome")):
             fail(409, "A human or previous tool already saved this outcome")
+        if call.data.get("test_contact"):
+            return _save_test_disposition(
+                service, s, p, call, canonical, source, identity, replayed or duplicate
+            )
+        lead = ops.required(service, s, "leads", call.data["lead_id"], p, lock=True)  # Call, then lead.
         previous_outcome = call.data.get("outcome")
         correcting_confirmed = call.data["state"] == "FINALIZED"
         correcting_meeting = (
@@ -913,6 +918,39 @@ def save_disposition(service, p, call_id, data, *, source="rep_reported", only_i
     return result
 
 
+def _save_test_disposition(service, s, p, call, canonical, source, identity, unchanged):
+    from app import test_list
+
+    if not unchanged:
+        original = call.data["state"] != "FINALIZED"
+        recipient = test_list.call_recipient(service, s, p, call.data)
+        if canonical["outcome"] == "opt_out":
+            ops.suppress(
+                service,
+                p,
+                recipient.data["phone"],
+                "opt_out",
+                event_id=f"disposition:{call.id}:opt_out",
+                session=s,
+            )
+        ops._wrapup_note(service, s, p, call, canonical, canonical["outcome"])
+        _save_call_outcome(service, call, canonical, source, call.data.get("edit_version", 0), is_test=True)
+        test_list.complete_call(service, s, p, call)
+        if original and not call.data["dial_scope"].get("test_run_id"):
+            user = ops.required(service, s, "users", p["user_id"], p, lock=True)
+            test_list.close(service, s, p, user)
+            ops.end_test_session(service, p)
+        emit(s, p["tenant_id"], "call.updated", call, service.clock())
+    receipt = identity[2] or ops.local_edit_receipt(service, s, p, identity, call)
+    return {
+        **doc(call),
+        "edit_receipt": receipt,
+        "canonical_task_id": None,
+        "callback_review": None,
+        "suggested_outcome": None,
+    }
+
+
 def _wrapup_note(service, s, p, call, canonical, outcome):
     """A wrap-up callback note is appended to the call's human note."""
     if not canonical["callback_note"] or canonical["callback_note"] == call.data.get(
@@ -954,8 +992,7 @@ def _wrapup_note(service, s, p, call, canonical, outcome):
     )
 
 
-def _apply_outcome(service, s, p, call, lead, canonical, source, edit_version, *, endpoint):
-    """The outcome on the call, the lead and, for a bad number, its endpoint."""
+def _save_call_outcome(service, call, canonical, source, edit_version, *, is_test):
     outcome = canonical["outcome"]
     prior = (
         [
@@ -975,16 +1012,22 @@ def _apply_outcome(service, s, p, call, lead, canonical, source, edit_version, *
         **moved(call.data, "outcome.saved", service.clock()),
         callback_at=canonical["callback_at"],
         disposition_input=canonical,
-        # A call placed as a test (the owner's line, or the rep's own test phone in a test session) stays one.
-        is_test=bool(call.data.get("is_test"))
-        or lead.data["phone"] in TEST_LINES
-        or bool(canonical.get("delivery_test")),
+        is_test=is_test,
         edit_version=edit_version + 1,
         outcome_available_at=service.clock().isoformat(),
         outcome_source=source,
         contact_role=canonical["contact_role"],
         outcome_history=[*call.data.get("outcome_history", []), *prior],
     )
+
+
+def _apply_outcome(service, s, p, call, lead, canonical, source, edit_version, *, endpoint):
+    """The outcome on the call, the lead and, for a bad number, its endpoint."""
+    is_test = bool(
+        call.data.get("is_test") or lead.data["phone"] in TEST_LINES or canonical.get("delivery_test")
+    )
+    _save_call_outcome(service, call, canonical, source, edit_version, is_test=is_test)
+    outcome = canonical["outcome"]
     update(lead, last_outcome=outcome, last_outcome_at=service.clock().isoformat())
     if endpoint and outcome in {"wrong_party", "invalid_endpoint"}:
         if endpoint.id == lead.data["endpoint_id"]:

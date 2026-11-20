@@ -15,7 +15,7 @@ import {
   prepareCallSounds,
 } from "../telephony/ringer";
 import { captureSpeech } from "../telephony/speech";
-import type { Call, Packet, Reservation } from "../types";
+import type { Call, Lead, Packet, Reservation } from "../types";
 import { isActiveCall, isTerminal } from "../types";
 import {
   callProblem,
@@ -86,6 +86,7 @@ export function useCallLoop() {
   const callRef = useRef(call);
   callRef.current = call;
   const [packet, setPacket] = useState<Packet | null>(null);
+  const [testContact, setTestContact] = useState<Lead | null>(null);
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [finished, setFinished] = useState<QueueStatus | null>(null);
   const [problem, setProblem] = useState<CallProblem | null>(null);
@@ -237,9 +238,14 @@ export function useCallLoop() {
       mine.find((c) => !isTerminal(c)) ?? mine.find((c) => owesOutcome(c));
     if (current && !callRef.current) {
       setCall(current);
-      void run(async () =>
-        setPacket(await api<Packet>(`/v1/leads/${current.lead_id}/packet`)),
-      );
+      void run(async () => {
+        if (current.test_contact)
+          setTestContact(
+            await api<Lead>(`/v1/test-contacts/${current.lead_id}`),
+          );
+        else
+          setPacket(await api<Packet>(`/v1/leads/${current.lead_id}/packet`));
+      });
     }
   }, [w.calls]);
 
@@ -523,16 +529,18 @@ export function useCallLoop() {
       }
       let next: Reservation;
       try {
-        next = await nextLeadWithRetry(
-          () =>
-            api<Reservation>("/v1/queue/next", "POST", {
-              campaign_id: w.campaign.id,
-              list_names: testRun.current ? null : dialLists(),
-              test_only: testRun.current,
+        next = testRun.current
+          ? await api<Reservation>("/v1/calls/test/reserve", "POST", {
               test_run_id: testRunId.current,
-            }),
-          { onWaiting: () => {} },
-        );
+            })
+          : await nextLeadWithRetry(
+              () =>
+                api<Reservation>("/v1/queue/next", "POST", {
+                  campaign_id: w.campaign.id,
+                  list_names: dialLists(),
+                }),
+              { onWaiting: () => {} },
+            );
       } catch (error) {
         if (error instanceof ApiError && error.code === "TEST_LIST_COMPLETE") {
           await pauseCalling();
@@ -556,7 +564,12 @@ export function useCallLoop() {
       }
       setFinished(null);
       setEditing(false);
-      setPacket(await api<Packet>(`/v1/leads/${next.lead.id}/packet`));
+      setTestContact(next.lead.test_contact ? next.lead : null);
+      setPacket(
+        next.lead.test_contact
+          ? null
+          : await api<Packet>(`/v1/leads/${next.lead.id}/packet`),
+      );
       // Pause pressed while the lead was reserved or loading: no call is placed and the lead is given back.
       if (await pausedMeanwhile(true)) return;
       if (
@@ -644,6 +657,7 @@ export function useCallLoop() {
         callRef.current = null;
         setCall(null);
         setPacket(null);
+        setTestContact(null);
       }
       testRunId.current = armTestPhone ? null : (testList?.id ?? null);
       testRun.current = testing;
@@ -652,12 +666,14 @@ export function useCallLoop() {
       if (await pausedMeanwhile(false)) return;
       setStarted(true);
       callingRef.current = true;
-      try {
-        await refresh();
-      } catch (error) {
-        // The workspace read can trigger session renewal. This same Start action checks
-        // authorization again before it can reserve a lead.
-        if (!(error instanceof ApiError && error.status === 401)) throw error;
+      if (!testing) {
+        try {
+          await refresh();
+        } catch (error) {
+          // The workspace read can trigger session renewal. This same Start action checks
+          // authorization again before it can reserve a lead.
+          if (!(error instanceof ApiError && error.status === 401)) throw error;
+        }
       }
       if (await pausedMeanwhile(false)) return;
       callingRef.current = true;
@@ -842,7 +858,7 @@ export function useCallLoop() {
     }
     setEditing(false);
     setCallbackReview(result.callback_review ?? null);
-    if (code === "meeting_booked")
+    if (code === "meeting_booked" && !result.test_contact)
       notice(
         "Meeting recorded as rep-reported. Outreach to this lead is paused.",
       );
@@ -853,7 +869,7 @@ export function useCallLoop() {
     setCallbackReview(result.callback_review ?? null);
   }
   async function optOut() {
-    const lead = packet?.lead;
+    const lead = packet?.lead ?? testContact;
     if (!lead) return;
     journal.current.add(lead.phone, "opt_out");
     setPendingOptouts(true);
@@ -959,6 +975,7 @@ export function useCallLoop() {
     phase,
     call,
     packet,
+    testContact,
     setPacket,
     muted,
     editing,

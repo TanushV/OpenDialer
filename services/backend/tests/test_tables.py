@@ -43,6 +43,7 @@ ALLOWED = {
     "sellers",
     "suppressions",
     "tenants",
+    "test_contacts",
     "transcript_segments",
     "usage_ledger",
     "users",

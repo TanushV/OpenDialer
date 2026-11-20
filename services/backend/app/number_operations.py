@@ -278,6 +278,14 @@ def number_owners(service, s, phones):
     }
 
 
+def number_authorized(service, p, number):
+    return bool(
+        number
+        and number.seller_id == p["seller_id"]
+        and (service.settings.simulation or not number.data.get("synthetic"))
+    )
+
+
 def number_readiness_in(service, s, p, number):
     value = doc(number)
     if value.get("shared_pool"):
@@ -304,6 +312,7 @@ def number_readiness_in(service, s, p, number):
         if value.get("provider_recording_enabled") is not False:
             errors.append("recording_not_disabled")
     tested = ops.workspace_test_passed(service, s, p)
+    testing = ops.in_test_session(service, p) or test_list.test_list_run(service, s, p)
     external = assess_number_health(
         [],
         {"as_of": service.clock().isoformat()},
@@ -316,7 +325,7 @@ def number_readiness_in(service, s, p, number):
         "workspace_test_passed": tested,
         "outbound_ready": not errors
         and external["status"] != "investigating"
-        and tested
+        and (tested or bool(testing))
         and number_ready(value),
     }
 

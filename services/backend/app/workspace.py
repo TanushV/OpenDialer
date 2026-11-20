@@ -4,7 +4,7 @@ import hashlib
 
 from sqlalchemy import and_, func, literal_column, or_, select
 
-from app import ops
+from app import ops, test_list
 from app.lead_lists import active_membership, in_list
 from app.operational_schema import PAGE_TABLES
 from app.platform.db import MODELS, ActiveClaim, Event, Job, after_key, doc
@@ -244,10 +244,18 @@ def _mark_suppressed(service, s, p, leads):
         lead["suppressed"] = lead.get("phone") in blocked
 
 
+def _reservation_recipient(service, s, p, reserved):
+    recipient = test_list.call_recipient(service, s, p, reserved.data)
+    return test_list.test_contact_view(recipient) if reserved.data.get("test_contact") else doc(recipient)
+
+
 def _label_leads(service, s, p, records):
-    ids = {r["lead_id"] for r in records if r.get("lead_id")}
-    model = MODELS["leads"]
-    known = {r.id: r.data for r in s.scalars(scoped_query(model, p).where(model.id.in_(ids)))} if ids else {}
+    known = {}
+    for kind in ("leads", "test_contacts"):
+        ids = {r["lead_id"] for r in records if r.get("lead_id") and test_list.recipient_kind(r) == kind}
+        if ids:
+            model = MODELS[kind]
+            known.update({r.id: r.data for r in s.scalars(scoped_query(model, p).where(model.id.in_(ids)))})
     for item in records:
         lead = known.get(item.get("lead_id"), {})
         item.update(lead_name=lead.get("name"), lead_company=lead.get("company"))
@@ -343,7 +351,7 @@ def snapshot(service, p):
                 reservation = {
                     "reservation_id": reserved.id,
                     "expires_at": reserved.data["expires_at"],
-                    "lead": doc(ops.required(service, s, "leads", claim.lead_id, p)),
+                    "lead": _reservation_recipient(service, s, p, reserved),
                     "number": doc(ops.required(service, s, "number_inventory", claim.number_id, p)),
                 }
         for section, extra in (

@@ -68,6 +68,9 @@ hiding a defect.
 - **HubSpot** (`leads/hubspot_sync.py`, `crm.py`): a Service Key and an optional owner per desktop attribute call
   activity. A shared profile syncs its assigned segment and can also call local lists. The CRM worker links or creates
   a CSV prospect after the first connected call and logs the outcome. Test calls stay local.
+- **Test phones** (`calling/test_calls.py`, `test_list.py`): Settings stores approved destinations separately from
+  outreach. The Dialer reserves them directly and uses the same carrier command, playback and recovery code.
+  Test outcomes live with the call. A test never starts CRM sync, research, script generation or outreach cadence.
 - **Number checks** (`leads/waterfall.py`): for HubSpot leads only, through Treg, within a spend limit per list. CSV
   numbers are never checked. A number that may belong to someone else is held and shown in Review.
 - **Do-not-call** (`leads/dnc.py`): RealValidito for HubSpot leads, refreshed every 30 days.

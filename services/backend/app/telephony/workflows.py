@@ -162,9 +162,7 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
         payload = payload or {}
         with service.db.transaction(session=session) as s:
             call = ops.required(service, s, "call_attempts", call_id, p)
-            lead = ops.required(service, s, "leads", call.data["lead_id"], p)
-            campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
-            policy = ops.required(service, s, "policy_versions", campaign.data["policy_id"], p).data
+            lead, policy = _outreach_context(service, s, p, call)
             number = ops.required(service, s, "number_inventory", call.data["number_id"], p)
             if event_type == "call.hangup":
                 update(call, **events.hangup_facts(payload))
@@ -174,8 +172,10 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
                 outcome = events.carrier_outcome(call.data, payload)
                 if outcome:
                     update(call, carrier_outcome=outcome)
-                    ops._offer_second_attempt(service, s, call, lead, policy)
-            changes = events.machine(call.data, event_type, final=events.final_attempt(call.data, policy))
+                    if lead is not None:
+                        ops._offer_second_attempt(service, s, call, lead, policy)
+            final = lead is not None and events.final_attempt(call.data, policy)
+            changes = events.machine(call.data, event_type, final=final)
             if changes:
                 update(call, **changes)
                 emit(s, p["tenant_id"], "call.updated", call, service.clock())
@@ -186,9 +186,13 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
             changes, first_answer = events.human(call.data, event_type, service.clock())
             if changes:
                 update(call, **changes)
-                if first_answer:
+                if first_answer and lead is not None:
                     ops._keep_callback_promise(service, s, p, call, lead)
-            if event_type == "call.answered" and call.data["state"] not in TERMINAL | {"ENDING"}:
+            if (
+                lead is not None
+                and event_type == "call.answered"
+                and call.data["state"] not in TERMINAL | {"ENDING"}
+            ):
                 decision = authorize(
                     ops.context(
                         service,
@@ -207,12 +211,21 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
                 and call.data["state"] in TERMINAL
                 and (call.data.get("carrier_outcome") or call.data.get("rep_voicemail_at"))
             ):
-                ops.enqueue_aftercall(service, s, p, call)
+                if lead is not None:
+                    ops.enqueue_aftercall(service, s, p, call)
                 # Carrier outcomes and the rep's explicit voicemail outcome need no summary.
                 result["save_outcome"] = (p, call_id)
             receipt = ops._by_key(service, s, p, "provider_events", event_id)
             update(receipt, effects_complete=True)
         return result
+
+
+def _outreach_context(service, s, p, call):
+    if call.data.get("test_contact"):
+        return None, {}
+    lead = ops.required(service, s, "leads", call.data["lead_id"], p)
+    campaign = ops.required(service, s, "campaigns", lead.data["campaign_id"], p)
+    return lead, ops.required(service, s, "policy_versions", campaign.data["policy_id"], p).data
 
 
 def start_transcription_in(service, s, p, call):

@@ -331,6 +331,7 @@ def stress():
         "SOAK_SEED_START": str(secrets.randbits(32)),
         "SOAK_RUNS": "512",
         "SOAK_STEPS": "200",
+        "SOAK_TEST_RUNS": "64",
         "SOAK_SHARED_RUNS": "48",
         "SOAK_SHARED_EVENTS": "80",
         "SOAK_WORKERS": "6",

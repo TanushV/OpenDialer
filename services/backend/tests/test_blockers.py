@@ -119,13 +119,14 @@ def test_a_test_session_dials_only_the_owners_test_line(workspace, app):
     assert client.put("/v1/admin/settings", headers=headers, json={"test_session": True}).status_code == 409
     body = {"test_session": True, "test_phone": "+12038211101"}
     assert client.put("/v1/admin/settings", headers=headers, json=body).status_code == 200
-    # The queue offers nothing outside the Test line list, so no prospect is reserved.
-    assert reserve(workspace).status_code == 409
+    held = reserve(workspace)
+    assert held.is_success and held.json()["lead"]["phone"] == body["test_phone"]
+    assert held.json()["lead"]["test_contact"] is True
     assert ops.carrier(app.state.service, workspace["tenant_id"]).dials == []
 
 
 def test_a_test_call_dials_only_the_typed_test_phone_and_counts_as_a_test(workspace, app):
-    """R7.5: Test call adds the test phone as a lead and the queue offers only it."""
+    """R7.5: Test call reserves only the approved phone."""
     client, headers = workspace["client"], workspace["headers"]
     assert client.post("/v1/settings/test-call", headers=headers).status_code == 409
     client.put("/v1/admin/settings", headers=headers, json={"test_phone": "+12025550199"})
@@ -228,19 +229,29 @@ def test_a_test_call_to_the_owners_line_goes_ahead_at_night(workspace, app, cloc
     assert answer.json()["lead"]["id"] == started["lead_id"]
 
 
-def test_a_test_call_reaches_an_old_test_lead_that_still_carries_a_delivery_hold(workspace, app):
-    """Live check, November 10: the owner's test phone was an older lead held as `delivery_test`, so the queue never
-    offered it and the Dialer said no one was left. Starting a test session clears holds on that one lead."""
-    from app.platform.db import MODELS, update
+def test_a_test_call_ignores_an_old_lead_delivery_hold(workspace, app):
+    """Test calling bypasses an outreach hold and preserves the lead's hold."""
+    from app.platform.db import update
     from conftest import ready
-    from sqlalchemy import select
+    from helpers import principal
 
     client, headers = workspace["client"], workspace["headers"]
     client.put("/v1/admin/settings", headers=headers, json={"test_phone": "+12038211101"})
-    first = client.post("/v1/settings/test-call", headers=headers).json()
+    phone = "+12038211101"
+    imported = client.post(
+        "/v1/leads/import",
+        headers=headers,
+        json={
+            "campaign_id": workspace["campaign_id"],
+            "list_name": "Old tests",
+            "rows": [{"name": "Old test", "phone": phone}],
+            "prepare": False,
+        },
+    ).json()["leads"][0]
     with app.state.db.transaction() as s:
-        lead = s.scalars(select(MODELS["leads"]).where(MODELS["leads"].id == first["lead_id"])).one()
+        lead = ops.required(app.state.service, s, "leads", imported["id"], principal(workspace))
         update(lead, outreach_hold="delivery_test", attempt_count=3)
+    first = client.post("/v1/settings/test-call", headers=headers).json()
     client.delete("/v1/settings/test-call", headers=headers)
     again = client.post("/v1/settings/test-call", headers=headers).json()
     assert again["lead_id"] == first["lead_id"]
@@ -248,6 +259,9 @@ def test_a_test_call_reaches_an_old_test_lead_that_still_carries_a_delivery_hold
     answer = client.post("/v1/queue/next", headers=headers, json={"campaign_id": workspace["campaign_id"]})
     assert answer.status_code == 200, answer.text
     assert answer.json()["lead"]["id"] == first["lead_id"]
+    with app.state.db.transaction(False) as s:
+        lead = ops.required(app.state.service, s, "leads", imported["id"], principal(workspace))
+        assert lead.data["outreach_hold"] == "delivery_test" and lead.data["attempt_count"] == 3
 
 
 def test_saving_a_test_calls_outcome_ends_the_session_and_pauses_the_rep(workspace, app):

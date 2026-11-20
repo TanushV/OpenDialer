@@ -19,9 +19,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app import ops, test_list
-from app.calling import audio_leg, detection, pool_queue, timeline
+from app.calling import audio_leg, detection, pool_queue, test_calls, timeline
 from app.compliance.operating import DNCAuthorization, bind_operating_api
-from app.lead_lists import TEST_LIST, memberships
+from app.lead_lists import memberships
 from app.numbers import pool
 from app.platform.config import Settings
 from app.platform.db import Database, Event, audit, doc, put, rows, update
@@ -96,6 +96,10 @@ class QueueNext(Strict):
     list_names: list[str] | None = Field(default=None, max_length=200)
     callback_lead_id: str | None = None
     test_only: bool = False
+    test_run_id: str | None = Field(default=None, max_length=36)
+
+
+class ReserveTestCall(Strict):
     test_run_id: str | None = Field(default=None, max_length=36)
 
 
@@ -605,25 +609,21 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.post("/v1/queue/next")
     async def next_lead(data: QueueNext, p=Depends(principal)):
-        run = await asyncio.to_thread(
-            test_list.scope_for_queue, service, p, data.campaign_id, data.test_run_id
-        )
-        if run:
-            return await pool_queue.reserve(
-                service,
-                {**p, "test_only": True, "test_run_id": run["id"]},
-                data.campaign_id,
-                [test_list.NAME],
-                None,
-            )
-        if ops.in_test_session(service, p):
-            # A test session offers only the Test line list; dialing refuses any other number too.
-            return await pool_queue.reserve(
-                service, {**p, "test_only": True}, data.campaign_id, [TEST_LIST], None
-            )
-        if data.test_only:
-            fail(409, "The test session ended. Use Test call in Settings to call your test phone again.")
+        if data.test_run_id or data.test_only or ops.in_test_session(service, p):
+            return await reserve_test(ReserveTestCall(test_run_id=data.test_run_id), p)
+        await asyncio.to_thread(test_list.scope_for_queue, service, p, data.campaign_id, None)
         return await pool_queue.reserve(service, p, data.campaign_id, data.list_names, data.callback_lead_id)
+
+    @app.post("/v1/calls/test/reserve")
+    async def reserve_test(data: ReserveTestCall, p=Depends(principal)):
+        await asyncio.to_thread(test_list.scope_for_queue, service, p, None, data.test_run_id)
+        provisional = await asyncio.to_thread(test_calls.reserve, service, p, data.test_run_id)
+        return await pool_queue.assign(service, p, provisional)
+
+    @app.get("/v1/test-contacts/{contact_id}")
+    def read_test_contact(contact_id: str, p=Depends(principal)):
+        with db.transaction(False) as s:
+            return test_list.test_contact_view(ops.required(service, s, "test_contacts", contact_id, p))
 
     @app.get("/v1/blockers")
     def calling_blockers(p=Depends(principal)):
