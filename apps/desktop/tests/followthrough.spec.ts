@@ -551,7 +551,22 @@ test("a local callback is confirmed, rescheduled, retained on reload and complet
   await task.getByRole("button", { name: "Save follow-up" }).click();
   await expect(task.getByText("Open", { exact: true })).toBeVisible();
   await task.getByLabel(/^Callback time/).fill("2026-10-22T13:30");
+  // The second save must survive a slow authority response before we can check a reload.
+  await page.route(
+    "**/v1/tasks/*",
+    async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await route.continue();
+    },
+    { times: 1 },
+  );
+  const rescheduled = page.waitForResponse(
+    (response) =>
+      /\/v1\/tasks\/[^/]+$/.test(response.url()) &&
+      response.request().method() === "PATCH",
+  );
   await task.getByRole("button", { name: "Save follow-up" }).click();
+  expect((await rescheduled).ok()).toBeTruthy();
   await page.reload();
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await expect(task.getByLabel(/^Callback time/)).toHaveValue(
