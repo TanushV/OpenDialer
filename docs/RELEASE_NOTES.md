@@ -1,3 +1,11 @@
+# OpenDialer 2.4.1
+
+- **Test calling at any hour.** Use **Test call** in the Dialer or open a saved test list from Settings. Each attempt requires a fresh action and uses the usual Telnyx and audio controls.
+- **Keep test activity out of outreach.** Test calls skip HubSpot sync, lead lists, research, scripts, and outreach attempt limits. Prospect call history stays intact even when a test phone matches a prospect. Opt-outs still apply, and saved test lists carry over.
+- **Also includes the 2.4.0 changes.** Import finished scripts in a lead CSV, hang up while a call is connecting, and hear a voicemail greeting before choosing when to end the call.
+
+Updates from 1.0.x through 2.4.0 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.4.0
 
 - **Import finished scripts from CSV.** Add a `script` column with plain text or multiline Markdown. The app opens those scripts in Leads and Dialer and marks them ready immediately. Large files import into one list.

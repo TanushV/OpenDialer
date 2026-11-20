@@ -2233,3 +2233,5 @@ live check is open.
   Test calls share carrier, callback, playback and recovery paths. Prospect lists, prior outreach and scheduled CRM
   work stay untouched by test dialing. Saved legacy test phones migrate on first use. The extended stress run
   passed 624 cases starting at seed `1319960606`, including 64 test-phone cases and 48 two-rep relay cases.
+- November 20, 2026. The owner requested a new published version for test-call isolation. Prepare the signed 2.4.1
+  candidate after Verify on its version commit, then run the calling release checks on that build.
