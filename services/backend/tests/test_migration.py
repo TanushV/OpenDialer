@@ -82,6 +82,7 @@ def test_a_store_is_copied_transformed_and_the_source_is_untouched(tmp_path):
     Database("sqlite:///" + str(target / "opendialer.db")).engine.dispose()
 
 
+@pytest.mark.slow
 def test_a_migrated_store_is_not_migrated_again(tmp_path):
     source = make_source(tmp_path / "local-2")
     target = tmp_path / "local-3"
