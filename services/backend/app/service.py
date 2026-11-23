@@ -569,6 +569,12 @@ def import_leads(service, p, body, *, session=None):
         )
     if result["preparing"]:
         ops.prepare_tick(service, p)
+    if result["imported"]:
+        from app import crm
+
+        # A new list is checked against every HubSpot opt-out before it is called (work package 9.3 C3).
+        with service.db.transaction() as s:
+            crm.schedule_opt_outs_in(service, s, p, service.clock(), starting=True)
     return result
 
 

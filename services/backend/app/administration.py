@@ -255,6 +255,8 @@ def dial_blockers_in(service, s, p, *, rep, integrity_ok=True):
                 pending_optouts=presence.get("pending_optouts", 0),
                 rep_audio_ready=audio,
                 channel_limited=(conf.get("channel_limited_until") or "") > service.clock().isoformat(),
+                opt_outs_stale=not (p.get("test_only") or ops.in_test_session(service, p))
+                and ops.opt_outs_stale(service, p, service.clock()),
             )
         ),
     )

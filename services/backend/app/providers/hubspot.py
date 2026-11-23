@@ -264,6 +264,18 @@ class HubSpot:
             },
         )
 
+    async def opted_out_contacts(self, after=None):
+        """One page of contacts any rep marked opted out in OpenDialer (work package 9.3 C3)."""
+        body = {
+            "filterGroups": [
+                {"filters": [{"propertyName": "opendialer_opt_out", "operator": "EQ", "value": "true"}]}
+            ],
+            "properties": ["phone", "mobilephone", "opendialer_opt_out_reason"],
+            "limit": 100,
+            **({"after": after} if after else {}),
+        }
+        return await self.request("POST", "/crm/v3/objects/contacts/search", json=body)
+
     async def create_csv_contact(self, properties):
         """The unique key makes two first-call jobs and a lost create response safe to retry."""
         path = "/crm/v3/properties/contacts"

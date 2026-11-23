@@ -454,6 +454,30 @@ def master_script_required(workspace, app):
     assert reserve(ws, list_names=[name]).status_code == 200
 
 
+def opt_outs_not_synced(workspace, app, monkeypatch):
+    """Work package 9.3 C3: in after 9 business days without a HubSpot opt-out sync, out once it syncs."""
+    from datetime import timedelta
+
+    import httpx
+
+    service, p = app.state.service, principal(workspace)
+    client, headers = workspace["client"], workspace["headers"]
+    assert (
+        client.put("/v1/admin/settings", headers=headers, json={"hubspot_service_key": "hs"}).status_code
+        == 200
+    )
+    service.configs.write(
+        p["tenant_id"], {"hubspot_opt_outs_synced_at": (service.clock() - timedelta(days=15)).isoformat()}
+    )
+    assert "OPT_OUTS_NOT_SYNCED" in codes(workspace, app, rep=True)
+    empty = httpx.MockTransport(lambda request: httpx.Response(200, json={"results": []}))
+    monkeypatch.setattr(service, "http", httpx.AsyncClient(transport=empty), raising=False)
+    ready(workspace, status="paused")
+    ready(workspace)  # The exit: Start calling queues the pull.
+    assert client.post("/v1/admin/jobs/run", headers=headers).status_code == 200
+    assert "OPT_OUTS_NOT_SYNCED" not in codes(workspace, app, rep=True)
+
+
 EXIT_TESTS = {
     "SCRIPT_NOT_READY": script_not_ready,
     "MASTER_SCRIPT_REQUIRED": master_script_required,
@@ -468,6 +492,7 @@ EXIT_TESTS = {
     "CONNECTION_RECONNECTING": connection_reconnecting,
     "CONNECTION_DELIVERY_GAP": connection_delivery_gap,
     "NO_CAMPAIGN": no_campaign,
+    "OPT_OUTS_NOT_SYNCED": opt_outs_not_synced,
     "NO_CALLER_NUMBER": no_caller_number,
     "CALLER_NUMBER_ROUTE_REQUIRED": caller_number_route_required,
     "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": caller_number_callback_test_required,

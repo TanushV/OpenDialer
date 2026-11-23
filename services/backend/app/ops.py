@@ -338,6 +338,7 @@ HOMES = {
     "spoke_before": "app.calling.context",
     "attempt_voicemail_cue": "app.calling.context",
     "with_callback_number": "app.calling.context",
+    "opt_outs_stale": "app.crm",
     "voicemail_cue": "app.lead_lists",
 }
 

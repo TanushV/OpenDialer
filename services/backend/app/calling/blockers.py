@@ -69,6 +69,12 @@ CATALOG = {
         "dialer",
     ),
     "NO_CAMPAIGN": ("Import a lead list to start a campaign.", "leads"),
+    # Work package 9.3 C3: opt-outs from other reps arrive through HubSpot; the FCC allows 10 business days.
+    "OPT_OUTS_NOT_SYNCED": (
+        "Opt-outs from HubSpot have not synced for over 9 business days. Check the HubSpot key in Settings, then "
+        "press Start calling to sync.",
+        "settings",
+    ),
     "SCRIPT_NOT_READY": (
         "Leads need a current script. Open Leads and choose Generate scripts under Research and scripts.",
         "leads",
@@ -127,6 +133,7 @@ EXITS = {
     "CONNECTION_RECONNECTING": Exit(by_itself_within=60),
     "CONNECTION_DELIVERY_GAP": Exit(by_itself_within=60),
     "NO_CAMPAIGN": Exit(control="Leads: Import a list"),
+    "OPT_OUTS_NOT_SYNCED": Exit(control="Settings: check the HubSpot key, then Start calling"),
     "SCRIPT_NOT_READY": Exit(control="Leads: Generate scripts"),
     "MASTER_SCRIPT_REQUIRED": Exit(control="Script: Save script"),
     "NO_CALLER_NUMBER": Exit(control="Numbers: Buy or add a number, or ask the pool operator to add one"),
@@ -169,6 +176,8 @@ class Facts:
     rep_audio_ready: bool | None = None  # None when the question is not being asked (Settings).
     # Telnyx refused the last dial over the account's channel limit (R9C.4).
     channel_limited: bool = False
+    # HubSpot opt-outs have not synced for more than 9 business days (work package 9.3 C3).
+    opt_outs_stale: bool = False
 
 
 def blockers(facts):
@@ -188,6 +197,8 @@ def blockers(facts):
         codes.append(facts.connection)
     if not facts.campaign:
         codes.append("NO_CAMPAIGN")
+    if facts.opt_outs_stale:
+        codes.append("OPT_OUTS_NOT_SYNCED")
     if facts.number:
         codes.append(facts.number)
     if facts.pending_optouts:
