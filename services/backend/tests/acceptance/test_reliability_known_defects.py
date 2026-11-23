@@ -1,7 +1,8 @@
-"""Known defects from CALLING_SCRIPT_RELIABILITY_PLAN.md section 2, reproduced at 5466b36 (audit of November 23, 2026).
+"""Defects from CALLING_SCRIPT_RELIABILITY_PLAN.md section 2, reproduced at 5466b36 (audit of November 23, 2026).
 
-Each test states the required behavior and is marked `xfail(strict=True)`, so it documents the defect without
-turning `main` red and fails loudly once the work package fixes it (then remove the marker). They are not fixes.
+Each test states the required behavior. Rows fixed on `main` (e8b57b83, df020a89, 3d4a35dc, baaac15c) are now plain
+regression tests. A row still open stays marked `xfail(strict=True)`, so it documents the defect without turning
+`main` red and fails loudly once the work package fixes it (then remove the marker).
 Rows that live in the external generator (`saved_playbook()` tuple order, batch checkpointing) are outside this
 repository and have no test here.
 """
@@ -43,9 +44,6 @@ def _test_call(ws, *, from_list, key="known-defect"):
     return post(ws, "/v1/calls/start", {"reservation_id": held["reservation_id"], "idempotency_key": key})
 
 
-@pytest.mark.xfail(
-    strict=True, reason=ROW + "'Test script': calling/dial.py:101-109 stores no script for a test"
-)
 @pytest.mark.parametrize("from_list", [False, True])
 def test_a_test_call_carries_the_saved_base_script(workspace, app, from_list):
     save_helper_script(workspace)
@@ -54,11 +52,6 @@ def test_a_test_call_carries_the_saved_base_script(workspace, app, from_list):
     assert snapshot and snapshot.get("sections"), "the saved base script must be snapshotted on the test call"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=ROW
-    + "'Test helper': privacy.py:721 drops test transcripts; live_help.py:75 treats tests as ended",
-)
 def test_an_answered_test_call_gets_a_helper_reply(workspace, app, clock):
     ws = workspace
     with_helper(ws)
@@ -71,11 +64,6 @@ def test_an_answered_test_call_gets_a_helper_reply(workspace, app, clock):
     assert get(ws, f"/v1/calls/{placed['id']}")["coach"], "the helper must answer a practice turn"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=ROW
-    + "'Test speech startup': telephony/workflows.py:189 starts transcription only with an outreach lead",
-)
 def test_an_answered_test_call_starts_transcription(workspace, app):
     ws = workspace
     placed = _test_call(ws, from_list=False)
@@ -84,7 +72,7 @@ def test_an_answered_test_call_starts_transcription(workspace, app):
 
 
 def test_control_an_answered_outreach_call_starts_transcription(workspace, app):
-    """Control for the test above: the same check passes on an ordinary call, so the xfail is test-specific."""
+    """Control for the test above: the same check passes on an ordinary call, so the check is test-specific."""
     from journey import start
 
     call_id = start(workspace)["id"]
@@ -92,11 +80,6 @@ def test_control_an_answered_outreach_call_starts_transcription(workspace, app):
     assert _call_doc(app, workspace, call_id).get("transcription_layout")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=ROW
-    + "'Test eligibility': calling/test_calls.py:29 reads shared outreach holds (administration.py:675)",
-)
 @pytest.mark.parametrize("hold", ["temporary_hold", "wrong_party"])
 def test_an_outreach_hold_on_the_same_phone_does_not_block_practice(workspace, app, hold):
     ws = workspace
@@ -122,7 +105,7 @@ def test_an_outreach_hold_on_the_same_phone_does_not_block_practice(workspace, a
 
 @pytest.mark.xfail(
     strict=True,
-    reason="CALLING_SCRIPT_RELIABILITY_PLAN.md section 3.7: rep_workflows.py:918-927 turns a practice opt-out into "
+    reason="CALLING_SCRIPT_RELIABILITY_PLAN.md section 3.7: rep_workflows.py:930-938 (_save_test_disposition) turns a practice opt-out into "
     "a workspace-wide suppression of the same phone",
 )
 def test_a_practice_opt_out_stays_in_the_test_context(workspace, app):
@@ -149,17 +132,11 @@ def test_a_practice_opt_out_stays_in_the_test_context(workspace, app):
         assert not ops.suppressed(service, s, p, PHONE), "practice speech/outcomes must not suppress outreach"
 
 
-@pytest.mark.xfail(
-    strict=True, reason=ROW + "'Detection': calling/dial.py:75 requests premium detection for test lists"
-)
 def test_a_test_list_call_disables_answering_machine_detection(workspace, carrier):
     _test_call(workspace, from_list=True)
     assert carrier.dials[-1]["answering_machine_detection"] == "disabled"
 
 
-@pytest.mark.xfail(
-    strict=True, reason=ROW + "'Detection': calling/dial.py:75 requests premium detection for outreach"
-)
 def test_an_outreach_call_disables_answering_machine_detection(workspace, carrier):
     from journey import start
 
@@ -167,11 +144,6 @@ def test_an_outreach_call_disables_answering_machine_detection(workspace, carrie
     assert carrier.dials[-1]["answering_machine_detection"] == "disabled"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=ROW
-    + "'Callback verification copy': administration.py:322 shows CATALOG text with a literal {phone}",
-)
 def test_settings_shows_a_usable_callback_verification_step(request, carrier):
     ws = request.getfixturevalue("fresh")
     connect(ws)
