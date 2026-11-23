@@ -59,17 +59,15 @@ function* calls(): Generator<ScreenCall | null> {
   yield null;
   for (const state of CALL_STATES)
     for (const outcome of [null, "no_answer", "not_interested"])
-      for (const voicemail_turn of [false, true])
-        for (const machine_detected of [false, true])
-          for (const provider_hangup_source of [null, "callee", "caller"])
-            yield {
-              state,
-              outcome,
-              voicemail_turn,
-              machine_detected,
-              provider_hangup_source,
-              connected_seconds: 12,
-            };
+      for (const rep_voicemail_at of [null, "2026-11-22T12:00:00Z"])
+        for (const provider_hangup_source of [null, "callee", "caller"])
+          yield {
+            state,
+            outcome,
+            rep_voicemail_at,
+            provider_hangup_source,
+            connected_seconds: 12,
+          };
 }
 
 function* inputs(): Generator<ScreenInput> {
@@ -136,9 +134,16 @@ describe("the Dialer screen over every input (R9E.2)", () => {
         law(actions.includes("pause"), "Pause not reachable", context);
 
       // An unsaved ended call is saved with 1 to 6 before anything else happens, one save at a time.
+      // After End as voicemail, L and N also say whether a message was left (work package 6.12).
+      const voicemailKeys =
+        phase.kind === "ended" && phase.voicemail ? ["KeyL", "KeyN"] : [];
       if (unsaved && !saving)
         law(
-          phase.kind === "ended" && [...names].sort().join(",") === DIGITS,
+          phase.kind === "ended" &&
+            [...names]
+              .filter((n) => !voicemailKeys.includes(n))
+              .sort()
+              .join(",") === DIGITS,
           "an unsaved call cannot be saved with 1 to 6",
           context,
         );

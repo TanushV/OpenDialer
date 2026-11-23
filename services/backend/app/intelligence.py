@@ -7,6 +7,7 @@ import time
 from sqlalchemy import case, func, select
 
 from app import ops
+from app.calling.context import PERSON
 from app.leads.record import number_view
 from app.platform.config import LIMITS, PROVIDER_DEFAULTS, inference_model
 from app.platform.db import MODELS, audit, doc, emit, put, rows, uid, update
@@ -173,7 +174,7 @@ def packet(service, p, lead_id):
 
 
 def call_review(service, p, call_id):
-    """One call for Review: its outcome, the after-call summary, the rep's note and the 30-day transcript."""
+    """One call for Review: its outcome, the rep's note, a summary saved before 2.4.2, and no kept transcript."""
     from app.aftercall.trace import behavioral_metrics
 
     with service.db.transaction(False) as s:
@@ -437,25 +438,23 @@ async def maintenance_tick(service):
     return {"status": "failed" if errors else "passed", "completed": completed, "errors": errors}
 
 
-def enqueue_aftercall(service, s, p, call, *, retry=False):
-    """R10.2: one after-call summary per transcript version, queued when the call ends or its transcript changes.
-    A retry is its own job, so a failed summary can be written again (R10.4)."""
-    if call.data.get("test_contact") or call.data.get("state") not in {"ENDED", "FINALIZED", "ENDING"}:
-        return None
-    version = call.data.get("transcript_version", 0)
-    key = f"aftercall-summary:{call.id}:{version}" + (f":retry:{uid()}" if retry else "")
-    return service.jobs.enqueue_in(
-        s,
-        "postcall",
-        {
-            "kind": "aftercall_summary",
-            "call_id": call.id,
-            "seller_id": p["seller_id"],
-            "user_id": p.get("user_id") or call.data["rep_id"],
-        },
-        key,
-        tenant_id=p["tenant_id"],
+def record_script_trace(service, s, p, call):
+    """At call end: which script sections were read and how the prospect reacted, from word-free metadata only."""
+    from app.optimization.script_learning import script_trace
+
+    trace = script_trace(
+        call.data.get("script_snapshot") or {},
+        [r.data for r in ops.transcript_metadata(service, s, p, call.id)],
     )
+    if call.data.get("script_trace") != trace:
+        update(call, script_trace=trace)
+
+
+def enqueue_aftercall(service, s, p, call):
+    """No after-call summary: transcripts are deleted when the call ends (work package 9.3 C5, owner decision D7).
+
+    Kept as the one place that would queue it, so callers stay unchanged."""
+    return None
 
 
 def summary_model(service, p):
@@ -564,7 +563,7 @@ def drop_off_report(service, p):
                 continue
             summary = ops._by_key(service, s, p, "call_summaries", row.id)
             ended = summary.data.get("ended_at_part") if summary else None
-            if row.data.get("human_answered_at"):
+            if row.data.get("outcome") in PERSON:
                 transcript = [segment.data for segment in ops.transcript_metadata(service, s, p, row.id)]
                 if any(segment.get("script_match_version") for segment in transcript):
                     part = latest_match(transcript)
@@ -581,7 +580,7 @@ def drop_off_report(service, p):
                                 break
             calls.append(
                 {
-                    "human": bool(row.data.get("human_answered_at")),
+                    "human": bool(row.data.get("outcome") in PERSON),
                     "outcome": row.data.get("outcome"),
                     "ended_at_part": ended,
                 }

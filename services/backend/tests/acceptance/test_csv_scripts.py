@@ -110,3 +110,60 @@ def test_reimport_replaces_queued_generation_and_keeps_the_finished_script(works
     current = get(ws, f"/v1/leads/{identity}/packet")
     assert current["preparation"]["status"] == "ready"
     assert current["script"]["script_version"] == script["script_version"]
+
+
+PORTABLE = """# Opening
+Hi Morgan, this is {rep} with {seller}.
+
+# Close
+Would Tuesday work?
+"""
+
+
+def test_a_portable_script_takes_the_receiving_reps_identity_and_keeps_its_provenance(workspace, app):
+    """Work package 5.2 to 5.4: tokens fill on the receiving side; provenance rides along, never as script text."""
+    ws = workspace
+    me = get(ws, "/v1/workspace")
+    result = import_leads(
+        ws,
+        [
+            row(
+                "Morgan Portable",
+                "+14155550121",
+                script=PORTABLE,
+                script_format="1",
+                script_path="founder",
+                script_master_digest="abc123",
+                script_generator="opendialer-script-generator 1.0",
+            )
+        ],
+        list_name="Portable",
+    )
+    assert (result["imported"], result["scripts_imported"], result["invalid"]) == (1, 1, 0)
+    script = get(ws, f"/v1/leads/{result['leads'][0]['id']}/packet")["script"]
+    opener = script["sections"][0]["options"][0]["text"]
+    assert "{rep}" not in opener and "{seller}" not in opener
+    assert me["user"]["name"] in opener and me["seller"]["name"] in opener
+    assert script["provenance"] == {
+        "format": "1",
+        "path": "founder",
+        "master_digest": "abc123",
+        "generator": "opendialer-script-generator 1.0",
+    }
+
+
+def test_a_newer_generator_format_or_bad_metadata_is_refused_per_row(workspace):
+    ws = workspace
+    result = import_leads(
+        ws,
+        [
+            row("Newer", "+14155550122", script=PORTABLE, script_format="2"),
+            row("Bad format", "+14155550123", script=PORTABLE, script_format="one"),
+            row("Plain", "+14155550124", script=PORTABLE),
+        ],
+        list_name="Formats",
+    )
+    assert (result["imported"], result["scripts_imported"], result["invalid"]) == (1, 1, 2)
+    details = [error["detail"] for error in result["errors"]]
+    assert any("Update OpenDialer" in detail for detail in details)
+    assert any("whole number" in detail for detail in details)

@@ -1,6 +1,5 @@
 """Placing and ending a call (R4.5): durable dial and hang-up records, the claim on each carrier command, and read-only
-reconcile. A dial or hang-up is recorded before the carrier is asked, so a crash at any step never dials twice and never
-loses the call (`tests/test_crash_steps.py`).
+reconcile. Recorded before the carrier is asked, so a crash never dials twice or loses the call (`test_crash_steps.py`).
 """
 
 import asyncio
@@ -13,7 +12,7 @@ import httpx
 from sqlalchemy import select
 
 from app import ops
-from app.calling import test_calls
+from app.calling import hold, test_calls
 from app.calling.carrier_errors import PAUSE_SECONDS as CHANNEL_PAUSE
 from app.calling.carrier_errors import is_channel_limit
 from app.calling.decide import Situation, require
@@ -66,13 +65,14 @@ def _held_reservation(service, s, p, reservation_id, now):
     return reservation, claim, ReservationView.model_validate(reservation.data)
 
 
-def _dial_payload(service, scope, call_id, phone, caller, agent, *, test_only, test_run_id):
+def _dial_payload(service, scope, call_id, phone, caller, agent, *, test_only):
     return {
         "to": phone,
         "from": caller,
         "link_to": agent,
         "bridge_on_answer": True,
-        "answering_machine_detection": "disabled" if test_only and not test_run_id else "premium",
+        # The rep hears the call and ends voicemail; no detection on any new dial (work package section 6).
+        "answering_machine_detection": "disabled",
         "timeout_secs": service.configs.read(scope).get("outbound_ring_seconds", 40),
         "prevent_double_bridge": True,
         **({} if test_only else {"time_limit_secs": service.settings.max_call_seconds}),
@@ -95,7 +95,7 @@ def _authorize_script(service, s, p, lead, number, held):
     script, _ = ops.selected_script(
         service, s, p, lead, assignment=comparison, master_only=context.use_master
     )
-    return script, comparison
+    return ops.with_callback_number(script, number), comparison
 
 
 def _dial_script(service, s, p, lead, number, held):
@@ -106,7 +106,8 @@ def _dial_script(service, s, p, lead, number, held):
     if not decision.allowed:
         detail = ops.no_lead_detail(service, s, {**p, **held.dial_scope}, decision.reasons)
         fail(403, {**detail, "code": "CALL_DENIED"})
-    return None, None
+    # A test snapshots the saved base script, so a master edit during the call never changes it underneath.
+    return ops.with_callback_number(ops.fallback_script(service, s, p, lead), number), None
 
 
 def _prepare_call(service, p, data):
@@ -185,7 +186,6 @@ def _prepare_call(service, p, data):
             number.data["phone"],
             agent,
             test_only=test_only,
-            test_run_id=held.dial_scope.get("test_run_id"),
         )
         put(
             s,
@@ -320,7 +320,7 @@ def _submission_policy(service, s, p, call, lead, payload):
         and not context.own_test_line
     ):
         script = ops.selected_script(service, s, p, lead, master_only=context.use_master)[0]
-        update(call, script_snapshot=script)
+        update(call, script_snapshot=ops.with_callback_number(script, number))
     return decision, context
 
 
@@ -333,7 +333,12 @@ def _record_outreach_attempt(service, s, p, call, lead, context):
         service, lead.data, campaign.data, policy.data, ordinal
     )
     next_attempt = (service.clock() + timedelta(seconds=retry)).isoformat()
-    update(call, attempt_ordinal=ordinal, attempt_allowance=allowance, quick_retry=quick_retry)
+    cue = ops.attempt_voicemail_cue(
+        service, s, p, lead, campaign.data, ordinal, allowance, context.callback_due
+    )
+    update(
+        call, attempt_ordinal=ordinal, attempt_allowance=allowance, quick_retry=quick_retry, voicemail_cue=cue
+    )
     if context.pair_open:
         update(call, pair_of=attempts.pair_of)
     update(lead, pair_until=None, pair_rep_id=None, pair_of=None, pair_opened_at=None)
@@ -570,6 +575,10 @@ def _claim_hangup(service, p, call_id, owner, recovery_expected=None, mark_voice
             update(call, rep_voicemail_at=service.clock().isoformat())
         command_id = call.id + ":hangup"
         existing = ops._by_key(service, s, p, "command_outbox", command_id)
+        if hold.settle(
+            service, s, p, call, view, existing, voicemail=bool(mark_voicemail or view.rep_voicemail_at)
+        ):
+            return doc(call), None, None
         if view.state in TERMINAL and not (
             view.provider_id and existing and CommandView.model_validate(existing.data).status == "pending"
         ):

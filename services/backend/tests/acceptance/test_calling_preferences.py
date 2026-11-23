@@ -12,7 +12,16 @@ from journey import get, post, start
 @pytest.mark.parametrize("timezone", ["America/New_York", "America/Los_Angeles"])
 @pytest.mark.parametrize("day", ["2026-01-15", "2026-07-15"])
 @pytest.mark.parametrize(
-    "time,allowed", [("07:59", False), ("08:00", True), ("16:59", True), ("17:00", False)]
+    # Work package 9.3 C2: 9:00 to 17:00 local, even when an older policy still says 8:00.
+    "time,allowed",
+    [
+        ("07:59", False),
+        ("08:00", False),
+        ("08:59", False),
+        ("09:00", True),
+        ("16:59", True),
+        ("17:00", False),
+    ],
 )
 def test_default_calling_window_uses_prospect_timezone(timezone, day, time, allowed):
     now = datetime.fromisoformat(f"{day}T{time}").replace(tzinfo=ZoneInfo(timezone))
@@ -22,7 +31,7 @@ def test_default_calling_window_uses_prospect_timezone(timezone, day, time, allo
 
 def test_new_workspace_hours(workspace):
     policy = get(workspace, "/v1/workspace")["policy"]
-    assert (policy["local_start_hour"], policy["local_end_hour"]) == (8, 17)
+    assert (policy["local_start_hour"], policy["local_end_hour"]) == (9, 17)  # Work package 9.3 C2.
 
 
 @pytest.mark.parametrize("detach", [False, True])

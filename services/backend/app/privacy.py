@@ -16,8 +16,9 @@ from typing import NamedTuple
 from app import ops
 
 RAW_TTL_SECONDS = 300
-# D7, R10.5: transcript text stays on this computer for 30 days, then is deleted; the rep can delete it sooner.
-TRANSCRIPT_DAYS = 30
+# Work package 9.3 C5 (replaces D7): transcript text exists only while a call is live and is deleted when it ends.
+# This is the backstop for a call whose end was never recorded; word-free metadata stays for statistics.
+TRANSCRIPT_HOURS = 3
 
 
 def usage_metadata(value):
@@ -497,7 +498,7 @@ def forget_transcript(service, s, p, call_id):
 
 
 def purge_transcripts(service):
-    """R10.5: saved transcript text older than TRANSCRIPT_DAYS is deleted; the timing metadata stays."""
+    """Backstop: transcript text older than TRANSCRIPT_HOURS is deleted; the word-free metadata stays."""
     from sqlalchemy import select
 
     from app.platform.db import MODELS
@@ -615,7 +616,7 @@ def _accept_transcript(service, p, call_id, segment, received_at, *, session=Non
                     segment["revision"], row.data.get("transport_revision", row.data["revision"])
                 ),
             )
-            phone = ops.required(service, s, "leads", call.data["lead_id"], p).data["phone"]
+            phone = ops.call_party(service, s, p, call)[0].data["phone"]
             return {
                 "duplicate": True,
                 "effects_complete": row.data.get("effects_complete", False),
@@ -624,7 +625,7 @@ def _accept_transcript(service, p, call_id, segment, received_at, *, session=Non
             }, phone
         if row and segment["revision"] <= row.data.get("transport_revision", row.data["revision"]):
             if segment["revision"] == row.data["revision"] and content_hash == row.data.get("content_hash"):
-                phone = ops.required(service, s, "leads", call.data["lead_id"], p).data["phone"]
+                phone = ops.call_party(service, s, p, call)[0].data["phone"]
                 return {
                     "duplicate": True,
                     "effects_complete": row.data.get("effects_complete", False),
@@ -634,9 +635,9 @@ def _accept_transcript(service, p, call_id, segment, received_at, *, session=Non
             fail(409, "Transcript revision is obsolete")
         received_at = min(received_at or service.clock(), service.clock())
         received = dt(row.data["server_received_at"]) if row else received_at
-        # The live helper reads a short-lived copy in memory; the saved text is kept for TRANSCRIPT_DAYS.
+        # The live helper reads a short-lived copy in memory; the saved text lives only while the call does.
         expires = received + timedelta(seconds=RAW_TTL_SECONDS)
-        kept_until = received + timedelta(days=TRANSCRIPT_DAYS)
+        kept_until = received + timedelta(hours=TRANSCRIPT_HOURS)
         full = {
             **segment,
             "server_received_at": received.isoformat(),
@@ -700,7 +701,7 @@ def _accept_transcript(service, p, call_id, segment, received_at, *, session=Non
             service.clock(),
             {"segment_id": segment["segment_id"], "transcript_version": version},
         )
-        phone = ops.required(service, s, "leads", call.data["lead_id"], p).data["phone"]
+        phone = ops.call_party(service, s, p, call)[0].data["phone"]
         return {
             "segment_id": segment["segment_id"],
             "transcript_version": version,
@@ -718,8 +719,12 @@ def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, 
     service.db.authorize_stream(s, p)
     call = ops.required(service, s, "call_attempts", call_id, p)
     s.refresh(call, with_for_update=True)
-    if call.data.get("test_contact"):
-        return {"unavailable": "test_call", "expired": True}, False
+    test = ops.practice_call(call)
+    from app.calling.state import TERMINAL
+
+    if call.data["state"] in TERMINAL:
+        # The call is over and its text is gone; late speech is never stored (work package 9.3 C5).
+        return {"unavailable": "call_ended", "expired": True}, False
     if ops.speech_revoked(service, s, p, call):
         return {"unavailable": "permission_revoked", "expired": True}, False
 
@@ -728,10 +733,15 @@ def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, 
     )
     if result.get("effects_complete"):
         return result, False
-    if segment.get("side") == "remote" and re.search(
-        r"\b(do not call|don't call|stop calling|remove (?:me|my number)|not call (?:me|again))\b",
-        segment.get("text", ""),
-        re.I,
+    # Practice dialogue on a test call never becomes an outreach suppression (work package 3.7).
+    if (
+        not test
+        and segment.get("side") == "remote"
+        and re.search(
+            r"\b(do not call|don't call|stop calling|remove (?:me|my number)|not call (?:me|again))\b",
+            segment.get("text", ""),
+            re.I,
+        )
     ):
         ops.suppress(
             service,
@@ -746,7 +756,8 @@ def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, 
         from app.calling.state import TERMINAL
 
         if call.data["state"] in TERMINAL | {"ENDING"}:
-            ops.enqueue_aftercall(service, s, p, call)
+            if not test:
+                ops.enqueue_aftercall(service, s, p, call)
         elif (
             queue_helper
             and segment.get("side") == "remote"

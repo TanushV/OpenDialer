@@ -196,8 +196,6 @@ def test_test_phone_remains_callable_after_practicing_a_bad_number_outcome(works
     ("reason", "description"),
     [
         ("opt_out", "has an opt-out"),
-        ("temporary_hold", "is on a safety hold"),
-        ("wrong_party", "is marked as a wrong number"),
         ("invalid_endpoint", "is marked as invalid"),
     ],
 )
@@ -213,7 +211,7 @@ def test_test_phone_names_its_own_dial_block_and_accepts_a_different_phone(
     test_phone = next(row for row in settings["rows"] if row["id"] == "test_phone")
     assert test_phone["state"] == "failed"
     assert description in test_phone["detail"]
-    assert settings["test_phone_hold"] == (blocked if reason == "temporary_hold" else None)
+    assert settings["test_phone_hold"] is None
     ready_as(ws)
     detail = next_lead(ws, status=409)["detail"]
     assert detail["fix"] == "settings"
@@ -230,6 +228,20 @@ def test_test_phone_names_its_own_dial_block_and_accepts_a_different_phone(
     post(ws, "/v1/settings/test-call")
     assert start(ws)["is_test"]
     assert [dial["to"] for dial in carrier.dials] == [clean]
+
+
+@pytest.mark.parametrize("reason", ["temporary_hold", "wrong_party"])
+def test_outreach_holds_on_the_test_phone_do_not_gate_a_test_call(workspace, carrier, reason):
+    """Work package 3.8: approved test destinations ignore outreach holds, which stay in place."""
+    ws = workspace
+    phone = "+12025550198"
+    call(ws, "PUT", "/v1/admin/settings", json={"test_phone": phone})
+    post(ws, "/v1/settings/test-call")
+    post(ws, "/v1/suppressions", {"phone": phone, "reason": reason})
+    row = next(r for r in get(ws, "/v1/settings/rows")["rows"] if r["id"] == "test_phone")
+    assert row["state"] != "failed"
+    assert start(ws)["is_test"]
+    assert [dial["to"] for dial in carrier.dials] == [phone]
 
 
 @pytest.mark.slow

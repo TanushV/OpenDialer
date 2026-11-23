@@ -13,7 +13,7 @@ from app.calling import audio_leg
 from app.calling.blockers import refuse, test_line_refusal
 from app.calling.state import moved, transition
 from app.compliance.phone import normalize_phone
-from app.compliance.policy import CallContext
+from app.compliance.policy import CallContext, outreach_hours
 from app.lead_lists import has_current_list, memberships, set_memberships
 from app.leads import intake
 from app.leads.record import csv_fields, number_view
@@ -170,7 +170,7 @@ def setup(service, data):
                 "dnc_screening": False,
                 "state_registry_required": False,
                 "permissions": ["live", "transcription"],
-                "local_start_hour": 8,
+                "local_start_hour": 9,
                 "local_end_hour": 17,
                 "max_attempts": 4,
                 "min_retry_seconds": 86400,
@@ -569,6 +569,12 @@ def import_leads(service, p, body, *, session=None):
         )
     if result["preparing"]:
         ops.prepare_tick(service, p)
+    if result["imported"]:
+        from app import crm
+
+        # A new list is checked against every HubSpot opt-out before it is called (work package 9.3 C3).
+        with service.db.transaction() as s:
+            crm.schedule_opt_outs_in(service, s, p, service.clock(), starting=True)
     return result
 
 
@@ -732,8 +738,8 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         # AI budgets are per lead list and never gate calling.
         budget_available=True,
         route_allowed=lead.data["phone"].startswith("+1") and "1" in config.get("allowed_country_codes", []),
-        local_start_hour=config.get("local_start_hour", 8),
-        local_end_hour=min(17, config.get("local_end_hour", 17)),
+        local_start_hour=outreach_hours(config)[0],
+        local_end_hour=outreach_hours(config)[1],
         permission=permission,
         # Live calls carry the speech-to-text the live helper needs; nothing is recorded.
         permitted_permissions=set(config.get("permissions", []))

@@ -48,33 +48,6 @@ def test_confirming_same_automatic_outcome_records_human_provenance(workspace):
     assert saved["outcome_source"] == "rep_reported"
 
 
-def test_the_summary_suggests_a_persons_answer_but_never_saves_it(workspace):
-    """Section 6: only carrier facts save themselves. What a person said is a suggestion the rep confirms with Enter."""
-    from journey import answered_by_human, call, post
-
-    call(workspace, "PUT", "/v1/admin/settings", json={"openrouter_api_key": "test-openrouter"})
-    placed = start(workspace)
-    answered_by_human(workspace, placed["id"])
-    post(
-        workspace,
-        f"/v1/calls/{placed['id']}/transcript",
-        {
-            "segment_id": "answer",
-            "revision": 1,
-            "side": "remote",
-            "is_final": True,
-            "text": "I am not interested.",
-        },
-    )
-    post(workspace, f"/v1/calls/{placed['id']}/hangup")
-    run_jobs(workspace, rounds=4)
-    result = get(workspace, f"/v1/calls/{placed['id']}")
-    assert result["state"] == "ENDED" and not result.get("outcome")
-    assert result["suggested_outcome"]["code"] == "not_interested"
-    saved = wrap_up(workspace, placed["id"], outcome="not_interested", contact_role="right_party")
-    assert saved["outcome_source"] == "rep_reported"
-
-
 @pytest.mark.slow
 def test_answered_but_unclassified_call_is_not_saved_as_no_answer(workspace):
     placed = start(workspace)
@@ -84,23 +57,25 @@ def test_answered_but_unclassified_call_is_not_saved_as_no_answer(workspace):
     assert not get(workspace, f"/v1/calls/{placed['id']}").get("outcome")
 
 
-@pytest.mark.parametrize("detected", [False, True])
-def test_the_rep_can_end_and_log_voicemail_in_one_action(workspace, carrier, detected):
+def test_end_as_voicemail_ends_the_call_and_the_rep_says_whether_a_message_was_left(
+    workspace, carrier, clock
+):
+    """Work package 6.12: no detection and no preselected choice; the rep records left or none."""
     placed = start(workspace)
     event(workspace, placed["id"], "call.answered")
-    if detected:
-        event(workspace, placed["id"], "call.machine.detection.ended:machine")
+    clock.now += timedelta(seconds=10)
     path = f"/v1/calls/{placed['id']}/hangup"
     result = post(workspace, path, {"mark_voicemail": True})
     post(workspace, path, {"mark_voicemail": True})
-    assert result["state"] == "FINALIZED"
-    assert result["outcome"] == "voicemail"
-    assert result["outcome_source"] == "rep_reported"
-    assert not result.get("voicemail_result")  # Logging voicemail does not claim a delivered message.
+    assert result["state"] in {"ENDING", "ENDED"} and not result.get("outcome")
+    event(workspace, placed["id"], "call.hangup")
+    saved = wrap_up(workspace, placed["id"], outcome="voicemail", voicemail_message="none")
+    assert saved["outcome"] == "voicemail" and saved["outcome_source"] == "rep_reported"
+    assert not saved.get("voicemail_result")  # Logging voicemail does not claim a delivered message.
     assert [h["provider_id"] for h in carrier.hangups] == [placed["provider_id"]]
 
 
-def test_mailbox_beep_leaves_the_call_open_for_the_rep(workspace, clock):
+def test_a_late_mailbox_beep_receipt_leaves_the_call_open_for_the_rep(workspace, clock):
     placed = start(workspace)
     event(workspace, placed["id"], "call.answered")
     event(workspace, placed["id"], "call.machine.greeting.ended:beep_detected")
@@ -108,7 +83,7 @@ def test_mailbox_beep_leaves_the_call_open_for_the_rep(workspace, clock):
     post(workspace, "/v1/admin/control/run")
     run_jobs(workspace, rounds=2)
     result = get(workspace, f"/v1/calls/{placed['id']}")
-    assert result["state"] == "VOICEMAIL_READY"
+    assert result["state"] == "ANSWERED_UNCLASSIFIED"
     assert not result.get("outcome")
 
 
@@ -131,10 +106,13 @@ def test_voicemail_choice_survives_a_lost_hangup_receipt(workspace, carrier, clo
     path = f"/v1/calls/{placed['id']}"
     ending = post(workspace, path + "/hangup", {"mark_voicemail": True})
     assert ending["state"] == "ENDING" and not ending.get("outcome")
-    clock.now += timedelta(seconds=31)
-    post(workspace, "/v1/admin/recovery")
-    run_jobs(workspace, rounds=2)
+    # Ended inside the short-call window: the held stop is sent by recovery, its receipt is lost, and a later
+    # recovery pass reconciles it without sending a second stop.
+    for _ in range(2):
+        clock.now += timedelta(seconds=31)
+        post(workspace, "/v1/admin/recovery")
+        run_jobs(workspace, rounds=2)
     recovered = get(workspace, path)
-    assert recovered["state"] == "FINALIZED" and recovered["outcome_source"] == "rep_reported"
-    assert recovered["outcome"] == "voicemail"
+    assert recovered["state"] == "ENDED" and not recovered.get("outcome")
+    assert recovered["rep_voicemail_at"], "The rep's choice survives the lost receipt"
     assert len(carrier.hangups) == 1

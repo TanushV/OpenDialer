@@ -151,14 +151,11 @@ export function WrapUp({
             : "Choose an outcome when the available evidence cannot confirm it automatically."}
         </p>
       </div>
-      <div className="aftercall-summary" aria-label="Call summary">
-        <SummaryView
-          summary={call.aftercall}
-          onRetry={() =>
-            void api(`/v1/calls/${call.id}/summary`, "POST").catch(() => {})
-          }
-        />
-      </div>
+      {call.aftercall && (
+        <div className="aftercall-summary" aria-label="Call summary">
+          <SummaryView summary={call.aftercall} />
+        </div>
+      )}
       {call.suggested_outcome && (
         <div>
           <p>

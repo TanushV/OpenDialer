@@ -295,6 +295,8 @@ class Database:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("PRAGMA synchronous=NORMAL")
+            # Deleted transcript text is overwritten, not left in free pages (work package 9.3 C5).
+            connection.execute("PRAGMA secure_delete=ON")
 
         self.sessions = sessionmaker(self.engine, expire_on_commit=False)
         tables = set(inspect(self.engine).get_table_names())

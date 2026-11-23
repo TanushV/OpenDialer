@@ -21,7 +21,17 @@ export interface ListSummary extends ListName {
   callbacks_due: number;
   max_attempts?: number | null;
   retry_days?: number[];
+  /** When the Dialer suggests leaving a voicemail; advisory only (work package 6.12). */
+  voicemail_rule?: VoicemailRule;
 }
+
+type VoicemailRule = "first_and_final" | "final" | "every" | "never";
+const VOICEMAIL_RULES: [VoicemailRule, string][] = [
+  ["first_and_final", "First and final attempts (default)"],
+  ["final", "Final attempt only"],
+  ["every", "Every attempt"],
+  ["never", "Never"],
+];
 
 export interface LeadSelection {
   filter: string;
@@ -230,6 +240,7 @@ export function ListsPage({
                           list.script_mode,
                           list.max_attempts,
                           list.retry_days,
+                          list.voicemail_rule,
                         ])}
                         list={list}
                         saved={async () => {
@@ -294,6 +305,9 @@ function ListDialingSettings({
   const [mode, setMode] = useState(list.script_mode ?? "prepared");
   const [maximum, setMaximum] = useState(String(list.max_attempts ?? ""));
   const [waits, setWaits] = useState((list.retry_days ?? []).join(", "));
+  const [voicemail, setVoicemail] = useState<VoicemailRule>(
+    list.voicemail_rule ?? "first_and_final",
+  );
   const delays = waits.trim()
     ? waits.split(",").map((day) => Number(day.trim()))
     : [];
@@ -348,6 +362,26 @@ function ListDialingSettings({
         For 3 attempts, enter 2, 3 to call on day 0, day 2 and day 5. Leave
         blank to use the default timing.
       </p>
+      <label>
+        Leave voicemail on
+        <select
+          aria-label="Leave voicemail on"
+          value={voicemail}
+          onChange={(event) =>
+            setVoicemail(event.target.value as VoicemailRule)
+          }
+        >
+          {VOICEMAIL_RULES.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="fine">
+        The Dialer suggests when to leave a message. Requested callbacks and
+        people you have spoken with get one too. Nothing is enforced.
+      </p>
       <button
         className="secondary small"
         disabled={!valid}
@@ -360,6 +394,7 @@ function ListDialingSettings({
               script_mode: mode,
               max_attempts: maximum ? Number(maximum) : null,
               retry_days: delays,
+              voicemail_rule: voicemail,
             });
             await saved();
             notice("List dialing settings saved.");

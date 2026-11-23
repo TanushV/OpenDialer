@@ -10,7 +10,6 @@ from app import ops
 from app import service as base
 from app.calling import dial, events
 from app.calling.state import TERMINAL
-from app.compliance.policy import authorize
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
 from app.platform.leases import owns_effect
 from app.service import dt, fail
@@ -74,25 +73,6 @@ async def send_keypad(service, p, call_id, digits, request_id):
     command_id = await asyncio.to_thread(ops._keypad_intent, service, p, call_id, digits, request_id)
     await ops.dispatch_controls(service, p, command_id=command_id)
     return await asyncio.to_thread(ops.keypad_status, service, p, call_id, request_id)
-
-
-def stay_on_call(service, p, call_id):
-    with service.db.transaction() as s:
-        service.db.authorize_stream(s, p)
-        call = ops.required(service, s, "call_attempts", call_id, p, lock=True)
-        if call.data["rep_id"] != p["user_id"]:
-            fail(404, "Object not found")
-        if call.data["state"] in TERMINAL | {"ENDING"}:
-            fail(409, "The call has already ended")
-        command = ops._by_key(service, s, p, "command_outbox", f"{call_id}:machine-hangup")
-        if command:
-            s.refresh(command, with_for_update=True)
-            if command.data["status"] not in {"pending", "cancelled"} or command.data.get("sent_at"):
-                fail(409, "The voicemail hang-up has already been sent")
-            update(command, status="cancelled", reason="REP_STAY")
-        update(call, stay_on_voicemail=True)
-        emit(s, p["tenant_id"], "call.updated", call, service.clock())
-        return doc(call)
 
 
 def control_intent(service, s, p, call_id, action, payload, *, target=None, suffix=None):
@@ -189,23 +169,12 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
                 if first_answer and lead is not None:
                     ops._keep_callback_promise(service, s, p, call, lead)
             if (
-                lead is not None
-                and event_type == "call.answered"
+                event_type == "call.answered"
                 and call.data["state"] not in TERMINAL | {"ENDING"}
+                and ops.speech_allowed(service, s, p, call)
             ):
-                decision = authorize(
-                    ops.context(
-                        service,
-                        s,
-                        {**p, **(call.data.get("dial_scope") or {})},
-                        lead,
-                        number,
-                        permission="transcription",
-                        active=True,
-                    )
-                )
-                if decision.allowed:
-                    ops.start_transcription_in(service, s, p, call)
+                # Test calls get the same speech as outreach; only outreach consults its calling policy.
+                ops.start_transcription_in(service, s, p, call)
             if (
                 event_type == "call.hangup"
                 and call.data["state"] in TERMINAL
@@ -278,6 +247,9 @@ def stop_agent_transcription_in(service, s, p, call):
 def finish_call(service, s, p, call, reason=None):
     dial.finish_call(service, s, p, call, reason)
     ops.stop_agent_transcription_in(service, s, p, call)
+    # Transcripts feed only the live call; their text is deleted when it ends (work package 9.3 C5).
+    ops.record_script_trace(service, s, p, call)
+    ops.forget_transcript(service, s, p, call.id)
     for lease in ops.scoped(service, s, "number_leases", p):
         if lease.data.get("call_id") == call.id and lease.data.get("active"):
             update(lease, active=False)
@@ -371,23 +343,7 @@ def _claim_control(service, p, command_id):
             ):
                 update(current, status="cancelled", reason="RAW_CAPTURE_PRIVACY_NOT_AUTHORIZED")
                 return None
-            lead = ops.required(service, s, "leads", call.data["lead_id"], p)
-            number = ops.required(service, s, "number_inventory", call.data["number_id"], p)
-            permission = "transcription"
-            if (
-                call.data["state"] in TERMINAL
-                or not authorize(
-                    ops.context(
-                        service,
-                        s,
-                        {**p, **(call.data.get("dial_scope") or {})},
-                        lead,
-                        number,
-                        permission=permission,
-                        active=True,
-                    )
-                ).allowed
-            ):
+            if not ops.speech_allowed(service, s, p, call):
                 update(current, status="cancelled")
                 return None
         target = command.get("target") or call.data.get("provider_id")

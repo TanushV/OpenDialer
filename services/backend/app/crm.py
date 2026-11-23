@@ -23,6 +23,9 @@ log = logging.getLogger(__name__)
 LANE = "crm"
 STALE = timedelta(hours=24)  # Section 5: a list not synced for a day stops dialing its leads.
 SYNC_EVERY = timedelta(minutes=30)  # While calling, the chosen list syncs this often.
+# Work package 9.3 C3: every rep reads every HubSpot opt-out, so CSV numbers are covered too.
+OPT_OUTS_EVERY = timedelta(minutes=15)
+OPT_OUT_PAGES = 100  # HubSpot search returns at most 10,000 results.
 
 
 def config(service, p):
@@ -391,7 +394,7 @@ def schedule_syncs(service, p, *, starting=False):
             return 0
         if not starting and (user.data.get("presence") or {}).get("status") != "ready":
             return 0
-        queued = 0
+        queued = schedule_opt_outs_in(service, s, p, now, starting=starting)
         for name, _, synced, _ in lists_due(service, s, p, now):
             if starting or synced is None or now - synced >= SYNC_EVERY:
                 stamp = now.replace(second=0, microsecond=0).isoformat()
@@ -405,6 +408,74 @@ def schedule_syncs(service, p, *, starting=False):
                 )
                 queued += 1
     return queued
+
+
+def schedule_opt_outs_in(service, s, p, now, *, starting=False):
+    """Queue the HubSpot opt-out pull at Start calling, after an import, and every 15 minutes while calling."""
+    if not config(service, p).get("hubspot_service_key"):
+        return 0
+    synced = service_time(config(service, p).get("hubspot_opt_outs_synced_at"))
+    if not starting and synced is not None and now - synced < OPT_OUTS_EVERY:
+        return 0
+    stamp = now.replace(second=0, microsecond=0).isoformat()
+    service.jobs.enqueue_in(
+        s,
+        LANE,
+        {"kind": "hubspot_opt_outs", **_who(p)},
+        f"hubspot-opt-outs:{stamp}",
+        tenant_id=p["tenant_id"],
+        priority=4,
+    )
+    return 1
+
+
+OPT_OUTS_STALE_BUSINESS_DAYS = 9
+
+
+def opt_outs_stale(service, p, now):
+    """True when HubSpot is set up and its opt-outs have not synced for over 9 business days."""
+    conf = config(service, p)
+    if not conf.get("hubspot_service_key"):
+        return False
+    since = service_time(conf.get("hubspot_opt_outs_synced_at")) or service_time(
+        conf.get("hubspot_opt_outs_first_attempt_at")
+    )
+    if since is None:
+        return False  # Start calling queues the first pull.
+    day, business = since.date(), 0
+    while day < now.date():
+        day += timedelta(days=1)
+        business += day.weekday() < 5
+    return business > OPT_OUTS_STALE_BUSINESS_DAYS
+
+
+async def pull_opt_outs(service, p):
+    """Suppress every number HubSpot marks opted out; a sync can add an opt-out and never removes one."""
+    from app.compliance.phone import normalize_phone
+
+    now = service.clock()
+    if not config(service, p).get("hubspot_opt_outs_first_attempt_at"):
+        service.configs.write(p["tenant_id"], {"hubspot_opt_outs_first_attempt_at": now.isoformat()})
+    hs = hubspot(service, p)
+    after, phones = None, []
+    for _ in range(OPT_OUT_PAGES):
+        page = await reach(hs.opted_out_contacts(after))
+        for contact in page.get("results") or []:
+            for field in ("phone", "mobilephone"):
+                number = normalize_phone(str((contact.get("properties") or {}).get(field) or "")).e164
+                if number:
+                    phones.append((str(contact["id"]), number))
+        after = ((page.get("paging") or {}).get("next") or {}).get("after")
+        if not after:
+            break
+
+    def store():
+        for contact_id, number in phones:
+            ops.suppress(service, p, number, "opt_out", event_id=f"hubspot-opt-out:{contact_id}:{number}")
+        service.configs.write(p["tenant_id"], {"hubspot_opt_outs_synced_at": service.clock().isoformat()})
+
+    await asyncio.to_thread(store)
+    return {"opt_outs": len(phones)}
 
 
 async def sync(service, p, list_id, list_name):
@@ -455,6 +526,8 @@ async def run_job(service, p, payload):
             if crm.get("list_id")
             else {"skipped": True}
         )
+    if kind == "hubspot_opt_outs":
+        return await pull_opt_outs(service, p)
     if kind == "crm_contact":
         return await contact_job(service, p, payload["lead_id"])
     if kind == "crm_summary":
@@ -664,8 +737,11 @@ def _store_dnc(service, p, results):
 
 def call_outcome(call):
     outcome = (call.get("disposition") or {}).get("outcome") or call.get("outcome") or "no_answer"
-    if outcome == "voicemail" and call.get("rep_voicemail_at"):
-        return "voicemail_skipped"
+    if outcome == "voicemail":
+        # The rep's own answer decides; an older End as voicemail without one stays No answer.
+        message = (call.get("disposition_input") or {}).get("voicemail_message")
+        if message == "none" or (message is None and call.get("rep_voicemail_at")):
+            return "voicemail_skipped"
     return outcome
 
 
@@ -675,10 +751,8 @@ def should_log(call, lead):
     if lead.get("external_id"):
         return True
     outcome = call_outcome(call)
-    return lead.get("source") == "csv" and (
-        (bool(call.get("answered_at")) and outcome in crm_log.HUMAN)
-        or (bool(call.get("human_answered_at")) and outcome not in crm_log.OUTCOMES)
-    )
+    # The rep's saved outcome, not detection, says a person was reached; a mailbox never creates a contact.
+    return lead.get("source") == "csv" and bool(call.get("answered_at")) and outcome in crm_log.HUMAN
 
 
 class AmbiguousContact(RuntimeError):

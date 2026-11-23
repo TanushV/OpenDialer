@@ -22,30 +22,26 @@ def finished_call(ws, *, outcome="not_interested", said="We have no budget for t
     return call_id
 
 
-def test_review_shows_the_outcome_summary_transcript_and_call_shape(workspace):
+def test_review_shows_the_outcome_and_call_shape_but_no_transcript_text(workspace):
+    """Work package 9.3 C5: text is deleted at call end; the word-free call shape stays for script learning."""
     ws = workspace
     call(ws, "PUT", "/v1/admin/settings", json={"openrouter_api_key": "test-openrouter"})
     cid = finished_call(ws)
     run_jobs(ws)
     review = get(ws, f"/v1/calls/{cid}/review")
     assert review["call"]["state"] == "FINALIZED" and review["call"]["outcome"] == "not_interested"
-    assert review["summary"]["status"] == "ready"
-    assert "We have no budget for this right now." in review["summary"]["summary"]
-    assert {t["side"] for t in review["transcript"]} == {"rep", "remote"}
-    assert review["metrics"]["total_segments"] == 2 and review["human_notes"] is None
-    assert review["script_trace"] is not None, (
-        "The script trace is written with the summary, for script learning"
-    )
+    assert not review.get("summary") or review["summary"].get("status") != "ready"
+    assert not any(t.get("text") for t in review["transcript"])
+    assert review["human_notes"] is None
+    assert review["script_trace"] is not None, "The script trace is written at call end, for script learning"
 
 
-def test_without_a_model_key_review_still_works_and_says_what_to_add(workspace):
+def test_without_a_model_key_review_still_works(workspace):
     ws = workspace
     cid = finished_call(ws)
     run_jobs(ws)
     review = get(ws, f"/v1/calls/{cid}/review")
-    assert review["summary"]["status"] == "unavailable"
-    assert "OpenRouter" in review["summary"]["error"]
-    assert review["call"]["outcome"] == "not_interested" and len(review["transcript"]) == 2
+    assert review["call"]["outcome"] == "not_interested"
 
 
 def test_the_reps_note_is_saved_as_written_and_the_last_save_wins(workspace):
@@ -59,19 +55,16 @@ def test_the_reps_note_is_saved_as_written_and_the_last_save_wins(workspace):
     assert get(ws, f"/v1/calls/{cid}/review")["human_notes"] == "Wants pricing by Friday."
 
 
-def test_the_next_calls_brief_carries_the_earlier_summary_next_step_and_note(workspace):
+def test_the_next_calls_brief_carries_the_earlier_outcome_and_note(workspace):
+    """No summary exists (work package 9.3 C5); the brief carries the earlier outcome and the rep's note."""
     ws = workspace
     call(ws, "PUT", "/v1/admin/settings", json={"openrouter_api_key": "test-openrouter"})
     cid = finished_call(ws, outcome="callback_requested", said="Call me back next week, it works then.")
     lead_id = get(ws, f"/v1/calls/{cid}")["lead_id"]
     call(ws, "PATCH", f"/v1/calls/{cid}/notes", json={"text": "Wants a pricing sheet."})
-    before = get(ws, f"/v1/leads/{lead_id}/packet")
-    assert [c["id"] for c in before["previous_calls"]] == [cid]
-    assert before["prospect_brief"]["summary"] == "No earlier call summary yet."
-    assert before["prospect_brief"]["human_notes"] == [{"call_id": cid, "text": "Wants a pricing sheet."}]
     run_jobs(ws)
     brief = get(ws, f"/v1/leads/{lead_id}/packet")["prospect_brief"]
-    assert "Call me back next week" in brief["summary"]
+    assert brief["human_notes"] == [{"call_id": cid, "text": "Wants a pricing sheet."}]
     assert brief["earlier_calls"][0]["call_id"] == cid
     assert brief["earlier_calls"][0]["outcome"] == "callback_requested"
-    assert brief["evidence_status"] == "observed"
+    assert "Call me back next week" not in str(brief), "No transcript words reach the next call"

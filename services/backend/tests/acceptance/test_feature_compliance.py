@@ -134,6 +134,23 @@ def test_a_lead_outside_its_local_window_is_not_offered_until_the_window_opens(w
     assert offered(workspace) == PT
 
 
+def test_an_upgraded_8am_window_shows_and_saves_as_the_9am_floor(workspace, app):
+    """A workspace saved before the 9:00 floor shows what dialing enforces, and its form saves as loaded."""
+    from app.platform.db import get as row
+    from app.platform.db import update
+
+    policy = get(workspace, "/v1/workspace")["policy"]
+    with app.state.db.transaction() as s:
+        stored = row(s, "policy_versions", policy["id"])
+        update(stored, local_start_hour=8, local_end_hour=18)
+    shown = get(workspace, "/v1/workspace")["policy"]
+    assert (shown["local_start_hour"], shown["local_end_hour"]) == (9, 17)
+    rows = {r["id"]: r for r in get(workspace, "/v1/settings/rows")["rows"]}
+    assert "9:00 to 17:00" in str(rows["hours"]), rows["hours"]
+    # The Settings form sends back exactly what it loaded.
+    publish(workspace, local_start_hour=shown["local_start_hour"], local_end_hour=shown["local_end_hour"])
+
+
 def test_operating_policy_reads_fixed_no_spend_terms_and_saves_versioned_edits(workspace):
     path = "/v1/admin/operating-policy"
     current = get(workspace, path)

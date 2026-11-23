@@ -10,6 +10,7 @@ import { WrapUp } from "./WrapUp";
 import { CallTimeline } from "./CallTimeline";
 import { ReviewIssues } from "./ReviewIssues";
 import { SummaryView } from "./SummaryView";
+import { CarrierRates } from "./CarrierRates";
 import { DropOff } from "./DropOff";
 
 export function ReviewPage({
@@ -133,6 +134,7 @@ export function ReviewPage({
           )}
         </section>
         <DropOff />
+        <CarrierRates />
       </>
     );
   const summary = review.summary;
@@ -160,18 +162,13 @@ export function ReviewPage({
           <p>{label(review.call.outcome || "Outcome unconfirmed")}</p>
         </div>
       </div>
-      <section className="card padded" aria-label="AI summary">
-        <h2>Summary</h2>
-        <SummaryView
-          summary={summary}
-          onRetry={() =>
-            void run(async () => {
-              await api(`/v1/calls/${review.call.id}/summary`, "POST");
-              notice("Summary requested again.");
-            })
-          }
-        />
-      </section>
+      {summary && (
+        // Only calls from before 2.4.2 have one: transcripts are no longer kept (work package 9.3 C5).
+        <section className="card padded" aria-label="AI summary">
+          <h2>Summary</h2>
+          <SummaryView summary={summary} />
+        </section>
+      )}
       <ConversionForm call={review.call} />
       {review.call.state === "FINALIZED" && (
         <details className="card padded">
@@ -228,13 +225,14 @@ export function ReviewPage({
               </div>
             ))
           ) : (
-            <Empty text="No transcript is saved for this call." />
+            <Empty text="No transcript is kept after a call." />
           )}
           <p className="fine">
-            Calls are not recorded. This transcript stays on this computer for
-            30 days, then is deleted; notes and outcomes remain.
+            Calls are not recorded. Live transcription only feeds the script
+            follower and helper during the call; its text is deleted when the
+            call ends. Notes, outcomes and the call shape below remain.
           </p>
-          {review.transcript.length > 0 && (
+          {review.transcript.some((s) => s.text) && (
             <button
               className="secondary small"
               onClick={() =>

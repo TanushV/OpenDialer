@@ -14,7 +14,7 @@ FOLLOW = (
 Keep it short and offer the inspection again.
 
 # Voicemail
-Hi {first_name}, {rep} from {seller} one last time. Call me back if roof care matters this year.
+Hi {first_name}, {rep} from {seller} one last time. Call me back at {callback_number} if roof care matters this year.
 """
 )
 

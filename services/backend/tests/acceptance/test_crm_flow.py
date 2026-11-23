@@ -103,7 +103,15 @@ class Fakes:
                     ],
                 )
             if path == "/crm/v3/objects/contacts/search":
-                value = body["filterGroups"][0]["filters"][0]["value"]
+                first = body["filterGroups"][0]["filters"][0]
+                if first["propertyName"] == "opendialer_opt_out":
+                    opted = [
+                        {"id": identity, "properties": properties}
+                        for identity, properties in self.people.items()
+                        if properties.get("opendialer_opt_out") == "true"
+                    ]
+                    return httpx.Response(200, json={"results": opted, "total": len(opted)})
+                value = first["value"]
                 return httpx.Response(
                     200,
                     json={
@@ -774,3 +782,30 @@ def test_a_test_call_uses_the_saved_hubspot_phone_before_screening(
     )
     assert call["is_test"] and [dial["to"] for dial in carrier.dials] == [A]
     assert crm_leads(ws)["1"]["number_hold"] == "DNC_NOT_CHECKED"
+
+
+def test_an_opt_out_saved_by_another_rep_in_hubspot_stops_a_csv_number(workspace, monkeypatch):
+    """Work package 9.3 C3 and owner decision D3: opt-outs are shared through HubSpot, CSV numbers included."""
+    ws = workspace
+    fakes = setup(ws, monkeypatch)
+    phone = "+14155550199"
+    fakes.people["7"] = {
+        "firstname": "Opted",
+        "lastname": "Elsewhere",
+        "phone": phone,
+        "opendialer_opt_out": "true",
+    }
+    imported = post(
+        ws,
+        "/v1/leads/import",
+        {
+            "campaign_id": ws["campaign_id"],
+            "list_name": "CSV list",
+            "rows": [{"name": "Opted CSV", "phone": phone}],
+        },
+    )
+    assert imported["imported"] == 1
+    run_jobs(ws, rounds=3)
+    leads = get(ws, "/v1/workspace/leads", params={"q": "Opted CSV"})["items"]
+    assert [lead["suppressed"] for lead in leads] == [True], "An import pulls HubSpot opt-outs"
+    assert any(path == "/crm/v3/objects/contacts/search" for _, path in fakes.calls)

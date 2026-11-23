@@ -15,7 +15,10 @@ import {
   prepareCallSounds,
 } from "../telephony/ringer";
 import { captureSpeech } from "../telephony/speech";
-import type { Call, Lead, Packet, Reservation } from "../types";
+import type { Call, Lead, Packet, Reservation, Script } from "../types";
+
+/** A test call shows the saved base script and nothing from outreach (work package section 3). */
+type TestPacket = { lead: Lead; script: Script; test_contact: true };
 import { isActiveCall, isTerminal } from "../types";
 import {
   callProblem,
@@ -48,6 +51,8 @@ const RECHECK_MS = 10_000;
 /** An outcome key pressed while the call is ending waits this long, in steps, for the end to be confirmed. */
 const ENDING_WAIT_MS = 250;
 const ENDING_WAIT_STEPS = 40;
+/** A held leg ends by itself with the carrier stop; this bounds how long the app keeps it if no end is reported. */
+const HELD_LEG_FALLBACK_MS = 15_000;
 /** Blockers the loop clears itself: the rep's audio leg is renewed before each call. */
 const SELF_CLEARING = new Set(["REP_AUDIO_NOT_READY"]);
 
@@ -87,6 +92,7 @@ export function useCallLoop() {
   callRef.current = call;
   const [packet, setPacket] = useState<Packet | null>(null);
   const [testContact, setTestContact] = useState<Lead | null>(null);
+  const [testScript, setTestScript] = useState<Script | null>(null);
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [finished, setFinished] = useState<QueueStatus | null>(null);
   const [problem, setProblem] = useState<CallProblem | null>(null);
@@ -180,6 +186,16 @@ export function useCallLoop() {
   // ---- The call record: one read path, refreshed by its own events.
   // A response for another call, or from a read older than one already started, never replaces the shown call.
   const readGeneration = useRef(0);
+  // A leg silenced by the short-call hold, released when its call ends (work package 6.10).
+  const heldLeg = useRef<{
+    callId: string;
+    identity: string;
+    release?: () => void;
+  } | null>(null);
+  useEffect(() => {
+    const held = heldLeg.current;
+    if (held && call?.id === held.callId && isTerminal(call)) held.release?.();
+  }, [call]);
   const applyCall = useCallback((value: Call) => {
     setCall((current) =>
       current && current.id !== value.id
@@ -239,11 +255,13 @@ export function useCallLoop() {
     if (current && !callRef.current) {
       setCall(current);
       void run(async () => {
-        if (current.test_contact)
-          setTestContact(
-            await api<Lead>(`/v1/test-contacts/${current.lead_id}`),
+        if (current.test_contact) {
+          const test = await api<TestPacket>(
+            `/v1/test-contacts/${current.lead_id}/packet`,
           );
-        else
+          setTestContact(test.lead);
+          setTestScript(test.script);
+        } else
           setPacket(await api<Packet>(`/v1/leads/${current.lead_id}/packet`));
       });
     }
@@ -565,6 +583,12 @@ export function useCallLoop() {
       setFinished(null);
       setEditing(false);
       setTestContact(next.lead.test_contact ? next.lead : null);
+      setTestScript(
+        next.lead.test_contact
+          ? (await api<TestPacket>(`/v1/test-contacts/${next.lead.id}/packet`))
+              .script
+          : null,
+      );
       setPacket(
         next.lead.test_contact
           ? null
@@ -658,6 +682,7 @@ export function useCallLoop() {
         setCall(null);
         setPacket(null);
         setTestContact(null);
+        setTestScript(null);
       }
       testRunId.current = armTestPhone ? null : (testList?.id ?? null);
       testRun.current = testing;
@@ -789,8 +814,27 @@ export function useCallLoop() {
     if (!still()) return;
     ++readGeneration.current;
     applyCall(result);
-    if (markVoicemail && identity)
-      await telephony.current.emergencyHangup(identity);
+    // Inside the short-call window the authority holds the carrier leg to 7 seconds after answer: the rep hears
+    // and sends nothing, and the leg ends with the carrier's stop (work package 6.10). Otherwise end it now.
+    if (markVoicemail && identity) {
+      if (result.carrier_hold_until) {
+        // The authority holds the carrier leg to 7 seconds after answer. The leg ends once the server reports the
+        // call ended (effect below), or after a bounded fallback; no clocks are compared across machines.
+        telephony.current.silence(identity);
+        heldLeg.current = { callId: current.id, identity };
+        const release = () => {
+          if (heldLeg.current?.callId !== current.id) return;
+          heldLeg.current = null;
+          void telephony.current
+            .emergencyHangup(identity)
+            .catch((error) =>
+              console.warn("Held call audio could not end:", error),
+            );
+        };
+        heldLeg.current.release = release;
+        window.setTimeout(release, HELD_LEG_FALLBACK_MS);
+      } else await telephony.current.emergencyHangup(identity);
+    }
   }
   /** Space while dialing: end this attempt and save No answer (section 6, Skipped). */
   async function skip() {
@@ -809,7 +853,7 @@ export function useCallLoop() {
     telephony.current.mute();
     setMuted((value) => !value);
   }
-  async function save(code: string) {
+  async function save(code: string, voicemailMessage?: "left" | "none") {
     const pressed = callRef.current;
     if (!pressed) return;
     // One save at a time for this call; its key shows at once and the others wait for the answer.
@@ -841,6 +885,7 @@ export function useCallLoop() {
         "POST",
         {
           outcome: code,
+          ...(voicemailMessage ? { voicemail_message: voicemailMessage } : {}),
           contact_role: "unknown",
           callback_note: "",
           callback_at: null,
@@ -954,6 +999,8 @@ export function useCallLoop() {
     pause: () => run(pauseCalling),
     skip: () => run(skip),
     voicemail: () => run(() => hangup(true)),
+    voicemail_left: () => run(() => save("voicemail", "left")),
+    voicemail_none: () => run(() => save("voicemail", "none")),
     hangup: () => run(() => hangup()),
     mute,
     dial_now: advance,
@@ -976,6 +1023,7 @@ export function useCallLoop() {
     call,
     packet,
     testContact,
+    testScript,
     setPacket,
     muted,
     editing,

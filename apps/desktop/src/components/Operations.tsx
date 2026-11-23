@@ -1138,8 +1138,8 @@ export function NumbersPage() {
         inventory.workspace_test_passed === false &&
         testNumber ? (
           <p className="alert" role="status">
-            One test call left: go ready, call {testNumber} from your phone and
-            answer it here. Every number opens after that.
+            Verify callbacks once: call {testNumber} from your own phone and
+            answer it in OpenDialer. Calling opens after that.
           </p>
         ) : null}
       </section>

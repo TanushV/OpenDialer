@@ -69,6 +69,12 @@ CATALOG = {
         "dialer",
     ),
     "NO_CAMPAIGN": ("Import a lead list to start a campaign.", "leads"),
+    # Work package 9.3 C3: opt-outs from other reps arrive through HubSpot; the FCC allows 10 business days.
+    "OPT_OUTS_NOT_SYNCED": (
+        "Opt-outs from HubSpot have not synced for over 9 business days. Check the HubSpot key in Settings, then "
+        "press Start calling to sync.",
+        "settings",
+    ),
     "SCRIPT_NOT_READY": (
         "Leads need a current script. Open Leads and choose Generate scripts under Research and scripts.",
         "leads",
@@ -79,8 +85,9 @@ CATALOG = {
     ),
     "NO_CALLER_NUMBER": ("Add a caller number in Numbers: buy one, or add one you own.", "numbers"),
     "CALLER_NUMBER_ROUTE_REQUIRED": ("In Numbers, choose Set up route on your caller number.", "numbers"),
+    # A one-time proof that return calls reach this workspace; not a test-call allowance (work package 6.8).
     "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": (
-        "One test call left: call {phone} from your own phone and answer it here. Every number opens after that.",
+        "Verify callbacks once: call {phone} from your own phone and answer it in OpenDialer. Calling opens after that.",
         "numbers",
     ),
     "CALLER_NUMBER_PAUSED": ("Your caller numbers are paused. Review them in Numbers.", "numbers"),
@@ -126,6 +133,7 @@ EXITS = {
     "CONNECTION_RECONNECTING": Exit(by_itself_within=60),
     "CONNECTION_DELIVERY_GAP": Exit(by_itself_within=60),
     "NO_CAMPAIGN": Exit(control="Leads: Import a list"),
+    "OPT_OUTS_NOT_SYNCED": Exit(control="Settings: check the HubSpot key, then Start calling"),
     "SCRIPT_NOT_READY": Exit(control="Leads: Generate scripts"),
     "MASTER_SCRIPT_REQUIRED": Exit(control="Script: Save script"),
     "NO_CALLER_NUMBER": Exit(control="Numbers: Buy or add a number, or ask the pool operator to add one"),
@@ -168,6 +176,8 @@ class Facts:
     rep_audio_ready: bool | None = None  # None when the question is not being asked (Settings).
     # Telnyx refused the last dial over the account's channel limit (R9C.4).
     channel_limited: bool = False
+    # HubSpot opt-outs have not synced for more than 9 business days (work package 9.3 C3).
+    opt_outs_stale: bool = False
 
 
 def blockers(facts):
@@ -187,6 +197,8 @@ def blockers(facts):
         codes.append(facts.connection)
     if not facts.campaign:
         codes.append("NO_CAMPAIGN")
+    if facts.opt_outs_stale:
+        codes.append("OPT_OUTS_NOT_SYNCED")
     if facts.number:
         codes.append(facts.number)
     if facts.pending_optouts:
@@ -199,6 +211,12 @@ def blockers(facts):
         blocked(code, facts.test_number, shared=facts.shared_pool)
         for code in sorted(set(codes), key=ORDER.__getitem__)
     ]
+
+
+def readable_phone(phone):
+    """+12035550101 -> 203-555-0101 for spoken and displayed numbers; other forms stay as they are."""
+    digits = phone[2:] if phone and phone.startswith("+1") and len(phone) == 12 else None
+    return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}" if digits and digits.isdigit() else phone
 
 
 def blocked(code, phone=None, *, shared=False):
@@ -214,11 +232,12 @@ def blocked(code, phone=None, *, shared=False):
                 "numbers",
             ),
             "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": (
-                "Place a test call, then call the displayed number back and answer it here.",
+                "Verify callbacks once: place a test call, then call the number it showed from your own phone and "
+                "answer it in OpenDialer.",
                 "settings",
             ),
         }.get(code, (message, fix))
-    return Blocker(code, message.format(phone=phone or "one of your numbers"), fix)
+    return Blocker(code, message.format(phone=readable_phone(phone) if phone else "one of your numbers"), fix)
 
 
 def test_line_refusal(phone, *, test_session, test_lines):

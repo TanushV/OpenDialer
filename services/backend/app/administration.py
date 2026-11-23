@@ -15,9 +15,10 @@ from sqlalchemy import func, or_, select, text
 
 from app import ops, test_list
 from app.calling import audio_leg
-from app.calling.blockers import CATALOG, Facts, mark_stuck
+from app.calling.blockers import CATALOG, Facts, blocked, mark_stuck
 from app.calling.blockers import blockers as dial_gate
 from app.calling.state import TERMINAL
+from app.compliance.policy import outreach_hours
 from app.platform.config import PROVIDER_DEFAULTS, CapabilityStatus
 from app.platform.db import MODELS, RETIRED_TABLES, audit, doc, emit, put, rows, uid, update
 from app.service import dt, fail
@@ -255,6 +256,8 @@ def dial_blockers_in(service, s, p, *, rep, integrity_ok=True):
                 pending_optouts=presence.get("pending_optouts", 0),
                 rep_audio_ready=audio,
                 channel_limited=(conf.get("channel_limited_until") or "") > service.clock().isoformat(),
+                opt_outs_stale=not (p.get("test_only") or ops.in_test_session(service, p))
+                and ops.opt_outs_stale(service, p, service.clock()),
             )
         ),
     )
@@ -317,9 +320,19 @@ def setup_rows(service, p):
         numbers = ops.scoped(service, s, "number_inventory", p)
         code = ops.number_setup_blocker(service, s, p, numbers)
         ready = sum(1 for n in numbers if n.data.get("lifecycle") in {"healthy", "limited_real_use"})
+        callback_number = next(
+            (
+                n.data["phone"]
+                for n in numbers
+                if n.data.get("identity_configured") or n.data.get("shared_pool")
+            ),
+            None,
+        )
         live["numbers"] = (
             code is None,
-            f"{ready} ready" if code is None else CATALOG[code][0],
+            f"{ready} ready"
+            if code is None
+            else blocked(code, callback_number, shared=service.managed.pool is not None).message,
             bool(numbers),
         )
         campaign = next(iter(ops.scoped(service, s, "campaigns", p)), None)
@@ -334,7 +347,7 @@ def setup_rows(service, p):
             if campaign
             else {}
         )
-        start, end = policy.get("local_start_hour", 9), policy.get("local_end_hour", 17)
+        start, end = outreach_hours(policy)
         valid = isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= 24
         live["hours"] = (
             valid,
@@ -672,8 +685,13 @@ class TestPhoneIssue:
     release_phone: str | None = None
 
 
+# Outreach holds on the same number (safety holds, wrong-number and reassignment marks) never gate an approved test
+# destination and are never erased by one (work package 3.8). A confirmed opt-out and an invalid number still do.
+TEST_BLOCKING = {"opt_out", "invalid_endpoint"}
+
+
 def test_phone_issue(service, s, p, phone) -> TestPhoneIssue | None:
-    """Describe the saved destination's own number hold, if one exists."""
+    """Describe what stops an approved test destination from being called, if anything."""
     suppression = ops._by_key(service, s, p, "suppressions", phone)
     endpoint = ops._by_key(service, s, p, "phone_endpoints", phone)
     reason = (
@@ -681,26 +699,16 @@ def test_phone_issue(service, s, p, phone) -> TestPhoneIssue | None:
         if suppression and suppression.data.get("active", True)
         else None
     )
-    if reason == "temporary_hold":
-        release_phone = phone if not suppression.data.get("permanent") else None
-        return TestPhoneIssue(
-            "The saved test phone is on a safety hold. Review the hold or choose another test phone in Settings.",
-            release_phone,
-        )
+    if reason not in TEST_BLOCKING:
+        reason = None
     if endpoint and not reason:
         data = endpoint.data
-        if data.get("ownership_status") == "wrong_party":
-            reason = "wrong_party"
-        elif data.get("reassignment_review_required"):
-            reason = "reassignment"
-        elif data.get("format_status") != "valid" or data.get("reachability_status") == "invalid_endpoint":
+        if data.get("format_status") != "valid" or data.get("reachability_status") == "invalid_endpoint":
             reason = "invalid_endpoint"
     description = {
         "opt_out": "has an opt-out",
-        "wrong_party": "is marked as a wrong number",
         "invalid_endpoint": "is marked as invalid",
-        "reassignment": "needs a reassignment review",
-    }.get(reason, "is blocked" if reason else None)
+    }.get(reason)
     if description:
         return TestPhoneIssue(f"The saved test phone {description}. Choose another test phone in Settings.")
     return None
@@ -964,6 +972,8 @@ def publish(service, p, policy_id, body):
             "parent_id": current.id,
         }
         config["local_end_hour"] = min(17, config["local_end_hour"])
+        # Settings may narrow the outreach window, never widen it (work package 9.3 C2).
+        config["local_start_hour"] = max(9, config["local_start_hour"])
         if not 0 <= config["local_start_hour"] < config["local_end_hour"] <= 24:
             fail(422, "Invalid reviewed local calling window")
         new = put(s, "policy_versions", p["tenant_id"], p["seller_id"], config, now=now)

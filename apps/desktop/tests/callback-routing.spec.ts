@@ -262,6 +262,26 @@ test("a matched callback opens the prospect and last outcome while ringing", asy
           summary: "Asked about the renewal date.",
           next_step: "Confirm the renewal date.",
         },
+        script: {
+          ready_for_rep: true,
+          fallback: false,
+          sections: [
+            {
+              key: "opening",
+              title: "Opening",
+              spoken: true,
+              options: [
+                {
+                  id: "opening-1",
+                  title: null,
+                  text: "Thanks for calling back about the renewal.",
+                  picked: true,
+                  rank: 0,
+                },
+              ],
+            },
+          ],
+        },
       },
     }),
   );
@@ -290,4 +310,8 @@ test("a matched callback opens the prospect and last outcome while ringing", asy
   await expect(prospect).toContainText("Northstar Example");
   await expect(prospect).toContainText("Callback requested");
   await expect(prospect).toContainText("Confirm the renewal date.");
+  // Work package 6.6: a matched callback shows the lead's script in the normal reader.
+  await expect(page.getByTestId("callback-script")).toContainText(
+    "Thanks for calling back about the renewal.",
+  );
 });

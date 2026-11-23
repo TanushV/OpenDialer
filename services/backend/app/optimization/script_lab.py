@@ -691,14 +691,14 @@ def register_script_lab(app, service, principal, administrator):
     @app.post("/v1/admin/script/import")
     def import_script(body: ImportBody, p=Depends(administrator)):
         """Parse a pasted script. A preview answers with every problem; saving requires none."""
-        from app.preparation.templates import ScriptError, parse_markdown, template_version
+        from app.preparation.templates import ScriptError, parse_markdown, pick_notes, template_version
 
         try:
             template, errors = parse_markdown(body.markdown), []
         except ScriptError as exc:
             template, errors = None, exc.errors
         if body.preview:
-            return {"template": template, "errors": errors}
+            return {"template": template, "errors": errors, "notes": pick_notes(template) if template else []}
         if errors:
             fail(422, {"code": "SCRIPT_INVALID", "errors": errors})
         with service.db.transaction() as s:

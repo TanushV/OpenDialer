@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app import ops, test_list
-from app.calling import audio_leg, detection, pool_queue, test_calls, timeline
+from app.calling import audio_leg, pool_queue, test_calls, timeline
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.lead_lists import memberships
 from app.numbers import pool
@@ -115,6 +115,8 @@ class ListEdit(Strict):
     script_mode: Literal["prepared", "master"] = "prepared"
     max_attempts: int | None = Field(default=None, ge=1, le=20)
     retry_days: list[Annotated[int, Field(ge=1, le=365)]] = Field(default_factory=list, max_length=19)
+    # When the Dialer suggests leaving a voicemail on this list (work package 6.12); advisory only.
+    voicemail_rule: Literal["first_and_final", "final", "every", "never"] = "first_and_final"
 
 
 class LeadSelectionScope(Strict):
@@ -221,6 +223,8 @@ class Disposition(Strict):
     # Rep-visible edit counter: background bookkeeping on the call row never conflicts.
     expected_edit_version: int | None = Field(default=None, ge=0, strict=True)
     callback_note: str = Field(default="", max_length=1000)
+    # For a voicemail: whether the rep left a message (work package 6.12). HubSpot logs Left voicemail or No answer.
+    voicemail_message: Literal["left", "none"] | None = None
 
 
 class ResearchBatch(Strict):
@@ -283,7 +287,8 @@ class PolicyUpdate(Strict):
     state_registry_required: bool | None = None
     consent_required: bool | None = None
     permissions: list[Literal["live", "prerecorded", "transcription", "recording", "messaging"]] | None = None
-    local_start_hour: int | None = Field(default=None, ge=0, le=23)
+    # Outreach never starts before 9:00 local (work package 9.3 C2).
+    local_start_hour: int | None = Field(default=None, ge=9, le=16)
     local_end_hour: int | None = Field(default=None, ge=1, le=24)
     max_attempts: int | None = Field(default=None, ge=1, le=20)
     min_retry_seconds: int | None = Field(default=None, ge=60)
@@ -327,6 +332,8 @@ class ProviderSettings(Strict):
     treg_token: str | None = Field(default=None, max_length=500)
     # R9C.10: research on this seat uses the ChatGPT login or the OpenRouter fallback.
     research_route: Literal["chatgpt", "fallback"] | None = None
+    # Work package 9.3 C5: off means no call audio leaves this computer for speech or the live helper.
+    live_transcription: bool | None = None
 
 
 SECRET_FIELDS = {
@@ -625,6 +632,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction(False) as s:
             return test_list.test_contact_view(ops.required(service, s, "test_contacts", contact_id, p))
 
+    @app.get("/v1/test-contacts/{contact_id}/packet")
+    def read_test_contact_packet(contact_id: str, p=Depends(principal)):
+        """What the Dialer shows before a test call: the contact and the saved base script."""
+        with db.transaction(False) as s:
+            contact = ops.required(service, s, "test_contacts", contact_id, p)
+            return {
+                "lead": test_list.test_contact_view(contact),
+                "script": ops.fallback_script(service, s, p, contact),
+                "test_contact": True,
+            }
+
     @app.get("/v1/blockers")
     def calling_blockers(p=Depends(principal)):
         """What stops calling now, first to fix first; empty when the rep can dial (R4.3)."""
@@ -635,6 +653,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def calling_readiness(p=Depends(administrator)):
         """R9E.5: run the checks a dial would, while idle; the Dialer shows the result before Start."""
         return ops.calling_readiness(service, p)
+
+    @app.get("/v1/review/carrier-rates")
+    def review_carrier_rates(p=Depends(principal)):
+        """Work package 6.17: today's short-call and abandoned-call shares, as Telnyx counts them."""
+        from app.calling.rates import carrier_rates
+
+        with db.transaction(False) as s:
+            calls = [doc(c) for c in ops.scoped(service, s, "call_attempts", p)]
+        return carrier_rates(calls, service.clock())
 
     @app.get("/v1/review/drop-off")
     def review_drop_off(p=Depends(principal)):
@@ -712,12 +739,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def start_test_list(p=Depends(administrator)):
         return test_list.start(service, p)
 
-    @app.get("/v1/calling/voicemail-report")
-    def voicemail_report(p=Depends(principal)):
-        """Voicemail detection against what the rep found when they stayed (R6.4)."""
-        with db.transaction(False) as s:
-            return detection.report([doc(c) for c in ops.scoped(service, s, "call_attempts", p)])
-
     @app.get("/v1/calls/{call_id}/timeline")
     def call_timeline(call_id: str, p=Depends(principal)):
         """What happened on one call, in order: its own steps, carrier events and sent commands (R4.12)."""
@@ -751,10 +772,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "helper_status": helper,
                 "suggested_outcome": suggestion(summary),
             }
-
-    @app.post("/v1/calls/{call_id}/stay")
-    def stay_on_call(call_id: str, p=Depends(principal)):
-        return ops.stay_on_call(service, p, call_id)
 
     @app.post("/v1/calls/{call_id}/hangup")
     async def hangup(call_id: str, data: HangupRequest | None = None, p=Depends(principal)):
@@ -958,14 +975,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
         from app import live_help
 
         return live_help.cancel(service, p, call_id, str(data.request_id))
-
-    @app.post("/v1/calls/{call_id}/summary")
-    def retry_summary(call_id: str, p=Depends(principal)):
-        """R10.4: a summary that failed is written again on request; nothing else is redone."""
-        with db.transaction() as s:
-            call = ops.required(service, s, "call_attempts", call_id, p)
-            ops.enqueue_aftercall(service, s, p, call, retry=True)
-        return {"queued": True}
 
     @app.get("/v1/calls/{call_id}/review")
     def call_review(call_id: str, p=Depends(principal)):

@@ -110,6 +110,8 @@ type Agent = {
   remoteStream?: MediaStream;
   answer(): Promise<void>;
   hangup(): Promise<void>;
+  isAudioMuted?: boolean;
+  muteAudio?(): void;
 };
 
 declare global {
@@ -157,6 +159,9 @@ export class TelnyxRTC {
         call.remoteStream = media.repReceives;
         call.state = "active";
         notify();
+      },
+      muteAudio: () => {
+        call.isAudioMuted = true;
       },
       hangup: async () => {
         media?.close();

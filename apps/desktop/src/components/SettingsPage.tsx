@@ -107,6 +107,7 @@ function AdminSettings({ onNavigate }: { onNavigate: (view: View) => void }) {
           hours: <CallingWindow />,
         }}
       />
+      <LiveTranscription settings={settings} />
       <TestListSettings onNavigate={onNavigate} />
       {!settings.data && (
         <section className="card padded">
@@ -492,6 +493,7 @@ function CallingWindow() {
           <input
             type="number"
             {...limits(p?.local_start_hour)}
+            min={9}
             value={draft.local_start_hour}
             onChange={(e) =>
               change({ local_start_hour: Number(e.target.value) })
@@ -518,6 +520,11 @@ function CallingWindow() {
           />
         </label>
       </div>
+      <p className="fine">
+        Outreach calls go out Monday to Friday, 9:00 to 17:00 in each
+        prospect&apos;s own time zone, never on US federal holidays. You can
+        narrow these hours. Callbacks a prospect asked for are not limited.
+      </p>
       <button className="primary" onClick={() => void run(editor.publish)}>
         Save calling hours
       </button>
@@ -891,6 +898,46 @@ function UpdateSettings() {
         Local builds are validated on this Mac. Distribution signing,
         notarization, and other operating-system audio certification have
         separate release gates.
+      </p>
+    </section>
+  );
+}
+
+/** Work package 9.3 C5: the rep can turn live transcription and the helper off. Transcripts are never kept. */
+function LiveTranscription({
+  settings,
+}: {
+  settings: ReturnType<typeof useAdminSettings>;
+}) {
+  const { api, run } = useWorkspace();
+  const data = settings.data as
+    | { version?: number; live_transcription?: boolean }
+    | undefined;
+  if (!data) return null;
+  const on = data.live_transcription !== false;
+  return (
+    <section className="card padded" aria-label="Live transcription">
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(event) =>
+            void run(async () => {
+              await api("/v1/admin/settings", "PUT", {
+                expected_version: data.version,
+                request_id: crypto.randomUUID(),
+                live_transcription: event.target.checked,
+              });
+              await settings.load();
+            })
+          }
+        />{" "}
+        Live transcription and helper
+      </label>
+      <p className="fine">
+        {on
+          ? "During a call, speech is transcribed to follow your script and power the live helper. The text is deleted when the call ends."
+          : "Off: no call audio leaves this computer, and the script follower and live helper do not run."}
       </p>
     </section>
   );

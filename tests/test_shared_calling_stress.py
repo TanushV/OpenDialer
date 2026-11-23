@@ -155,7 +155,7 @@ def test_shared_calling_randomized_faults(seed, shared_db, tmp_path, request):
     rng = random.Random(seed)
     seats = list(SEATS)
     rng.shuffle(seats)
-    clock = SimpleNamespace(now=datetime(2026, 11, 11, 18, tzinfo=UTC))
+    clock = SimpleNamespace(now=datetime(2026, 11, 12, 18, tzinfo=UTC))  # Not a federal holiday.
     carrier = CarrierHTTP({sip: sip for sip, _ in SEATS.values()})
     accepted, release = Event(), Event()
     with (
@@ -280,7 +280,7 @@ def test_shared_calling_randomized_faults(seed, shared_db, tmp_path, request):
                 },
             )
             b.exchange()
-        next_state = "VOICEMAIL_READY" if mailbox else "ANSWERED_UNCLASSIFIED"
+        next_state = "ANSWERED_UNCLASSIFIED"  # No detection: a beep receipt changes nothing (work package 6).
         carrier.live.remove(agent_a)
         a.reopen()  # Backend goes away with the stop recorded and no carrier reference.
         for seconds in rng.choice([(), (150,), (150, 301)]):
@@ -333,9 +333,8 @@ def test_shared_calling_randomized_faults(seed, shared_db, tmp_path, request):
         emit(b, next_leg, "call.hangup", carrier.dials[next_leg])
         b.exchange()
         saved = b.api("GET", next_path)
-        assert (saved["state"], saved["outcome"]) == (
-            ("FINALIZED", "voicemail") if mailbox else ("ENDED", None)
-        )
+        # End as voicemail leaves the outcome to the rep: a message left or not (work package 6.12).
+        assert (saved["state"], saved["outcome"]) == ("ENDED", None)
         b.api("POST", "/v1/rep/presence", {"status": "paused"})
         b.api("POST", "/v1/rep/reachable", {"registered": True})
         b.exchange(reachable=True)
@@ -365,3 +364,10 @@ def test_shared_calling_randomized_faults(seed, shared_db, tmp_path, request):
         ]
         assert targets == [f"sip:{b.sip}@sip.telnyx.com"], targets
         carrier.dial_budget(2)
+        trace.record(
+            "coverage",
+            events=len(tape),
+            mailbox=int(mailbox),
+            ended_first=int(ended_first),
+            callback_routed=1,
+        )

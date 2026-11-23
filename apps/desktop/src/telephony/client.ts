@@ -345,6 +345,8 @@ export class Telephony {
     if (!audio || !stream)
       throw new Error("The verified call audio track is unavailable.");
     if (audio.srcObject !== stream) audio.srcObject = stream;
+    // A previous call's short-call hold silenced playback; each new leg is heard again.
+    audio.muted = false;
     await playOutput(audio, "Call audio");
     if (
       this.audio !== audio ||
@@ -377,6 +379,13 @@ export class Telephony {
   }
   mute(id?: string) {
     this.selected(id)?.toggleAudioMute();
+  }
+  /** End as voicemail inside the carrier's short-call window: hear and send nothing until the leg ends. */
+  silence(id: string) {
+    // Silence playback first: it needs nothing from the SDK, so the rep stops hearing the mailbox at once.
+    if (this.audio) this.audio.muted = true;
+    const call = this.selected(id) as Partial<Call> | null;
+    if (call && !call.isAudioMuted) call.muteAudio?.();
   }
   async input(id: string) {
     this.inputId = id;

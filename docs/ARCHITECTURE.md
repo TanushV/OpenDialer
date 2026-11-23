@@ -42,7 +42,7 @@ Everything that decides whether the next call happens is small and checked.
 The queue (`scheduling/queue.py`) offers callbacks due first, then leads never called, then the one waiting longest
 since its last try (D31), inside each lead's calling hours
 (8 AM to 5 PM local), with at least a day between tries and per-company spacing. When no one can be called, it says
-why in plain words. A test call to the rep's own phone skips hours and attempt limits; an opt-out still applies.
+why in plain words. A test call to the rep's own phone skips hours, attempt limits and outreach holds, and gets the saved base script, speech and the live helper; an opt-out still applies.
 
 ### How the rules are checked
 
@@ -52,7 +52,7 @@ why in plain words. A test call to the rep's own phone skips hours and attempt l
 | Every combination of blocker facts | `tests/test_blockers.py` | Anything wrong names a blocker; each has a way out. |
 | Each blocker in and out | `tests/acceptance/test_blocker_exits.py` | All 21 blockers clear through their real code path. A new blocker without a test fails CI. |
 | Fault soak | `tests/test_fault_soak.py` | Random runs with clock jumps, duplicate and late events and opt-outs: no server error, never two open calls, no dial after an opt-out, Pause honored, and recovery always dials or says why. |
-| The rep's own key | `apps/desktop/tests/screen-model.test.ts`, `simple-calling.spec.ts` | Hang up and the outcome keys show at once over any re-read. Playback failures are visible, and only the rep can dial the next lead or end a detected mailbox. |
+| The rep's own key | `apps/desktop/tests/screen-model.test.ts`, `simple-calling.spec.ts` | Hang up and the outcome keys show at once over any re-read. Playback failures are visible, and only the rep can dial the next lead or end a mailbox; there is no voicemail detection, and an End as voicemail inside 7 seconds of answer holds the carrier stop to 7 seconds (`calling/hold.py`). |
 | Layout | `apps/desktop/tests/layout-audit.spec.ts` | On every page, at both window sizes, the main control stays uncovered and still. |
 
 Every screen that re-reads on events shows only the newest answer (`state/newest.ts`), so a slow older read never
@@ -89,18 +89,21 @@ hiding a defect.
   model request continues. Exact script quotes link back to the matching line. The rep can also ask via F1 or a typed
   question. One request per turn runs on OpenRouter through Cerebras with no retention. Tips stay in memory for 30
   seconds and private replies for 5 minutes. Phone screening uses the prepared Screening line directly.
-- **After the call** (`aftercall/summary.py`): one request over the whole transcript returns a summary, a suggested
-  outcome and a next step; each field is checked on its own, and a failed summary has Retry. It is shown in the
-  wrap-up and in Review, read by the next call's script and brief, and added to HubSpot. The rep confirms the
-  suggested outcome. The carrier can save facts such as no answer or busy. The rep decides when to end and log
-  a voicemail.
-- **Transcripts** are kept on this computer for 30 days, then deleted; the rep can delete one sooner. There are no
-  recordings.
+- **After the call**: no summary is written, because transcript text is deleted when the call ends (calling work
+  package 9.3 C5). The carrier saves facts such as no answer or busy; the rep saves every other outcome, including
+  whether a voicemail message was left. The next call's script and brief read the outcome and the rep's note.
+- **Transcripts** feed only the live helper and the script follower while the call is live. Their text is deleted when
+  the call ends (`telephony/workflows.finish_call`), late speech is discarded, a 3-hour backstop sweeps leftovers and
+  SQLite overwrites deleted text. Word-free metadata (matched script part, timing, speaker) stays for statistics.
+  Settings can turn live transcription off. There are no recordings.
+- **Calling hours and opt-outs**: outreach dials Monday to Friday, 9:00 to 17:00 in the prospect's zone, never on US
+  federal holidays; requested callbacks are exempt (`compliance/policy.py`). Every rep pulls HubSpot opt-outs at
+  Start calling, after imports and every 15 minutes (`crm.pull_opt_outs`).
 
 ## Learning
 
-StatML is archived (D31, tag `statml-archive`). The one learning view kept is stage drop-off: each after-call summary
-names the script part the call ended in, and Review shows where answered calls end, by outcome
+StatML is archived (D31, tag `statml-archive`). The one learning view kept is stage drop-off: the last script part the
+rep's speech matched during the call, kept as word-free metadata, and Review shows where answered calls end, by outcome
 (`aftercall/dropoff.py`). Number health compares each number's pickups with the pickup rate across all numbers.
 
 ## Releases

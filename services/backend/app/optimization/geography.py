@@ -104,14 +104,13 @@ def normalize_state(value):
 
 
 def plausible_zones(record):
-    """Zones of the supplied state and of the phone's area code; empty when neither is known."""
-    states = {
-        normalize_state(record.get("state")) or normalize_state(record.get("jurisdiction")),
-        AREA_STATES.get(str(record.get("phone") or "")[2:5])
-        if str(record.get("phone") or "").startswith("+1")
-        else None,
-    } - {None}
-    return tuple(sorted({zone for state in states for zone in STATE_ZONES.get(state, ())}))
+    """Zones of the supplied state, else of the phone's area code; empty when neither is known (owner decision D6).
+
+    A mobile's area code can be stale, so a supplied state wins over it."""
+    supplied = normalize_state(record.get("state")) or normalize_state(record.get("jurisdiction"))
+    phone = str(record.get("phone") or "")
+    state = supplied or (AREA_STATES.get(phone[2:5]) if phone.startswith("+1") else None)
+    return tuple(sorted(STATE_ZONES.get(state, ()))) if state else ()
 
 
 def planning_zones(lead):

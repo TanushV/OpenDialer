@@ -61,8 +61,9 @@ def test_valid_context_is_authorized(context):
         ({"state_registry_required": True, "state_registry_current": False}, "STATE_REGISTRY_MISSING"),
         ({"consent_required": True, "consent_valid": False}, "CONSENT_MISSING"),
         ({"consent_revoked": True}, "CONSENT_REVOKED"),
-        ({"timezone": None}, "TIMEZONE_UNCERTAIN"),
-        ({"timezone_confidence": "unknown"}, "TIMEZONE_UNCERTAIN"),
+        # No usable zone: every US zone must be open (owner decision D6); 14:00 Eastern is 8:00 in Honolulu.
+        ({"timezone": None}, "OUTSIDE_CALLING_WINDOW"),
+        ({"timezone_confidence": "unknown"}, "OUTSIDE_CALLING_WINDOW"),
         ({"timezone": "made/up"}, "TIMEZONE_UNCERTAIN"),
         ({"timezone": None, "timezones": ("America/New_York", "made/up")}, "TIMEZONE_UNCERTAIN"),
         ({"now": datetime(2026, 10, 14, 4, tzinfo=UTC)}, "OUTSIDE_CALLING_WINDOW"),
@@ -162,18 +163,83 @@ def test_normalization_does_not_claim_ownership(raw, expected, extension):
     assert result.assignment_evidence == "unknown"
 
 
-def test_five_pm_is_a_hard_local_cutoff_even_for_older_policies_and_callbacks(context):
+def test_five_pm_is_a_hard_local_cutoff_even_for_older_policies(context):
     from zoneinfo import ZoneInfo
 
     before = datetime(2026, 11, 5, 16, 59, tzinfo=ZoneInfo("America/New_York"))
-    legacy = replace(
-        context, timezone="America/New_York", local_end_hour=21, next_attempt_at=None, callback_due=True
-    )
+    legacy = replace(context, timezone="America/New_York", local_end_hour=21, next_attempt_at=None)
     assert authorize(replace(legacy, now=before)).allowed
     assert authorize(replace(legacy, now=before.replace(hour=17, minute=0))).reasons == [
         "OUTSIDE_CALLING_WINDOW"
     ]
     assert CallContext(now=NOW).local_end_hour == 17
+
+
+def _at(text, zone="America/Los_Angeles"):
+    from zoneinfo import ZoneInfo
+
+    return datetime.fromisoformat(text).replace(tzinfo=ZoneInfo(zone))
+
+
+@pytest.mark.parametrize(
+    ("when", "allowed"),
+    [
+        ("2026-11-18T09:00", True),  # Wednesday 9:00
+        ("2026-11-18T08:59", False),  # before 9
+        ("2026-11-18T16:59", True),
+        ("2026-11-18T17:00", False),
+        ("2026-11-21T11:00", False),  # Saturday
+        ("2026-11-22T11:00", False),  # Sunday
+        ("2026-11-26T11:00", False),  # Thanksgiving
+        ("2026-12-25T11:00", False),  # Christmas
+        ("2026-07-03T11:00", False),  # Independence Day observed on the Friday
+        ("2026-10-12T11:00", False),  # Columbus Day
+    ],
+)
+def test_outreach_calls_only_weekdays_nine_to_five_local_outside_federal_holidays(context, when, allowed):
+    """Work package 9.3 C2 and owner decision D4."""
+    weekday = replace(context, now=_at(when), next_attempt_at=None)
+    assert authorize(weekday).allowed is allowed
+    if not allowed:
+        assert authorize(weekday).reasons == ["OUTSIDE_CALLING_WINDOW"]
+
+
+def test_settings_can_narrow_the_window_but_never_start_before_nine(context):
+    early = replace(context, now=_at("2026-11-18T08:30"), next_attempt_at=None, local_start_hour=7)
+    assert authorize(early).reasons == ["OUTSIDE_CALLING_WINDOW"]
+    narrow = replace(context, now=_at("2026-11-18T09:30"), next_attempt_at=None, local_start_hour=10)
+    assert authorize(narrow).reasons == ["OUTSIDE_CALLING_WINDOW"]
+
+
+def test_a_requested_callback_is_not_held_to_the_outreach_window(context):
+    """Owner decision D4: callbacks do not follow the rule."""
+    callback = replace(context, now=_at("2026-11-21T19:30"), next_attempt_at=None, callback_due=True)
+    assert authorize(callback).allowed
+
+
+@pytest.mark.parametrize(
+    ("when", "allowed"),
+    [
+        ("2026-11-18T15:30", True),  # 15:30 New York is 10:30 in Honolulu
+        ("2026-11-18T13:30", False),  # 8:30 in Honolulu
+        ("2026-11-18T16:59", True),
+        ("2026-11-18T17:00", False),  # 17:00 in New York
+    ],
+)
+def test_a_lead_with_no_usable_zone_is_called_only_when_every_us_zone_is_open(context, when, allowed):
+    """Owner decision D6: never blocked for being unsure; the overlap of every US zone applies."""
+    unsure = replace(
+        context, now=_at(when, "America/New_York"), next_attempt_at=None, timezone=None, timezones=()
+    )
+    assert authorize(unsure).allowed is allowed
+    assert "TIMEZONE_UNCERTAIN" not in authorize(unsure).reasons
+
+
+def test_a_supplied_state_wins_over_a_stale_area_code():
+    from app.optimization.geography import plausible_zones
+
+    assert plausible_zones({"state": "CA", "phone": "+12125550101"}) == ("America/Los_Angeles",)
+    assert plausible_zones({"phone": "+12125550101"}) == ("America/New_York",)
 
 
 def test_an_active_conversation_can_finish_after_the_new_dialing_cutoff(context):

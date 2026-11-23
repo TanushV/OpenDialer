@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { label, useWorkspace } from "../context";
-import { isActiveCall } from "../types";
+import { isActiveCall, isTerminal } from "../types";
 import { ApiError, openSource } from "../api/client";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { DueTasks } from "../components/FollowupTasks";
@@ -222,9 +222,14 @@ function StatusBar({
 function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
   const { snapshot: w } = useWorkspace();
   const { phase, packet, call, telephony, testPhone, testList } = loop;
+  // The call's own snapshot wins; a test call has no outreach packet, so it uses its base script.
   const script =
-    (call?.lead_id === packet?.lead.id && call?.script_snapshot) ||
-    packet?.script;
+    (call?.script_snapshot &&
+      (call.test_contact || call.lead_id === packet?.lead.id) &&
+      call.script_snapshot) ||
+    packet?.script ||
+    (loop.testContact ? loop.testScript : null) ||
+    undefined;
   const position = visible && isActiveCall(call) ? call?.script_position : null;
   const scriptPane = useRef<HTMLElement>(null);
   const between = phase.kind === "paused" || phase.kind === "finished";
@@ -289,16 +294,13 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
         </>
       )}
       {between && !testing && <DueTasks />}
-      {(phase.kind === "talking" ||
-        (phase.kind === "voicemail" && phase.final)) &&
-        call &&
-        !call.test_contact && (
-          <LiveCoach
-            call={call}
-            onChange={loop.act.reload}
-            onShowSection={(key) => revealScriptPart(scriptPane.current, key)}
-          />
-        )}
+      {phase.kind === "talking" && call && (
+        <LiveCoach
+          call={call}
+          onChange={loop.act.reload}
+          onShowSection={(key) => revealScriptPart(scriptPane.current, key)}
+        />
+      )}
       {loop.editing && call && (
         <WrapUp
           key={call.id}
@@ -308,12 +310,40 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
         />
       )}
       {loop.testContact && (
-        <section className="card lead-card" aria-label="Test phone">
-          <h2 data-testid="lead-name">{loop.testContact.name}</h2>
-          <p className="muted">{loop.testContact.phone}</p>
-        </section>
+        <div className="lead-and-script">
+          <section className="card lead-card" aria-label="Test phone">
+            <h2 data-testid="lead-name">{loop.testContact.name}</h2>
+            <p className="muted">{loop.testContact.phone}</p>
+            <p className="muted">
+              Practice call: nothing here changes your lists, holds or CRM.
+            </p>
+          </section>
+          <section
+            ref={scriptPane}
+            className="card script-card"
+            aria-label="Script"
+            data-testid="prepared-script"
+          >
+            <div className="card-eyebrow">
+              <span>Script</span>
+              <span className="pill subtle">Your script as written</span>
+            </div>
+            {script?.ready_for_rep === false || !script ? (
+              <p className="hint" role="status">
+                No saved script yet. Save one on the Script page and it shows
+                here on your next test.
+              </p>
+            ) : (
+              <ScriptReader
+                key={call?.id ?? loop.testContact.id}
+                script={script}
+                position={position}
+              />
+            )}
+          </section>
+        </div>
       )}
-      {packet && script ? (
+      {packet && script && !loop.testContact ? (
         <div className="lead-and-script">
           <section className="card lead-card" aria-label="Lead">
             <h2 data-testid="lead-name">{packet.lead.name}</h2>
@@ -321,6 +351,18 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
               {packet.lead.company || "Company not provided"} ·{" "}
               {packet.lead.phone}
             </p>
+            {call?.voicemail_cue &&
+              call.lead_id === packet.lead.id &&
+              !isTerminal(call) && (
+                <p className="hint" data-testid="voicemail-cue">
+                  Voicemail:{" "}
+                  {call.voicemail_cue.leave ? "leave one" : "skip it"} ·{" "}
+                  {call.voicemail_cue.reason}
+                  {call.voicemail_cue.leave &&
+                    !script?.sections?.some((s) => s.key === "voicemail") &&
+                    " · Add voicemail wording on the Script page"}
+                </p>
+              )}
             <ProspectBrief
               key={packet.lead.id}
               packet={packet}
@@ -361,10 +403,7 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
         </div>
       ) : null}
       {import.meta.env.DEV && w.simulation && call && isActiveCall(call) && (
-        <SimulationTools
-          callId={call.id}
-          allowTranscript={!call.test_contact}
-        />
+        <SimulationTools callId={call.id} allowTranscript />
       )}
     </>
   );
@@ -405,32 +444,10 @@ function SimulationTools({
           onClick={() =>
             void run(async () => {
               await simulate("call.answered");
-              await simulate("call.machine.detection.ended:human");
             })
           }
         >
-          Simulate human answer
-        </button>
-        <button
-          className="small text-button"
-          onClick={() =>
-            void run(async () => {
-              await simulate("call.answered");
-              await simulate("call.machine.detection.ended:machine");
-            })
-          }
-        >
-          Mailbox greeting
-        </button>
-        <button
-          className="small text-button"
-          onClick={() =>
-            void run(async () => {
-              await simulate("call.machine.greeting.ended:beep_detected");
-            })
-          }
-        >
-          Mailbox beep
+          Simulate answer
         </button>
       </div>
       {allowTranscript && (
@@ -590,23 +607,15 @@ function ActionBar({ loop }: { loop: Loop }) {
           <HangUp act={act} disabled={!call} />
         </>
       )}
-      {phase.kind === "voicemail" && (
+      {phase.kind === "talking" && (
         <>
           <Button
-            variant="primary"
+            variant="secondary"
             kbd="Space"
             onClick={() => void act.voicemail()}
           >
             End as voicemail
           </Button>
-          <Button variant="secondary" kbd="M" onClick={act.mute}>
-            {muted ? "Unmute" : "Mute"}
-          </Button>
-          <HangUp act={act} />
-        </>
-      )}
-      {phase.kind === "talking" && (
-        <>
           <Button variant="secondary" kbd="M" onClick={act.mute}>
             {muted ? "Unmute" : "Mute"}
           </Button>
@@ -616,13 +625,30 @@ function ActionBar({ loop }: { loop: Loop }) {
           <button className="secondary" onClick={() => void act.optOut()}>
             Opt out
           </button>
-          {phase.answer === "identifying" && (
-            <Button variant="secondary" onClick={() => void act.voicemail()}>
-              End as voicemail
-            </Button>
-          )}
           <HangUp act={act} />
         </>
+      )}
+      {phase.kind === "ended" && phase.voicemail && !phase.saving && (
+        <div
+          className="outcome-keys"
+          role="group"
+          aria-label="Voicemail message"
+        >
+          <Button
+            variant="primary"
+            kbd="L"
+            onClick={() => void act.voicemail_left()}
+          >
+            Left a message
+          </Button>
+          <Button
+            variant="primary"
+            kbd="N"
+            onClick={() => void act.voicemail_none()}
+          >
+            No message
+          </Button>
+        </div>
       )}
       {phase.kind === "ended" && (
         <div className="outcome-keys" role="group" aria-label="Save outcome">
@@ -713,10 +739,17 @@ function useKeys(
   const latest = useRef({ phase, act, visible, suggested });
   latest.current = { phase, act, visible, suggested };
   useEffect(() => {
+    // One Space press acts once: after it, Space acts again only once the key has been released, so a press that
+    // ended a call can never also dial the next one (work package 6.4).
+    let spaceArmed = true;
+    const release = (event: KeyboardEvent) => {
+      if (event.code === "Space") spaceArmed = true;
+    };
     const handler = (event: KeyboardEvent) => {
       const { phase, act, visible, suggested } = latest.current;
       if (
         !visible ||
+        !event.isTrusted ||
         event.defaultPrevented ||
         event.repeat ||
         event.altKey ||
@@ -744,6 +777,10 @@ function useKeys(
       const action: Action | undefined = keys(phase)[event.code];
       if (!action) return;
       event.preventDefault();
+      if (event.code === "Space") {
+        if (!spaceArmed) return;
+        spaceArmed = false;
+      }
       if (typeof action === "object")
         void act.save(OUTCOME_KEYS[action.save - 1][0]);
       else if (action === "mute") act.mute();
@@ -753,7 +790,11 @@ function useKeys(
       else void act[action]();
     };
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keyup", release);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("keyup", release);
+    };
   }, []);
 }
 

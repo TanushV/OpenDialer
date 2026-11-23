@@ -84,6 +84,7 @@ class CallView(View):
     rep_id: str | None = None
     attempt_ordinal: int | None = None
     dial_scope: dict[str, Any] = {}
+    outcome: str | None = None
 
 
 class ReservationView(View):
@@ -121,6 +122,7 @@ class CommandView(View):
     prior_attempt: dict[str, Any] = {}
     lease_until: str | None = None
     sent_at: str | None = None
+    hold_reason: str | None = None
 
 
 class LegView(View):

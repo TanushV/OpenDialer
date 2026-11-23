@@ -187,10 +187,16 @@ export interface Coach {
 }
 export interface Call {
   test_contact?: boolean;
+  /** The rep ended this call with End as voicemail. */
+  rep_voicemail_at?: string | null;
+  /** The carrier stop waits until then (work package 6.10, short-call hold). */
+  carrier_hold_until?: string | null;
+  /** Whether to leave a voicemail on this attempt, and why; advisory only (work package 6.12). */
+  voicemail_cue?: { leave: boolean; reason: string } | null;
   /** A call to the rep's own test phone: excluded from learning, and calling pauses after it. */
   is_test?: boolean;
   dial_scope?: { test_only?: boolean; test_run_id?: string };
-  /** R10.2: the one-request after-call summary, once written. */
+  /** R10.2: an after-call summary saved before 2.4.2; none is written now. */
   aftercall?: {
     status: "ready" | "failed" | "no_speech" | "unavailable";
     summary?: string | null;
@@ -209,7 +215,6 @@ export interface Call {
   connected_seconds?: number | null;
   /** Telnyx found a mailbox on the final attempt: the line stays open for the rep's message. */
   voicemail_turn?: boolean;
-  stay_on_voicemail?: boolean;
   machine_detected?: boolean;
   screening_detected?: boolean;
   transcription_source?: string;
@@ -602,7 +607,7 @@ export interface EvidenceItem {
   text: string;
   evidence: string[];
 }
-/** One call in Review (R10.9): outcome, after-call summary, the rep's note and the 30-day transcript. */
+/** One call in Review (R10.9): outcome, the rep's note and any summary saved before 2.4.2; no transcript is kept. */
 export interface CallReview {
   call: Call;
   lead_timezone?: string | null;

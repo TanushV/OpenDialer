@@ -1,6 +1,85 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+# Outreach calls Monday to Friday, 9:00 to 17:00 in the prospect's own time zone, never on a US federal holiday
+# (work package 9.3 C2, owner decisions D4 and D6). Settings may narrow the window, never widen it. A due requested
+# callback is exempt. Strictest state rules found: Texas from 9 a.m.; Pennsylvania 9 a.m. to 7 p.m. with no Sundays
+# or holidays (Act 47 of 2026); Alabama, Louisiana, Mississippi and possibly Florida until 8 p.m.
+OUTREACH_START_FLOOR = 9
+OUTREACH_END_CAP = 17
+# Every zone a US number can be in. With no usable data, a lead is called only when all of them are open.
+ALL_US_ZONES = (
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Phoenix",
+    "America/Los_Angeles",
+    "America/Anchorage",
+    "America/Adak",
+    "Pacific/Honolulu",
+)
+
+
+def _observed(day):
+    return (
+        day - timedelta(days=1)
+        if day.weekday() == 5
+        else day + timedelta(days=1)
+        if day.weekday() == 6
+        else day
+    )
+
+
+def _nth(year, month, weekday, n):
+    first = date(year, month, 1)
+    return first + timedelta(days=(weekday - first.weekday()) % 7 + 7 * (n - 1))
+
+
+def _last(year, month, weekday):
+    end = date(year, month + 1, 1) - timedelta(days=1)
+    return end - timedelta(days=(end.weekday() - weekday) % 7)
+
+
+@lru_cache(maxsize=16)
+def us_federal_holidays(year):
+    """The eleven US federal holidays, on the days they are observed."""
+    return frozenset(
+        {
+            _observed(date(year, 1, 1)),
+            _nth(year, 1, 0, 3),  # Martin Luther King Jr. Day
+            _nth(year, 2, 0, 3),  # Washington's Birthday
+            _last(year, 5, 0),  # Memorial Day
+            _observed(date(year, 6, 19)),  # Juneteenth
+            _observed(date(year, 7, 4)),
+            _nth(year, 9, 0, 1),  # Labor Day
+            _nth(year, 10, 0, 2),  # Columbus Day
+            _observed(date(year, 11, 11)),  # Veterans Day
+            _nth(year, 11, 3, 4),  # Thanksgiving
+            _observed(date(year, 12, 25)),
+        }
+    )
+
+
+def outreach_hours(policy):
+    """The window a saved policy really calls in: older workspaces may hold 8:00 or a later end."""
+    start, end = (
+        policy.get("local_start_hour", OUTREACH_START_FLOOR),
+        policy.get("local_end_hour", OUTREACH_END_CAP),
+    )
+    return max(OUTREACH_START_FLOOR, start), min(OUTREACH_END_CAP, end)
+
+
+def outreach_open(local, start_hour, end_hour):
+    """Whether a local time is inside the outreach window."""
+    start, end = outreach_hours({"local_start_hour": start_hour, "local_end_hour": end_hour})
+    return (
+        local.weekday() < 5
+        and local.date() not in us_federal_holidays(local.year)
+        and start <= local.hour < end
+    )
+
 
 # Ordinary retries of an unanswered lead wait at least a day; requested callbacks and the
 # final-stage second attempt are separate actions with their own timing.
@@ -68,9 +147,10 @@ class Decision:
 
 
 def calling_zones(c: CallContext):
+    """The supplied zone, else the zones from the state or area code, else every US zone (never "unknown")."""
     if c.timezone and c.timezone_confidence in {"confirmed", "high"}:
         return (c.timezone,)
-    return tuple(c.timezones or ())
+    return tuple(c.timezones or ()) or ALL_US_ZONES
 
 
 def authorize(c: CallContext) -> Decision:
@@ -101,16 +181,14 @@ def authorize(c: CallContext) -> Decision:
         require(not c.state_registry_required or not c.state_registry_listed, "STATE_REGISTRY_LISTED")
         require(not c.consent_required or c.consent_valid, "CONSENT_MISSING")
         require(not c.consent_revoked, "CONSENT_REVOKED")
-        zones = calling_zones(c)
-        if not zones:
-            reasons.append("TIMEZONE_UNCERTAIN")
-        for zone in () if c.continuing_call else zones:
+        # A live conversation may finish, and a due requested callback is exempt (owner decision D4).
+        for zone in () if c.continuing_call or c.callback_due else calling_zones(c):
             try:
                 local = c.now.astimezone(ZoneInfo(zone))
             except (ZoneInfoNotFoundError, ValueError):
                 reasons.append("TIMEZONE_UNCERTAIN")
                 break
-            if not c.local_start_hour <= local.hour < min(17, c.local_end_hour):
+            if not outreach_open(local, c.local_start_hour, c.local_end_hour):
                 reasons.append("OUTSIDE_CALLING_WINDOW")
                 break
     require(c.rep_ready, "REP_NOT_READY")

@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -293,10 +294,22 @@ def packaged_calls(client, token):
         path = f"/v1/calls/{call_id}"
         if outcome == "voicemail":
             event(call_id, "call.answered")
+            # No detection: late receipts change nothing; the rep ends the mailbox and says no message was left.
             event(call_id, "call.machine.premium.detection.ended:machine")
-            event(call_id, "call.machine.premium.greeting.ended:beep_detected")
-            assert request("GET", path)["state"] == "VOICEMAIL_READY"
+            assert request("GET", path)["state"] == "ANSWERED_UNCLASSIFIED"
             request("POST", path + "/hangup", {"mark_voicemail": True})
+            event(call_id, "call.hangup", hangup_source="caller", hangup_cause="normal_clearing")
+            ended = request("GET", path)
+            request(
+                "POST",
+                path + "/disposition",
+                {
+                    "outcome": "voicemail",
+                    "voicemail_message": "none",
+                    "expected_version": ended["version"],
+                    "request_id": str(uuid.uuid4()),
+                },
+            )
         else:
             event(call_id, "call.hangup", hangup_source="callee", hangup_cause="no_answer")
         settled = request("GET", path)
@@ -356,7 +369,29 @@ def stress():
         "services/backend/tests/test_fault_soak.py",
         "tests/test_shared_calling_stress.py",
     ]
-    return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode == 0  # noqa: S603
+    env.setdefault("SOAK_LEDGER", str(Path(tempfile.mkdtemp(prefix="opendialer-stress-")) / "ledger.jsonl"))
+    passed = subprocess.run(command, cwd=ROOT, env=env, check=False).returncode == 0  # noqa: S603
+    _coverage_report(Path(env["SOAK_LEDGER"]))
+    return passed
+
+
+def _coverage_report(ledger):
+    """What the passing runs reached, so a green sweep is visibly not vacuous (work package section 7)."""
+    sys.path.insert(0, str(ROOT))
+    from services.backend.tests.stress_support import ledger_totals
+
+    if not ledger.is_file():
+        print("Coverage: no passing runs recorded", flush=True)
+        return
+    for test, totals in sorted(ledger_totals(ledger).items()):
+        effects = ", ".join(
+            f"{name} {e['total']} in {e['runs']}/{totals['runs']} runs"
+            for name, e in sorted(totals["effects"].items())
+        )
+        print(
+            f"Coverage {test}: {totals['runs']} passing runs; {effects or 'no effects recorded'}", flush=True
+        )
+    print(f"Coverage ledger: {ledger}", flush=True)
 
 
 def main(argv):

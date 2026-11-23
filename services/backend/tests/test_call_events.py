@@ -34,38 +34,22 @@ def test_carrier_outcomes_are_settled_only_when_no_person_answered():
     assert events.carrier_outcome({"sip_block_code": "603"}, {"hangup_cause": "timeout"}) is None
 
 
-def test_machine_and_beep_mark_an_open_mailbox_for_the_rep():
-    machine = "call.machine.premium.detection.ended:machine"
-    beep = "call.machine.premium.greeting.ended:beep_detected"
-    for event in (machine, beep):
-        assert events.machine({"state": "VOICEMAIL_GREETING"}, event, final=False) == {
-            "machine_detected": True
-        }
-
-
-def test_voicemail_on_a_final_attempt_offers_a_message_and_ignores_late_guesses():
-    machine = "call.machine.premium.detection.ended:machine"
-    assert events.machine({}, machine, final=True) == {"machine_detected": True, "voicemail_turn": True}
-    for call in (
-        {"screening_detected": True},
-        {"state": "ENDING"},
-        {"state": "FINALIZED"},
-        {"human_answered_at": "x"},
+def test_detection_results_from_older_calls_mark_nothing():
+    """Work package section 6: detection is off; late mailbox, beep and screening receipts change nothing."""
+    for event in (
+        "call.machine.premium.detection.ended:machine",
+        "call.machine.premium.greeting.ended:beep_detected",
+        "call.machine.detection.ended:machine",
     ):
-        assert events.machine(call, machine, final=False) == {}
-    assert events.machine({}, "call.answered", final=False) == {}
+        for final in (False, True):
+            assert events.machine({"state": "ANSWERED_UNCLASSIFIED"}, event, final=final) == {}
+    assert events.screening({}, "call.machine.premium.call_screening.detected:screening") == {}
 
 
 def test_final_attempt_reads_the_allowance_or_the_policy():
     assert events.final_attempt({"attempt_ordinal": 4}, {"max_attempts": 4})
     assert not events.final_attempt({"attempt_ordinal": 3}, {"max_attempts": 4})
     assert events.final_attempt({"attempt_ordinal": 2, "attempt_allowance": 2}, {"max_attempts": 4})
-
-
-def test_screening_clears_a_machine_guess():
-    event = "call.machine.premium.call_screening.detected:screening"
-    assert events.screening({}, event) == {"screening_detected": True, "machine_detected": False}
-    assert events.screening({"human_answered_at": "x"}, event) == {}
 
 
 def test_a_confirmed_person_clears_machine_and_outcome_and_reports_the_first_answer():

@@ -71,47 +71,57 @@ def queue_confirmed_turn(service, p, call_id, transcript_version, prospect_segme
 
 def _live(service, s, p, call):
     """Whether the helper may answer on this call now."""
-    if (
-        call.data.get("test_contact")
-        or call.data["state"] in TERMINAL | {"ENDING"}
-        or call.data.get("transcription_disabled")
-    ):
+    if call.data["state"] in TERMINAL | {"ENDING"} or call.data.get("transcription_disabled"):
         return False
-    lead = ops.required(service, s, "leads", call.data["lead_id"], p)
-    return not ops.suppressed(service, s, p, lead.data["phone"])
+    if not ops.live_transcription_enabled(service, p):
+        return False
+    recipient, test = ops.call_party(service, s, p, call)
+    # A test call keeps its helper; practice dialogue never suppresses the test phone (work package 3.7).
+    return test or not ops.suppressed(service, s, p, recipient.data["phone"])
 
 
 def request_in(service, s, p, call, question, *, prospect_segment_id=None):
     """Everything one turn sends: script, lead, research, earlier calls and the call so far."""
     from app.script_follow import latest_match
 
-    lead = ops.required(service, s, "leads", call.data["lead_id"], p)
-    script = call.data.get("script_snapshot") or ops.selected_script(service, s, p, lead)[0]
-    facts = [
-        doc(r).get("statement")
-        for r in ops.context_rows(
-            service,
-            s,
-            p,
-            "research_facts",
-            lead.id,
-            MODELS["research_facts"].ctx_status == "supported",
-            MODELS["research_facts"].ctx_expires_at > service.clock(),
-            limit=8,
-        )
-    ]
+    lead, test = ops.call_party(service, s, p, call)
+    script = call.data.get("script_snapshot") or (
+        ops.fallback_script(service, s, p, lead) if test else ops.selected_script(service, s, p, lead)[0]
+    )
+    # A test has no research and never borrows a matching prospect's earlier calls (work package 3.4).
+    facts = (
+        []
+        if test
+        else [
+            doc(r).get("statement")
+            for r in ops.context_rows(
+                service,
+                s,
+                p,
+                "research_facts",
+                lead.id,
+                MODELS["research_facts"].ctx_status == "supported",
+                MODELS["research_facts"].ctx_expires_at > service.clock(),
+                limit=8,
+            )
+        ]
+    )
     earlier = []
-    for prior in reversed(
-        ops.lead_records(
-            service,
-            s,
-            p,
-            "call_attempts",
-            lead.id,
-            MODELS["call_attempts"].id != call.id,
-            MODELS["call_attempts"].op_status.in_(TERMINAL),
-            limit=3,
-            newest=True,
+    for prior in (
+        []
+        if test
+        else reversed(
+            ops.lead_records(
+                service,
+                s,
+                p,
+                "call_attempts",
+                lead.id,
+                MODELS["call_attempts"].id != call.id,
+                MODELS["call_attempts"].op_status.in_(TERMINAL),
+                limit=3,
+                newest=True,
+            )
         )
     ):
         summary = ops.call_summary(service, s, p, prior.id) or {}

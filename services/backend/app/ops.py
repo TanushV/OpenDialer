@@ -309,7 +309,6 @@ HOMES = {
     "start_test_session": "app.service",
     "save_test_contact": "app.test_list",
     "start_transcription_in": "app.telephony.workflows",
-    "stay_on_call": "app.telephony.workflows",
     "stop_agent_transcription_in": "app.telephony.workflows",
     "store_facts_in": "app.preparation.workflows",
     "store_prepared_in": "app.preparation.workflows",
@@ -332,6 +331,17 @@ HOMES = {
     "workspace_page": "app.workspace",
     "workspace_test_passed": "app.telephony.callbacks",
     "write_memory_in": "app.optimization.script_lab",
+    "call_party": "app.calling.context",
+    "live_transcription_enabled": "app.calling.context",
+    "speech_allowed": "app.calling.context",
+    "master_template": "app.preparation.workflows",
+    "spoke_before": "app.calling.context",
+    "attempt_voicemail_cue": "app.calling.context",
+    "with_callback_number": "app.calling.context",
+    "opt_outs_stale": "app.crm",
+    "record_script_trace": "app.intelligence",
+    "practice_call": "app.calling.context",
+    "voicemail_cue": "app.lead_lists",
 }
 
 
@@ -348,6 +358,7 @@ def _bundle():  # pragma: no cover
     import app.accounting  # noqa: F401
     import app.administration  # noqa: F401
     import app.billing  # noqa: F401
+    import app.calling.context  # noqa: F401
     import app.calling.dial  # noqa: F401
     import app.crm  # noqa: F401
     import app.intelligence  # noqa: F401

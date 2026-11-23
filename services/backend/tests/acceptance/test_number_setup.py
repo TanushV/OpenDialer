@@ -238,6 +238,9 @@ def test_one_answered_test_call_opens_every_number_immediately_and_never_expires
         update(number, outbound_hold_until=(clock() + timedelta(hours=24)).isoformat())
     assert get(ws, "/v1/admin/numbers/summary")["inventory"]["workspace_test_passed"] is False
     assert "CALLER_NUMBER_CALLBACK_TEST_REQUIRED" in get(ws, "/v1/admin/preflight")["blockers"]
+    # Settings names the real step and number, never a literal placeholder (work package 6.8).
+    row = next(r for r in get(ws, "/v1/settings/rows")["rows"] if r["id"] == "numbers")
+    assert "Verify callbacks once" in row["detail"] and "{phone}" not in row["detail"]
 
     _, rep = add_user(ws, "rep@example.test", sip="rep-line-1")
     ready_as(ws, rep)
@@ -395,7 +398,8 @@ def test_a_refused_next_call_asks_for_the_test_call(fresh, carrier):
     post(ws, "/v1/admin/numbers/add", {"phone": SF})
     ready_as(ws)
     refused = call(ws, "POST", "/v1/queue/next", json={"campaign_id": ws["campaign_id"]}, status=409)
-    assert "test call" in refused["detail"]["message"] and SF in refused["detail"]["message"]
+    message = refused["detail"]["message"]
+    assert "Verify callbacks once" in message and f"{SF[2:5]}-{SF[5:8]}-{SF[8:]}" in message
 
 
 def test_queue_uses_another_state_after_the_workspace_test_passes(fresh, carrier, clock):

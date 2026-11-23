@@ -139,23 +139,19 @@ test("real Dialer audio handoff on successive calls through local WebRTC peers",
     await expect(callStatus(page)).toContainText(/Dialing|Ringing/);
     await event("call.answered");
     if (index === 0) {
-      await event("call.machine.premium.detection.ended:machine", {
-        result: "machine",
-      });
-      await event("call.machine.premium.greeting.ended:beep_detected", {
-        result: "beep_detected",
-      });
-      await expect(callStatus(page)).toContainText("Voicemail detected");
+      // No detection: the rep hears the mailbox and ends it (work package section 6).
+      await expect(callStatus(page)).toContainText("Connected");
       await expect
         .poll(async () => (await levels()).repHears)
         .toBeGreaterThan(0.02);
       await page.getByRole("button", { name: /^End as voicemail/ }).click();
-      await expect(callStatus(page)).toContainText("Voicemail saved");
-    } else {
-      await event("call.machine.premium.detection.ended:human_residence", {
-        result: "human_residence",
+      await expect(callStatus(page)).toContainText("did you leave a message");
+      await page.getByRole("button", { name: /^No message/ }).click();
+      await expect(callStatus(page)).toContainText("Voicemail saved", {
+        timeout: 20_000,
       });
-      await expect(callStatus(page)).toContainText("Talking · person");
+    } else {
+      await expect(callStatus(page)).toContainText("Connected");
       // A stalled local API must not keep the rep's verified WebRTC leg connected.
       const stopPath = `**/v1/calls/${id}/hangup`;
       let release = () => {};
