@@ -13,7 +13,7 @@ from app.calling import audio_leg
 from app.calling.blockers import refuse, test_line_refusal
 from app.calling.state import moved, transition
 from app.compliance.phone import normalize_phone
-from app.compliance.policy import CallContext
+from app.compliance.policy import CallContext, outreach_hours
 from app.lead_lists import has_current_list, memberships, set_memberships
 from app.leads import intake
 from app.leads.record import csv_fields, number_view
@@ -738,8 +738,8 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         # AI budgets are per lead list and never gate calling.
         budget_available=True,
         route_allowed=lead.data["phone"].startswith("+1") and "1" in config.get("allowed_country_codes", []),
-        local_start_hour=config.get("local_start_hour", 9),
-        local_end_hour=min(17, config.get("local_end_hour", 17)),
+        local_start_hour=outreach_hours(config)[0],
+        local_end_hour=outreach_hours(config)[1],
         permission=permission,
         # Live calls carry the speech-to-text the live helper needs; nothing is recorded.
         permitted_permissions=set(config.get("permissions", []))

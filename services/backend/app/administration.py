@@ -18,6 +18,7 @@ from app.calling import audio_leg
 from app.calling.blockers import CATALOG, Facts, blocked, mark_stuck
 from app.calling.blockers import blockers as dial_gate
 from app.calling.state import TERMINAL
+from app.compliance.policy import outreach_hours
 from app.platform.config import PROVIDER_DEFAULTS, CapabilityStatus
 from app.platform.db import MODELS, RETIRED_TABLES, audit, doc, emit, put, rows, uid, update
 from app.service import dt, fail
@@ -346,7 +347,7 @@ def setup_rows(service, p):
             if campaign
             else {}
         )
-        start, end = policy.get("local_start_hour", 9), policy.get("local_end_hour", 17)
+        start, end = outreach_hours(policy)
         valid = isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= 24
         live["hours"] = (
             valid,

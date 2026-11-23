@@ -62,13 +62,22 @@ def us_federal_holidays(year):
     )
 
 
+def outreach_hours(policy):
+    """The window a saved policy really calls in: older workspaces may hold 8:00 or a later end."""
+    start, end = (
+        policy.get("local_start_hour", OUTREACH_START_FLOOR),
+        policy.get("local_end_hour", OUTREACH_END_CAP),
+    )
+    return max(OUTREACH_START_FLOOR, start), min(OUTREACH_END_CAP, end)
+
+
 def outreach_open(local, start_hour, end_hour):
     """Whether a local time is inside the outreach window."""
-    start = max(OUTREACH_START_FLOOR, start_hour)
+    start, end = outreach_hours({"local_start_hour": start_hour, "local_end_hour": end_hour})
     return (
         local.weekday() < 5
         and local.date() not in us_federal_holidays(local.year)
-        and start <= local.hour < min(OUTREACH_END_CAP, end_hour)
+        and start <= local.hour < end
     )
 
 

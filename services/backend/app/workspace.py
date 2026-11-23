@@ -5,6 +5,7 @@ import hashlib
 from sqlalchemy import and_, func, literal_column, or_, select
 
 from app import ops, test_list
+from app.compliance.policy import outreach_hours
 from app.lead_lists import active_membership, in_list
 from app.operational_schema import PAGE_TABLES
 from app.platform.db import MODELS, ActiveClaim, Event, Job, after_key, doc
@@ -379,7 +380,10 @@ def snapshot(service, p):
             "test_run": {"id": run["id"], "phones": sorted(run["remaining"].values())} if run else None,
             "seller": doc(ops.required(service, s, "sellers", p["seller_id"], p)),
             "campaign": doc(campaign),
-            "policy": {**doc(policy), "local_end_hour": min(17, policy.data.get("local_end_hour", 17))},
+            "policy": {
+                **doc(policy),
+                **dict(zip(("local_start_hour", "local_end_hour"), outreach_hours(policy.data), strict=True)),
+            },
             "user": {
                 "id": user.id,
                 "name": user.data["name"],
