@@ -309,8 +309,8 @@ export function ScriptEditor() {
             accept=".md,.markdown,.txt,text/plain,text/markdown"
             onOpen={(file) => {
               void run(async () => {
-                if (file.size > 40000)
-                  throw new Error("Keep the script under 40 KB.");
+                if (file.size > 64000)
+                  throw new Error("Keep the script under 64 KB.");
                 edited.current = true;
                 setText(await file.text());
               });

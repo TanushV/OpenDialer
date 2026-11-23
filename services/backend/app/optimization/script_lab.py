@@ -70,7 +70,7 @@ class SettingsBody(Strict):
 
 
 class ImportBody(Strict):
-    markdown: str = Field(min_length=1, max_length=40000)
+    markdown: str = Field(min_length=1, max_length=64000)
     expected_version: int = Field(ge=0)
     preview: bool = True
 

@@ -65,7 +65,7 @@ PICKS = {
 # a prospect who calls the caller ID back reaches the rep or leaves a missed callback (owner, November 23).
 PLACEHOLDERS = {"name", "first_name", "company", "rep", "seller", "callback_number"}
 VOICEMAIL_FIELDS = ("rep", "seller")
-MAX_BYTES = 40000
+MAX_BYTES = 64000
 MAX_OPTIONS = 20
 MAX_BLOCKS = 20
 MAX_WRITTEN = 400
@@ -187,7 +187,7 @@ def _bullet_groups(lines):
 def parse_markdown(markdown, *, finished=False):
     """Parse a Markdown playbook once; blockquotes are cues, never spoken wording."""
     if len(markdown.encode()) > MAX_BYTES:
-        raise ScriptError([{"line": 0, "message": "Keep the script under 40 KB"}])
+        raise ScriptError([{"line": 0, "message": "Keep the script under 64 KB"}])
     errors, raw, context = [], {}, {}
     current, card = None, None
     # Keep source line numbers and the original editor text when omitting comments from speech.

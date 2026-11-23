@@ -273,3 +273,13 @@ def test_voicemail_wording_is_filled_except_the_callback_number_until_dial():
     script = render(template, lead={"name": "Pat Lee"}, seller="Acme", rep="Sam")
     voicemail = next(s for s in script["sections"] if s["key"] == "voicemail")
     assert voicemail["text"] == "Hi Pat, Sam with Acme. Call {callback_number}."
+
+
+def test_a_master_up_to_64_kb_is_accepted_and_a_larger_one_is_refused():
+    """Owner, November 23: the v14 master is about 49 KB, over the old 40 KB limit."""
+    padding = "\n# Proof notes\n" + "> A rep direction that is never spoken, kept for reference.\n" * 800
+    large = STARTER + padding[: 48_000 - len(STARTER)]
+    assert 40_000 < len(large.encode()) <= 64_000
+    assert parse_markdown(large)["sections"]
+    with pytest.raises(ScriptError, match="64 KB"):
+        parse_markdown(STARTER + padding * 2)
