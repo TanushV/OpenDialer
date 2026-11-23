@@ -170,7 +170,7 @@ def setup(service, data):
                 "dnc_screening": False,
                 "state_registry_required": False,
                 "permissions": ["live", "transcription"],
-                "local_start_hour": 8,
+                "local_start_hour": 9,
                 "local_end_hour": 17,
                 "max_attempts": 4,
                 "min_retry_seconds": 86400,
@@ -732,7 +732,7 @@ def context(service, s, p, lead, number, *, permission="live", active=False):
         # AI budgets are per lead list and never gate calling.
         budget_available=True,
         route_allowed=lead.data["phone"].startswith("+1") and "1" in config.get("allowed_country_codes", []),
-        local_start_hour=config.get("local_start_hour", 8),
+        local_start_hour=config.get("local_start_hour", 9),
         local_end_hour=min(17, config.get("local_end_hour", 17)),
         permission=permission,
         # Live calls carry the speech-to-text the live helper needs; nothing is recorded.

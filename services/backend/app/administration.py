@@ -969,6 +969,8 @@ def publish(service, p, policy_id, body):
             "parent_id": current.id,
         }
         config["local_end_hour"] = min(17, config["local_end_hour"])
+        # Settings may narrow the outreach window, never widen it (work package 9.3 C2).
+        config["local_start_hour"] = max(9, config["local_start_hour"])
         if not 0 <= config["local_start_hour"] < config["local_end_hour"] <= 24:
             fail(422, "Invalid reviewed local calling window")
         new = put(s, "policy_versions", p["tenant_id"], p["seller_id"], config, now=now)

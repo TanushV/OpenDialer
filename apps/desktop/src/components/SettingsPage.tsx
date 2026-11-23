@@ -492,6 +492,7 @@ function CallingWindow() {
           <input
             type="number"
             {...limits(p?.local_start_hour)}
+            min={9}
             value={draft.local_start_hour}
             onChange={(e) =>
               change({ local_start_hour: Number(e.target.value) })
@@ -518,6 +519,11 @@ function CallingWindow() {
           />
         </label>
       </div>
+      <p className="fine">
+        Outreach calls go out Monday to Friday, 9:00 to 17:00 in each
+        prospect&apos;s own time zone, never on US federal holidays. You can
+        narrow these hours. Callbacks a prospect asked for are not limited.
+      </p>
       <button className="primary" onClick={() => void run(editor.publish)}>
         Save calling hours
       </button>

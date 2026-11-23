@@ -287,7 +287,8 @@ class PolicyUpdate(Strict):
     state_registry_required: bool | None = None
     consent_required: bool | None = None
     permissions: list[Literal["live", "prerecorded", "transcription", "recording", "messaging"]] | None = None
-    local_start_hour: int | None = Field(default=None, ge=0, le=23)
+    # Outreach never starts before 9:00 local (work package 9.3 C2).
+    local_start_hour: int | None = Field(default=None, ge=9, le=16)
     local_end_hour: int | None = Field(default=None, ge=1, le=24)
     max_attempts: int | None = Field(default=None, ge=1, le=20)
     min_retry_seconds: int | None = Field(default=None, ge=60)
