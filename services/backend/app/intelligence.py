@@ -174,7 +174,7 @@ def packet(service, p, lead_id):
 
 
 def call_review(service, p, call_id):
-    """One call for Review: its outcome, the after-call summary, the rep's note and the 30-day transcript."""
+    """One call for Review: its outcome, the rep's note, a summary saved before 2.4.2, and no kept transcript."""
     from app.aftercall.trace import behavioral_metrics
 
     with service.db.transaction(False) as s:
@@ -450,7 +450,7 @@ def record_script_trace(service, s, p, call):
         update(call, script_trace=trace)
 
 
-def enqueue_aftercall(service, s, p, call, *, retry=False):
+def enqueue_aftercall(service, s, p, call):
     """No after-call summary: transcripts are deleted when the call ends (work package 9.3 C5, owner decision D7).
 
     Kept as the one place that would queue it, so callers stay unchanged."""

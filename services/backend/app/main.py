@@ -976,14 +976,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
         return live_help.cancel(service, p, call_id, str(data.request_id))
 
-    @app.post("/v1/calls/{call_id}/summary")
-    def retry_summary(call_id: str, p=Depends(principal)):
-        """R10.4: a summary that failed is written again on request; nothing else is redone."""
-        with db.transaction() as s:
-            call = ops.required(service, s, "call_attempts", call_id, p)
-            ops.enqueue_aftercall(service, s, p, call, retry=True)
-        return {"queued": True}
-
     @app.get("/v1/calls/{call_id}/review")
     def call_review(call_id: str, p=Depends(principal)):
         return ops.call_review(service, p, call_id)

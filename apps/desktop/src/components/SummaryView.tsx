@@ -1,14 +1,11 @@
 import type { Call } from "../types";
 
-/** The after-call summary, or why there is none and what to do. */
+/** A summary saved before 2.4.2; none is written now that transcripts are not kept. */
 export function SummaryView({
   summary,
-  onRetry,
 }: {
-  summary: Call["aftercall"];
-  onRetry?: () => void;
+  summary: NonNullable<Call["aftercall"]>;
 }) {
-  if (!summary) return <p className="muted small">Writing the summary…</p>;
   if (summary.status === "ready")
     return (
       <>
@@ -22,12 +19,7 @@ export function SummaryView({
     return <p className="muted small">No one spoke on this call.</p>;
   return (
     <p className="muted small">
-      {summary.error || "The summary could not be written."}{" "}
-      {onRetry && (
-        <button className="text-button" onClick={onRetry}>
-          Retry
-        </button>
-      )}
+      {summary.error || "The summary could not be written."}
     </p>
   );
 }

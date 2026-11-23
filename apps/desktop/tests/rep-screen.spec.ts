@@ -178,7 +178,7 @@ test("the brief says why this lead is next and shows no learned estimates", asyn
   await expect(context).not.toContainText("Estimates");
 });
 
-test("review notes start empty and the AI summary stays read-only", async ({
+test("review notes start empty and a summary saved before 2.4.2 stays read-only", async ({
   page,
 }) => {
   await page.route("**/v1/calls/*/review", async (route) => {
@@ -215,6 +215,34 @@ test("review notes start empty and the AI summary stays read-only", async ({
   await expect(page.getByRole("region", { name: "AI summary" })).toContainText(
     "AI drafted summary of the call.",
   );
+});
+
+test("a call without a summary shows no summary waiting in Review", async ({
+  page,
+}) => {
+  // Transcripts are not kept, so no summary is written (work package 9.3 C5, owner decision D7).
+  const { packet } = await startCall(
+    page,
+    "No summary fixture",
+    "+14155550605",
+  );
+  await answer(page);
+  await clickUntil(pauseCalling(page), () =>
+    expect(page.getByText("Calling stops after this call")).toBeVisible({
+      timeout: 3_000,
+    }),
+  );
+  await hangUp(page).click();
+  await saveOutcome(page, "not_interested");
+  await expect(startCalling(page)).toBeVisible();
+  await goTo(page, "Review");
+  const notes = page.getByLabel("Your notes", { exact: true });
+  const review = page
+    .getByRole("button", { name: `Review call ${packet.lead.name}` })
+    .first();
+  await clickUntil(review, () => expect(notes).toBeVisible({ timeout: 3_000 }));
+  await expect(page.getByRole("region", { name: "AI summary" })).toHaveCount(0);
+  await expect(page.getByText("Writing the summary")).toHaveCount(0);
 });
 
 test("a saved outcome stays saved when loading the next lead fails", async ({

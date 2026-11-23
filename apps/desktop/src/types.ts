@@ -196,7 +196,7 @@ export interface Call {
   /** A call to the rep's own test phone: excluded from learning, and calling pauses after it. */
   is_test?: boolean;
   dial_scope?: { test_only?: boolean; test_run_id?: string };
-  /** R10.2: the one-request after-call summary, once written. */
+  /** R10.2: an after-call summary saved before 2.4.2; none is written now. */
   aftercall?: {
     status: "ready" | "failed" | "no_speech" | "unavailable";
     summary?: string | null;
@@ -607,7 +607,7 @@ export interface EvidenceItem {
   text: string;
   evidence: string[];
 }
-/** One call in Review (R10.9): outcome, after-call summary, the rep's note and the 30-day transcript. */
+/** One call in Review (R10.9): outcome, the rep's note and any summary saved before 2.4.2; no transcript is kept. */
 export interface CallReview {
   call: Call;
   lead_timezone?: string | null;

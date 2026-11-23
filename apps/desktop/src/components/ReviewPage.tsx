@@ -162,18 +162,13 @@ export function ReviewPage({
           <p>{label(review.call.outcome || "Outcome unconfirmed")}</p>
         </div>
       </div>
-      <section className="card padded" aria-label="AI summary">
-        <h2>Summary</h2>
-        <SummaryView
-          summary={summary}
-          onRetry={() =>
-            void run(async () => {
-              await api(`/v1/calls/${review.call.id}/summary`, "POST");
-              notice("Summary requested again.");
-            })
-          }
-        />
-      </section>
+      {summary && (
+        // Only calls from before 2.4.2 have one: transcripts are no longer kept (work package 9.3 C5).
+        <section className="card padded" aria-label="AI summary">
+          <h2>Summary</h2>
+          <SummaryView summary={summary} />
+        </section>
+      )}
       <ConversionForm call={review.call} />
       {review.call.state === "FINALIZED" && (
         <details className="card padded">
