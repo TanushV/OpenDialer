@@ -58,7 +58,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("desktop", type=Path)
     desktop = parser.parse_args().desktop.resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix="opendialer-linux-") as scratch:
+    # WebKit helpers can still be writing their shader cache as the app exits; the scratch folder is throwaway.
+    with tempfile.TemporaryDirectory(prefix="opendialer-linux-", ignore_cleanup_errors=True) as scratch:
         root = Path(scratch)
         env = {key: value for key, value in os.environ.items() if not key.startswith("OPENDIALER_")}
         env.update(HOME=scratch, XDG_DATA_HOME=str(root / "data"), XDG_CONFIG_HOME=str(root / "config"))
