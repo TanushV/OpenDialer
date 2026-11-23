@@ -1,8 +1,16 @@
+# OpenDialer 2.4.3
+
+- **Voicemails need no callback number.** A message only has to name you and your business. A prospect who calls your caller ID back reaches you, or shows up as a missed callback. `{callback_number}` still works if you want to read the number out. Scripts saved before 2.4.2 can be edited again without adding it.
+- **Calling hours show what is enforced.** A workspace saved with an 8:00 start now shows 9:00 to 17:00, the hours calls actually go out, and saves without an error.
+- **Also includes the 2.4.2 changes.** Test calls with your script and live helper, End as voicemail with per-call voicemail advice, one script path per lead, weekday 9:00 to 17:00 calling in each prospect's time zone, HubSpot opt-outs for every rep, and transcripts that are never kept.
+
+Updates from 1.0.x through 2.4.2 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.4.2
 
 - **Test calls work like real calls.** A test call shows your saved script, transcribes the conversation and gets live helper replies. Practice lines such as "stop calling" never add a hold, and outreach holds on the same number no longer block your test phone.
 - **You decide on voicemail.** Voicemail detection is off, so the Dialer shows Connected as soon as a call is answered. Press Space for End as voicemail, then L if you left a message or N if you did not. Ending a mailbox in the first 7 seconds frees you at once while the line closes at 7 seconds, which keeps you clear of Telnyx's short-call limits.
-- **Know when to leave a message.** Each call says whether to leave a voicemail and why: first and final attempts, requested callbacks and people you have spoken with. Change the rule per list in Dialing settings. Voicemail wording must name you, your business and `{callback_number}`, which the call fills with its caller ID.
+- **Know when to leave a message.** Each call says whether to leave a voicemail and why: first and final attempts, requested callbacks and people you have spoken with. Change the rule per list in Dialing settings. Voicemail wording must name you and your business.
 - **One script path per lead, shared content intact.** Each lead gets the one path that fits its role and verified signal. Untagged options beside path options, such as meeting times or shared responses, stay on every path as written, and the Script preview says what each lead keeps and picks.
 - **Portable finished scripts.** A completed CSV keeps `{rep}` and `{seller}`, so each rep who imports it sees their own name and business. Optional script provenance columns travel into call statistics, and a file from a newer generator asks you to update.
 - **Calling hours.** Outreach calls go out Monday to Friday, 9:00 to 17:00 in each prospect's time zone, never on US federal holidays. Requested callbacks are not limited. A number with no usable time zone is called only while every US zone is open.
