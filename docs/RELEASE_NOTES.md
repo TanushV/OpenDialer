@@ -2,6 +2,7 @@
 
 - **Voicemails need no callback number.** A message only has to name you and your business. A prospect who calls your caller ID back reaches you, or shows up as a missed callback. `{callback_number}` still works if you want to read the number out. Scripts saved before 2.4.2 can be edited again without adding it.
 - **Calling hours show what is enforced.** A workspace saved with an 8:00 start now shows 9:00 to 17:00, the hours calls actually go out, and saves without an error.
+- **Review stops waiting for a summary.** Calls made since 2.4.2 have no after-call summary, so Review no longer shows one being written. Summaries from earlier calls still show.
 - **Also includes the 2.4.2 changes.** Test calls with your script and live helper, End as voicemail with per-call voicemail advice, one script path per lead, weekday 9:00 to 17:00 calling in each prospect's time zone, HubSpot opt-outs for every rep, and transcripts that are never kept.
 
 Updates from 1.0.x through 2.4.2 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
