@@ -142,7 +142,9 @@ def check_trigger(claim, rules, *, today, row_urls=(), page_text=None, names_lea
             errors.append(f"{url} does not name this lead or their company")
         strength = rule["strength"]
     elif evidence == "row_only":
-        if not row_urls and not from_row:
+        if url and not url.startswith(("http://", "https://")):
+            errors.append("trigger.source_url must be an http(s) link from the row, or null")
+        elif not row_urls and not from_row:
             errors.append("row_only evidence needs a signal in the lead's row")
         from_row, quote = True, None
         strength = max(rule["strength"], "C")  # A < B < C as strings: the weaker of the two.
