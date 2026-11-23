@@ -2262,4 +2262,7 @@ live check is open.
 - November 23, 2026. OpenDialer 2.4.2 is published (signed, `latest.json` 2.4.2) and installed on this Mac with its
   workspace and credentials intact; the Agite list is removed. Live calls were deferred by the owner. A display bug
   for pre-floor 8:00 windows was fixed on `main` for the next release. Next: the owner's live call matrix.
+- November 23, 2026. OpenDialer 2.4.3 is published and installed on this Mac: voicemail callback number optional
+  (owner), enforced calling hours shown, Review no longer waits for a summary. Fresh stress sweeps passed with a
+  coverage ledger proving every run dialed, answered, held and saved. Next: the owner's live call matrix.
 

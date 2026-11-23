@@ -560,4 +560,21 @@ Sources: [Telnyx short-duration calls](https://support.telnyx.com/en/articles/11
   the rep or records a missed callback. `{callback_number}` is now optional and only `{rep}` and `{seller}` are
   required, so the owner's saved master parses again (2.4.2 would have refused any edit to it). Ships with the 9:00
   display fix as 2.4.3 after a whole-system check and fresh stress sweeps.
+- November 23, 2026 (2.4.3 published). Whole-system check on `45f3067`: full tier green twice (local and pre-push),
+  Verify run 45155676222 green. Found and fixed: Review showed "Writing the summary..." forever for every call since
+  2.4.2 and offered a Retry that did nothing; the card now shows only a summary saved before 2.4.2 and the retry
+  route is removed (browser regression test). Stress sweeps now keep a coverage ledger and `check.py stress` prints
+  per-test totals. Fresh seeds: standard 624 passed from `1466701114` (512 outreach runs: 5,526 dials, every run
+  answered, 711 short-call holds, 4,969 opt-outs, 3,325 saved outcomes, 1,948 speech segments; 64 test-phone runs:
+  387 dials; 48 shared-rep runs: 4,128 carrier events, callback routed in all 48); long 40 passed from `3591487866`
+  (16 outreach runs of 2,000 steps: 1,551 dials, 75 holds, 800 opt-outs, 821 saved; 8 shared runs, 4,048 events).
+  All 7 planted defects still caught. Release run 45157617843 built `v2.4.3`; the Mac archive matched its checksum,
+  passed `codesign`, its updater signature verifies against the app's key, and the frozen backend passed the
+  packaged smoke, the completed-CSV import, and a preview of the owner's real master (no callback number) with no
+  errors. Published as Latest at 10:53 UTC; the public `latest.json` reports 2.4.3. This Mac: workspace database
+  backed up to `~/Documents/OpenDialer-backups/2026-11-23-pre-2.4.3/` (integrity ok) with 2.4.2 beside it; the
+  verified 2.4.3 bundle installed in `/Applications` (the window was again behind a full-screen Space, so the
+  in-app button could not be pressed); health reports 2.4.3, counts unchanged (631 leads, 29 calls, 1,140 script
+  versions, 1 opt-out, 8 notes, 12 numbers, 24 follow-ups), every Settings credential row checked, the call
+  connection reconnected, calling hours read 9:00 to 17:00. Open: the owner's live call matrix.
 
