@@ -351,6 +351,7 @@ def parse_markdown(markdown, *, finished=False):
                 errors.append({"line": entry["line"], "message": "Screening must be plain text"})
             for index, item in enumerate(entry["cards"], 1):
                 options.append(option(item["lines"], key, f"{key}-{index}", item["title"], cues))
+                options[-1]["_line"] = item["line"]
         elif shape == "cards" and not finished:
             errors.append({"line": entry["line"], "message": f"Add at least one ## item to {entry['title']}"})
         else:
@@ -377,6 +378,19 @@ def parse_markdown(markdown, *, finished=False):
                 elif cues:
                     context[entry["title"]] = cues
                     sections.append(reference(key, cues))
+        if paths and any(o.get("paths") for o in options):
+            # A section that mixes path options with untagged ones: the untagged ones are shared, kept as written
+            # on every path (work package 4.5). The model writes only inside the chosen path's options.
+            for shared in (o for o in options if not o.get("paths") and TOKEN.search(o["text"])):
+                errors.append(
+                    {
+                        "line": shared.get("_line") or entry["line"],
+                        "message": f"Shared text in {entry['title']} cannot have {{{{ }}}}. Move the block into an "
+                        "option tagged [path: ...], or tag this option with the paths it belongs to",
+                    }
+                )
+        for o in options:
+            o.pop("_line", None)
         if len(options) > MAX_OPTIONS:
             errors.append(
                 {"line": entry["line"], "message": f"Use at most {MAX_OPTIONS} items in {entry['title']}"}
@@ -553,20 +567,52 @@ def sections_for_path(sections, path):
             result.append(section)
             continue
         options = [o for o in section["options"] if not o.get("paths") or path in o["paths"]]
+        if any(o.get("paths") for o in section["options"]):
+            # Untagged options beside path options are shared: kept on every path, never picked or rewritten.
+            alternatives = [o["id"] for o in options if o.get("paths")]
+            options = [o if o.get("paths") else {**o, "shared": True} for o in options]
+        else:
+            alternatives = [o["id"] for o in options]
         if options:
             pick = section["pick"]
-            if pick and len(options) == 1:
+            if pick and len(alternatives) <= 1:
                 pick = None
             elif pick:
-                pick = [min(limit, len(options)) for limit in pick]
-            result.append({**section, "options": options, "pick": pick})
+                pick = [min(limit, len(alternatives)) for limit in pick]
+            result.append({**section, "options": options, "pick": pick, "alternatives": alternatives})
     return result
+
+
+def pick_notes(template):
+    """Plain sentences for the Script preview: what each lead's script keeps, picks or shares (work package 4.4)."""
+    notes = []
+    paths = template.get("paths") or {}
+    if paths:
+        default = template.get("default_path")
+        names = ", ".join(f"{name} (default)" if name == default else name for name in paths)
+        notes.append(f"Each lead gets one path: {names}. The AI writes only inside that path's options.")
+    for section in template["sections"]:
+        if section.get("spoken") is False or not section.get("options"):
+            continue
+        options = section["options"]
+        title = section.get("title") or section["key"]
+        if any(o.get("paths") for o in options):
+            shared = [o.get("title") or "untitled text" for o in options if not o.get("paths")]
+            if shared:
+                notes.append(f"{title}: kept as written on every path: {', '.join(shared)}.")
+        elif section.get("pick") and section["key"] != "objections":
+            low, high = section["pick"]
+            many = f"up to {high}" if high > 1 else "1"
+            notes.append(
+                f"{title}: the AI picks {many} of your {len(options)} per lead; the rest are left out."
+            )
+    return notes
 
 
 def default_picks(template):
     picks = {}
     for section in template["sections"]:
-        ids = [option["id"] for option in section["options"]]
+        ids = section.get("alternatives") or [option["id"] for option in section["options"]]
         if section["key"] == "objections":
             picks[section["key"]] = ids
         elif section["pick"]:
@@ -630,11 +676,12 @@ def render(template, *, lead, seller, rep, picks=None, written=None, path=None):
                 "title": option["title"],
                 "text": re.sub(r"[ \t]{2,}", " ", text_of(option["text"])).strip(),
                 **({"notes": fill_fields(option["notes"], values)} if option.get("notes") else {}),
-                "picked": option["id"] in rank,
+                "picked": option["id"] in rank or bool(option.get("shared")),
                 "rank": rank.get(option["id"]),
+                **({"shared": True} if option.get("shared") else {}),
             }
             for option in section["options"]
-            if complete(option) and (not path or option["id"] in rank)
+            if complete(option) and (not path or option["id"] in rank or option.get("shared"))
         ]
         if options:
             sections.append(
@@ -697,13 +744,13 @@ def check_submission(template, picks, written, facts, row, *, required_blocks=No
             section
             and section["pick"] is None
             and key != "objections"
-            and chosen == [o["id"] for o in section["options"]]
+            and chosen == (section.get("alternatives") or [o["id"] for o in section["options"]])
         ):
-            continue  # Picking the only version of a fixed section changes nothing.
+            continue  # Picking the only version of a section (or of a path's own option) changes nothing.
         if not section or section["pick"] is None and key != "objections":
             errors.append(f"'{key}' has no options to pick; leave it out")
             continue
-        ids = [option["id"] for option in section["options"]]
+        ids = section.get("alternatives") or [option["id"] for option in section["options"]]
         if not isinstance(chosen, list) or len(set(chosen)) != len(chosen):
             errors.append(f"Picks for '{key}' must be a list of distinct option ids")
             continue
@@ -719,11 +766,13 @@ def check_submission(template, picks, written, facts, row, *, required_blocks=No
             errors.append(f"Pick {low} to {high} '{key}' options (you picked {len(chosen)})")
     for section in template["sections"]:
         if section["pick"] and section["key"] not in (picks or {}):
-            errors.append(f"Pick from '{section['key']}': {[o['id'] for o in section['options']]}")
+            errors.append(f"Pick from '{section['key']}': {section.get('alternatives') or []}")
     chosen = {**default_picks(template), **(picks or {})}
     needed = set()
     for section in template["sections"]:
-        use = set(chosen.get(section["key"], [o["id"] for o in section["options"]]))
+        use = set(
+            chosen.get(section["key"], section.get("alternatives") or [o["id"] for o in section["options"]])
+        )
         for option in section["options"]:
             if option["id"] in use:
                 needed.update(TOKEN.findall(option["text"]))

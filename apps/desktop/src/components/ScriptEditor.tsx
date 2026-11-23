@@ -162,6 +162,8 @@ export function ScriptEditor() {
   const [text, setText] = useState("");
   const [parsed, setParsed] = useState<ScriptTemplate | null>(null);
   const [errors, setErrors] = useState<ScriptError[]>([]);
+  // What each lead's script keeps, picks or shares, in plain words (work package 4.4).
+  const [notes, setNotes] = useState<string[]>([]);
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState("");
@@ -198,15 +200,20 @@ export function ScriptEditor() {
     let live = true;
     setChecking(true);
     const timer = window.setTimeout(() => {
-      void api<{ template: ScriptTemplate | null; errors: ScriptError[] }>(
-        "/v1/admin/script/import",
-        "POST",
-        { markdown: text, expected_version: base.version, preview: true },
-      )
+      void api<{
+        template: ScriptTemplate | null;
+        errors: ScriptError[];
+        notes?: string[];
+      }>("/v1/admin/script/import", "POST", {
+        markdown: text,
+        expected_version: base.version,
+        preview: true,
+      })
         .then((result) => {
           if (!live) return;
           setParsed(result.template);
           setErrors(result.errors);
+          setNotes(result.notes ?? []);
         })
         .catch((error: unknown) => {
           if (live)
@@ -468,6 +475,13 @@ What will the new funding change for the team?`}</pre>
                     ? "Saved"
                     : "Looks good. Save when ready."}
               </p>
+              {notes.length > 0 && (
+                <ul className="fine" aria-label="What each lead's script keeps">
+                  {notes.map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              )}
               <ScriptOutline template={parsed} />
             </>
           ) : (

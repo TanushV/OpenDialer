@@ -166,10 +166,11 @@ Work in two phases for every lead.
    inside its window, or none. Then call finish_research with the summary, the trigger and one bridge line: a short,
    natural spoken sentence linking the trigger (or what you learned) to the call. The bridge is labeled as your
    inference, so it may interpret, but it must not contradict the facts.
-2. Script writing: when paths are declared, choose exactly one path for this lead using the research and path
-   guidance. Use the default when the evidence is inconclusive. Shared options have no path tag. Pick the best
-   applicable options in each section and write the text for each
-   {{ }} block in the options you picked, following that block's instruction. Every written text cites the fact ids it
+2. Script writing: when paths are declared, choose exactly one path for this lead from the person's role and the
+   verified signal, using the path guidance; use the default when the evidence is inconclusive, and never claim a
+   signal the research did not verify. Options marked shared stay exactly as written on every path: never pick,
+   reorder or rewrite them. Pick only among the chosen path's own options where a section asks for picks, and write
+   the text for each {{ }} block in the options you picked, following that block's instruction. Every written text cites the fact ids it
    relies on (saved fact ids, or row:<column> for the lead's row). Submit with submit_script.
 When research_mode is reuse, use known_facts and their existing ids; do not repeat web research. Finish research
 from these facts and the row. Always write fresh text from the current master; no old personalized script is provided.
@@ -217,16 +218,21 @@ def script_outline(template):
     for section in template["sections"]:
         if section.get("spoken") is False:
             continue
+        mixed = any(option.get("paths") for option in section["options"])
         outline.append(
             {
                 "section": section["key"],
                 "pick": section["pick"],
+                # Work package section 4: untagged options beside path options are shared. They stay as written
+                # on every path; pick and write only among the chosen path's own options.
+                **({"shared_options": "kept as written on every path; never picked"} if mixed else {}),
                 "options": [
                     {
                         "id": option["id"],
                         **({"title": option["title"]} if option["title"] else {}),
                         **({"notes": option["notes"]} if option.get("notes") else {}),
                         **({"paths": option["paths"]} if option.get("paths") else {}),
+                        **({"shared": True} if mixed and not option.get("paths") else {}),
                         "text": TOKEN.sub(lambda m: "{{" + m[1] + "}}", option["text"]),
                         "blocks": {b: instructions[b] for b in TOKEN.findall(option["text"])},
                     }
@@ -493,7 +499,7 @@ class SimulatedAgent:
                 context["default_path"],
             )
             for section in sections_for_path(context["script"], path):
-                ids = [option["id"] for option in section["options"]]
+                ids = section.get("alternatives") or [option["id"] for option in section["options"]]
                 if section["pick"]:
                     chosen = (
                         ids[: section["pick"][1]]
