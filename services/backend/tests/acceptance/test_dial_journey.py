@@ -128,7 +128,8 @@ def test_two_calls_use_two_legs_each_and_require_new_rep_intent(workspace, clock
             )
             clock.now += timedelta(seconds=12)
             api(workspace, "POST", "/v1/admin/recovery")
-            assert api(workspace, "GET", path)["state"] == "VOICEMAIL_READY"
+            # No detection (work package section 6): late receipts change nothing and the line stays open.
+            assert api(workspace, "GET", path)["state"] == "ANSWERED_UNCLASSIFIED"
             assert leg in carrier.live
             api(workspace, "POST", path + "/hangup", {"mark_voicemail": True})
         else:
@@ -152,9 +153,10 @@ def test_two_calls_use_two_legs_each_and_require_new_rep_intent(workspace, clock
             hangup_cause="normal_clearing",
         )
         receipt(workspace, clock, carrier, agent, "call.hangup", hangup_source="caller")
-        if outcome != "voicemail":
-            body = disposition_body(workspace["client"], workspace["headers"], call_id, outcome=outcome)
-            api(workspace, "POST", path + "/disposition", body)
+        # The rep saves every outcome, a voicemail with whether a message was left (work package 6.12).
+        extra = {"voicemail_message": "none"} if outcome == "voicemail" else {}
+        body = disposition_body(workspace["client"], workspace["headers"], call_id, outcome=outcome, **extra)
+        api(workspace, "POST", path + "/disposition", body)
         settled = api(workspace, "GET", path)
         assert settled["state"] == "FINALIZED" and settled["outcome"] == outcome
         snapshots.append((call_id, agent))

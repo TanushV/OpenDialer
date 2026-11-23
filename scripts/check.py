@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -293,10 +294,22 @@ def packaged_calls(client, token):
         path = f"/v1/calls/{call_id}"
         if outcome == "voicemail":
             event(call_id, "call.answered")
+            # No detection: late receipts change nothing; the rep ends the mailbox and says no message was left.
             event(call_id, "call.machine.premium.detection.ended:machine")
-            event(call_id, "call.machine.premium.greeting.ended:beep_detected")
-            assert request("GET", path)["state"] == "VOICEMAIL_READY"
+            assert request("GET", path)["state"] == "ANSWERED_UNCLASSIFIED"
             request("POST", path + "/hangup", {"mark_voicemail": True})
+            event(call_id, "call.hangup", hangup_source="caller", hangup_cause="normal_clearing")
+            ended = request("GET", path)
+            request(
+                "POST",
+                path + "/disposition",
+                {
+                    "outcome": "voicemail",
+                    "voicemail_message": "none",
+                    "expected_version": ended["version"],
+                    "request_id": str(uuid.uuid4()),
+                },
+            )
         else:
             event(call_id, "call.hangup", hangup_source="callee", hangup_cause="no_answer")
         settled = request("GET", path)

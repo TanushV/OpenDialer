@@ -402,7 +402,7 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
         "14": {"phone": "(415) 555-0101", "mobilephone": "+14155550109"},
         "15": {"phone": "Not provided", "mobilephone": "415.555.0102"},
     }
-    clock = datetime(2026, 11, 11, 18, tzinfo=UTC)
+    clock = datetime(2026, 11, 12, 18, tzinfo=UTC)  # A working day: November 11 is a federal holiday.
 
     def hubspot(request):
         path = request.url.path
