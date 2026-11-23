@@ -53,9 +53,9 @@ def test_settings_test_list_calls_each_phone_without_preparation_or_outreach_cha
                     "idempotency_key": f"test-{iteration}-{index}",
                 },
             )
-            assert placed["is_test"] and placed["script_snapshot"] is None
+            assert placed["is_test"] and placed["script_snapshot"]["script_version"] == "base"
             assert "time_limit_secs" not in carrier.dials[-1]
-            assert carrier.dials[-1]["answering_machine_detection"] == "premium"
+            assert carrier.dials[-1]["answering_machine_detection"] == "disabled"
             finish(ws, placed, outcome="not_interested")
         assert sorted(called) == PHONES
         assert (

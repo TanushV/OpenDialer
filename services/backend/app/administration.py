@@ -672,8 +672,13 @@ class TestPhoneIssue:
     release_phone: str | None = None
 
 
+# Outreach holds on the same number (safety holds, wrong-number and reassignment marks) never gate an approved test
+# destination and are never erased by one (work package 3.8). A confirmed opt-out and an invalid number still do.
+TEST_BLOCKING = {"opt_out", "invalid_endpoint"}
+
+
 def test_phone_issue(service, s, p, phone) -> TestPhoneIssue | None:
-    """Describe the saved destination's own number hold, if one exists."""
+    """Describe what stops an approved test destination from being called, if anything."""
     suppression = ops._by_key(service, s, p, "suppressions", phone)
     endpoint = ops._by_key(service, s, p, "phone_endpoints", phone)
     reason = (
@@ -681,26 +686,16 @@ def test_phone_issue(service, s, p, phone) -> TestPhoneIssue | None:
         if suppression and suppression.data.get("active", True)
         else None
     )
-    if reason == "temporary_hold":
-        release_phone = phone if not suppression.data.get("permanent") else None
-        return TestPhoneIssue(
-            "The saved test phone is on a safety hold. Review the hold or choose another test phone in Settings.",
-            release_phone,
-        )
+    if reason not in TEST_BLOCKING:
+        reason = None
     if endpoint and not reason:
         data = endpoint.data
-        if data.get("ownership_status") == "wrong_party":
-            reason = "wrong_party"
-        elif data.get("reassignment_review_required"):
-            reason = "reassignment"
-        elif data.get("format_status") != "valid" or data.get("reachability_status") == "invalid_endpoint":
+        if data.get("format_status") != "valid" or data.get("reachability_status") == "invalid_endpoint":
             reason = "invalid_endpoint"
     description = {
         "opt_out": "has an opt-out",
-        "wrong_party": "is marked as a wrong number",
         "invalid_endpoint": "is marked as invalid",
-        "reassignment": "needs a reassignment review",
-    }.get(reason, "is blocked" if reason else None)
+    }.get(reason)
     if description:
         return TestPhoneIssue(f"The saved test phone {description}. Choose another test phone in Settings.")
     return None

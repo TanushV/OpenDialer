@@ -413,11 +413,11 @@ def test_revoked_transcription_permission_stops_both_streams(workspace, app, car
     assert stops == {call["provider_id"], "agent-test-id"}
 
 
-def test_every_attempt_requests_voicemail_detection_and_bridges_the_rep(workspace, app, carrier):
+def test_every_attempt_disables_voicemail_detection_and_bridges_the_rep(workspace, app, carrier):
     voicemail_policy(app, workspace, 1)
     start(workspace)
     dial = carrier.dials[-1]
-    assert dial["answering_machine_detection"] == "premium"
+    assert dial["answering_machine_detection"] == "disabled"
     assert dial["timeout_secs"] == 40
     assert dial["bridge_on_answer"] is True and dial["link_to"] == "agent-test-id"
 

@@ -615,7 +615,7 @@ def _accept_transcript(service, p, call_id, segment, received_at, *, session=Non
                     segment["revision"], row.data.get("transport_revision", row.data["revision"])
                 ),
             )
-            phone = ops.required(service, s, "leads", call.data["lead_id"], p).data["phone"]
+            phone = ops.call_party(service, s, p, call)[0].data["phone"]
             return {
                 "duplicate": True,
                 "effects_complete": row.data.get("effects_complete", False),
@@ -624,7 +624,7 @@ def _accept_transcript(service, p, call_id, segment, received_at, *, session=Non
             }, phone
         if row and segment["revision"] <= row.data.get("transport_revision", row.data["revision"]):
             if segment["revision"] == row.data["revision"] and content_hash == row.data.get("content_hash"):
-                phone = ops.required(service, s, "leads", call.data["lead_id"], p).data["phone"]
+                phone = ops.call_party(service, s, p, call)[0].data["phone"]
                 return {
                     "duplicate": True,
                     "effects_complete": row.data.get("effects_complete", False),
@@ -700,7 +700,7 @@ def _accept_transcript(service, p, call_id, segment, received_at, *, session=Non
             service.clock(),
             {"segment_id": segment["segment_id"], "transcript_version": version},
         )
-        phone = ops.required(service, s, "leads", call.data["lead_id"], p).data["phone"]
+        phone = ops.call_party(service, s, p, call)[0].data["phone"]
         return {
             "segment_id": segment["segment_id"],
             "transcript_version": version,
@@ -718,8 +718,7 @@ def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, 
     service.db.authorize_stream(s, p)
     call = ops.required(service, s, "call_attempts", call_id, p)
     s.refresh(call, with_for_update=True)
-    if call.data.get("test_contact"):
-        return {"unavailable": "test_call", "expired": True}, False
+    test = bool(call.data.get("test_contact"))
     if ops.speech_revoked(service, s, p, call):
         return {"unavailable": "permission_revoked", "expired": True}, False
 
@@ -728,10 +727,15 @@ def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, 
     )
     if result.get("effects_complete"):
         return result, False
-    if segment.get("side") == "remote" and re.search(
-        r"\b(do not call|don't call|stop calling|remove (?:me|my number)|not call (?:me|again))\b",
-        segment.get("text", ""),
-        re.I,
+    # Practice dialogue on a test call never becomes an outreach suppression (work package 3.7).
+    if (
+        not test
+        and segment.get("side") == "remote"
+        and re.search(
+            r"\b(do not call|don't call|stop calling|remove (?:me|my number)|not call (?:me|again))\b",
+            segment.get("text", ""),
+            re.I,
+        )
     ):
         ops.suppress(
             service,
@@ -746,7 +750,8 @@ def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, 
         from app.calling.state import TERMINAL
 
         if call.data["state"] in TERMINAL | {"ENDING"}:
-            ops.enqueue_aftercall(service, s, p, call)
+            if not test:
+                ops.enqueue_aftercall(service, s, p, call)
         elif (
             queue_helper
             and segment.get("side") == "remote"

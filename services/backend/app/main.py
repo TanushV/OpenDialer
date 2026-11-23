@@ -625,6 +625,17 @@ def create_app(settings=None, *, clock=None, carrier=None):
         with db.transaction(False) as s:
             return test_list.test_contact_view(ops.required(service, s, "test_contacts", contact_id, p))
 
+    @app.get("/v1/test-contacts/{contact_id}/packet")
+    def read_test_contact_packet(contact_id: str, p=Depends(principal)):
+        """What the Dialer shows before a test call: the contact and the saved base script."""
+        with db.transaction(False) as s:
+            contact = ops.required(service, s, "test_contacts", contact_id, p)
+            return {
+                "lead": test_list.test_contact_view(contact),
+                "script": ops.fallback_script(service, s, p, contact),
+                "test_contact": True,
+            }
+
     @app.get("/v1/blockers")
     def calling_blockers(p=Depends(principal)):
         """What stops calling now, first to fix first; empty when the rep can dial (R4.3)."""

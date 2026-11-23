@@ -197,9 +197,19 @@ def fallback_agent(service, p, fetch=None):
     return ChatAgent(key, search=ddgs.search, fetch_page=fetch)
 
 
+def master_template(service, s, p):
+    """The workspace's saved base script, used where no campaign applies (test calls)."""
+    campaigns = ops.scoped(service, s, "campaigns", p)
+    return ops.script_base(service, s, p, campaigns[0])["template"] if campaigns else None
+
+
 def fallback_script(service, s, p, lead):
-    """The base script with the seller's default options and no AI text."""
-    template = ops.lead_script_base(service, s, p, lead)["template"]
+    """The base script with the seller's default options and no AI text. Test contacts get the saved master."""
+    template = (
+        ops.lead_script_base(service, s, p, lead)["template"]
+        if lead.data.get("campaign_id")
+        else ops.master_template(service, s, p)
+    )
     seller = ops.required(service, s, "sellers", p["seller_id"], p).data["name"]
     rep = ops.required(service, s, "users", p["user_id"], p).data["name"]
     script = {

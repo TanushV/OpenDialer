@@ -66,13 +66,14 @@ def _held_reservation(service, s, p, reservation_id, now):
     return reservation, claim, ReservationView.model_validate(reservation.data)
 
 
-def _dial_payload(service, scope, call_id, phone, caller, agent, *, test_only, test_run_id):
+def _dial_payload(service, scope, call_id, phone, caller, agent, *, test_only):
     return {
         "to": phone,
         "from": caller,
         "link_to": agent,
         "bridge_on_answer": True,
-        "answering_machine_detection": "disabled" if test_only and not test_run_id else "premium",
+        # The rep hears the call and ends voicemail; no detection on any new dial (work package section 6).
+        "answering_machine_detection": "disabled",
         "timeout_secs": service.configs.read(scope).get("outbound_ring_seconds", 40),
         "prevent_double_bridge": True,
         **({} if test_only else {"time_limit_secs": service.settings.max_call_seconds}),
@@ -106,7 +107,8 @@ def _dial_script(service, s, p, lead, number, held):
     if not decision.allowed:
         detail = ops.no_lead_detail(service, s, {**p, **held.dial_scope}, decision.reasons)
         fail(403, {**detail, "code": "CALL_DENIED"})
-    return None, None
+    # A test snapshots the saved base script, so a master edit during the call never changes it underneath.
+    return ops.fallback_script(service, s, p, lead), None
 
 
 def _prepare_call(service, p, data):
@@ -185,7 +187,6 @@ def _prepare_call(service, p, data):
             number.data["phone"],
             agent,
             test_only=test_only,
-            test_run_id=held.dial_scope.get("test_run_id"),
         )
         put(
             s,

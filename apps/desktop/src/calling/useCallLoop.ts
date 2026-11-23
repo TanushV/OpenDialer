@@ -15,7 +15,10 @@ import {
   prepareCallSounds,
 } from "../telephony/ringer";
 import { captureSpeech } from "../telephony/speech";
-import type { Call, Lead, Packet, Reservation } from "../types";
+import type { Call, Lead, Packet, Reservation, Script } from "../types";
+
+/** A test call shows the saved base script and nothing from outreach (work package section 3). */
+type TestPacket = { lead: Lead; script: Script; test_contact: true };
 import { isActiveCall, isTerminal } from "../types";
 import {
   callProblem,
@@ -87,6 +90,7 @@ export function useCallLoop() {
   callRef.current = call;
   const [packet, setPacket] = useState<Packet | null>(null);
   const [testContact, setTestContact] = useState<Lead | null>(null);
+  const [testScript, setTestScript] = useState<Script | null>(null);
   const [blockers, setBlockers] = useState<Blocker[]>([]);
   const [finished, setFinished] = useState<QueueStatus | null>(null);
   const [problem, setProblem] = useState<CallProblem | null>(null);
@@ -239,11 +243,13 @@ export function useCallLoop() {
     if (current && !callRef.current) {
       setCall(current);
       void run(async () => {
-        if (current.test_contact)
-          setTestContact(
-            await api<Lead>(`/v1/test-contacts/${current.lead_id}`),
+        if (current.test_contact) {
+          const test = await api<TestPacket>(
+            `/v1/test-contacts/${current.lead_id}/packet`,
           );
-        else
+          setTestContact(test.lead);
+          setTestScript(test.script);
+        } else
           setPacket(await api<Packet>(`/v1/leads/${current.lead_id}/packet`));
       });
     }
@@ -565,6 +571,12 @@ export function useCallLoop() {
       setFinished(null);
       setEditing(false);
       setTestContact(next.lead.test_contact ? next.lead : null);
+      setTestScript(
+        next.lead.test_contact
+          ? (await api<TestPacket>(`/v1/test-contacts/${next.lead.id}/packet`))
+              .script
+          : null,
+      );
       setPacket(
         next.lead.test_contact
           ? null
@@ -658,6 +670,7 @@ export function useCallLoop() {
         setCall(null);
         setPacket(null);
         setTestContact(null);
+        setTestScript(null);
       }
       testRunId.current = armTestPhone ? null : (testList?.id ?? null);
       testRun.current = testing;
@@ -976,6 +989,7 @@ export function useCallLoop() {
     call,
     packet,
     testContact,
+    testScript,
     setPacket,
     muted,
     editing,

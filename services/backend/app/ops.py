@@ -332,6 +332,10 @@ HOMES = {
     "workspace_page": "app.workspace",
     "workspace_test_passed": "app.telephony.callbacks",
     "write_memory_in": "app.optimization.script_lab",
+    "call_party": "app.calling.context",
+    "live_transcription_enabled": "app.calling.context",
+    "speech_allowed": "app.calling.context",
+    "master_template": "app.preparation.workflows",
 }
 
 
@@ -348,6 +352,7 @@ def _bundle():  # pragma: no cover
     import app.accounting  # noqa: F401
     import app.administration  # noqa: F401
     import app.billing  # noqa: F401
+    import app.calling.context  # noqa: F401
     import app.calling.dial  # noqa: F401
     import app.crm  # noqa: F401
     import app.intelligence  # noqa: F401

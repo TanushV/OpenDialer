@@ -222,9 +222,14 @@ function StatusBar({
 function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
   const { snapshot: w } = useWorkspace();
   const { phase, packet, call, telephony, testPhone, testList } = loop;
+  // The call's own snapshot wins; a test call has no outreach packet, so it uses its base script.
   const script =
-    (call?.lead_id === packet?.lead.id && call?.script_snapshot) ||
-    packet?.script;
+    (call?.script_snapshot &&
+      (call.test_contact || call.lead_id === packet?.lead.id) &&
+      call.script_snapshot) ||
+    packet?.script ||
+    (loop.testContact ? loop.testScript : null) ||
+    undefined;
   const position = visible && isActiveCall(call) ? call?.script_position : null;
   const scriptPane = useRef<HTMLElement>(null);
   const between = phase.kind === "paused" || phase.kind === "finished";
@@ -291,8 +296,7 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
       {between && !testing && <DueTasks />}
       {(phase.kind === "talking" ||
         (phase.kind === "voicemail" && phase.final)) &&
-        call &&
-        !call.test_contact && (
+        call && (
           <LiveCoach
             call={call}
             onChange={loop.act.reload}
@@ -308,12 +312,40 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
         />
       )}
       {loop.testContact && (
-        <section className="card lead-card" aria-label="Test phone">
-          <h2 data-testid="lead-name">{loop.testContact.name}</h2>
-          <p className="muted">{loop.testContact.phone}</p>
-        </section>
+        <div className="lead-and-script">
+          <section className="card lead-card" aria-label="Test phone">
+            <h2 data-testid="lead-name">{loop.testContact.name}</h2>
+            <p className="muted">{loop.testContact.phone}</p>
+            <p className="muted">
+              Practice call: nothing here changes your lists, holds or CRM.
+            </p>
+          </section>
+          <section
+            ref={scriptPane}
+            className="card script-card"
+            aria-label="Script"
+            data-testid="prepared-script"
+          >
+            <div className="card-eyebrow">
+              <span>Script</span>
+              <span className="pill subtle">Your script as written</span>
+            </div>
+            {script?.ready_for_rep === false || !script ? (
+              <p className="hint" role="status">
+                No saved script yet. Save one on the Script page and it shows
+                here on your next test.
+              </p>
+            ) : (
+              <ScriptReader
+                key={call?.id ?? loop.testContact.id}
+                script={script}
+                position={position}
+              />
+            )}
+          </section>
+        </div>
       )}
-      {packet && script ? (
+      {packet && script && !loop.testContact ? (
         <div className="lead-and-script">
           <section className="card lead-card" aria-label="Lead">
             <h2 data-testid="lead-name">{packet.lead.name}</h2>
@@ -361,10 +393,7 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
         </div>
       ) : null}
       {import.meta.env.DEV && w.simulation && call && isActiveCall(call) && (
-        <SimulationTools
-          callId={call.id}
-          allowTranscript={!call.test_contact}
-        />
+        <SimulationTools callId={call.id} allowTranscript />
       )}
     </>
   );

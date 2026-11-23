@@ -637,6 +637,11 @@ test("the Dialer can call the saved test phone repeatedly outside prospect calli
   const first = await (await placed).json();
   expect(first).toMatchObject({ is_test: true });
   await expect(page.getByTestId("lead-name")).toHaveText("Your test phone");
+  // Work package section 3: a test call shows the saved base script like any other call.
+  await expect(page.getByTestId("prepared-script")).toBeVisible();
+  await expect(page.getByTestId("prepared-script")).not.toContainText(
+    "No saved script yet",
+  );
   await page.getByRole("button", { name: /^Skip/ }).click();
   await expect(
     page.getByRole("button", { name: /^Start calling/ }),

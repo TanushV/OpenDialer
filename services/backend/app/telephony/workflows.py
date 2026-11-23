@@ -10,7 +10,6 @@ from app import ops
 from app import service as base
 from app.calling import dial, events
 from app.calling.state import TERMINAL
-from app.compliance.policy import authorize
 from app.platform.db import MODELS, audit, doc, emit, get, put, uid, update
 from app.platform.leases import owns_effect
 from app.service import dt, fail
@@ -189,23 +188,12 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
                 if first_answer and lead is not None:
                     ops._keep_callback_promise(service, s, p, call, lead)
             if (
-                lead is not None
-                and event_type == "call.answered"
+                event_type == "call.answered"
                 and call.data["state"] not in TERMINAL | {"ENDING"}
+                and ops.speech_allowed(service, s, p, call)
             ):
-                decision = authorize(
-                    ops.context(
-                        service,
-                        s,
-                        {**p, **(call.data.get("dial_scope") or {})},
-                        lead,
-                        number,
-                        permission="transcription",
-                        active=True,
-                    )
-                )
-                if decision.allowed:
-                    ops.start_transcription_in(service, s, p, call)
+                # Test calls get the same speech as outreach; only outreach consults its calling policy.
+                ops.start_transcription_in(service, s, p, call)
             if (
                 event_type == "call.hangup"
                 and call.data["state"] in TERMINAL
@@ -371,23 +359,7 @@ def _claim_control(service, p, command_id):
             ):
                 update(current, status="cancelled", reason="RAW_CAPTURE_PRIVACY_NOT_AUTHORIZED")
                 return None
-            lead = ops.required(service, s, "leads", call.data["lead_id"], p)
-            number = ops.required(service, s, "number_inventory", call.data["number_id"], p)
-            permission = "transcription"
-            if (
-                call.data["state"] in TERMINAL
-                or not authorize(
-                    ops.context(
-                        service,
-                        s,
-                        {**p, **(call.data.get("dial_scope") or {})},
-                        lead,
-                        number,
-                        permission=permission,
-                        active=True,
-                    )
-                ).allowed
-            ):
+            if not ops.speech_allowed(service, s, p, call):
                 update(current, status="cancelled")
                 return None
         target = command.get("target") or call.data.get("provider_id")
