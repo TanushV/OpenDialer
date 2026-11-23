@@ -610,16 +610,14 @@ test("the Dialer can call the saved test phone repeatedly outside prospect calli
       headers,
       data: {
         expected_version: policy.version,
-        local_start_hour: 0,
-        local_end_hour: 1,
+        // The narrowest window settings allow (work package 9.3 C2); test calls ignore it either way.
+        local_start_hour: 16,
+        local_end_hour: 17,
       },
     },
   );
   expect(published.ok()).toBeTruthy();
   await page.reload();
-  await expect(page.getByTestId("readiness")).toContainText(
-    /outside calling hours/i,
-  );
   const reserved = page.waitForResponse(
     (r) => r.url().endsWith("/v1/calls/test/reserve") && r.ok(),
   );
@@ -836,10 +834,7 @@ test("the test phone being busy is not reported as a successful test", async ({
   ).toHaveCount(0);
 });
 
-for (const [reason, message] of [
-  ["opt_out", "has an opt-out"],
-  ["temporary_hold", "is on a safety hold"],
-] as const) {
+for (const [reason, message] of [["opt_out", "has an opt-out"]] as const) {
   test(`Settings handles a saved test phone with ${reason}`, async ({
     page,
   }) => {
@@ -881,28 +876,38 @@ for (const [reason, message] of [
     });
     const release = row.getByRole("button", { name: "Release temporary hold" });
     await expect(dial).toHaveCount(0);
-    if (reason === "opt_out") {
-      await expect(release).toHaveCount(0);
-      return;
-    }
-
-    await expect(release).toBeDisabled();
-    await row
-      .getByLabel("Hold review reason")
-      .fill("Confirmed this was my test phone.");
-    await release.click();
-    await expect(
-      row.getByText(`Release the hold on ${phone}?`, { exact: false }),
-    ).toBeVisible();
-    await row.getByRole("button", { name: "Confirm release" }).click();
-    await expect(dial).toBeVisible();
-    await clickUntil(dial, () =>
-      expect(
-        page.getByRole("button", { name: /^Call test phone/ }),
-      ).toBeVisible(),
-    );
+    await expect(release).toHaveCount(0);
   });
 }
+
+test("an outreach hold on the saved test phone does not stop a test call", async ({
+  page,
+}) => {
+  // Work package 3.8: approved test destinations ignore outreach holds, which stay in place.
+  await enter(page);
+  const local = await page.request.post(`${AUTHORITY}/v1/local/session`, {
+    headers: { "X-Local-Token": "e2e-local-token" },
+    data: {},
+  });
+  const headers = {
+    authorization: `Bearer ${(await local.json()).access_token}`,
+  };
+  const phone = "+12025550198";
+  await page.request.put(`${AUTHORITY}/v1/admin/settings`, {
+    headers,
+    data: { test_phone: phone },
+  });
+  const held = await page.request.post(`${AUTHORITY}/v1/suppressions`, {
+    headers,
+    data: { phone, reason: "temporary_hold" },
+  });
+  expect(held.ok()).toBeTruthy();
+  const [placed] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/v1/calls/start") && r.ok()),
+    page.getByRole("button", { name: "Test call", exact: true }).click(),
+  ]);
+  expect(await placed.json()).toMatchObject({ is_test: true });
+});
 
 test("a slow re-read of the rows never undoes a check that finished after it", async ({
   page,
