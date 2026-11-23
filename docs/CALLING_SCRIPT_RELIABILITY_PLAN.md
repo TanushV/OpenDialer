@@ -522,4 +522,22 @@ Sources: [Telnyx short-duration calls](https://support.telnyx.com/en/articles/11
   at the carrier, no hang-up from a detection step, no hold from practice speech, no transcript text after a call,
   non-vacuous coverage on 200+ step runs). Found and fixed in the harness: an Eastern-time test clock that SQLite
   compared as text against UTC due times. Planted-defect checks (`test_stress_mutations.py`) running.
+- November 23, 2026 (verified). `main` at `baaac15` then `2295909` (Prepare OpenDialer 2.4.2): full local tier passed
+  before each push; all eight Verify jobs green on both commits. Planted-defect checks: all 7 caught (short-call hold
+  skipped, opt-out not stored, window ignored, detection hangs up, transcript kept, practice speech suppresses, dial
+  submitted twice). Sweeps with fresh seeds and the stricter harness: standard `check.py stress` 624 passed from seed
+  `1098221387` in 12m42s (512 outreach and 64 test runs of 200 steps, 48 shared-rep runs of 80 events, disposable
+  PostgreSQL relay required); long 40 passed from seed `579548318` in 13m09s (16 outreach and 16 test runs of 2,000
+  steps, 8 shared-rep runs of 500 events). Local PostgreSQL needs `LC_ALL=en_US.UTF-8` on this Mac. Bounded real
+  generation sample (one fictional lead, saved master, signed-in Codex CLI): no-trigger path chosen, shared close and
+  11 objections kept, receiver identity filled on import. Signed release workflow dispatched on `2295909`.
+- November 23, 2026 (signed candidate). Release run 45144038689 built draft `v2.4.2` from `2295909` (verified gate
+  passed; Mac, Windows MSI and NSIS, Ubuntu deb, signatures, `latest.json` 2.4.2 for all five platforms,
+  `SHA256SUMS.txt`). The Mac archive matched its checksum and passed `codesign --verify --deep --strict` (ad-hoc, as
+  every earlier release; Gatekeeper rejects it the same way, update integrity is the updater signature). Its frozen
+  backend, in a throwaway workspace with simulation: packaged smoke placed and settled two isolated test attempts
+  (manual End as voicemail, no answer) and a completed CSV imported as Ready with the receiving workspace's names
+  and provenance. Not published. Open: the live matrix with the owner at the phones (203-821-1101 and
+  203-434-8547), the Agite list removal (the app window sat behind a full-screen Space), publish, then the signed
+  update on this Mac and post-update checks. Next action: owner session.
 
