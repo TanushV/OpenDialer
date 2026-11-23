@@ -230,13 +230,14 @@ export function ReviewPage({
               </div>
             ))
           ) : (
-            <Empty text="No transcript is saved for this call." />
+            <Empty text="No transcript is kept after a call." />
           )}
           <p className="fine">
-            Calls are not recorded. This transcript stays on this computer for
-            30 days, then is deleted; notes and outcomes remain.
+            Calls are not recorded. Live transcription only feeds the script
+            follower and helper during the call; its text is deleted when the
+            call ends. Notes, outcomes and the call shape below remain.
           </p>
-          {review.transcript.length > 0 && (
+          {review.transcript.some((s) => s.text) && (
             <button
               className="secondary small"
               onClick={() =>

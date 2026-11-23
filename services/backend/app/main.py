@@ -332,6 +332,8 @@ class ProviderSettings(Strict):
     treg_token: str | None = Field(default=None, max_length=500)
     # R9C.10: research on this seat uses the ChatGPT login or the OpenRouter fallback.
     research_route: Literal["chatgpt", "fallback"] | None = None
+    # Work package 9.3 C5: off means no call audio leaves this computer for speech or the live helper.
+    live_transcription: bool | None = None
 
 
 SECRET_FIELDS = {

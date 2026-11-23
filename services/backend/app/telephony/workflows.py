@@ -247,6 +247,9 @@ def stop_agent_transcription_in(service, s, p, call):
 def finish_call(service, s, p, call, reason=None):
     dial.finish_call(service, s, p, call, reason)
     ops.stop_agent_transcription_in(service, s, p, call)
+    # Transcripts feed only the live call; their text is deleted when it ends (work package 9.3 C5).
+    ops.record_script_trace(service, s, p, call)
+    ops.forget_transcript(service, s, p, call.id)
     for lease in ops.scoped(service, s, "number_leases", p):
         if lease.data.get("call_id") == call.id and lease.data.get("active"):
             update(lease, active=False)

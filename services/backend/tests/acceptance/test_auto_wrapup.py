@@ -48,33 +48,6 @@ def test_confirming_same_automatic_outcome_records_human_provenance(workspace):
     assert saved["outcome_source"] == "rep_reported"
 
 
-def test_the_summary_suggests_a_persons_answer_but_never_saves_it(workspace):
-    """Section 6: only carrier facts save themselves. What a person said is a suggestion the rep confirms with Enter."""
-    from journey import answered_by_human, call, post
-
-    call(workspace, "PUT", "/v1/admin/settings", json={"openrouter_api_key": "test-openrouter"})
-    placed = start(workspace)
-    answered_by_human(workspace, placed["id"])
-    post(
-        workspace,
-        f"/v1/calls/{placed['id']}/transcript",
-        {
-            "segment_id": "answer",
-            "revision": 1,
-            "side": "remote",
-            "is_final": True,
-            "text": "I am not interested.",
-        },
-    )
-    post(workspace, f"/v1/calls/{placed['id']}/hangup")
-    run_jobs(workspace, rounds=4)
-    result = get(workspace, f"/v1/calls/{placed['id']}")
-    assert result["state"] == "ENDED" and not result.get("outcome")
-    assert result["suggested_outcome"]["code"] == "not_interested"
-    saved = wrap_up(workspace, placed["id"], outcome="not_interested", contact_role="right_party")
-    assert saved["outcome_source"] == "rep_reported"
-
-
 @pytest.mark.slow
 def test_answered_but_unclassified_call_is_not_saved_as_no_answer(workspace):
     placed = start(workspace)

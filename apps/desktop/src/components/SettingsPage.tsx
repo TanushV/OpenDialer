@@ -107,6 +107,7 @@ function AdminSettings({ onNavigate }: { onNavigate: (view: View) => void }) {
           hours: <CallingWindow />,
         }}
       />
+      <LiveTranscription settings={settings} />
       <TestListSettings onNavigate={onNavigate} />
       {!settings.data && (
         <section className="card padded">
@@ -897,6 +898,46 @@ function UpdateSettings() {
         Local builds are validated on this Mac. Distribution signing,
         notarization, and other operating-system audio certification have
         separate release gates.
+      </p>
+    </section>
+  );
+}
+
+/** Work package 9.3 C5: the rep can turn live transcription and the helper off. Transcripts are never kept. */
+function LiveTranscription({
+  settings,
+}: {
+  settings: ReturnType<typeof useAdminSettings>;
+}) {
+  const { api, run } = useWorkspace();
+  const data = settings.data as
+    | { version?: number; live_transcription?: boolean }
+    | undefined;
+  if (!data) return null;
+  const on = data.live_transcription !== false;
+  return (
+    <section className="card padded" aria-label="Live transcription">
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(event) =>
+            void run(async () => {
+              await api("/v1/admin/settings", "PUT", {
+                expected_version: data.version,
+                request_id: crypto.randomUUID(),
+                live_transcription: event.target.checked,
+              });
+              await settings.load();
+            })
+          }
+        />{" "}
+        Live transcription and helper
+      </label>
+      <p className="fine">
+        {on
+          ? "During a call, speech is transcribed to follow your script and power the live helper. The text is deleted when the call ends."
+          : "Off: no call audio leaves this computer, and the script follower and live helper do not run."}
       </p>
     </section>
   );

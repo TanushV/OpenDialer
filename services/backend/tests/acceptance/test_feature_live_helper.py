@@ -1,6 +1,7 @@
 """R10.1 over HTTP: the live helper gives tips while the prospect talks and private answers when the rep asks.
 
-Nothing else: it saves no outcome, task or interpretation. Transcripts are kept 30 days (D7, R10.5).
+Nothing else: it saves no outcome, task or interpretation. Transcript text is deleted when the call ends (work
+package 9.3 C5).
 """
 
 import asyncio
@@ -8,7 +9,6 @@ import json
 from datetime import timedelta
 from uuid import uuid4
 
-from app import ops
 from journey import answered_by_human, call, get, post, run_jobs, start, wrap_up
 
 MARKER = "Our budget sentence must stay on this computer"
@@ -151,8 +151,8 @@ def test_the_tip_ends_with_the_call(workspace, clock):
     assert live["coach"] is None and live["helper_status"] is None
 
 
-def test_the_transcript_is_kept_30_days_then_deleted_while_notes_and_outcome_remain(workspace, clock):
-    """D7, R10.5: transcript text stays on this computer for 30 days, replacing the old 5-minute lifetime."""
+def test_the_transcript_is_deleted_when_the_call_ends_while_notes_and_outcome_remain(workspace, clock):
+    """Work package 9.3 C5 (replaces D7): transcript text exists only while the call is live."""
     ws = workspace
     call_id = start(ws)["id"]
     lead_id = get(ws, f"/v1/calls/{call_id}")["lead_id"]
@@ -165,31 +165,22 @@ def test_the_transcript_is_kept_30_days_then_deleted_while_notes_and_outcome_rem
     call(ws, "POST", f"/v1/calls/{call_id}/hangup")
     wrap_up(ws, call_id, outcome="not_interested", contact_role="right_party")
     run_jobs(ws)
-    clock.now += timedelta(minutes=10)
-    ws["client"].app.state.service.raw.clear()  # a restart empties memory; the saved text remains
-    assert MARKER in json.dumps(get(ws, f"/v1/calls/{call_id}/review"))
-    clock.now += timedelta(days=30)
-    token = ws["client"].post("/v1/local/session", headers={"X-Local-Token": "test-local-secret"}, json={})
-    ws["headers"] = {"Authorization": f"Bearer {token.json()['access_token']}"}
-    ops.purge_transcripts(ws["client"].app.state.service)
     review = get(ws, f"/v1/calls/{call_id}/review")
-    assert MARKER not in json.dumps(review) and review["transcript"] == []
+    assert MARKER not in json.dumps(review) and not any(t.get("text") for t in review["transcript"])
     assert review["human_notes"] == "Wants a pricing sheet."
     assert review["call"]["outcome"] == "not_interested"
     for path in ("/v1/events", "/v1/workspace", f"/v1/leads/{lead_id}/packet"):
         assert MARKER not in json.dumps(get(ws, path)), path
 
 
-def test_the_rep_can_delete_a_transcript_at_once(workspace):
+def test_deleting_a_transcript_after_the_call_finds_nothing_left(workspace):
     ws = workspace
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
     chunk(ws, call_id, "s1", MARKER)
     call(ws, "POST", f"/v1/calls/{call_id}/hangup")
-    ws["client"].app.state.service.raw.clear()
-    assert MARKER in json.dumps(get(ws, f"/v1/calls/{call_id}/review"))
-    assert call(ws, "DELETE", f"/v1/calls/{call_id}/transcript") == {"deleted": True}
     assert MARKER not in json.dumps(get(ws, f"/v1/calls/{call_id}/review"))
+    assert call(ws, "DELETE", f"/v1/calls/{call_id}/transcript") == {"deleted": True}
 
 
 def test_a_tip_shows_the_wording_of_the_matching_script_part(workspace, clock):
