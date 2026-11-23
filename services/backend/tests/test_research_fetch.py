@@ -69,3 +69,27 @@ async def test_research_follows_www_redirect_and_strips_page_code(monkeypatch):
     assert page["url"] == "https://www.example.test/about"
     assert page["title"] == "Example" and "Public fact" in page["text"]
     assert "hidden code" not in page["text"] and len(seen) == 2
+
+
+@pytest.mark.asyncio
+async def test_research_follows_an_ordinary_redirect_chain_and_names_itself(monkeypatch):
+    """One-generator plan, Step 1.4: http to https to www to a locale is four hops on ordinary company sites."""
+    client_type = httpx.AsyncClient
+    seen, headers = [], []
+    hops = ["https://example.test/", "https://www.example.test/", "https://www.example.test/en", "/en/about"]
+
+    def handler(request):
+        seen.append(str(request.url))
+        headers.append(request.headers)
+        if len(seen) <= len(hops):
+            return httpx.Response(301, headers={"location": hops[len(seen) - 1]})
+        return httpx.Response(200, text="<title>About</title>Public", headers={"content-type": "text/html"})
+
+    monkeypatch.setattr(
+        "app.research.fetch.httpx.AsyncClient",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    page = await SafeFetcher().fetch("http://example.test/")
+    assert page["url"] == "https://www.example.test/en/about" and len(seen) == 5
+    assert headers[0]["user-agent"].startswith("OpenDialer"), "The reader says what it is"
+    assert "text/html" in headers[0]["accept"]

@@ -5,6 +5,7 @@ from urllib.parse import urldefrag, urljoin, urlsplit
 
 import httpx
 
+# Ordinary sites chain http, https, www and a locale; each hop is checked again.
 # Total wall time for one source, including redirects and the body; a slow-drip
 # origin cannot hold a research unit for longer than this.
 FETCH_DEADLINE_SECONDS = 20
@@ -60,7 +61,7 @@ def parse_page(url, text, size):
 
 class SafeFetcher:
     def __init__(
-        self, max_bytes=1_000_000, max_redirects=3, allowed_domains=None, *, deadline=FETCH_DEADLINE_SECONDS
+        self, max_bytes=1_000_000, max_redirects=5, allowed_domains=None, *, deadline=FETCH_DEADLINE_SECONDS
     ):
         self.max_bytes, self.max_redirects = max_bytes, max_redirects
         self.allowed_domains = set(allowed_domains or [])
@@ -91,7 +92,12 @@ class SafeFetcher:
                 http.stream(
                     "GET",
                     target,
-                    headers={"User-Agent": "OpenDialer (public first-party research)", "Host": parsed.netloc},
+                    headers={
+                        "User-Agent": "OpenDialer (public first-party research)",
+                        "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9",
+                        "Accept-Language": "en",
+                        "Host": parsed.netloc,
+                    },
                     extensions={"sni_hostname": parsed.hostname},
                 ) as response,
             ):

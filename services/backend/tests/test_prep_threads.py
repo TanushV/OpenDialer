@@ -564,3 +564,31 @@ def test_research_set_to_the_fallback_uses_openrouter_even_when_chatgpt_is_signe
     monkeypatch.setattr(ops, "inference", bound(lambda *a, **k: None))
     service.configs.write(who["tenant_id"], {"research_route": "chatgpt"})
     assert isinstance(ops.agent_route(service, who), ChatAgent), "no ChatGPT login: the fallback takes over"
+
+
+def test_an_unreadable_page_tells_the_agent_why_so_it_can_cite_another_site():
+    """One-generator plan, Step 1.4: the agent sees the reason, not only an exception name."""
+    import httpx
+    from app.research.fetch import UnsafeURL
+
+    async def refusing(url):
+        if "blocked" in url:
+            request = httpx.Request("GET", url)
+            raise httpx.HTTPStatusError(
+                "refused", request=request, response=httpx.Response(403, request=request)
+            )
+        raise UnsafeURL("Source redirect budget exceeded")
+
+    work = ThreadWork(leads(), parse_markdown(SCRIPT), refusing)
+    fact = {"statement": "Hilltop Apartments added two buildings.", "quote": "added two buildings"}
+    errors = call(
+        work,
+        "save_facts",
+        lead="lead-1",
+        facts=[
+            {**fact, "source_url": "https://blocked.example.test/"},
+            {**fact, "source_url": "https://loop.example.test/"},
+        ],
+    )["errors"]
+    assert "HTTP 403" in errors[0] and "cite a page on another site" in errors[0]
+    assert "redirect budget exceeded" in errors[1]
