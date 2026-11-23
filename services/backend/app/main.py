@@ -875,6 +875,13 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def research(data: ResearchBatch, p=Depends(administrator)):
         return ops.prepare_list(service, p, lead_ids=data.lead_ids)
 
+    @app.get("/v1/preparation/export")
+    def preparation_export(list_name: str, p=Depends(administrator)):
+        """A list's ready scripts with portable tokens and their research (docs/ONE_GENERATOR_PLAN.md)."""
+        from app.preparation.portable import export_list
+
+        return export_list(service, p, list_name)
+
     @app.post("/v1/preparation/lists")
     def prepare_list(data: PrepareList, p=Depends(administrator)):
         return ops.prepare_list(service, p, data.list_name)

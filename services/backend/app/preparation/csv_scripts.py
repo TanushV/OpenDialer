@@ -5,6 +5,7 @@ import re
 from app import ops
 from app.leads.intake import is_script_column
 from app.platform.db import doc, emit, put, uid, update, workspace
+from app.preparation.portable import RESEARCH_COLUMN, parse_research, store_research_in
 from app.preparation.templates import ScriptError, parse_markdown, render, template_version
 
 # The completed-CSV format this app reads (work package 5.3). Older files without the column still work.
@@ -18,6 +19,7 @@ META_COLUMNS = {
     "scriptgenerator": "generator",
 }
 MAX_META = 200
+RESEARCH_KEY = re.sub(r"[\W_]+", "", RESEARCH_COLUMN)
 
 
 def _meta(header):
@@ -62,9 +64,13 @@ def parse_finished_script(text):
 
 
 def split_script(raw):
-    row, scripts, meta = {}, set(), {}
+    row, scripts, meta, research = {}, set(), {}, None
     for key, value in raw.items():
-        if name := _meta(key):
+        if re.sub(r"[\W_]+", "", str(key).casefold()) == RESEARCH_KEY:
+            # Research from the run that wrote the script (one-generator plan): stored beside it, never row data.
+            if value is not None and str(value).strip():
+                research = str(value)
+        elif name := _meta(key):
             if value is not None and str(value).strip():
                 meta[name] = value
         elif not is_script_column(key):
@@ -80,13 +86,15 @@ def split_script(raw):
         return row, None  # Provenance without a script has nothing to describe; the row prepares as usual.
     provenance = _provenance(meta)
     template = parse_finished_script(scripts.pop())
+    if research is not None:
+        template = {**template, "research": parse_research(research)}
     return row, {**template, "provenance": provenance} if provenance else template
 
 
 def store_script_in(service, s, p, lead, template):
     now, version = service.clock(), uid()
-    provenance = template.get("provenance")
-    template = {key: value for key, value in template.items() if key != "provenance"}
+    provenance, research = template.get("provenance"), template.get("research")
+    template = {key: value for key, value in template.items() if key not in {"provenance", "research"}}
     picks = {
         section["key"]: [option["id"] for option in section["options"]]
         for section in template["sections"]
@@ -126,6 +134,8 @@ def store_script_in(service, s, p, lead, template):
         },
         now=now,
     )
+    if research:
+        store_research_in(service, s, p, lead, row, research)
     update(
         lead,
         preparation={"status": "ready", "source": "csv", "script_id": row.id, "as_of": now.isoformat()},

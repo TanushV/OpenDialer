@@ -46,6 +46,9 @@ def trigger_label(trigger):
     if not trigger or trigger.get("type") in (None, "none"):
         return "No trigger found"
     standing = UNVERIFIED if trigger.get("evidence") == "row_only" else "checked on the page"
+    if trigger.get("imported") and trigger.get("evidence") != "row_only":
+        # Checked by the run that wrote an imported script (one-generator plan), not again on this computer.
+        standing = "checked when the script was written"
     return f"{trigger['strength']} · {standing}"
 
 

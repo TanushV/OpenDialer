@@ -1471,6 +1471,12 @@ def store_prepared_in(service, s, p, lead, work, alias, rejected, review):
             ),
             "instructions": {block: instructions[block] for block in written},
             "dropped_by_review": sorted(b.split(":", 1)[1] for b in rejected if b.startswith(alias + ":")),
+            # The rejected wording itself, so the author can see why a line is missing (one-generator plan).
+            "dropped_text": {
+                block: value["text"][:400]
+                for block, value in result["written"].items()
+                if f"{alias}:{block}" in rejected
+            },
             "reviewed": not (review or {}).get("unreviewed") and not service.settings.simulation,
             "summary": work.researched.get(alias, ""),
             "route": getattr(work, "route", "chatgpt"),
