@@ -1,3 +1,13 @@
+# OpenDialer 2.4.4
+
+- **Scripts made outside the app carry their research.** A completed CSV can include each script's facts, quotes, links and why-now signal. Imported leads show the why-now in Leads and the Dialer, marked "checked when the script was written", with its quote and source.
+- **One script generator.** Ready scripts in a list can be exported with `{rep}` and `{seller}` left for each rep, and the same preparation the app uses runs on a lead CSV from the command line.
+- **Longer scripts.** A master script can be up to 64 KB.
+- **Clearer research failures.** When a page cannot be read, the AI is told why, for example that the site refuses automated reads, and cites another source. Ordinary redirect chains are followed.
+- **Also includes the 2.4.3 changes.** Voicemails need no callback number, calling hours show what is enforced, and Review no longer waits for a summary.
+
+Updates from 1.0.x through 2.4.3 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.4.3
 
 - **Voicemails need no callback number.** A message only has to name you and your business. A prospect who calls your caller ID back reaches you, or shows up as a missed callback. `{callback_number}` still works if you want to read the number out. Scripts saved before 2.4.2 can be edited again without adding it.
