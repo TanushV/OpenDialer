@@ -2259,4 +2259,7 @@ live check is open.
   voicemail with a 7-second short-call hold and advisory voicemail cues; path-only generation with shared content
   kept; portable completed CSVs; weekday 9-to-5 outreach in the prospect's zone; HubSpot opt-outs for every rep;
   transcripts used only live. The standard stress sweep passed 624 cases from seed `1098221387`. Prepare 2.4.2.
+- November 23, 2026. OpenDialer 2.4.2 is published (signed, `latest.json` 2.4.2) and installed on this Mac with its
+  workspace and credentials intact; the Agite list is removed. Live calls were deferred by the owner. A display bug
+  for pre-floor 8:00 windows was fixed on `main` for the next release. Next: the owner's live call matrix.
 

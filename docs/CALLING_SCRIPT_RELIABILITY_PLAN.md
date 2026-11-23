@@ -540,4 +540,18 @@ Sources: [Telnyx short-duration calls](https://support.telnyx.com/en/articles/11
   and provenance. Not published. Open: the live matrix with the owner at the phones (203-821-1101 and
   203-434-8547), the Agite list removal (the app window sat behind a full-screen Space), publish, then the signed
   update on this Mac and post-update checks. Next action: owner session.
+- November 23, 2026 (published). The owner said to publish without the live session and keep the calls for later.
+  `v2.4.2` was published as Latest at 09:46 UTC; the 2.4.0 draft was deleted; the public `latest.json` reports 2.4.2
+  and its Mac signature verifies against the app's updater key. This Mac runs 2.4.2 from `/Applications`, installed
+  from the verified public archive (the in-app update button could not be pressed in the background; the window was
+  behind a full-screen Space). 2.4.0 is kept at `~/Documents/OpenDialer-backups/2026-11-22-pre-2.4.2/`. Workspace
+  counts unchanged after the update (631 leads, 29 calls, 1,140 script versions, 1 opt-out, 8 notes, 12 numbers),
+  SQLite integrity ok, and every Settings credential row still checked. The Agite mobile list was removed in the app
+  (D2). Post-update finding: a workspace saved before the 9:00 floor showed and resubmitted 8:00 (dialing already
+  enforced 9:00, but saving the form unchanged was refused). Fixed on `main`: the workspace, the Settings row and the
+  call context all read `outreach_hours`, with a regression test; this Mac's policy was saved as 9:00 to 17:00 in the
+  app. The fix ships in the next release. Open: the live matrix with the owner at 203-821-1101 and 203-434-8547
+  (ringback, two-way audio, script and helper on a test call, End as voicemail through the beep and the 7-second hold,
+  no automatic next call, callback ringing with its script), and the owner's master needs `{callback_number}` in its
+  Voicemail section on its next edit. Next action: owner live session.
 
