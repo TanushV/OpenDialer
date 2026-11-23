@@ -44,7 +44,7 @@ for (const end of ["answer", "hang up"] as const) {
     await expect(hangUp(page)).toBeEnabled();
     if (end === "answer") {
       await answer(page);
-      await expect(callStatus(page)).toContainText("Talking · person");
+      await expect(callStatus(page)).toContainText("Connected");
       await expect(root).toHaveAttribute("data-ringback", "stopped");
       await finishCall(page);
     } else {
@@ -327,7 +327,7 @@ test("a background script adoption cannot silently replace open edits", async ({
   await expect(editor).toHaveValue(/New team script/);
 });
 
-test("ringback returns on the next explicit call, and voicemail stays open until Space", async ({
+test("ringback returns on the next explicit call, and a mailbox stays open until the rep ends it", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -403,19 +403,23 @@ test("ringback returns on the next explicit call, and voicemail stays open until
 
   await dialNow.press("Enter");
   await expect(root).toHaveAttribute("data-ringback-count", "2");
+  // No detection (work package section 6): the answer shows Connected and the rep ends the mailbox with Space.
   await page
-    .getByRole("button", { name: "Mailbox greeting", exact: true })
+    .getByRole("button", { name: "Simulate answer", exact: true })
     .click();
-  await expect(callStatus(page)).toContainText("Voicemail detected");
+  await expect(callStatus(page)).toContainText("Connected");
   await expect(root).toHaveAttribute("data-ringback", "stopped");
-  await page.getByRole("button", { name: "Mailbox beep", exact: true }).click();
-  await page.waitForTimeout(8500); // Exceed the old mailbox hang-up delay.
+  await page.waitForTimeout(7500); // Past the 7-second short-call hold, so the stop is immediate.
   await expect(
     page.getByRole("button", { name: /^End as voicemail/ }),
   ).toBeEnabled();
   await page.locator(".dialer-body").click({ position: { x: 5, y: 5 } });
   await page.keyboard.down("Space");
+  await expect(callStatus(page)).toContainText("did you leave a message");
+  await page.keyboard.press("KeyN");
   await expect(callStatus(page)).toContainText("Voicemail saved");
+  // The same Space press, still held, must not dial the next prospect.
+  await page.keyboard.down("Space");
   await page.keyboard.down("Space");
   await page.keyboard.up("Space");
   await expect(root).toHaveAttribute("data-end-tone-count", "2");
@@ -469,7 +473,7 @@ test("Hang up shows at once and a re-read from before the server saw it cannot b
   await prepareSimulationCall(page, "Held hang-up", "+14155550781");
   await startDialing(page);
   await answer(page);
-  await expect(callStatus(page)).toContainText("Talking");
+  await expect(callStatus(page)).toContainText(/Connected|Talking/);
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
   let hangups = 0;
@@ -557,7 +561,7 @@ test("Esc and the outcome keys work while a button has focus, as after any click
   await startDialing(page);
   await answer(page);
   await page
-    .getByRole("button", { name: "Simulate human answer", exact: true })
+    .getByRole("button", { name: "Simulate answer", exact: true })
     .focus();
   await page.keyboard.press("Escape");
   await expect(callStatus(page)).toContainText("You ended the call");

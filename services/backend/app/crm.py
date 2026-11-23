@@ -664,8 +664,11 @@ def _store_dnc(service, p, results):
 
 def call_outcome(call):
     outcome = (call.get("disposition") or {}).get("outcome") or call.get("outcome") or "no_answer"
-    if outcome == "voicemail" and call.get("rep_voicemail_at"):
-        return "voicemail_skipped"
+    if outcome == "voicemail":
+        # The rep's own answer decides; an older End as voicemail without one stays No answer.
+        message = (call.get("disposition_input") or {}).get("voicemail_message")
+        if message == "none" or (message is None and call.get("rep_voicemail_at")):
+            return "voicemail_skipped"
     return outcome
 
 

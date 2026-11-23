@@ -148,6 +148,42 @@ def attempt_limits(service, lead, campaign, policy, attempts):
     )
 
 
+VOICEMAIL_REASONS = {
+    "first": "first attempt",
+    "final": "final attempt",
+    "every": "this list leaves one every time",
+    "callback": "they asked for a callback",
+    "spoke": "you have spoken before",
+}
+
+
+def voicemail_cue(service, lead, campaign, ordinal, allowance, *, callback_due, spoke_before):
+    """Whether to leave a voicemail on this attempt, and why. Advisory only (work package 6.12)."""
+    catalog = campaign.get("lists", {})
+    names = allowed_memberships(service, {}, lead, catalog, include_paused=True)
+    rules = {catalog.get(name, {}).get("voicemail_rule") or "first_and_final" for name in names}
+    rule = next((r for r in ("never", "final", "first_and_final", "every") if r in rules), "first_and_final")
+    if rule == "never":
+        return {"leave": False, "reason": "this list never leaves one"}
+    final = ordinal >= allowance
+    reason = (
+        "callback"
+        if callback_due
+        else "spoke"
+        if spoke_before
+        else "final"
+        if final
+        else "first"
+        if ordinal == 1 and rule in {"first_and_final", "every"}
+        else "every"
+        if rule == "every"
+        else None
+    )
+    if rule == "final" and reason == "first":
+        reason = None
+    return {"leave": reason is not None, "reason": VOICEMAIL_REASONS.get(reason, "not this attempt")}
+
+
 def list_permitted(service, s, p, lead):
     value = lead.data
     if value.get("test_list_contact"):
@@ -363,7 +399,12 @@ def manage_list(service, p, body):
             maximum, waits = body.get("max_attempts"), body.get("retry_days", [])
             if waits and (maximum is None or len(waits) != maximum - 1):
                 fail(422, "Enter one wait in days between each attempt, or leave the waits blank.")
-            state.update(script_mode=body["script_mode"], max_attempts=maximum, retry_days=waits)
+            state.update(
+                script_mode=body["script_mode"],
+                max_attempts=maximum,
+                retry_days=waits,
+                voicemail_rule=body.get("voicemail_rule", "first_and_final"),
+            )
             catalog[name] = state
         else:
             state["paused" if action in {"pause", "resume"} else "archived"] = action in {

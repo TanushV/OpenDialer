@@ -281,12 +281,15 @@ export async function leaveNoCall(page: Page) {
   await expect(startCalling(page)).toBeVisible();
 }
 
-/** Answer the ringing simulated call as a person. */
+/** Answer the ringing simulated call. With no detection it shows Connected (work package section 6). */
 export async function answer(page: Page) {
   // Safe to repeat: the button leaves once the call is answered. WebKit can drop the click while the view re-renders.
   await clickUntil(
-    page.getByRole("button", { name: "Simulate human answer", exact: true }),
-    () => expect(callStatus(page)).toContainText("Talking", { timeout: 3_000 }),
+    page.getByRole("button", { name: "Simulate answer", exact: true }),
+    () =>
+      expect(callStatus(page)).toContainText(/Connected|Talking/, {
+        timeout: 3_000,
+      }),
   );
 }
 

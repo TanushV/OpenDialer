@@ -51,6 +51,8 @@ const RECHECK_MS = 10_000;
 /** An outcome key pressed while the call is ending waits this long, in steps, for the end to be confirmed. */
 const ENDING_WAIT_MS = 250;
 const ENDING_WAIT_STEPS = 40;
+/** A held leg ends by itself with the carrier stop; this bounds how long the app keeps it if no end is reported. */
+const HELD_LEG_FALLBACK_MS = 15_000;
 /** Blockers the loop clears itself: the rep's audio leg is renewed before each call. */
 const SELF_CLEARING = new Set(["REP_AUDIO_NOT_READY"]);
 
@@ -184,6 +186,16 @@ export function useCallLoop() {
   // ---- The call record: one read path, refreshed by its own events.
   // A response for another call, or from a read older than one already started, never replaces the shown call.
   const readGeneration = useRef(0);
+  // A leg silenced by the short-call hold, released when its call ends (work package 6.10).
+  const heldLeg = useRef<{
+    callId: string;
+    identity: string;
+    release?: () => void;
+  } | null>(null);
+  useEffect(() => {
+    const held = heldLeg.current;
+    if (held && call?.id === held.callId && isTerminal(call)) held.release?.();
+  }, [call]);
   const applyCall = useCallback((value: Call) => {
     setCall((current) =>
       current && current.id !== value.id
@@ -802,8 +814,27 @@ export function useCallLoop() {
     if (!still()) return;
     ++readGeneration.current;
     applyCall(result);
-    if (markVoicemail && identity)
-      await telephony.current.emergencyHangup(identity);
+    // Inside the short-call window the authority holds the carrier leg to 7 seconds after answer: the rep hears
+    // and sends nothing, and the leg ends with the carrier's stop (work package 6.10). Otherwise end it now.
+    if (markVoicemail && identity) {
+      if (result.carrier_hold_until) {
+        // The authority holds the carrier leg to 7 seconds after answer. The leg ends once the server reports the
+        // call ended (effect below), or after a bounded fallback; no clocks are compared across machines.
+        telephony.current.silence(identity);
+        heldLeg.current = { callId: current.id, identity };
+        const release = () => {
+          if (heldLeg.current?.callId !== current.id) return;
+          heldLeg.current = null;
+          void telephony.current
+            .emergencyHangup(identity)
+            .catch((error) =>
+              console.warn("Held call audio could not end:", error),
+            );
+        };
+        heldLeg.current.release = release;
+        window.setTimeout(release, HELD_LEG_FALLBACK_MS);
+      } else await telephony.current.emergencyHangup(identity);
+    }
   }
   /** Space while dialing: end this attempt and save No answer (section 6, Skipped). */
   async function skip() {
@@ -822,7 +853,7 @@ export function useCallLoop() {
     telephony.current.mute();
     setMuted((value) => !value);
   }
-  async function save(code: string) {
+  async function save(code: string, voicemailMessage?: "left" | "none") {
     const pressed = callRef.current;
     if (!pressed) return;
     // One save at a time for this call; its key shows at once and the others wait for the answer.
@@ -854,6 +885,7 @@ export function useCallLoop() {
         "POST",
         {
           outcome: code,
+          ...(voicemailMessage ? { voicemail_message: voicemailMessage } : {}),
           contact_role: "unknown",
           callback_note: "",
           callback_at: null,
@@ -967,6 +999,8 @@ export function useCallLoop() {
     pause: () => run(pauseCalling),
     skip: () => run(skip),
     voicemail: () => run(() => hangup(true)),
+    voicemail_left: () => run(() => save("voicemail", "left")),
+    voicemail_none: () => run(() => save("voicemail", "none")),
     hangup: () => run(() => hangup()),
     mute,
     dial_now: advance,

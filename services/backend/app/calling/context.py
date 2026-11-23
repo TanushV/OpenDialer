@@ -9,7 +9,23 @@ from app import ops
 from app.calling.records import CallView
 from app.calling.state import TERMINAL
 from app.compliance.policy import authorize
-from app.platform.db import workspace
+from app.platform.db import MODELS, workspace
+
+# Outcomes that mean a person was reached; the rep's saved outcome is the evidence, not detection (work package 6.16).
+PERSON = frozenset(
+    {
+        "right_party",
+        "qualified_conversation",
+        "callback_requested",
+        "meeting_booked",
+        "meeting_held",
+        "not_interested",
+        "gatekeeper",
+        "wrong_party",
+        "opt_out",
+        "sale_won",
+    }
+)
 
 
 def call_party(service, s, p, call):
@@ -35,3 +51,23 @@ def speech_allowed(service, s, p, call):
     return authorize(
         ops.context(service, s, scope, recipient, number, permission="transcription", active=True)
     ).allowed
+
+
+def spoke_before(service, s, p, lead):
+    """Whether an earlier call with this lead reached a person, by its saved outcome."""
+    calls = MODELS["call_attempts"]
+    prior = ops.lead_records(service, s, p, "call_attempts", lead.id, calls.op_status.in_(TERMINAL), limit=20)
+    return any(CallView.model_validate(row.data).outcome in PERSON for row in prior)
+
+
+def attempt_voicemail_cue(service, s, p, lead, campaign, ordinal, allowance, callback_due):
+    """The advisory voicemail cue recorded on an outreach attempt (work package 6.12)."""
+    return ops.voicemail_cue(
+        service,
+        lead.data,
+        campaign,
+        ordinal,
+        allowance,
+        callback_due=callback_due,
+        spoke_before=spoke_before(service, s, p, lead),
+    )

@@ -430,7 +430,7 @@ def test_a_machine_result_alone_never_hangs_up(workspace, app, carrier):
     assert carrier.hangups == []
     with app.state.db.transaction(False) as s:
         saved = get(s, "call_attempts", call["id"]).data
-    assert saved["machine_detected"] is True and not saved.get("voicemail_turn")
+    assert not saved.get("machine_detected") and not saved.get("voicemail_turn")
 
 
 def test_a_detected_voicemail_leaves_an_ordinary_attempt_open(workspace, carrier, clock):
@@ -510,7 +510,7 @@ def test_the_final_attempt_stays_on_the_line_to_leave_a_voicemail(workspace, app
     assert carrier.hangups == []
     with app.state.db.transaction(False) as s:
         saved = get(s, "call_attempts", call["id"]).data
-    assert saved["voicemail_turn"] is True and saved["attempt_ordinal"] == 4
+    assert not saved.get("voicemail_turn") and saved["attempt_ordinal"] == 4
 
 
 @pytest.mark.parametrize(
@@ -540,7 +540,7 @@ def test_screening_is_not_counted_as_voicemail(workspace, app, carrier):
     event(workspace, call, "call.machine.premium.call_screening.detected:screening")
     with app.state.db.transaction(False) as s:
         saved = get(s, "call_attempts", call["id"]).data
-    assert saved["screening_detected"] is True and saved["machine_detected"] is False
+    assert not saved.get("screening_detected") and not saved.get("machine_detected")
 
 
 @pytest.mark.slow
@@ -562,7 +562,7 @@ def test_a_human_answer_is_never_hung_up_by_a_late_machine_result(workspace, app
         ("VOICEMAIL_GREETING", "call.machine.greeting.ended:not_sure", "VOICEMAIL_GREETING"),
         ("VOICEMAIL_GREETING", "call.machine.greeting.ended:ended", "VOICEMAIL_GREETING"),
         ("ANSWERED_UNCLASSIFIED", "call.machine.premium.detection.ended:human_business", "HUMAN"),
-        ("ANSWERED_UNCLASSIFIED", "call.machine.premium.detection.ended:machine", "VOICEMAIL_GREETING"),
+        ("ANSWERED_UNCLASSIFIED", "call.machine.premium.detection.ended:machine", "ANSWERED_UNCLASSIFIED"),
         ("ANSWERED_UNCLASSIFIED", "call.machine.premium.detection.ended:silence", "ANSWERED_UNCLASSIFIED"),
         (
             "ANSWERED_UNCLASSIFIED",
@@ -570,12 +570,17 @@ def test_a_human_answer_is_never_hung_up_by_a_late_machine_result(workspace, app
             "ANSWERED_UNCLASSIFIED",
         ),
         ("ANSWERED_UNCLASSIFIED", "call.machine.premium.detection.ended:screening", "ANSWERED_UNCLASSIFIED"),
-        ("ANSWERED_UNCLASSIFIED", "call.machine.premium.call_screening.detected:screening", "SCREENING"),
-        ("VOICEMAIL_GREETING", "call.machine.premium.greeting.ended:beep_detected", "VOICEMAIL_READY"),
+        (
+            "ANSWERED_UNCLASSIFIED",
+            "call.machine.premium.call_screening.detected:screening",
+            "ANSWERED_UNCLASSIFIED",
+        ),
+        ("VOICEMAIL_GREETING", "call.machine.premium.greeting.ended:beep_detected", "VOICEMAIL_GREETING"),
         ("VOICEMAIL_GREETING", "call.machine.premium.greeting.ended:no_beep_detected", "VOICEMAIL_GREETING"),
     ],
 )
-def test_reducer_maps_only_documented_machine_detection_results(state, name, expected):
+def test_reducer_ignores_detection_results_except_documented_human_answers(state, name, expected):
+    """Detection is off on new dials; old mailbox, beep and screening receipts move nothing (work package 6)."""
     assert transition(state, name) == expected
 
 

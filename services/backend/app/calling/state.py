@@ -41,11 +41,8 @@ CARRIER = {
     "call.answered": "ANSWERED_UNCLASSIFIED",
     **dict.fromkeys(HUMAN_EVENTS, "HUMAN"),
     "human.confirmed": "HUMAN",
-    "call.machine.detection.ended:machine": "VOICEMAIL_GREETING",
-    "call.machine.premium.detection.ended:machine": "VOICEMAIL_GREETING",
-    "call.machine.greeting.ended:beep_detected": "VOICEMAIL_READY",
-    "call.machine.premium.greeting.ended:beep_detected": "VOICEMAIL_READY",
-    "call.machine.premium.call_screening.detected:screening": "SCREENING",
+    # Voicemail detection is off on every new dial (work package section 6). Mailbox, beep and screening results
+    # from older calls are kept as receipts and move nothing; SCREENING and VOICEMAIL_* stay readable for history.
 }
 # App events: (states it applies from, target). Anything else leaves the state as it is.
 APP = {

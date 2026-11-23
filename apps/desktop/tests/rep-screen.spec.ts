@@ -298,7 +298,7 @@ test("pausing during a call stops the loop once that call is saved", async ({
   const seen = countStarts(page);
   await answer(page);
   await pauseCalling(page).click();
-  await expect(callStatus(page)).toContainText("Talking");
+  await expect(callStatus(page)).toContainText(/Connected|Talking/);
   await hangUp(page).click();
   await saveOutcome(page, "not_interested");
   await expect(startCalling(page)).toBeVisible();

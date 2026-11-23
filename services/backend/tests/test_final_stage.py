@@ -71,10 +71,9 @@ def test_an_unanswered_next_to_last_attempt_offers_the_same_rep_one_immediate_fi
     assert second["lead_id"] == first["lead_id"] and len(carrier.dials) == 2
     saved = call(workspace, "GET", f"/v1/calls/{second['id']}")
     assert (saved["attempt_ordinal"], saved["attempt_allowance"]) == (4, 4)
-    # The final attempt keeps a mailbox open for the rep's own message.
+    # The final attempt stays open for the rep's own message; the voicemail cue says when to leave one.
     event(workspace, second["id"], "call.answered")
-    event(workspace, second["id"], "call.machine.detection.ended:machine")
-    assert call(workspace, "GET", f"/v1/calls/{second['id']}")["voicemail_turn"] is True
+    assert call(workspace, "GET", f"/v1/calls/{second['id']}")["voicemail_cue"]["leave"] is True
     event(workspace, second["id"], "call.hangup")
     finish(workspace)
     assert next_lead(workspace, 409)["detail"]["code"] == "NO_ELIGIBLE_LEADS"

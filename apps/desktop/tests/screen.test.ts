@@ -30,12 +30,13 @@ describe("the Dialer screen phases (section 6)", () => {
     ["opening audio", { connecting: true }, "connecting"],
     ["dialing", { call: { state: "DIALING" } }, "dialing"],
     ["ringing", { call: { state: "RINGING" } }, "dialing"],
-    ["mailbox", { call: { state: "VOICEMAIL_GREETING" } }, "voicemail"],
+    // No detection: an older mailbox state reads as connected (work package section 6).
     [
-      "final attempt mailbox",
-      { call: { state: "VOICEMAIL_READY", voicemail_turn: true } },
-      "voicemail",
+      "older mailbox state",
+      { call: { state: "VOICEMAIL_GREETING" } },
+      "talking",
     ],
+    ["answered", { call: { state: "ANSWERED_UNCLASSIFIED" } }, "talking"],
     ["person", { call: { state: "HUMAN" } }, "talking"],
     ["screening", { call: { state: "SCREENING" } }, "talking"],
     ["hanging up", { call: { state: "ENDING" } }, "ended"],
@@ -97,10 +98,10 @@ describe("the Dialer screen phases (section 6)", () => {
     for (const [state, message] of [
       ["DIALING", "Dialing"],
       ["RINGING", "Ringing"],
-      ["ANSWERED_UNCLASSIFIED", "Answered · identifying"],
-      ["HUMAN", "Talking · person"],
-      ["SCREENING", "Call screening"],
-      ["VOICEMAIL_GREETING", "Voicemail detected"],
+      ["ANSWERED_UNCLASSIFIED", "Connected"],
+      ["HUMAN", "Talking"],
+      ["SCREENING", "Connected"],
+      ["VOICEMAIL_GREETING", "Connected"],
     ]) {
       const phase = screen({ ...base, call: { state } });
       expect(keys(phase).Escape).toBe("hangup");
@@ -141,6 +142,7 @@ describe("the Dialer screen phases (section 6)", () => {
       KeyM: "mute",
     });
     expect(at({ call: { state: "HUMAN" } })).toEqual({
+      Space: "voicemail",
       Escape: "hangup",
       KeyM: "mute",
     });

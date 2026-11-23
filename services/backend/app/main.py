@@ -115,6 +115,8 @@ class ListEdit(Strict):
     script_mode: Literal["prepared", "master"] = "prepared"
     max_attempts: int | None = Field(default=None, ge=1, le=20)
     retry_days: list[Annotated[int, Field(ge=1, le=365)]] = Field(default_factory=list, max_length=19)
+    # When the Dialer suggests leaving a voicemail on this list (work package 6.12); advisory only.
+    voicemail_rule: Literal["first_and_final", "final", "every", "never"] = "first_and_final"
 
 
 class LeadSelectionScope(Strict):
@@ -221,6 +223,8 @@ class Disposition(Strict):
     # Rep-visible edit counter: background bookkeeping on the call row never conflicts.
     expected_edit_version: int | None = Field(default=None, ge=0, strict=True)
     callback_note: str = Field(default="", max_length=1000)
+    # For a voicemail: whether the rep left a message (work package 6.12). HubSpot logs Left voicemail or No answer.
+    voicemail_message: Literal["left", "none"] | None = None
 
 
 class ResearchBatch(Strict):

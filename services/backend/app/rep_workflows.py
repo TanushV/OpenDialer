@@ -47,7 +47,7 @@ def disposition_input(call, data, outcome, due):
         "contact_role": data.get("contact_role", "unknown"),
     }
     previous = call.get("disposition_input") or {}
-    for key in ("audio_result", "screened", "delivery_test"):
+    for key in ("audio_result", "screened", "delivery_test", "voicemail_message"):
         if data.get(key) is not None:
             canonical[key] = data[key]
         elif key in previous:
@@ -790,11 +790,14 @@ def auto_disposition(service, p, call_id):
         call = ops.required(service, s, "call_attempts", call_id, p)
         if call.data["state"] not in TERMINAL or call.data.get("edit_version", 0) or call.data.get("outcome"):
             return
-        confirmed = call.data.get("rep_voicemail_at")
-        outcome = "voicemail" if confirmed else call.data.get("carrier_outcome")
-        if not outcome or outcome == "voicemail" and not confirmed:
+        # End as voicemail leaves the choice to the rep: a message left or not (work package 6.12). Only a carrier
+        # fact saves by itself, and never once the rep has marked a mailbox.
+        if call.data.get("rep_voicemail_at"):
             return
-        source = "rep_reported" if confirmed else "carrier"
+        outcome = call.data.get("carrier_outcome")
+        if not outcome or outcome == "voicemail":
+            return
+        source = "carrier"
         body = {
             "outcome": outcome,
             "contact_role": "unknown",

@@ -187,6 +187,12 @@ export interface Coach {
 }
 export interface Call {
   test_contact?: boolean;
+  /** The rep ended this call with End as voicemail. */
+  rep_voicemail_at?: string | null;
+  /** The carrier stop waits until then (work package 6.10, short-call hold). */
+  carrier_hold_until?: string | null;
+  /** Whether to leave a voicemail on this attempt, and why; advisory only (work package 6.12). */
+  voicemail_cue?: { leave: boolean; reason: string } | null;
   /** A call to the rep's own test phone: excluded from learning, and calling pauses after it. */
   is_test?: boolean;
   dial_scope?: { test_only?: boolean; test_run_id?: string };

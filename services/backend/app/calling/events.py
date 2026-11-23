@@ -6,7 +6,7 @@ commands and starting jobs stays with the caller, so every rule here is testable
 
 import re
 
-from app.calling.state import HUMAN_EVENTS, TERMINAL
+from app.calling.state import HUMAN_EVENTS
 
 MACHINE_EVENTS = frozenset(
     {"call.machine.detection.ended:machine", "call.machine.premium.detection.ended:machine"}
@@ -63,20 +63,12 @@ def final_attempt(call, policy):
 
 
 def machine(call, event_type, *, final):
-    """Report mailbox detection to the rep. Detection never sends a carrier command."""
-    if (
-        event_type not in MACHINE_EVENTS | BEEP_EVENTS
-        or call.get("human_answered_at")
-        or call.get("screening_detected")
-        or call.get("state") in TERMINAL | {"ENDING"}
-    ):
-        return {}
-    return {"machine_detected": True, **({"voicemail_turn": True} if final else {})}
+    """Detection is off (work package section 6): a late mailbox or beep receipt changes nothing."""
+    return {}
 
 
 def screening(call, event_type):
-    if event_type in SCREENING_EVENTS and not call.get("human_answered_at"):
-        return {"screening_detected": True, "machine_detected": False}
+    """Carrier screening detection went with voicemail detection; the helper reads screening from speech."""
     return {}
 
 

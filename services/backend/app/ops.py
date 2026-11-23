@@ -336,6 +336,9 @@ HOMES = {
     "live_transcription_enabled": "app.calling.context",
     "speech_allowed": "app.calling.context",
     "master_template": "app.preparation.workflows",
+    "spoke_before": "app.calling.context",
+    "attempt_voicemail_cue": "app.calling.context",
+    "voicemail_cue": "app.lead_lists",
 }
 
 

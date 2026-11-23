@@ -20,10 +20,9 @@ export interface ScreenCall {
   state: CallState | string;
   outcome?: string | null;
   outcome_source?: string | null;
-  voicemail_turn?: boolean;
-  machine_detected?: boolean;
-  screening_detected?: boolean;
   answered_at?: string | null;
+  /** The rep ended this call with End as voicemail. */
+  rep_voicemail_at?: string | null;
   bridged_at?: string | null;
   provider_hangup_source?: string | null;
   connected_seconds?: number | null;
@@ -53,10 +52,10 @@ export type Phase =
   | { kind: "paused"; blocker: Blocker | null }
   | { kind: "connecting" }
   | { kind: "dialing"; ringing: boolean }
-  | { kind: "voicemail"; final: boolean }
   | {
       kind: "talking";
-      answer?: "identifying" | "person" | "screening";
+      /** No detection: an answer is "connected" until a person is confirmed (work package section 6). */
+      answer?: "connected" | "person";
     }
   | {
       kind: "ended";
@@ -64,6 +63,8 @@ export type Phase =
       seconds: number | null;
       /** The outcome being saved now; no other key acts until it answers. */
       saving?: string | null;
+      /** Ended with End as voicemail: the rep says whether a message was left. */
+      voicemail?: boolean;
     }
   | { kind: "saved"; outcome: string }
   | ({ kind: "finished" } & QueueStatus);
@@ -76,7 +77,6 @@ const DIALING = new Set([
   "DIAL_UNCONFIRMED",
   "DIALING",
 ]);
-const MAILBOX = new Set(["VOICEMAIL_GREETING", "VOICEMAIL_READY"]);
 
 /**
  * What the rep just did, shown at once until the server's own record says the same (R9E.8). A re-read that left
@@ -126,16 +126,16 @@ export function screen(input: ScreenInput): Phase {
 function live(call: ScreenCall): Phase {
   if (call.state === "ENDING") return ended(call);
   if (call.state === "HUMAN") return { kind: "talking", answer: "person" };
-  if (call.state === "SCREENING" || call.screening_detected)
-    return { kind: "talking", answer: "screening" };
-  if (MAILBOX.has(call.state) || call.machine_detected)
-    return { kind: "voicemail", final: Boolean(call.voicemail_turn) };
+  // Older calls may still carry a mailbox or screening state; they read as connected, like any answer.
   if (
     call.state === "ANSWERED_UNCLASSIFIED" ||
+    call.state === "SCREENING" ||
+    call.state === "VOICEMAIL_GREETING" ||
+    call.state === "VOICEMAIL_READY" ||
     call.answered_at ||
     call.bridged_at
   )
-    return { kind: "talking", answer: "identifying" };
+    return { kind: "talking", answer: "connected" };
   if (DIALING.has(call.state)) return { kind: "dialing", ringing: false };
   if (call.state === "RINGING") return { kind: "dialing", ringing: true };
   return { kind: "talking" };
@@ -148,7 +148,12 @@ function ended(call: ScreenCall): Extract<Phase, { kind: "ended" }> {
       : call.provider_hangup_source === "caller" || call.state === "ENDING"
         ? "you"
         : null;
-  return { kind: "ended", who, seconds: call.connected_seconds ?? null };
+  return {
+    kind: "ended",
+    who,
+    seconds: call.connected_seconds ?? null,
+    voicemail: Boolean(call.rep_voicemail_at),
+  };
 }
 
 export type Action =
@@ -156,6 +161,8 @@ export type Action =
   | "pause"
   | "skip"
   | "voicemail"
+  | "voicemail_left"
+  | "voicemail_none"
   | "hangup"
   | "mute"
   | "dial_now"
@@ -171,17 +178,21 @@ export function keys(phase: Phase): Record<string, Action> {
       return { KeyP: "pause" };
     case "dialing":
       return { Space: "skip", Escape: "hangup", KeyP: "pause" };
-    case "voicemail":
-      return { Space: "voicemail", Escape: "hangup", KeyM: "mute" };
     case "talking":
-      return { Escape: "hangup", KeyM: "mute" };
+      // Space is End as voicemail after answer; Esc stays the plain Hang up (work package 6.4).
+      return { Space: "voicemail", Escape: "hangup", KeyM: "mute" };
     case "ended":
       // One save at a time: while it answers, no key can start another.
       return phase.saving
         ? {}
-        : Object.fromEntries(
-            [1, 2, 3, 4, 5, 6].map((n) => [`Digit${n}`, { save: n }]),
-          );
+        : {
+            ...Object.fromEntries(
+              [1, 2, 3, 4, 5, 6].map((n) => [`Digit${n}`, { save: n }]),
+            ),
+            ...(phase.voicemail
+              ? { KeyL: "voicemail_left", KeyN: "voicemail_none" }
+              : {}),
+          };
     case "saved":
       return { Space: "dial_now", KeyP: "pause", KeyC: "change_outcome" };
     case "finished":
@@ -200,19 +211,15 @@ export function headline(phase: Phase): string {
       return "Connecting audio";
     case "dialing":
       return phase.ringing ? "Ringing" : "Dialing";
-    case "voicemail":
-      return phase.final
-        ? "Voicemail detected · leave a message"
-        : "Voicemail detected";
     case "talking":
       return {
-        identifying: "Answered · identifying",
-        person: "Talking · person",
-        screening: "Call screening",
+        connected: "Connected",
+        person: "Talking",
         unknown: "Talking",
       }[phase.answer ?? "unknown"];
     case "ended": {
       if (phase.saving) return "Saving the outcome";
+      if (phase.voicemail) return "Voicemail · did you leave a message?";
       const who =
         phase.who === "they"
           ? "They hung up"
