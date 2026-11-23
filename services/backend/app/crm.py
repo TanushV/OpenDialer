@@ -678,10 +678,8 @@ def should_log(call, lead):
     if lead.get("external_id"):
         return True
     outcome = call_outcome(call)
-    return lead.get("source") == "csv" and (
-        (bool(call.get("answered_at")) and outcome in crm_log.HUMAN)
-        or (bool(call.get("human_answered_at")) and outcome not in crm_log.OUTCOMES)
-    )
+    # The rep's saved outcome, not detection, says a person was reached; a mailbox never creates a contact.
+    return lead.get("source") == "csv" and bool(call.get("answered_at")) and outcome in crm_log.HUMAN
 
 
 class AmbiguousContact(RuntimeError):

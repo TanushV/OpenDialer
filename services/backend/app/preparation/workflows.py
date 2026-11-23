@@ -14,6 +14,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 
 from app import ops
+from app.calling.context import PERSON
 from app.lead_lists import budget_scope, in_list, memberships, uses_master
 from app.platform.db import MODELS, Job, doc, emit, put, uid, update
 from app.preparation.agent import INSTRUCTIONS, TOOLS, SimulatedAgent, ThreadWork, simulated_page
@@ -446,7 +447,7 @@ def follow_up_in(service, s, p, lead, template):
         "seller": ops.required(service, s, "sellers", p["seller_id"], p).data["name"],
         "rep": ops.required(service, s, "users", p["user_id"], p).data["name"],
     }
-    spoken = [c for c in calls if c.data.get("human_answered_at")]
+    spoken = [c for c in calls if c.data.get("outcome") in PERSON]
     lines = []
     if callback:
         purpose, note = "callback", (callback.data.get("note") or "").strip()

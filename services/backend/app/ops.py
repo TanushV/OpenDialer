@@ -309,7 +309,6 @@ HOMES = {
     "start_test_session": "app.service",
     "save_test_contact": "app.test_list",
     "start_transcription_in": "app.telephony.workflows",
-    "stay_on_call": "app.telephony.workflows",
     "stop_agent_transcription_in": "app.telephony.workflows",
     "store_facts_in": "app.preparation.workflows",
     "store_prepared_in": "app.preparation.workflows",

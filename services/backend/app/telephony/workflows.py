@@ -75,25 +75,6 @@ async def send_keypad(service, p, call_id, digits, request_id):
     return await asyncio.to_thread(ops.keypad_status, service, p, call_id, request_id)
 
 
-def stay_on_call(service, p, call_id):
-    with service.db.transaction() as s:
-        service.db.authorize_stream(s, p)
-        call = ops.required(service, s, "call_attempts", call_id, p, lock=True)
-        if call.data["rep_id"] != p["user_id"]:
-            fail(404, "Object not found")
-        if call.data["state"] in TERMINAL | {"ENDING"}:
-            fail(409, "The call has already ended")
-        command = ops._by_key(service, s, p, "command_outbox", f"{call_id}:machine-hangup")
-        if command:
-            s.refresh(command, with_for_update=True)
-            if command.data["status"] not in {"pending", "cancelled"} or command.data.get("sent_at"):
-                fail(409, "The voicemail hang-up has already been sent")
-            update(command, status="cancelled", reason="REP_STAY")
-        update(call, stay_on_voicemail=True)
-        emit(s, p["tenant_id"], "call.updated", call, service.clock())
-        return doc(call)
-
-
 def control_intent(service, s, p, call_id, action, payload, *, target=None, suffix=None):
     key = f"{call_id}:{suffix or action}"
     prior = ops._by_key(service, s, p, "command_outbox", key)

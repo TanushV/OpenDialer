@@ -7,6 +7,7 @@ import time
 from sqlalchemy import case, func, select
 
 from app import ops
+from app.calling.context import PERSON
 from app.leads.record import number_view
 from app.platform.config import LIMITS, PROVIDER_DEFAULTS, inference_model
 from app.platform.db import MODELS, audit, doc, emit, put, rows, uid, update
@@ -564,7 +565,7 @@ def drop_off_report(service, p):
                 continue
             summary = ops._by_key(service, s, p, "call_summaries", row.id)
             ended = summary.data.get("ended_at_part") if summary else None
-            if row.data.get("human_answered_at"):
+            if row.data.get("outcome") in PERSON:
                 transcript = [segment.data for segment in ops.transcript_metadata(service, s, p, row.id)]
                 if any(segment.get("script_match_version") for segment in transcript):
                     part = latest_match(transcript)
@@ -581,7 +582,7 @@ def drop_off_report(service, p):
                                 break
             calls.append(
                 {
-                    "human": bool(row.data.get("human_answered_at")),
+                    "human": bool(row.data.get("outcome") in PERSON),
                     "outcome": row.data.get("outcome"),
                     "ended_at_part": ended,
                 }

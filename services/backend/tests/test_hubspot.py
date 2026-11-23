@@ -216,3 +216,17 @@ async def test_logging_a_call_already_in_hubspot_finds_it_instead_of_failing():
     assert await crm_log.log_call(hs, record, {"no_answer": "d-na"}) == "hs-1"
     assert await crm_log.log_call(hs, record, {"no_answer": "d-na"}) == "hs-1"
     assert len(created) == 1
+
+
+def test_a_mailbox_never_creates_a_csv_contact_but_a_conversation_does():
+    """Work package 6.5 and 6.16: the rep's saved outcome, not detection, says a person was reached."""
+    from app.crm import should_log
+
+    csv_lead = {"source": "csv"}
+    answered = {"answered_at": "2026-11-22T15:00:00+00:00", "human_answered_at": "2026-11-22T15:00:01+00:00"}
+    for outcome in ("voicemail", "no_answer"):
+        assert not should_log({**answered, "outcome": outcome}, csv_lead)
+    assert should_log({**answered, "outcome": "not_interested"}, csv_lead)
+    assert not should_log({"outcome": "not_interested"}, csv_lead), (
+        "Never answered, never logged as a conversation"
+    )

@@ -445,16 +445,6 @@ def test_a_detected_voicemail_leaves_an_ordinary_attempt_open(workspace, carrier
     assert carrier.hangups == []
 
 
-def test_a_rep_can_stay_before_the_beep(workspace, carrier):
-    call = start(workspace)
-    event(workspace, call, "call.answered")
-    response = workspace["client"].post(f"/v1/calls/{call['id']}/stay", headers=workspace["headers"])
-    assert response.status_code == 200
-    event(workspace, call, "call.machine.premium.greeting.ended:beep_detected")
-    run_controls(workspace)
-    assert carrier.hangups == []
-
-
 def test_outbound_ring_time_can_be_changed(workspace, carrier):
     response = workspace["client"].put(
         "/v1/admin/settings", headers=workspace["headers"], json={"outbound_ring_seconds": 45}

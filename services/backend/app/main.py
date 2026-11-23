@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app import ops, test_list
-from app.calling import audio_leg, detection, pool_queue, test_calls, timeline
+from app.calling import audio_leg, pool_queue, test_calls, timeline
 from app.compliance.operating import DNCAuthorization, bind_operating_api
 from app.lead_lists import memberships
 from app.numbers import pool
@@ -727,12 +727,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def start_test_list(p=Depends(administrator)):
         return test_list.start(service, p)
 
-    @app.get("/v1/calling/voicemail-report")
-    def voicemail_report(p=Depends(principal)):
-        """Voicemail detection against what the rep found when they stayed (R6.4)."""
-        with db.transaction(False) as s:
-            return detection.report([doc(c) for c in ops.scoped(service, s, "call_attempts", p)])
-
     @app.get("/v1/calls/{call_id}/timeline")
     def call_timeline(call_id: str, p=Depends(principal)):
         """What happened on one call, in order: its own steps, carrier events and sent commands (R4.12)."""
@@ -766,10 +760,6 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "helper_status": helper,
                 "suggested_outcome": suggestion(summary),
             }
-
-    @app.post("/v1/calls/{call_id}/stay")
-    def stay_on_call(call_id: str, p=Depends(principal)):
-        return ops.stay_on_call(service, p, call_id)
 
     @app.post("/v1/calls/{call_id}/hangup")
     async def hangup(call_id: str, data: HangupRequest | None = None, p=Depends(principal)):

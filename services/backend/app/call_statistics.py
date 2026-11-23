@@ -11,6 +11,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from sqlalchemy import select
 
+from app.calling.context import PERSON
 from app.calling.state import TERMINAL
 from app.platform.db import MODELS
 from app.script_follow import sequence
@@ -159,7 +160,7 @@ def export(service, p, *, include_test=False):
                     }
                 )
             last = path[-1] if path else {}
-            human = bool(data.get("human_answered_at"))
+            human = data.get("outcome") in PERSON
             has_gap = bool(data.get("analysis_incomplete") or data.get("transcription_disabled"))
             calls.append(
                 {

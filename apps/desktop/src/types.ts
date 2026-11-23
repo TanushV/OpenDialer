@@ -215,7 +215,6 @@ export interface Call {
   connected_seconds?: number | null;
   /** Telnyx found a mailbox on the final attempt: the line stays open for the rep's message. */
   voicemail_turn?: boolean;
-  stay_on_voicemail?: boolean;
   machine_detected?: boolean;
   screening_detected?: boolean;
   transcription_source?: string;
