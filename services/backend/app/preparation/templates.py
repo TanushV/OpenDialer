@@ -61,9 +61,10 @@ PICKS = {
     "discovery": (1, 3),
     "offers": (1, 2),
 }
-# `{callback_number}` is the caller ID of the call, filled when it is dialed (work package 6.13).
+# `{callback_number}` is the caller ID of the call, filled when it is dialed (work package 6.13). It is optional:
+# a prospect who calls the caller ID back reaches the rep or leaves a missed callback (owner, November 23).
 PLACEHOLDERS = {"name", "first_name", "company", "rep", "seller", "callback_number"}
-VOICEMAIL_FIELDS = ("rep", "seller", "callback_number")
+VOICEMAIL_FIELDS = ("rep", "seller")
 MAX_BYTES = 40000
 MAX_OPTIONS = 20
 MAX_BLOCKS = 20
@@ -462,7 +463,7 @@ def parse_markdown(markdown, *, finished=False):
                 errors.append(
                     {
                         "line": raw[key]["line"],
-                        "message": "Voicemail must say who is calling and how to call back: add "
+                        "message": "Voicemail must say who is calling: add "
                         + ", ".join("{" + f + "}" for f in missing),
                     }
                 )

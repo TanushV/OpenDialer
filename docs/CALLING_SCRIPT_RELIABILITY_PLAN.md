@@ -231,9 +231,11 @@ App-side generic parser/importer improvements and their fixture-based tests belo
     cue. Store the cue on the call. The rep records what happened with the two existing outcomes, `voicemail` (left a
     message; HubSpot Left voicemail) and `voicemail_skipped` (HubSpot No answer), both offered after End as voicemail
     with neither preselected. Never infer it from timing or speech.
-13. **Voicemail wording.** `# Voicemail` must include `{rep}`, `{seller}` and a new `{callback_number}` placeholder
-    (filled with the caller ID used on that call). A missing one is a line-specific format error with its fix. Older
-    masters keep working as base scripts; the cue shows "Add voicemail wording to your script" until it is fixed.
+13. **Voicemail wording.** `# Voicemail` must include `{rep}` and `{seller}`. A missing one is a line-specific format
+    error with its fix. A `{callback_number}` placeholder is optional (filled with the caller ID used on that call):
+    owner, November 23, a prospect calls the caller ID back, which rings the rep or records a missed callback, so the
+    message need not read the number out. Older masters keep working as base scripts; the cue shows "Add voicemail
+    wording to your script" when there is none.
 14. **No detection, no voicemail drop, no artificial voice.** Every new dial sends detection disabled. Recorded or
     synthesized messages to called parties stay removed: the FCC treats prerecorded and AI-generated voices as
     artificial, and a prerecorded telemarketing message to a mobile needs prior express written consent.
@@ -416,7 +418,7 @@ for live transcription.
 | C3 | Opt-outs are written to HubSpot by every rep (section 9.2), but read back only for contacts inside a synced HubSpot list (`leads/hubspot_sync.py:94`). A CSV number opted out by another rep is not checked. | Pull every contact with `opendialer_opt_out=true` (HubSpot contact search) into the local suppression list, matched by normalized phone: at app start, at each CSV import, before each calling session and every 15 minutes while calling. Queue and retry a failed opt-out write until HubSpot confirms it. If HubSpot is configured but unreachable for more than 9 business days (the FCC honoring limit is 10), outreach stops with a blocker whose exit is reconnecting HubSpot; after 1 day the Dialer shows a warning. The local list always applies. |
 | C4 | When no rep can answer, the callback fallback speaks a message and hangs up; nothing is recorded. | Unchanged (D3). Missed callbacks already appear on the rep's desktop; reps follow up during business hours, and a stop request then is saved as an opt-out. D6 asks whether the fallback should take a voicemail. |
 | C5 | No disclosure before live transcription; prospect audio streams to a third-party speech service and model. Transcript text is stored for 30 days (`privacy.py:19`) and read after the call by the summary, suggested outcome, next step, drop-off stage, talk-ratio timing, Review and call statistics. | No disclosure (D1). Settings switch, Live transcription and helper (default on); off means no call audio leaves the computer, nothing is transcribed, and the call screen says the helper and script following are off. Transcripts are not kept (D7): segments exist only while the call is live, feed only the live helper and script following, and are deleted with the call's helper tips when it ends; a sweep at startup and every hour deletes any a crash left behind; SQLite `secure_delete` is on so deleted text is overwritten; transcript text never reaches logs, receipts, HubSpot or test artifacts. Removed with it: the after-call summary (HubSpot and Review), suggested outcome, next step and talk-ratio timing, and the Review transcript. StatML is archived (rebuild D31); its one kept view, stage drop-off, moves from the summary to the last confident live script-follow position, which is stored without transcript text. Follow-up scripts and briefs that read the prior summary (rebuild D4) read the outcome and rep note instead. Rebuild D7 (30-day transcripts) is replaced. Residual risk accepted by the owner: the real-time interception question under California §631/632.7. |
-| C6 | `# Voicemail` wording can omit who is calling and a callback number. | Validate `{rep}`, `{seller}` and `{callback_number}` (section 6.13). |
+| C6 | `# Voicemail` wording can omit who is calling. | Validate `{rep}` and `{seller}` (section 6.13). A spoken callback number is optional (owner, November 23): the federal number requirement is for prerecorded messages, which OpenDialer never sends, and every caller ID is callback-verified, so calling it back reaches the rep or records a missed callback. |
 | C7 | Unsupported claims in AI-filled blocks or helper text (the TSR misrepresentation ban covers business-to-business calls since May 2024). | Already handled (section 9.2). Keep regression tests proving both guards survive this work package. |
 | C8 | The short-call hold could leave a person in silence. | Hold only after End as voicemail; Escape is immediate (section 6.10). |
 
@@ -554,4 +556,8 @@ Sources: [Telnyx short-duration calls](https://support.telnyx.com/en/articles/11
   (ringback, two-way audio, script and helper on a test call, End as voicemail through the beep and the 7-second hold,
   no automatic next call, callback ringing with its script), and the owner's master needs `{callback_number}` in its
   Voicemail section on its next edit. Next action: owner live session.
+- November 23, 2026 (2.4.3). Owner: no callback number in voicemails; a prospect calls the caller ID back, which reaches
+  the rep or records a missed callback. `{callback_number}` is now optional and only `{rep}` and `{seller}` are
+  required, so the owner's saved master parses again (2.4.2 would have refused any edit to it). Ships with the 9:00
+  display fix as 2.4.3 after a whole-system check and fresh stress sweeps.
 

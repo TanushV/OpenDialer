@@ -247,13 +247,21 @@ def test_a_bad_trigger_line_is_reported_with_its_line():
     assert {"line": line, "message": "Write each trigger as '- Label (90 days, A)'"} in caught.value.errors
 
 
-def test_voicemail_wording_must_say_who_is_calling_and_how_to_call_back():
-    """Work package 6.13 and 9.3 C6: a left message names the rep, the business and a callback number."""
+def test_voicemail_wording_must_say_who_is_calling():
+    """Work package 6.13 and 9.3 C6: a left message names the rep and the business."""
     with pytest.raises(ScriptError) as error:
         parse_markdown(STARTER + "\n# Voicemail\nHi {first_name}, {rep} here.\n")
     (problem,) = [e for e in error.value.errors if "Voicemail" in e["message"]]
     assert problem["line"] > 1
-    assert "{seller}" in problem["message"] and "{callback_number}" in problem["message"]
+    assert "{seller}" in problem["message"] and "{callback_number}" not in problem["message"]
+
+
+def test_voicemail_wording_needs_no_callback_number():
+    """Owner, November 23: a prospect calls the caller ID back, which reaches the rep or records a missed call."""
+    template = parse_markdown(
+        STARTER + "\n# Voicemail\nHi {first_name}, it's {rep} from {seller}.\nI'll send you a short note.\n"
+    )
+    assert template["voicemail"] == "Hi {first_name}, it's {rep} from {seller}.\nI'll send you a short note."
 
 
 def test_voicemail_wording_is_filled_except_the_callback_number_until_dial():
