@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { native } from "../api/client";
 import { label, useWorkspace } from "../context";
 import { createRinger } from "../telephony/ringer";
-import type { FollowupTask, Packet } from "../types";
+import type { FollowupTask, Packet, Script } from "../types";
+import { ScriptReader } from "./ScriptReader";
 
 /** Bounce the Dock when a callback rings while another app is in front (D29). */
 async function askForAttention() {
@@ -40,21 +41,35 @@ export function InboundCall({
   const [accepting, setAccepting] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [prospect, setProspect] = useState<Packet | null>(null);
+  const [testScript, setTestScript] = useState<Script | null>(null);
   const leadId = task.lead_id;
   useEffect(() => {
-    if (!leadId || task.test_contact) return;
+    if (!leadId) return;
     let current = true;
-    void api<Packet>(`/v1/leads/${encodeURIComponent(leadId)}/packet`).then(
-      (packet) => {
-        if (current) setProspect(packet);
-      },
-      (error) => console.warn("Could not open the callback prospect:", error),
-    );
+    // A test callback uses its test contact and the saved base script; it is never looked up as a lead.
+    if (task.test_contact)
+      void api<{ script: Script }>(
+        `/v1/test-contacts/${encodeURIComponent(leadId)}/packet`,
+      ).then(
+        (packet) => {
+          if (current) setTestScript(packet.script);
+        },
+        (error) => console.warn("Could not open the test callback:", error),
+      );
+    else
+      void api<Packet>(`/v1/leads/${encodeURIComponent(leadId)}/packet`).then(
+        (packet) => {
+          if (current) setProspect(packet);
+        },
+        (error) => console.warn("Could not open the callback prospect:", error),
+      );
     return () => {
       current = false;
     };
   }, [api, leadId, task.test_contact]);
   const matched = prospect?.lead.id === leadId ? prospect : null;
+  // The lead's prepared script, or the base script when none is ready (work package 6.6).
+  const script = task.test_contact ? testScript : (matched?.script ?? null);
   const brief = matched?.prospect_brief;
   const connected = task.inbound_state === "connected";
   const ringing = task.inbound_state === "ringing" && !accepting && !accepted;
@@ -166,6 +181,28 @@ export function InboundCall({
           {brief?.next_step && <p>{brief.next_step}</p>}
           {matched.lead.domain && <p>{matched.lead.domain}</p>}
         </section>
+      )}
+      {script && script.ready_for_rep !== false && (
+        <section
+          className="card script-card"
+          aria-label="Callback script"
+          data-testid="callback-script"
+        >
+          <div className="card-eyebrow">
+            <span>Script</span>
+            <span className="pill subtle">
+              {script.fallback
+                ? "Your script as written"
+                : "Written for this lead"}
+            </span>
+          </div>
+          <ScriptReader key={task.id} script={script} position={null} />
+        </section>
+      )}
+      {(connected || accepted) && (
+        <p className="fine" role="note">
+          Speech and the live helper do not run on callbacks.
+        </p>
       )}
     </section>
   );
