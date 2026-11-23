@@ -719,7 +719,7 @@ def _transcript_in(service, s, p, call_id, segment, received_at, raw_writes, *, 
     service.db.authorize_stream(s, p)
     call = ops.required(service, s, "call_attempts", call_id, p)
     s.refresh(call, with_for_update=True)
-    test = bool(call.data.get("test_contact"))
+    test = ops.practice_call(call)
     from app.calling.state import TERMINAL
 
     if call.data["state"] in TERMINAL:

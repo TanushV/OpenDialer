@@ -490,3 +490,36 @@ Sources: [Telnyx short-duration calls](https://support.telnyx.com/en/articles/11
   transcripts are never kept and feed only the live helper and script following; this removes the after-call
   summary, suggested outcome, next step, drop-off stage and talk-ratio timing (owner informed). Missed-callback
   voicemail: no change. **Execution still not started.** Next action once the owner says begin: section 8 step 1.
+- November 22, 2026 (execution started on the owner's "finish this end to end"). Done and committed on `main`, fast
+  tier green, not yet pushed: `795f660` plan; `e8b57b8` test calls get the base script snapshot, speech on answer
+  and the live helper through `calling/context.py`, practice speech creates no suppression or after-call work,
+  outreach holds no longer gate approved test phones, every dial disables detection (WebKit journey passes);
+  `eacba18` detection receipts inert (events 19 to 14, transitions 123 to 87), Connected on answer, Space is End as
+  voicemail, left/no-message choice mapped to HubSpot, durable 7-second short-call hold (`calling/hold.py`), advisory
+  voicemail cue per list rule, Space re-arm and synthetic keys ignored (WebKit media journey passes). Workspace backed
+  up to `~/Documents/OpenDialer-backups/2026-11-22-pre-2.4.2` (integrity ok). The Agite list removal is pending: the
+  app window sat behind a full-screen Space. Next: section 6.13 to 6.17 and callbacks (6.6 to 6.8).
+- November 23, 2026 (continuing, still unpushed). Committed: `df020a8` detection code paths removed and every
+  person-reached check reads the saved outcome; `941f3ab` Voicemail wording must carry {rep}, {seller},
+  {callback_number}, filled from the call's caller ID, plus the per-list voicemail rule; callback verification
+  wording; `4fca3b7` scripts on callbacks (test callbacks use test context); `6bed8bc` Review carrier-rate readout;
+  `f59c2ba` shared content kept on every path, picks only within the path, agent told which options are shared,
+  Script preview notes; `77fa07a` completed-CSV provenance and newer-format refusal. Verified read-only on a scratch
+  copy of the owner's saved master (from the backup): each of the three paths keeps Meeting times and invite, Their
+  answer, the shared Where-it-hurts responses, 9 context scenarios, 6 questions and 11 objections in authored order;
+  before the fix Close dropped Meeting times and invite. The owner's saved Voicemail lacks {callback_number}: the
+  saved master keeps working, and the next edit asks for it. External generator (outside the repo): rep/seller tuple
+  fixed, portable tokens kept, per-row checkpoint with input and master fingerprints, provenance columns, README
+  rewritten; its 4 local tests pass with a stubbed model. Next: section 9.3 C2, C3, C5.
+- November 23, 2026 (compliance and stress audit, unpushed). Committed: `a27df67` weekday 9-to-5 window in the
+  prospect's zone, no federal holidays, start floor 9, callbacks exempt, unsure zones use the every-US-zone overlap;
+  `cd63968` HubSpot opt-out pull for every rep (Start calling, imports, every 15 minutes) with the
+  OPT_OUTS_NOT_SYNCED blocker after 9 business days and its exit test; `66d96f6` transcripts only live (text deleted
+  at call end, late speech discarded, 3-hour backstop, secure_delete), script trace written at call end, no
+  after-call summary, Live transcription switch in Settings. Stress audit: the soak harness gained End as voicemail,
+  late detection receipts and prospect speech steps, a business-hours clock step, a fixed warm-up path per run, and
+  independent checks (window recomputed from area codes and a fixed 2026-2027 holiday list, 7-second hold measured
+  at the carrier, no hang-up from a detection step, no hold from practice speech, no transcript text after a call,
+  non-vacuous coverage on 200+ step runs). Found and fixed in the harness: an Eastern-time test clock that SQLite
+  compared as text against UTC due times. Planted-defect checks (`test_stress_mutations.py`) running.
+

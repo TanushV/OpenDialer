@@ -340,6 +340,7 @@ HOMES = {
     "with_callback_number": "app.calling.context",
     "opt_outs_stale": "app.crm",
     "record_script_trace": "app.intelligence",
+    "practice_call": "app.calling.context",
     "voicemail_cue": "app.lead_lists",
 }
 

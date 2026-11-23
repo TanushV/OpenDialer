@@ -8,6 +8,11 @@ After every step:
 - the rep never has two calls open at once (G2);
 - a number opted out is never dialed again;
 - a paused rep is never offered a lead (Pause is always honored);
+- an outreach dial happens only Monday to Friday, 9:00 to 17:00 in the lead's zone, outside US federal holidays,
+  checked here from the area code and a fixed holiday list, independently of the product's own rule;
+- an End as voicemail within 7 seconds of answer never reaches the carrier before 7 seconds after answer;
+- a late detection receipt never causes a hang-up, and practice speech on a test call never adds a hold;
+- no transcript text remains for a call that has ended;
 and at the end, a plain recovery (end the call, save its outcome, go ready) always leaves calling either able to dial
 or saying in plain words why not (G3, G10). A failing seed is a regression test: keep it in REGRESSION_SEEDS.
 
@@ -16,7 +21,8 @@ SOAK_RUNS and SOAK_STEPS size the run. SOAK_SEED replays a single sequence.
 
 import os
 import random
-from datetime import timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from conftest import ready
@@ -31,6 +37,24 @@ STEPS = soak_count("SOAK_STEPS", 50)
 TEST_PHONES = ["+12025550185", "+12025550186", "+12025550187"]
 OUTCOMES = ["no_answer", "not_interested", "voicemail", "callback_requested", "gatekeeper"]
 TERMINAL = {"ENDED", "FINALIZED"}  # ENDED: hung up, waiting for its outcome; FINALIZED: saved
+# Independent of the product: the fixture's area codes and the 2026-2027 US federal holidays as observed.
+AREA_ZONES = {
+    "415": "America/Los_Angeles",
+    "212": "America/New_York",
+    "312": "America/Chicago",
+    "512": "America/Chicago",
+    "617": "America/New_York",
+}
+HOLIDAYS = {
+    date.fromisoformat(day)
+    for day in (
+        "2026-01-01 2026-01-19 2026-02-16 2026-05-25 2026-06-19 2026-07-03 2026-09-07 2026-10-12 2026-11-11 "
+        "2026-11-26 2026-12-25 2027-01-01 2027-01-18 2027-02-15 2027-05-31 2027-06-18 2027-07-05 2027-09-06 "
+        "2027-10-11 2027-11-11 2027-11-25 2027-12-24"
+    ).split()
+}
+HOLD = timedelta(seconds=7)
+SPEECH = ["Stop calling me, take me off your list.", "We have no budget this year.", "Who is this?"]
 
 
 class Run:
@@ -44,6 +68,10 @@ class Run:
         self.opted_out = {}  # phone -> number of dials before the opt-out
         self.keys = 0
         self.submissions = []  # Count sends before the replay carrier deduplicates them.
+        self.hangups = []  # (provider_id, time) of every carrier stop, before any deduplication.
+        self.held = {}  # provider_id -> answered_at for an End as voicemail inside the short-call window.
+        self.coverage = {}  # Effects this run actually reached, so a vacuous run cannot pass.
+        self.violations = []  # Laws broken inside carrier calls, asserted by `check`.
         self.last_start = None
         self.queue = {"campaign_id": workspace["campaign_id"], "list_names": ["Soak"]}
 
@@ -129,6 +157,8 @@ class Run:
     def answer(self):
         if self.open_call():
             self.event("call.answered")
+            if self.rng.random() < 0.5:
+                self.speak()  # Speech usually follows an answer; keeps long runs from being vacuous.
 
     def prospect_hangs_up(self):
         if self.open_call():
@@ -176,6 +206,93 @@ class Run:
     def maintenance(self):
         self.request("POST", "/v1/admin/recovery")
 
+    def business_hours(self):
+        """Move to the next time every fixture zone is open (12:00 to 16:00 New York, a working weekday)."""
+        eastern = self.clock.now.astimezone(ZoneInfo("America/New_York"))
+        day = eastern.date()
+        if eastern.hour >= 16:
+            day += timedelta(days=1)
+        while day.weekday() >= 5 or day in HOLIDAYS:
+            day += timedelta(days=1)
+        start = datetime(day.year, day.month, day.day, 12, tzinfo=ZoneInfo("America/New_York"))
+        target = max(start, eastern) + timedelta(minutes=self.rng.randrange(0, 180))
+        if target > self.clock.now:
+            self.clock.now = target.astimezone(UTC)  # The product's clock is always UTC.
+            self.trace.record("clock", now=self.clock.now.isoformat())
+            self.time_jump_session()
+
+    def time_jump_session(self):
+        token = self.client.post("/v1/local/session", headers={"X-Local-Token": "test-local-secret"}, json={})
+        assert token.status_code == 200, token.text
+        self.h = {"Authorization": f"Bearer {token.json()['access_token']}"}
+        self.ws["headers"] = self.h
+
+    def answered_call(self):
+        call = self.open_call()
+        return call if call and call.get("answered_at") and call.get("state") != "ENDING" else None
+
+    def end_as_voicemail(self):
+        """Work package 6.10: the rep ends a mailbox; inside 7 seconds the carrier stop must wait."""
+        call = self.answered_call()
+        if not call:
+            return
+        answered = datetime.fromisoformat(call["answered_at"])
+        ended = self.request("POST", f"/v1/calls/{call['id']}/hangup", json={"mark_voicemail": True})
+        # Independent of the server's answer: a press inside 7 seconds of answer must hold the carrier stop.
+        if ended.is_success and self.clock.now < answered + HOLD:
+            self.held[call["provider_id"]] = answered
+            self.coverage["held"] = self.coverage.get("held", 0) + 1
+
+    def detection_receipt(self):
+        """A late mailbox, beep or screening result from the carrier changes nothing (work package 6.1)."""
+        if self.answered_call():
+            kind = self.rng.choice(
+                [
+                    ("call.machine.premium.detection.ended", "machine"),
+                    ("call.machine.premium.greeting.ended", "beep_detected"),
+                    ("call.machine.premium.call_screening.detected", "screening"),
+                ]
+            )
+            self.event(kind[0], {"result": kind[1]})
+            self.coverage["detection"] = self.coverage.get("detection", 0) + 1
+
+    def speak(self, text=None):
+        """Prospect speech on a live call: the helper may use it; it is gone once the call ends."""
+        call = self.answered_call()
+        if call:
+            self.request(
+                "POST",
+                f"/v1/calls/{call['id']}/transcript",
+                json={
+                    "segment_id": f"soak-{len(self.events)}-{self.rng.random()}",
+                    "revision": 1,
+                    "side": "remote",
+                    "is_final": True,
+                    "text": text or self.rng.choice(SPEECH),
+                },
+            )
+            self.coverage["speech"] = self.coverage.get("speech", 0) + 1
+
+    def suppressed_phones(self):
+        """Every active hold or opt-out, read from the store itself rather than through any lead listing."""
+        from app.platform.db import MODELS
+        from sqlalchemy import select
+
+        model = MODELS["suppressions"]
+        with self.client.app.state.db.transaction(False) as s:
+            return {row.data["phone"] for row in s.scalars(select(model)) if row.data.get("active", True)}
+
+    def transcript_text_after_end(self):
+        from app.platform.db import MODELS
+        from sqlalchemy import select
+
+        calls = self.request("GET", "/v1/workspace/calls?filter=all&q=").json()["items"]
+        ended = {c["id"] for c in calls if c.get("state") in TERMINAL}
+        model = MODELS["transcript_segments"]
+        with self.client.app.state.db.transaction(False) as s:
+            rows = s.scalars(select(model).where(model.ctx_key.in_(ended))) if ended else []
+            return [row.data.get("text") for row in rows if row.data.get("text")]
+
     STEPS = [
         go_ready,
         pause,
@@ -192,11 +309,18 @@ class Run:
         late_event,
         time_jump,
         maintenance,
+        business_hours,
+        business_hours,
+        end_as_voicemail,
+        detection_receipt,
+        speak,
+        speak,
     ]
 
     # --- laws ---------------------------------------------------------------------------------------------------------
 
     def check(self):
+        assert not self.violations, self.violations[0]
         assert len(self.submissions) <= self.keys, "Carrier received more dials than the rep requested"
         assert len(set(self.submissions)) == len(self.submissions), "An original dial was submitted again"
         calls = self.request("GET", "/v1/workspace/calls?filter=all&q=").json()["items"]
@@ -205,6 +329,13 @@ class Run:
         for phone, before in self.opted_out.items():
             after = [d for d in self.carrier.dials[before:] if d.get("to") == phone]
             assert not after, f"{phone} was dialed after it opted out"
+        for provider, at in self.hangups:
+            answered = self.held.get(provider)
+            assert answered is None or at >= answered + HOLD, (
+                f"short-call hold broken: carrier stop for {provider} at {at.isoformat()}, answer {answered.isoformat()}"
+            )
+        left = self.transcript_text_after_end()
+        assert not left, f"transcript text kept after a call ended: {len(left)} segments"
 
     def recover(self):
         """The plainest way back: end the call, save its outcome, go ready. Calling must then dial or say why."""
@@ -265,32 +396,120 @@ class TestPhoneRun(Run):
 
     STEPS = [*Run.STEPS, end_test]
 
+    def window(self, phone, at):
+        return True  # Approved test destinations are not held to the outreach window (work package 3.8).
+
+
+def checked(run, step, *args):
+    """Run one step with the step-local laws: dials only from a dial action, no hang-up from a detection receipt,
+    no hold from practice speech."""
+    submitted, stopped = len(run.submissions), len(run.hangups)
+    practice = run.suppressed_phones() if step is Run.speak and isinstance(run, TestPhoneRun) else None
+    run.dial() if step is Run.dial else step(run, *args)
+    assert len(run.submissions) - submitted <= int(step is Run.dial), (
+        f"{step.__name__} sent a carrier dial without a fresh dial action for it"
+    )
+    if step is Run.detection_receipt:
+        assert len(run.hangups) == stopped, "a late detection receipt caused a hang-up"
+    if practice is not None:
+        assert run.suppressed_phones() <= practice, "practice speech on a test call added a hold"
+
+
+def warm_up(run, clock, trace):
+    """One complete path first, so every run reaches the new behavior before its random faults: a dial in business
+    hours, an answer, prospect speech, an early End as voicemail held to 7 seconds, recovery sends the stop, save."""
+    trace.record("warm up")
+    run.business_hours()
+    run.dial()
+    if run.open_call():
+        run.event("call.answered")
+        checked(run, Run.detection_receipt)
+        checked(
+            run, Run.speak, SPEECH[0] if isinstance(run, TestPhoneRun) else "We have no budget this year."
+        )
+        run.end_as_voicemail()
+        run.check()
+        clock.now += HOLD
+        run.maintenance()
+        run.save()
+    run.coverage["answered"] = run.coverage.get("answered", 0) + int(bool(run.held))
+    run.check()
+    if not isinstance(run, TestPhoneRun):
+        # A weekend probe: an outreach dial must be refused, never placed (independent window check on dial).
+        eastern = clock.now.astimezone(ZoneInfo("America/New_York"))
+        saturday = eastern.date() + timedelta(days=(5 - eastern.weekday()) % 7 or 7)
+        clock.now = datetime(
+            saturday.year, saturday.month, saturday.day, 13, tzinfo=ZoneInfo("America/New_York")
+        )
+        clock.now = clock.now.astimezone(UTC)
+        run.time_jump_session()
+        checked(run, Run.dial)
+        if run.open_call():
+            run.rep_hangs_up()
+            run.save()
+        run.business_hours()
+        run.check()
+
+
+def outreach_window(phone, at):
+    """The work package 9.3 C2 window, recomputed here from the fixture's area code and a fixed holiday list."""
+    local = at.astimezone(ZoneInfo(AREA_ZONES[phone[2:5]]))
+    return local.weekday() < 5 and local.date() not in HOLIDAYS and 9 <= local.hour < 17
+
+
+Run.window = staticmethod(outreach_window)
+
 
 def exercise(run, seed, clock, trace, monkeypatch):
-    dial = run.carrier.dial
+    dial, hangup = run.carrier.dial, run.carrier.hangup
 
     async def observe_dial(payload):
         run.submissions.append(payload["command_id"])
         trace.record("carrier dial", command=payload["command_id"], phone=payload["to"])
+        # Recorded, not raised: the product treats any carrier exception as an uncertain dial and would swallow it.
+        if not run.window(payload["to"], clock.now):
+            run.violations.append(
+                f"outreach dial outside the calling window: {payload['to']} at {clock.now.isoformat()}"
+            )
         return await dial(payload)
 
+    async def observe_hangup(provider_id, command_id):
+        run.hangups.append((provider_id, clock.now))
+        trace.record("carrier hangup", provider=provider_id, now=clock.now.isoformat())
+        return await hangup(provider_id, command_id)
+
+    action = run.carrier.action
+
+    async def observe_action(provider_id, name, payload):
+        if name == "hangup":  # A stop sent as a call-control action counts as a hang-up too.
+            run.hangups.append((provider_id, clock.now))
+            trace.record("carrier hangup action", provider=provider_id, now=clock.now.isoformat())
+        return await action(provider_id, name, payload)
+
     monkeypatch.setattr(run.carrier, "dial", observe_dial)
+    monkeypatch.setattr(run.carrier, "hangup", observe_hangup)
+    monkeypatch.setattr(run.carrier, "action", observe_action)
     schedule = random.Random(seed)
+    warm_up(run, clock, trace)
     for index in range(STEPS):
         step = schedule.choice(run.STEPS)
         run.rng.seed(schedule.getrandbits(64))
         trace.record("choose", number=index + 1, operation=step.__name__, now=clock.now.isoformat())
-        submitted = len(run.submissions)
-        run.dial() if step is Run.dial else step(run)
-        assert len(run.submissions) - submitted <= int(step is Run.dial), (
-            f"{step.__name__} sent a carrier dial without a fresh dial action for it"
-        )
+        checked(run, step)
+        for name, count in (("dial", len(run.submissions)), ("answered", int(bool(run.answered_call())))):
+            run.coverage[name] = max(run.coverage.get(name, 0), count)
         run.check()
     trace.record("recover")
     submitted = len(run.submissions)
     run.recover()
     assert len(run.submissions) == submitted, "Recovering the workspace submitted another dial"
     run.check()
+    trace.record("coverage", **run.coverage)
+    if STEPS >= 200:
+        # A long run that never dialed, answered or spoke proves nothing (work package section 7).
+        missing = [name for name in ("dial", "answered", "speech", "held") if not run.coverage.get(name)]
+        assert not missing, f"vacuous run: never reached {missing}"
+    return run.coverage
 
 
 @pytest.mark.parametrize("seed", soak_seeds("SOAK_RUNS", 25, REGRESSION_SEEDS))

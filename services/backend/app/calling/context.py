@@ -35,6 +35,11 @@ def call_party(service, s, p, call):
     return ops.required(service, s, "test_contacts" if test else "leads", call.data["lead_id"], p), test
 
 
+def practice_call(call):
+    """A call to an approved test destination: its dialogue is practice and never an outreach suppression."""
+    return CallView.model_validate(call.data).test_contact
+
+
 def live_transcription_enabled(service, p):
     """The Settings switch: off means no call audio leaves this computer for speech or the helper."""
     return service.configs.read(workspace(p)).get("live_transcription", True) is not False
