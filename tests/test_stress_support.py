@@ -53,3 +53,28 @@ def test_stress_failure_keeps_the_original_error_and_replay_in_the_log(
     assert data["failure"] == {"type": "AssertionError", "message": "Duplicate carrier submission"}
     assert [event["action"] for event in data["events"]] == ["carrier accepted", "restart"]
     assert [event["step"] for event in data["events"]] == [1, 2]
+
+
+def test_passing_runs_add_their_coverage_to_the_ledger_and_failures_do_not(tmp_path, monkeypatch):
+    """A sweep can show what its runs reached, not only that they passed."""
+    ledger = tmp_path / "ledger.jsonl"
+    monkeypatch.setenv("SOAK_LEDGER", str(ledger))
+    for seed, coverage in ((1, {"dial": 3, "held": 1}), (2, {"dial": 2, "held": 0})):
+        with StressTrace(tmp_path, f"tests/test_fault.py::test_schedule[{seed}]", seed) as trace:
+            trace.record("choose", operation="dial")
+            trace.record("coverage", **coverage)
+    with StressTrace(tmp_path, "tests/test_other.py::test_shared[3]", 3):
+        pass
+    with (
+        pytest.raises(AssertionError),
+        StressTrace(tmp_path, "tests/test_fault.py::test_schedule[4]", 4) as trace,
+    ):
+        trace.record("coverage", dial=9)
+        raise AssertionError("failed run")
+    assert stress_support.ledger_totals(ledger) == {
+        "test_schedule": {
+            "runs": 2,
+            "effects": {"dial": {"total": 5, "runs": 2}, "held": {"total": 1, "runs": 1}},
+        },
+        "test_shared": {"runs": 1, "effects": {}},
+    }

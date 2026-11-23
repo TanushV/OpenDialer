@@ -369,7 +369,29 @@ def stress():
         "services/backend/tests/test_fault_soak.py",
         "tests/test_shared_calling_stress.py",
     ]
-    return subprocess.run(command, cwd=ROOT, env=env, check=False).returncode == 0  # noqa: S603
+    env.setdefault("SOAK_LEDGER", str(Path(tempfile.mkdtemp(prefix="opendialer-stress-")) / "ledger.jsonl"))
+    passed = subprocess.run(command, cwd=ROOT, env=env, check=False).returncode == 0  # noqa: S603
+    _coverage_report(Path(env["SOAK_LEDGER"]))
+    return passed
+
+
+def _coverage_report(ledger):
+    """What the passing runs reached, so a green sweep is visibly not vacuous (work package section 7)."""
+    sys.path.insert(0, str(ROOT))
+    from services.backend.tests.stress_support import ledger_totals
+
+    if not ledger.is_file():
+        print("Coverage: no passing runs recorded", flush=True)
+        return
+    for test, totals in sorted(ledger_totals(ledger).items()):
+        effects = ", ".join(
+            f"{name} {e['total']} in {e['runs']}/{totals['runs']} runs"
+            for name, e in sorted(totals["effects"].items())
+        )
+        print(
+            f"Coverage {test}: {totals['runs']} passing runs; {effects or 'no effects recorded'}", flush=True
+        )
+    print(f"Coverage ledger: {ledger}", flush=True)
 
 
 def main(argv):

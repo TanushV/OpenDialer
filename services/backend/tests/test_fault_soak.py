@@ -173,7 +173,8 @@ class Run:
         call = self.read_call()
         if call and call.get("state") in TERMINAL and not call.get("outcome"):
             body = disposition_body(self.client, self.h, call["id"], outcome=self.rng.choice(OUTCOMES))
-            self.request("POST", f"/v1/calls/{call['id']}/disposition", json=body)
+            if self.request("POST", f"/v1/calls/{call['id']}/disposition", json=body).is_success:
+                self.coverage["saved"] = self.coverage.get("saved", 0) + 1
 
     def opt_out(self):
         leads = self.request("GET", "/v1/workspace/leads?filter=active&q=").json()["items"]
@@ -182,6 +183,7 @@ class Run:
             phone = self.rng.choice(phones)
             self.request("POST", "/v1/suppressions", json={"phone": phone, "reason": "opt_out"})
             self.opted_out.setdefault(phone, len(self.carrier.dials))
+            self.coverage["opt_out"] = len(self.opted_out)
 
     def duplicate_event(self):
         if self.events:

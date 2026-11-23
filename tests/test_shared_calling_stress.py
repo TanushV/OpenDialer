@@ -364,3 +364,10 @@ def test_shared_calling_randomized_faults(seed, shared_db, tmp_path, request):
         ]
         assert targets == [f"sip:{b.sip}@sip.telnyx.com"], targets
         carrier.dial_budget(2)
+        trace.record(
+            "coverage",
+            events=len(tape),
+            mailbox=int(mailbox),
+            ended_first=int(ended_first),
+            callback_routed=1,
+        )

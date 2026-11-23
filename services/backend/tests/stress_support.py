@@ -22,6 +22,20 @@ def soak_seeds(count_var, default, pinned=()):
     return list(dict.fromkeys((*pinned, *range(start, start + soak_count(count_var, default)))))
 
 
+def ledger_totals(path):
+    """Per test: how many runs passed, and for each effect its total count and how many runs reached it."""
+    totals = {}
+    for raw in Path(path).read_text(encoding="utf-8").splitlines():
+        line = json.loads(raw)
+        test = totals.setdefault(line["test"], {"runs": 0, "effects": {}})
+        test["runs"] += 1
+        for name, count in line["coverage"].items():
+            effect = test["effects"].setdefault(name, {"total": 0, "runs": 0})
+            effect["total"] += count
+            effect["runs"] += bool(count)
+    return totals
+
+
 class StressTrace:
     """Keep an ordered trace of synthetic actions and effects on a failed run."""
 
@@ -39,8 +53,20 @@ class StressTrace:
     def __enter__(self):
         return self
 
+    def _ledger(self):
+        """With SOAK_LEDGER set, a passing run appends what it reached, so a sweep cannot pass vacuously unseen."""
+        path = os.environ.get("SOAK_LEDGER")
+        if not path:
+            return
+        last = next((event for event in reversed(self.events) if event["action"] == "coverage"), {})
+        coverage = {name: value for name, value in last.items() if name not in ("step", "action")}
+        test = self.nodeid.split("::")[-1].split("[")[0]
+        with open(path, "a", encoding="utf-8") as stream:  # One short append per run, safe across workers.
+            stream.write(json.dumps({"test": test, "seed": self.seed, "coverage": coverage}) + "\n")
+
     def __exit__(self, _type, error, _traceback):
         if error is None:
+            self._ledger()
             return
         destination = self.tmp_path
         if artifact_dir := os.environ.get("SOAK_ARTIFACTS"):
