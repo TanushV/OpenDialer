@@ -15,7 +15,7 @@ from sqlalchemy import func, or_, select, text
 
 from app import ops, test_list
 from app.calling import audio_leg
-from app.calling.blockers import CATALOG, Facts, mark_stuck
+from app.calling.blockers import CATALOG, Facts, blocked, mark_stuck
 from app.calling.blockers import blockers as dial_gate
 from app.calling.state import TERMINAL
 from app.platform.config import PROVIDER_DEFAULTS, CapabilityStatus
@@ -317,9 +317,19 @@ def setup_rows(service, p):
         numbers = ops.scoped(service, s, "number_inventory", p)
         code = ops.number_setup_blocker(service, s, p, numbers)
         ready = sum(1 for n in numbers if n.data.get("lifecycle") in {"healthy", "limited_real_use"})
+        callback_number = next(
+            (
+                n.data["phone"]
+                for n in numbers
+                if n.data.get("identity_configured") or n.data.get("shared_pool")
+            ),
+            None,
+        )
         live["numbers"] = (
             code is None,
-            f"{ready} ready" if code is None else CATALOG[code][0],
+            f"{ready} ready"
+            if code is None
+            else blocked(code, callback_number, shared=service.managed.pool is not None).message,
             bool(numbers),
         )
         campaign = next(iter(ops.scoped(service, s, "campaigns", p)), None)

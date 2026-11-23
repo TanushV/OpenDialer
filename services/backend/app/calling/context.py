@@ -6,6 +6,7 @@ section 3).
 """
 
 from app import ops
+from app.calling.blockers import readable_phone
 from app.calling.records import CallView
 from app.calling.state import TERMINAL
 from app.compliance.policy import authorize
@@ -71,12 +72,6 @@ def attempt_voicemail_cue(service, s, p, lead, campaign, ordinal, allowance, cal
         callback_due=callback_due,
         spoke_before=spoke_before(service, s, p, lead),
     )
-
-
-def readable_phone(phone):
-    """+12035550101 -> 203-555-0101 for a spoken callback number; other forms stay as they are."""
-    digits = phone[2:] if phone and phone.startswith("+1") and len(phone) == 12 else None
-    return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}" if digits and digits.isdigit() else phone
 
 
 def with_callback_number(script, number):

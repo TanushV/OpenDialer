@@ -79,8 +79,9 @@ CATALOG = {
     ),
     "NO_CALLER_NUMBER": ("Add a caller number in Numbers: buy one, or add one you own.", "numbers"),
     "CALLER_NUMBER_ROUTE_REQUIRED": ("In Numbers, choose Set up route on your caller number.", "numbers"),
+    # A one-time proof that return calls reach this workspace; not a test-call allowance (work package 6.8).
     "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": (
-        "One test call left: call {phone} from your own phone and answer it here. Every number opens after that.",
+        "Verify callbacks once: call {phone} from your own phone and answer it in OpenDialer. Calling opens after that.",
         "numbers",
     ),
     "CALLER_NUMBER_PAUSED": ("Your caller numbers are paused. Review them in Numbers.", "numbers"),
@@ -201,6 +202,12 @@ def blockers(facts):
     ]
 
 
+def readable_phone(phone):
+    """+12035550101 -> 203-555-0101 for spoken and displayed numbers; other forms stay as they are."""
+    digits = phone[2:] if phone and phone.startswith("+1") and len(phone) == 12 else None
+    return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}" if digits and digits.isdigit() else phone
+
+
 def blocked(code, phone=None, *, shared=False):
     message, fix = CATALOG[code]
     if shared:
@@ -214,11 +221,12 @@ def blocked(code, phone=None, *, shared=False):
                 "numbers",
             ),
             "CALLER_NUMBER_CALLBACK_TEST_REQUIRED": (
-                "Place a test call, then call the displayed number back and answer it here.",
+                "Verify callbacks once: place a test call, then call the number it showed from your own phone and "
+                "answer it in OpenDialer.",
                 "settings",
             ),
         }.get(code, (message, fix))
-    return Blocker(code, message.format(phone=phone or "one of your numbers"), fix)
+    return Blocker(code, message.format(phone=readable_phone(phone) if phone else "one of your numbers"), fix)
 
 
 def test_line_refusal(phone, *, test_session, test_lines):

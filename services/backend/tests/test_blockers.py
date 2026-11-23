@@ -58,7 +58,9 @@ def test_the_replay_carrier_needs_no_carrier_setup_but_still_waits_for_the_relay
 def test_every_blocker_has_a_message_and_a_known_fix():
     for code, (message, fix) in CATALOG.items():
         assert message.endswith(".") and fix in FIXES, code
-    assert "+14155550100" in blocked("CALLER_NUMBER_CALLBACK_TEST_REQUIRED", "+14155550100").message
+    verify = blocked("CALLER_NUMBER_CALLBACK_TEST_REQUIRED", "+14155550100").message
+    assert "415-555-0100" in verify and "Verify callbacks once" in verify
+    assert "test call left" not in verify and "{" not in verify  # Work package 6.8.
 
 
 def test_refuse_sends_the_first_blocker_and_nothing_when_clear():
