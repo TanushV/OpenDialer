@@ -175,6 +175,8 @@ def export(service, p, *, include_test=False):
                     "test_call": bool(data.get("is_test")),
                     "base_version": script.get("base_version"),
                     "script_version": script.get("script_version"),
+                    # Work package 5.3: the completed CSV's source master, path and generator, when supplied.
+                    "script_provenance": script.get("provenance"),
                     "script_path": script.get("script_path"),
                     "transcript_status": "partial"
                     if has_gap and segments

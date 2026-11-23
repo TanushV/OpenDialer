@@ -7,6 +7,46 @@ from app.leads.intake import is_script_column
 from app.platform.db import doc, emit, put, uid, update, workspace
 from app.preparation.templates import ScriptError, parse_markdown, render, template_version
 
+# The completed-CSV format this app reads (work package 5.3). Older files without the column still work.
+FORMAT = 1
+# Optional provenance columns from the external generator: carried with the script, never read as script text.
+META_COLUMNS = {
+    "scriptformat": "format",
+    "scriptmasterdigest": "master_digest",
+    "scriptmasterversion": "master_version",
+    "scriptpath": "path",
+    "scriptgenerator": "generator",
+}
+MAX_META = 200
+
+
+def _meta(header):
+    return META_COLUMNS.get(re.sub(r"[\W_]+", "", str(header).casefold()))
+
+
+def _provenance(values):
+    """Validated provenance, or a ScriptError that names the problem."""
+    provenance = {}
+    for name, value in values.items():
+        text = str(value).strip()
+        if len(text) > MAX_META:
+            raise ScriptError([{"line": 0, "message": f"The script_{name} cell is too long"}])
+        provenance[name] = text
+    format_ = provenance.get("format")
+    if format_ is not None:
+        if not format_.isdigit():
+            raise ScriptError([{"line": 0, "message": "script_format must be a whole number"}])
+        if int(format_) > FORMAT:
+            raise ScriptError(
+                [
+                    {
+                        "line": 0,
+                        "message": "A newer script generator made this row. Update OpenDialer to import it.",
+                    }
+                ]
+            )
+    return provenance
+
 
 def parse_finished_script(text):
     markdown = text.strip()
@@ -22,9 +62,12 @@ def parse_finished_script(text):
 
 
 def split_script(raw):
-    row, scripts = {}, set()
+    row, scripts, meta = {}, set(), {}
     for key, value in raw.items():
-        if not is_script_column(key):
+        if name := _meta(key):
+            if value is not None and str(value).strip():
+                meta[name] = value
+        elif not is_script_column(key):
             row[key] = value
         elif value is not None:
             if not isinstance(value, str):
@@ -33,11 +76,17 @@ def split_script(raw):
                 scripts.add(text)
     if len(scripts) > 1:
         raise ScriptError([{"line": 0, "message": "This row has more than one different script"}])
-    return row, parse_finished_script(scripts.pop()) if scripts else None
+    if not scripts:
+        return row, None  # Provenance without a script has nothing to describe; the row prepares as usual.
+    provenance = _provenance(meta)
+    template = parse_finished_script(scripts.pop())
+    return row, {**template, "provenance": provenance} if provenance else template
 
 
 def store_script_in(service, s, p, lead, template):
     now, version = service.clock(), uid()
+    provenance = template.get("provenance")
+    template = {key: value for key, value in template.items() if key != "provenance"}
     picks = {
         section["key"]: [option["id"] for option in section["options"]]
         for section in template["sections"]
@@ -60,6 +109,7 @@ def store_script_in(service, s, p, lead, template):
         ready_for_rep=True,
         fact_ids_used=[],
         claims=[],
+        **({"provenance": provenance} if provenance else {}),
     )
     row = put(
         s,
