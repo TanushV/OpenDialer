@@ -358,6 +358,9 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
                   Voicemail:{" "}
                   {call.voicemail_cue.leave ? "leave one" : "skip it"} ·{" "}
                   {call.voicemail_cue.reason}
+                  {call.voicemail_cue.leave &&
+                    !script?.sections?.some((s) => s.key === "voicemail") &&
+                    " · Add voicemail wording on the Script page"}
                 </p>
               )}
             <ProspectBrief

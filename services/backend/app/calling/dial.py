@@ -95,7 +95,7 @@ def _authorize_script(service, s, p, lead, number, held):
     script, _ = ops.selected_script(
         service, s, p, lead, assignment=comparison, master_only=context.use_master
     )
-    return script, comparison
+    return ops.with_callback_number(script, number), comparison
 
 
 def _dial_script(service, s, p, lead, number, held):
@@ -107,7 +107,7 @@ def _dial_script(service, s, p, lead, number, held):
         detail = ops.no_lead_detail(service, s, {**p, **held.dial_scope}, decision.reasons)
         fail(403, {**detail, "code": "CALL_DENIED"})
     # A test snapshots the saved base script, so a master edit during the call never changes it underneath.
-    return ops.fallback_script(service, s, p, lead), None
+    return ops.with_callback_number(ops.fallback_script(service, s, p, lead), number), None
 
 
 def _prepare_call(service, p, data):
@@ -320,7 +320,7 @@ def _submission_policy(service, s, p, call, lead, payload):
         and not context.own_test_line
     ):
         script = ops.selected_script(service, s, p, lead, master_only=context.use_master)[0]
-        update(call, script_snapshot=script)
+        update(call, script_snapshot=ops.with_callback_number(script, number))
     return decision, context
 
 

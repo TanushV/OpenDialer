@@ -61,7 +61,9 @@ PICKS = {
     "discovery": (1, 3),
     "offers": (1, 2),
 }
-PLACEHOLDERS = {"name", "first_name", "company", "rep", "seller"}
+# `{callback_number}` is the caller ID of the call, filled when it is dialed (work package 6.13).
+PLACEHOLDERS = {"name", "first_name", "company", "rep", "seller", "callback_number"}
+VOICEMAIL_FIELDS = ("rep", "seller", "callback_number")
 MAX_BYTES = 40000
 MAX_OPTIONS = 20
 MAX_BLOCKS = 20
@@ -441,6 +443,15 @@ def parse_markdown(markdown, *, finished=False):
             spoken, cues = split_cues(raw[key]["lines"])
             value = text(spoken)
             _placeholders(value, raw[key]["line"], errors)
+            missing = [f for f in VOICEMAIL_FIELDS if "{" + f + "}" not in value]
+            if key == "voicemail" and missing and not finished:
+                errors.append(
+                    {
+                        "line": raw[key]["line"],
+                        "message": "Voicemail must say who is calling and how to call back: add "
+                        + ", ".join("{" + f + "}" for f in missing),
+                    }
+                )
             notes[key] = value[:1000]
             sections.append(reference(key, text(raw[key]["lines"])))
             if cues:
@@ -578,6 +589,8 @@ def render(template, *, lead, seller, rep, picks=None, written=None, path=None):
         "company": lead.get("company") or "your company",
         "seller": seller,
         "rep": rep,
+        # Kept as a token until the call is dialed and its caller ID is known.
+        "callback_number": "{callback_number}",
     }
     path = path if path in template.get("paths", {}) else template.get("default_path")
     template = {**template, "sections": sections_for_path(template["sections"], path)}
@@ -597,7 +610,13 @@ def render(template, *, lead, seller, rep, picks=None, written=None, path=None):
     sections = []
     for section in template["sections"]:
         if section.get("spoken") is False:
-            sections.append({key: section[key] for key in ("key", "title", "text", "spoken")})
+            entry = {key: section[key] for key in ("key", "title", "text", "spoken")}
+            if section["key"] in {"voicemail", "follow_up"}:
+                try:
+                    entry["text"] = fill_fields(entry["text"], values)
+                except (KeyError, ValueError, IndexError):
+                    pass  # Directions with stray braces stay as written.
+            sections.append(entry)
             continue
         source_ids = [option["id"] for option in section["options"]]
         selected = set(chosen.get(section["key"]) or source_ids)

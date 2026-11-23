@@ -106,3 +106,19 @@ def test_late_detection_receipts_change_nothing(workspace, carrier, clock):
     assert live["state"] == "ANSWERED_UNCLASSIFIED"
     assert not live.get("machine_detected") and not live.get("screening_detected")
     assert not carrier.hangups
+
+
+def test_the_voicemail_wording_in_a_call_carries_its_caller_id(workspace):
+    """Work package 6.13: `{callback_number}` becomes the number this call presents."""
+    ws = workspace
+    version = get(ws, "/v1/optimization/script")["base"]["version"]
+    markdown = (
+        "# Opening\nHi {first_name}, this is {rep} with {seller}.\n\n# Close\nWould next week work?\n\n"
+        "# Voicemail\nHi {first_name}, {rep} with {seller}. Call me back at {callback_number}.\n"
+    )
+    post(ws, "/v1/admin/script/import", {"markdown": markdown, "expected_version": version, "preview": False})
+    placed = start(ws)
+    snapshot = get(ws, f"/v1/calls/{placed['id']}")["script_snapshot"]
+    voicemail = next(s for s in snapshot["sections"] if s["key"] == "voicemail")
+    assert "{callback_number}" not in voicemail["text"]
+    assert "Call me back at " in voicemail["text"] and voicemail["text"].rstrip(".")[-12:-9].isdigit()

@@ -209,10 +209,12 @@ def test_one_section_can_be_replaced_for_script_tests():
 
 def test_follow_up_and_voicemail_are_optional_plain_wording_kept_off_the_first_call():
     template = parse_markdown(
-        STARTER + "\n# Follow-up\nOffer the review again.\n\n# Voicemail\nHi {first_name}, {rep} here.\n"
+        STARTER
+        + "\n# Follow-up\nOffer the review again.\n\n# Voicemail\n"
+        + "Hi {first_name}, {rep} with {seller}. Call me at {callback_number}.\n"
     )
     assert template["follow_up"] == "Offer the review again."
-    assert template["voicemail"] == "Hi {first_name}, {rep} here."
+    assert template["voicemail"] == "Hi {first_name}, {rep} with {seller}. Call me at {callback_number}."
     assert [(s["key"], s["spoken"]) for s in template["sections"][-2:]] == [
         ("follow_up", False),
         ("voicemail", False),
@@ -243,3 +245,23 @@ def test_a_bad_trigger_line_is_reported_with_its_line():
         parse_markdown(text)
     line = len(STARTER.splitlines()) + 4
     assert {"line": line, "message": "Write each trigger as '- Label (90 days, A)'"} in caught.value.errors
+
+
+def test_voicemail_wording_must_say_who_is_calling_and_how_to_call_back():
+    """Work package 6.13 and 9.3 C6: a left message names the rep, the business and a callback number."""
+    with pytest.raises(ScriptError) as error:
+        parse_markdown(STARTER + "\n# Voicemail\nHi {first_name}, {rep} here.\n")
+    (problem,) = [e for e in error.value.errors if "Voicemail" in e["message"]]
+    assert problem["line"] > 1
+    assert "{seller}" in problem["message"] and "{callback_number}" in problem["message"]
+
+
+def test_voicemail_wording_is_filled_except_the_callback_number_until_dial():
+    from app.preparation.templates import render
+
+    template = parse_markdown(
+        STARTER + "\n# Voicemail\nHi {first_name}, {rep} with {seller}. Call {callback_number}.\n"
+    )
+    script = render(template, lead={"name": "Pat Lee"}, seller="Acme", rep="Sam")
+    voicemail = next(s for s in script["sections"] if s["key"] == "voicemail")
+    assert voicemail["text"] == "Hi Pat, Sam with Acme. Call {callback_number}."

@@ -446,6 +446,8 @@ def follow_up_in(service, s, p, lead, template):
         "company": lead.data.get("company") or "your company",
         "seller": ops.required(service, s, "sellers", p["seller_id"], p).data["name"],
         "rep": ops.required(service, s, "users", p["user_id"], p).data["name"],
+        # Filled with the call's caller ID when it is dialed (work package 6.13).
+        "callback_number": "{callback_number}",
     }
     spoken = [c for c in calls if c.data.get("outcome") in PERSON]
     lines = []

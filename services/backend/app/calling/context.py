@@ -71,3 +71,23 @@ def attempt_voicemail_cue(service, s, p, lead, campaign, ordinal, allowance, cal
         callback_due=callback_due,
         spoke_before=spoke_before(service, s, p, lead),
     )
+
+
+def readable_phone(phone):
+    """+12035550101 -> 203-555-0101 for a spoken callback number; other forms stay as they are."""
+    digits = phone[2:] if phone and phone.startswith("+1") and len(phone) == 12 else None
+    return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}" if digits and digits.isdigit() else phone
+
+
+def with_callback_number(script, number):
+    """The call's script snapshot with `{callback_number}` filled from the caller ID used on this call."""
+    if not script or not number:
+        return script
+    phone = readable_phone(number.data["phone"])
+    sections = [
+        {**section, "text": section["text"].replace("{callback_number}", phone)}
+        if isinstance(section.get("text"), str)
+        else section
+        for section in script.get("sections", [])
+    ]
+    return {**script, "sections": sections}
