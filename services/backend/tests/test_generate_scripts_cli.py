@@ -138,7 +138,8 @@ def test_a_rotated_login_goes_back_to_the_codex_cli_unless_it_signed_in_again(tm
     batch.write_back_login(work, "user-1", codex, original)
     saved = json.loads((codex / "auth.json").read_text())
     assert saved["tokens"]["refresh_token"] == "r2" and saved["extra"] == 1, "Newer tokens, other fields kept"
-    assert oct((codex / "auth.json").stat().st_mode & 0o777) == "0o600"
+    if os.name != "nt":  # Windows has no POSIX permission bits; the file keeps its folder's access there.
+        assert oct((codex / "auth.json").stat().st_mode & 0o777) == "0o600"
 
     signed_in_again = {**original, "tokens": {**tokens, "refresh_token": "r9"}}
     (codex / "auth.json").write_text(json.dumps(signed_in_again))
