@@ -1,3 +1,18 @@
+# OpenDialer 2.4.2
+
+- **Test calls work like real calls.** A test call shows your saved script, transcribes the conversation and gets live helper replies. Practice lines such as "stop calling" never add a hold, and outreach holds on the same number no longer block your test phone.
+- **You decide on voicemail.** Voicemail detection is off, so the Dialer shows Connected as soon as a call is answered. Press Space for End as voicemail, then L if you left a message or N if you did not. Ending a mailbox in the first 7 seconds frees you at once while the line closes at 7 seconds, which keeps you clear of Telnyx's short-call limits.
+- **Know when to leave a message.** Each call says whether to leave a voicemail and why: first and final attempts, requested callbacks and people you have spoken with. Change the rule per list in Dialing settings. Voicemail wording must name you, your business and `{callback_number}`, which the call fills with its caller ID.
+- **One script path per lead, shared content intact.** Each lead gets the one path that fits its role and verified signal. Untagged options beside path options, such as meeting times or shared responses, stay on every path as written, and the Script preview says what each lead keeps and picks.
+- **Portable finished scripts.** A completed CSV keeps `{rep}` and `{seller}`, so each rep who imports it sees their own name and business. Optional script provenance columns travel into call statistics, and a file from a newer generator asks you to update.
+- **Calling hours.** Outreach calls go out Monday to Friday, 9:00 to 17:00 in each prospect's time zone, never on US federal holidays. Requested callbacks are not limited. A number with no usable time zone is called only while every US zone is open.
+- **Opt-outs shared through HubSpot.** Every rep pulls all HubSpot opt-outs, including for CSV numbers, at Start calling, after imports and every 15 minutes. Calling stops with a clear fix if they cannot sync for over 9 business days.
+- **Transcripts are not kept.** Live transcription only feeds the script follower and helper during a call and is deleted when the call ends. Settings can turn live transcription and the helper off. The after-call summary is gone; the next call's brief uses the outcome and your note.
+- **Callbacks show their script**, and the one-time callback check now names its number instead of "One test call left".
+- **Review shows today's carrier traffic**: the share of short calls and of calls ended while ringing.
+
+Updates from 1.0.x through 2.4.1 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.4.1
 
 - **Test calling at any hour.** Use **Test call** in the Dialer or open a saved test list from Settings. Each attempt requires a fresh action and uses the usual Telnyx and audio controls.

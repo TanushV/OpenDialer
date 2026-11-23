@@ -2254,3 +2254,9 @@ live check is open.
   switch for transcription; owner screens supplied lists; opt-outs shared through HubSpot; weekday 9 to 5 in the
   prospect's zone with callbacks exempt; voicemail cue defaults), then D6 (unsure time zones use the every-US-zone
   overlap instead of blocking) and D7 (transcripts never kept; live helper and script following only). Still not started.
+- November 23, 2026. The calling and script reliability work package is implemented on `main` (`baaac15`, all eight
+  Verify jobs green): test calls with the base script, speech and helper; no voicemail detection, manual End as
+  voicemail with a 7-second short-call hold and advisory voicemail cues; path-only generation with shared content
+  kept; portable completed CSVs; weekday 9-to-5 outreach in the prospect's zone; HubSpot opt-outs for every rep;
+  transcripts used only live. The standard stress sweep passed 624 cases from seed `1098221387`. Prepare 2.4.2.
+
