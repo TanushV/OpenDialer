@@ -23,6 +23,26 @@ wording. The generation gets the imported lead row, verified unexpired research,
 and bounded prior-call summaries. It does not receive the old personalized script as a draft to revise.
 Unsupported facts, numbers, guarantees and relationships are refused by the existing validators/reviewer.
 
+Keep each `{{ }}` block to facts about the lead, such as an observation drawn from their role or a sourced signal.
+Write your own claims ("We work with sales teams...") and your questions as fixed text beside the block. The
+independent review keeps AI text only when every assertion in it follows from the lead's sources, so a block that
+also states what your business does, or copies a question with assumptions in it, is dropped, and that option loses
+its AI line. The script is still published; the export and the command-line run below list any such drops.
+
+## Finished scripts for other computers
+
+`GET /v1/preparation/export?list_name=...` returns a list's ready scripts as portable Markdown, with `{rep}` and
+`{seller}` left for the receiving rep, plus `script_path`, `script_master_digest`, `script_generator` and
+`script_research` (the facts behind the script, their quotes and links, and the why-now signal). Importing that CSV
+in Leads marks each lead ready and shows the why-now as "checked when the script was written". Apps before 2.4.4
+import the same file and keep `script_research` as ordinary lead data.
+
+To run the whole thing on a CSV without opening the app:
+`python -m app.cli generate-scripts LEADS.csv --master MASTER.md`. It imports the leads into a private workspace beside
+the output, runs this same preparation with the signed-in Codex login (`~/.codex`), waits for retries, and writes
+`LEADS-scripts.csv`. Running the same command again continues the same work. See
+[the one-generator plan](ONE_GENERATOR_PLAN.md).
+
 Meaningful master edits make earlier personalized scripts stale and queue fresh generation for leads already
 requested for preparation. While that runs, the app displays the current base, never an old personalized draft.
 Formatting-only edits keep the generation identity and do not consume model work. Active calls retain the script

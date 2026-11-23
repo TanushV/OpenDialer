@@ -1,6 +1,6 @@
 # One script generator: plan
 
-Proposed November 23, 2026. **Status: awaiting owner approval.** Nothing in Steps 1 to 4 has started. Read this
+Proposed and approved November 23, 2026. **Status: Steps 0, 1, 3 and 4 done; Step 2 (release) next.** Read this
 alongside [the rebuild plan](REBUILD_PLAN.md) and its Status section. Build rules are section 12A of that plan: one
 worker, on `main`, tests first, fast check after each change, full check before each push.
 
@@ -41,8 +41,8 @@ Sharing more code would narrow the gap, but two runners will keep drifting apart
   match, 4 bad trigger dates). The retry with the fixes made 33 more. 232 are in
   `~/Downloads/Agite_Customer_Trestle_DNC_Cleared_2026-11-23-scripts-ready.csv`; every row passes the 2.4.3 import
   check.
-- 5 leads have no script (Authorium, Dealerslink, KeenLogic, OMNI Business Solutions, Simple Helix). Each company's own
-  site refuses the app's page reader, and the AI cited it on all 3 tries.
+- 5 leads had no script. Each company's own site refuses the app's page reader, and the AI cited it on all 3 tries.
+  Step 0.1 later fixed all 5 (see Checkpoint).
 - Paths chosen: from-where-you-sit 88, runs-it 61, does-it 28, technology 20, operations 12, senior-runs-it 12,
   marketing 9, finance 2. No founder got founder-sells or role-check.
 
@@ -50,7 +50,7 @@ Sharing more code would narrow the gap, but two runners will keep drifting apart
 
 | # | Decision | Status |
 |---|---|---|
-| G1 | The app's preparation pipeline is the only script generator. The outside folder keeps only a launcher and its README. This narrows the November 22 decision that the generator stays outside the repo: the launcher stays outside; the logic moves in. | Owner to approve |
+| G1 | The app's preparation pipeline is the only script generator. The outside folder keeps only a launcher and its README. This narrows the November 22 decision that the generator stays outside the repo: the launcher stays outside; the logic moves in. | Owner approved, November 23 |
 | G2 | Completed CSVs keep `script_format` 1. Research travels in new optional columns. Older apps import those columns as ordinary lead data (only the six exact script header names count as a script column), so 2.4.3 still imports the files. | Recommended |
 | G3 | The command-line run uses the same AI route as the app, signed in with the author's Codex login, on a temporary workspace that is not the installed one. | Recommended; depends on R1 |
 | G4 | Today's `generate_scripts.py` stays as the fallback until Step 4 shows the new path matches it, then it is retired. | Recommended |
@@ -125,4 +125,22 @@ installers.
 
 ## Checkpoint
 
-- November 23, 2026: plan written. Step 0 to Step 4 not started. Local `main` has `2787eee` (64 KB limit), unpushed.
+- November 23, 2026: plan written and approved.
+- Step 0 done. The old generator named blocked sites in its retries and finished all 237 Agite leads
+  (`...-scripts.csv`, every row under 40 KB). v14.1's founder guidance now prefers role-check for early-stage founders.
+- Step 1 done. `python -m app.cli generate-scripts` (`app/preparation/batch.py`) runs the app's own preparation on a
+  CSV in a private work folder through its HTTP API, waits for retries, prints progress and writes the output. It
+  copies the Codex CLI login in and writes a rotated login back (checked: still signed in after a run).
+  `GET /v1/preparation/export` (`app/preparation/portable.py`) exports ready scripts with `{rep}`/`{seller}` and a
+  `script_research` column; import stores that research, and Leads and the Dialer show "checked when the script was
+  written" with the quote and source. The page reader follows 5 redirects, sends Accept headers and tells the agent
+  why a page failed (for example HTTP 403). Tests: `test_portable_scripts.py`, `test_generate_scripts_cli.py`,
+  `test_research_fetch.py`, `test_prep_threads.py`.
+- R2 found in Step 4: the in-app review dropped every AI line in v14.1, because each block also stated the seller's
+  own claim or copied a question. v14.2 (owner's Downloads) keeps only the factual observation AI-written and makes the
+  reason line and questions fixed text. Dropped lines are now saved and listed by the export and the run.
+- Step 3 done. `generate-scripts` in the outside folder calls the repo command; `generate-scripts-legacy` keeps the old
+  one until retired (G4).
+- Step 4: 24 real leads (4 samples, 10 founders, the 5 formerly blocked) on v14.2: 24 of 24 ready on the first pass,
+  about 18 keep their AI observation and the rest open with the fixed reason line and question; the review's reasons
+  for the rest are not yet stored. Imported into a throwaway app: 24 ready, why-now and source shown in the Dialer.

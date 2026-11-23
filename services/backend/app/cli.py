@@ -141,6 +141,15 @@ def self_check():
 
 
 def main():
+    if sys.argv[1:2] == ["generate-scripts"]:
+        # One generator (docs/ONE_GENERATOR_PLAN.md): the app's own preparation, run on a lead CSV.
+        from app.preparation import batch
+
+        try:
+            raise SystemExit(batch.main(sys.argv[2:]))
+        except (OSError, ValueError) as error:
+            print(f"Script generation stopped: {error}", file=sys.stderr)
+            raise SystemExit(1) from None
     args = parser().parse_args()
     if args.command == "self-check":
         return self_check()
