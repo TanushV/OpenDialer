@@ -3,6 +3,12 @@
 Approved by the owner on November 6, 2026. This is the active plan. Read it in full on every continuation or context
 compaction, including the Status section at the end, which is the current checkpoint.
 
+Current approved work package: [Calling, test calls and portable scripts](CALLING_SCRIPT_RELIABILITY_PLAN.md)
+(November 22, 2026). Read it alongside this plan on continuation. Its newer owner decisions remove voicemail detection,
+restore the base script and helper to isolated test calls, preserve one generated track plus shared responses, and
+require an audited randomized stress suite before the next release. Execution is explicitly on hold until the owner
+says to begin; the requested scope includes committing, pushing, publishing a new version and updating this Mac.
+
 It supersedes the "every feature stays" and "both modes" rules of [LEAN_PLAN.md](history/LEAN_PLAN.md), the manual-dial rule of
 [CALLING_COMPLETION_PLAN.md](history/CALLING_COMPLETION_PLAN.md) and the "No DDGS" decision of
 [CAMPAIGN_PREP_PLAN.md](history/CAMPAIGN_PREP_PLAN.md). Those files remain history for what a feature does.
@@ -2235,3 +2241,16 @@ live check is open.
   passed 624 cases starting at seed `1319960606`, including 64 test-phone cases and 48 two-rep relay cases.
 - November 20, 2026. The owner requested a new published version for test-call isolation. Prepare the signed 2.4.1
   candidate after Verify on its version commit, then run the calling release checks on that build.
+- November 22, 2026. The owner approved the [calling and script reliability work package](CALLING_SCRIPT_RELIABILITY_PLAN.md)
+  and asked for the plan file only before execution. Test calls must use the base script and live helper without
+  outreach gates/side effects; generated scripts select one persona/signal track while retaining shared objections
+  and scenarios; the portable CSV generator stays outside the repo. Remove voicemail detection, complete callback
+  context/status fixes, audit the stress harness with independent assertions and deliberate defects, and run fresh
+  long-horizon random sequences. Commit/push, a new public signed version and this Mac's update are authorized scope
+  once execution begins. Planning only so far; implementation, tests, live calls, commits and release remain unstarted.
+  Later the same day the owner approved the work package's recommendations (7-second short-call hold after an early
+  End as voicemail, advisory per-attempt voicemail cue, path-based shared script content, single 2.4.2 release) and a
+  legal compliance audit was added as its section 9. The owner then answered D1 to D5 (no disclosure but a Settings
+  switch for transcription; owner screens supplied lists; opt-outs shared through HubSpot; weekday 9 to 5 in the
+  prospect's zone with callbacks exempt; voicemail cue defaults), then D6 (unsure time zones use the every-US-zone
+  overlap instead of blocking) and D7 (transcripts never kept; live helper and script following only). Still not started.
