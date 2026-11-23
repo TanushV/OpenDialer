@@ -14,13 +14,25 @@ class UnsafeURL(ValueError):
     pass
 
 
+NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _reachable(address):
+    """The address a connection really reaches: a NAT64 gateway forwards 64:ff9b::/96 to its embedded IPv4."""
+    if address.version == 6 and address in NAT64:
+        return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    return address
+
+
 async def public_address(host, port):
     try:
         results = await asyncio.to_thread(socket.getaddrinfo, host, port, type=socket.SOCK_STREAM)
         addresses = {ipaddress.ip_address(row[4][0]) for row in results}
     except (OSError, ValueError):
         raise UnsafeURL("Source must resolve to a public network address") from None
-    if not addresses or any(not address.is_global or address.is_multicast for address in addresses):
+    if not addresses or any(
+        not _reachable(address).is_global or _reachable(address).is_multicast for address in addresses
+    ):
         raise UnsafeURL("Source must resolve only to public network addresses")
     return str(min(addresses, key=lambda address: (address.version, int(address))))
 

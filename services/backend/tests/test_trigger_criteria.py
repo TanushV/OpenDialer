@@ -73,6 +73,15 @@ def test_a_row_only_signal_is_capped_at_c_and_labelled_unverified():
     )
 
 
+@pytest.mark.parametrize(
+    "url", ["javascript:alert(1)", "file:///etc/hosts", "data:text/html,<b>x</b>", "opendialer://x"]
+)
+def test_a_row_only_source_link_must_be_a_web_page(url):
+    """Audit 2026-11-23: a row or model-supplied link reaches an <a href> in the Dialer; only http(s) may."""
+    record, errors = check(claim(evidence="row_only", source_url=url), page_text=None, row_urls=(url,))
+    assert record is None and "http(s)" in errors[0]
+
+
 def test_row_only_without_any_row_signal_is_rejected():
     assert "needs a signal in the lead's row" in check(claim(evidence="row_only"), row_urls=())[1][0]
 
