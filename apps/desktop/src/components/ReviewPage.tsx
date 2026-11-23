@@ -10,6 +10,7 @@ import { WrapUp } from "./WrapUp";
 import { CallTimeline } from "./CallTimeline";
 import { ReviewIssues } from "./ReviewIssues";
 import { SummaryView } from "./SummaryView";
+import { CarrierRates } from "./CarrierRates";
 import { DropOff } from "./DropOff";
 
 export function ReviewPage({
@@ -133,6 +134,7 @@ export function ReviewPage({
           )}
         </section>
         <DropOff />
+        <CarrierRates />
       </>
     );
   const summary = review.summary;
