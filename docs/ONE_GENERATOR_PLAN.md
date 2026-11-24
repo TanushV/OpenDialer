@@ -1,6 +1,6 @@
 # One script generator: plan
 
-Proposed and approved November 23, 2026. **Status: Steps 0, 1, 3 and 4 done; Step 2 (release) next.** Read this
+Proposed and approved November 23, 2026. **Status: done. 2.4.4 published November 24 (UTC); this Mac's update waits for the owner.** Read this
 alongside [the rebuild plan](REBUILD_PLAN.md) and its Status section. Build rules are section 12A of that plan: one
 worker, on `main`, tests first, fast check after each change, full check before each push.
 
@@ -144,3 +144,14 @@ installers.
 - Step 4: 24 real leads (4 samples, 10 founders, the 5 formerly blocked) on v14.2: 24 of 24 ready on the first pass,
   about 18 keep their AI observation and the rest open with the fixed reason line and question; the review's reasons
   for the rest are not yet stored. Imported into a throwaway app: 24 ready, why-now and source shown in the Dialer.
+- Step 2 done. `main` at `ae5a9a3`: full local tier green before each push (local PostgreSQL needs
+  `LC_ALL=en_US.UTF-8`); Verify run 45284450909 green on all eight jobs after rerunning browser-mac, which failed a
+  different, unrelated WebKit test on each of three runs while the same app code had passed it on `42751b2`. Fixed on
+  the way: a POSIX-only permission check in a new test (Windows) and the Linux smoke test's scratch cleanup racing
+  WebKit's shader cache. Release run 45291709261 built `v2.4.4`; the Mac archive matched `SHA256SUMS.txt`, passed
+  `codesign --verify --deep --strict`, its updater signature verifies against the app's key, and the packaged backend
+  saved the 52 KB v14.2 master and imported the 24-lead v14.2 file as ready with research. Published as Latest; the
+  public `latest.json` reports 2.4.4.
+- Open: this Mac's update to 2.4.4 (owner's request); the review drops about a quarter of AI observations and does
+  not store its reasons; `generate-scripts-legacy` retires once the owner is happy with the new path.
+

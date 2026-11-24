@@ -2265,4 +2265,11 @@ live check is open.
 - November 23, 2026. OpenDialer 2.4.3 is published and installed on this Mac: voicemail callback number optional
   (owner), enforced calling hours shown, Review no longer waits for a summary. Fresh stress sweeps passed with a
   coverage ledger proving every run dialed, answered, held and saved. Next: the owner's live call matrix.
+- November 24, 2026 (UTC). [One script generator](ONE_GENERATOR_PLAN.md) (owner approved November 23) is done and
+  OpenDialer 2.4.4 is published: the app's own preparation runs on a lead CSV from the command line
+  (`python -m app.cli generate-scripts`), ready scripts export with their research (`GET /v1/preparation/export`,
+  `script_research`), imported research shows as the why-now in Leads and the Dialer, masters can be 64 KB, and the
+  research agent is told why a page could not be read. The outside generator folder is now a launcher. Found in real
+  runs: the independent review drops AI text that states the seller's own claims, so the owner's v14.2 script keeps
+  only the factual observation AI-written. Next: this Mac's update on the owner's request.
 
