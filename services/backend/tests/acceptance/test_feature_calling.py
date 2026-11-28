@@ -272,7 +272,7 @@ def test_due_callback_is_offered_first_and_opt_out_removes_a_lead(workspace, clo
 
 
 @pytest.mark.slow
-def test_a_five_minute_callback_is_due_at_five_minutes_and_ordinary_retries_wait_a_day(workspace, clock):
+def test_a_five_minute_callback_is_due_at_five_minutes_and_ordinary_retries_wait_a_day(workspace, app, clock):
     ws = workspace
     started = start(ws)
     answered_by_human(ws, started["id"])
@@ -311,6 +311,21 @@ def test_a_five_minute_callback_is_due_at_five_minutes_and_ordinary_retries_wait
     ready_as(ws)
     assert next_lead(ws, status=409)["detail"]["code"] == "NO_ELIGIBLE_LEADS"
     clock.now += timedelta(minutes=1)
+    # After the day, a retry is due at the lead's next prime window that day (call insights plan P5).
+    from datetime import datetime
+
+    from app.platform.db import MODELS
+
+    with app.state.db.transaction(False) as s:
+        due = min(
+            datetime.fromisoformat(s.get(MODELS["leads"], i).data["next_attempt_at"]) for i in unanswered
+        )
+    assert clock.now <= due < clock.now + timedelta(hours=10)
+    if due > clock.now:
+        ready_as(ws)
+        assert next_lead(ws, status=409)["detail"]["code"] == "NO_ELIGIBLE_LEADS"
+        clock.now = due
+        sign_in(ws)
     ready_as(ws)
     assert next_lead(ws)["lead"]["id"] in unanswered
 

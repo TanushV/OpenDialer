@@ -87,10 +87,12 @@ def test_the_soak_catches_a_planted_defect(name, workspace, carrier, clock, requ
         try:
             with StressTrace(tmp_path, request.node.nodeid, seed) as trace:
                 if kind == "outreach":
-                    # Three leads, so an opted-out number comes round again within a short run.
+                    # Three leads, so an opted-out number comes round again within a short run. All three are in
+                    # stricter consent states (CA, IL, MA), so any prospect text kept after a call is a defect,
+                    # whichever zone prime-time ordering reaches first.
                     rows = [
                         {"name": f"Mutant {i}", "phone": f"+1{area}55502{i:02d}", "company": f"Mutant Co {i}"}
-                        for i, area in enumerate(["415", "212", "312"])
+                        for i, area in enumerate(["415", "617", "312"])
                     ]
                     workspace["client"].post(
                         "/v1/leads/import",

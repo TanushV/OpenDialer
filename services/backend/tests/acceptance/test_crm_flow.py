@@ -444,7 +444,12 @@ def test_a_rep_syncs_its_segment_and_dials_the_pool_binding_selected_by_the_rela
     assert response["number_id"] == selected["number"]["id"]
     assert response["is_test"] is is_test
     assert carrier.dials[-1]["from"] == chosen
-    assert [name for name, _ in requests] == ["relay_pool_reserve", "relay_pool_submit"]
+    # Outreach first asks whether another rep called this person today (plan P5); test calls do not.
+    assert [name for name, _ in requests] == [
+        *([] if is_test else ["relay_pool_recent"]),
+        "relay_pool_reserve",
+        "relay_pool_submit",
+    ]
     if is_test:
         from app import ops
         from helpers import principal
