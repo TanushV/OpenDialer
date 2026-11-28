@@ -1,7 +1,7 @@
 # Call records, prime time and script tests: plan
 
 Written November 28, 2026 and approved by the owner the same day ("implement this plan end to end"), after a legal
-audit (section 4). **Status: phases 0 to 7 built; phase 8 (release and live calls) in progress.** Read this alongside [the rebuild plan](REBUILD_PLAN.md)
+audit (section 4). **Status: built and released in 2.5.0. Open: Telnyx retention (C3), the relay migration on the live project, live calls.** Read this alongside [the rebuild plan](REBUILD_PLAN.md)
 and its Status section. Build rules are section 12A of that plan: one worker, on `main`, acceptance tests first, fast
 check after each change, full check before each push. Calling rules (G10): any new blocker declares its exit in
 `calling/blockers.py` and has an in-and-out test.
@@ -345,4 +345,12 @@ Eastern leads are prime; a due callback still goes first; retries land in prime 
   export (`insights.py`, `call_export.py`); Review Insights card; WebKit spec `call-records.spec.ts`. Version 2.5.0
   prepared. Next: full check, stress sweep, push, CI, signed release; owner items: Telnyx retention (C3), applying the
   relay migration, live calls.
+- November 28, 2026: full local check passed (backend, frontend, Rust, WebKit browser suite); the stress sweep passed
+  624 of 624 runs from seed `3521543373` (512 single-rep runs of 200 steps, 64 test-phone runs, 48 two-rep relay runs;
+  the coverage ledger shows every run dialed, answered, held and saved); all seven planted defects are caught. CI on
+  `c069142` is green on all eight jobs (two WebKit reruns for unrelated flaky tests: `csv-paths.spec.ts` pause click
+  and `followthrough.spec.ts` focus). The packaged backend now ships numpy so it can encode call audio. Signed 2.5.0
+  released from `c069142`. Not done: C3 needs the owner's Telnyx portal sign-in; the relay migration
+  `20261128120000_recent_prospect_guard.sql` is not applied to the live project (the app works without it and starts
+  checking once it is); live calls to the test line need the owner on the line; this Mac is not updated.
 

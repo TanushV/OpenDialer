@@ -2280,4 +2280,7 @@ live check is open.
   transcription path, hold numbers outside the 50 states and DC, recording indicators, no voiceprints, a bleed
   filter, Telnyx retention confirmed. It replaces work package C5 and D7 (transcripts never kept). Execution not
   started; next is its phase 0.
+- November 28, 2026. The call insights plan is built and OpenDialer 2.5.0 is released from `c069142` (CI green, full
+  check, stress sweep 624/624 from seed `3521543373`). Open, owner-gated: Telnyx data retention (C3), applying the
+  recent-call relay migration to the live project, live calls on the test line, and this Mac's update.
 
