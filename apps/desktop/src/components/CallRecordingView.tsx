@@ -15,7 +15,34 @@ interface Kept {
 }
 
 /** What a call kept (call insights plan P1 to P4): its audio, with the kept transcript in sync. */
-export function CallRecordingView({ callId }: { callId: string }) {
+/** The call's own numbers in one line (plan phase 6). */
+export function metricsLine(metrics?: Record<string, unknown> | null) {
+  if (!metrics) return null;
+  const number = (key: string) =>
+    typeof metrics[key] === "number" ? (metrics[key] as number) : null;
+  const parts: string[] = [];
+  const talk = number("talk_share");
+  if (talk !== null) parts.push(`You talked ${Math.round(talk * 100)}%`);
+  const monologue = number("longest_rep_monologue_ms");
+  if (monologue) parts.push(`longest stretch ${Math.round(monologue / 1000)}s`);
+  const gap = number("median_response_ms");
+  if (gap !== null) parts.push(`answered in ${(gap / 1000).toFixed(1)}s`);
+  const questions = number("rep_questions");
+  if (questions) parts.push(`${questions} questions`);
+  const pace = number("rep_words_per_minute");
+  if (pace) parts.push(`${pace} words a minute`);
+  const pitch = number("rep_pitch_range_semitones");
+  if (pitch !== null) parts.push(`pitch range ${pitch} semitones`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+export function CallRecordingView({
+  callId,
+  metrics,
+}: {
+  callId: string;
+  metrics?: Record<string, unknown> | null;
+}) {
   const { api, run, runtime, session } = useWorkspace();
   const [kept, setKept] = useState<Kept | null>(null);
   const [source, setSource] = useState<string | null>(null);
@@ -62,6 +89,11 @@ export function CallRecordingView({ callId }: { callId: string }) {
     <section className="card padded" aria-label="Recording">
       <h2>Recording</h2>
       <p className="fine">{why}</p>
+      {metricsLine(metrics) && (
+        <p className="fine" data-testid="call-numbers">
+          {metricsLine(metrics)}
+        </p>
+      )}
       {source && (
         <audio
           ref={player}

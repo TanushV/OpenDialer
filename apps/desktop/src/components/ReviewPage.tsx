@@ -13,6 +13,7 @@ import { SummaryView } from "./SummaryView";
 import { CarrierRates } from "./CarrierRates";
 import { DropOff } from "./DropOff";
 import { CallRecordingView } from "./CallRecordingView";
+import { Insights } from "./Insights";
 
 export function ReviewPage({
   onNavigate,
@@ -135,6 +136,7 @@ export function ReviewPage({
           )}
         </section>
         <DropOff />
+        <Insights />
         <CarrierRates />
       </>
     );
@@ -163,7 +165,13 @@ export function ReviewPage({
           <p>{label(review.call.outcome || "Outcome unconfirmed")}</p>
         </div>
       </div>
-      <CallRecordingView key={review.call.id} callId={review.call.id} />
+      <CallRecordingView
+        key={review.call.id}
+        callId={review.call.id}
+        metrics={
+          (review.call as { metrics?: Record<string, unknown> }).metrics ?? null
+        }
+      />
       {summary && (
         // Only calls from before 2.4.2 have one: transcripts are no longer kept (work package 9.3 C5).
         <section className="card padded" aria-label="AI summary">

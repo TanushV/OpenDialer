@@ -677,6 +677,23 @@ def create_app(settings=None, *, clock=None, carrier=None):
         """D31, R11.6: where answered real calls of the last 30 days ended in the script, by outcome."""
         return ops.drop_off_report(service, p)
 
+    class CallExport(Strict):
+        since: str | None = Field(default=None, max_length=40)
+        until: str | None = Field(default=None, max_length=40)
+        list_name: str | None = Field(default=None, max_length=200)
+        outcome: str | None = Field(default=None, max_length=60)
+        variant: str | None = Field(default=None, max_length=60)
+        conversations_only: bool = False
+        include_test: bool = False
+        include_audio: bool = True
+
+    @app.post("/v1/review/export")
+    def export_calls(data: CallExport, p=Depends(principal)):
+        """Calls, their audio and transcripts as one ZIP in this computer's Exports folder (plan phase 7)."""
+        from app import call_export
+
+        return call_export.export(service, p, data.model_dump())
+
     @app.get("/v1/review/compare")
     def review_compare(by: str = "variant", include_test: bool = False, p=Depends(principal)):
         """Call results by one dimension, with ranges and a minimum before a difference counts (plan phase 7)."""

@@ -462,6 +462,35 @@ async fn save_call_statistics(
     save_export(app, "call-statistics", "zip", bytes).await
 }
 
+/// Show an export the local backend wrote (call insights plan phase 7). Only a ZIP inside this app's Exports
+/// folder can be revealed, so the page cannot point the file manager anywhere else.
+#[tauri::command]
+async fn reveal_export(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let exports = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| err.to_string())?
+        .join("Exports");
+    let root = exports
+        .canonicalize()
+        .map_err(|_| "The export folder was not found".to_string())?;
+    let target = std::path::PathBuf::from(path)
+        .canonicalize()
+        .map_err(|_| "The export was not found".to_string())?;
+    if !is_export(&root, &target) {
+        return Err("Only exports can be shown".into());
+    }
+    app.opener()
+        .reveal_item_in_dir(&target)
+        .map_err(|_| "Cannot show the export".to_string())
+}
+
+fn is_export(root: &std::path::Path, target: &std::path::Path) -> bool {
+    target.parent() == Some(root) && target.extension().is_some_and(|ext| ext == "zip")
+}
+
 async fn save_export(
     app: tauri::AppHandle,
     name: &'static str,
@@ -600,7 +629,8 @@ pub fn run() {
             keep_awake,
             open_source,
             save_registry_csv,
-            save_call_statistics
+            save_call_statistics,
+            reveal_export
         ])
         .build(tauri::generate_context!())
         .expect("OpenDialer could not start");
@@ -614,6 +644,24 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_zip_directly_in_the_exports_folder_can_be_revealed() {
+        let root = std::path::Path::new("/data/Exports");
+        assert!(is_export(
+            root,
+            std::path::Path::new("/data/Exports/opendialer-calls-1.zip")
+        ));
+        assert!(!is_export(
+            root,
+            std::path::Path::new("/data/Exports/inner/calls.zip")
+        ));
+        assert!(!is_export(root, std::path::Path::new("/data/secrets.json")));
+        assert!(!is_export(
+            root,
+            std::path::Path::new("/data/Exports/notes.txt")
+        ));
+    }
 
     #[test]
     fn a_failed_migration_names_its_reason_and_that_data_is_unchanged() {

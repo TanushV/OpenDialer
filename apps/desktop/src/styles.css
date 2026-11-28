@@ -272,6 +272,16 @@
   padding: 6px 10px;
   font-size: 11px;
 }
+/* Insights in Review: results by one dimension, with ranges (call insights plan phase 7). */
+.insights-table {
+  width: 100%;
+  margin: 8px 0;
+}
+.insights-table td,
+.insights-table th {
+  padding: 4px 8px;
+  text-align: left;
+}
 /* A call's kept transcript in Review, highlighted as its audio plays. */
 .kept-transcript {
   max-height: 320px;

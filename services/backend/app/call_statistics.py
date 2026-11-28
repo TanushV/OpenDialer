@@ -5,6 +5,7 @@ import csv
 import hashlib
 import io
 import json
+import re
 from collections import Counter
 from itertools import groupby
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -91,7 +92,10 @@ def structure_of(script):
 
 
 def csv_cell(value):
-    # Section and option titles are user-authored. Export spreadsheet formulas as literal text.
+    # Section and option titles are user-authored. Export spreadsheet formulas as literal text; a plain number such as
+    # a phone number (+12125550100) is not a formula and stays as it is, for analysis tools.
+    if isinstance(value, str) and re.fullmatch(r"[+-]?\d[\d .()-]*", value):
+        return value
     if isinstance(value, str) and (
         value.lstrip().startswith(("=", "+", "-", "@")) or value.startswith(("\t", "\r", "\n"))
     ):
