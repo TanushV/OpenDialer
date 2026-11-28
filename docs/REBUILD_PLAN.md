@@ -3,11 +3,11 @@
 Approved by the owner on November 6, 2026. This is the active plan. Read it in full on every continuation or context
 compaction, including the Status section at the end, which is the current checkpoint.
 
-Current approved work package: [Calling, test calls and portable scripts](CALLING_SCRIPT_RELIABILITY_PLAN.md)
-(November 22, 2026). Read it alongside this plan on continuation. Its newer owner decisions remove voicemail detection,
-restore the base script and helper to isolated test calls, preserve one generated track plus shared responses, and
-require an audited randomized stress suite before the next release. Execution is explicitly on hold until the owner
-says to begin; the requested scope includes committing, pushing, publishing a new version and updating this Mac.
+Current approved work package: [Call records, prime time and script tests](CALL_INSIGHTS_PLAN.md) (November 28,
+2026). Read it, including its Checkpoint, alongside this plan on continuation. It replaces the previous package's C5 and
+D7 (transcripts never kept). Previous package: [Calling, test calls and portable scripts](CALLING_SCRIPT_RELIABILITY_PLAN.md)
+(November 22, 2026), done and released in 2.4.2. Execution of the current package has not started; its requested
+scope includes committing, pushing and publishing one signed release. This Mac is updated only on the owner's request.
 
 It supersedes the "every feature stays" and "both modes" rules of [LEAN_PLAN.md](history/LEAN_PLAN.md), the manual-dial rule of
 [CALLING_COMPLETION_PLAN.md](history/CALLING_COMPLETION_PLAN.md) and the "No DDGS" decision of
@@ -2272,4 +2272,12 @@ live check is open.
   research agent is told why a page could not be read. The outside generator folder is now a launcher. Found in real
   runs: the independent review drops AI text that states the seller's own claims, so the owner's v14.2 script keeps
   only the factual observation AI-written. Next: this Mac's update on the owner's request.
+- November 28, 2026. The owner approved the [call records, prime time and script tests plan](CALL_INSIGHTS_PLAN.md)
+  after a legal audit (its section 4). Read it alongside this plan on continuation. The rep's side is always kept; the
+  prospect's side only when both state signals allow one-party consent or after the rep's `R`; the live helper stays
+  on every call. Calling prefers each lead's local prime time, far script jumps need strong evidence, variants are
+  assigned by code, and calls export as paired audio and transcripts. Compliance fixes: delete the unused carrier
+  transcription path, hold numbers outside the 50 states and DC, recording indicators, no voiceprints, a bleed
+  filter, Telnyx retention confirmed. It replaces work package C5 and D7 (transcripts never kept). Execution not
+  started; next is its phase 0.
 
