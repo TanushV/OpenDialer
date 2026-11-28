@@ -361,6 +361,12 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
               {packet.lead.company || "Company not provided"} ·{" "}
               {packet.lead.phone}
             </p>
+            {packet.local && (
+              <p className="fine" data-testid="lead-local-time">
+                {packet.local.zone} · {packet.local.local_time} there ·{" "}
+                {packet.local.band}
+              </p>
+            )}
             {call?.voicemail_cue &&
               call.lead_id === packet.lead.id &&
               !isTerminal(call) && (

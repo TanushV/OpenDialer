@@ -412,12 +412,21 @@ export interface Packet {
   };
   previous_calls: Call[];
   bound_number_id: string | null;
+  /** The lead's local time when it was chosen (call insights plan P5). */
+  local?: LocalTime | null;
+}
+/** Why this lead now: its zone, its local time and the band that time is in (plan P5). */
+export interface LocalTime {
+  zone: string;
+  local_time: string;
+  band: "prime" | "good" | "low";
 }
 export interface Reservation {
   reservation_id: string;
   expires_at: string;
   lead: Lead;
   number: NumberRecord;
+  local?: LocalTime | null;
 }
 export interface CapabilityStatus {
   id: string;

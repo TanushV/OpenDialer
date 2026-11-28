@@ -4,7 +4,7 @@ import threading
 import time
 from collections import OrderedDict
 
-from sqlalchemy import and_, delete, or_, select, tuple_
+from sqlalchemy import and_, case, delete, literal, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 
 from app import ops
@@ -14,6 +14,7 @@ from app.lead_lists import TEST_LIST, active_membership, in_list
 from app.optimization.geography import company_call_zone
 from app.optimization.numbering import select_number, timestamp
 from app.platform.db import MODELS, ActiveClaim, audit, doc, emit, prefetch, put, update
+from app.scheduling import prime_time
 from app.scheduling.models import FEATURE_SCHEMA_VERSION, company_group
 from app.scheduling.policy import queue_decision, rank_candidates
 
@@ -257,23 +258,89 @@ def _queue_lead_status(model, catalog):
     )
 
 
-def _due_leads(s, p, campaign_id, after, now, catalog):
+def prime_bands(service, s, p, campaign_id, now):
+    """{zone key: band score now} for every zone among this campaign's leads (plan P5)."""
     model = MODELS["leads"]
-    # Exactly ix_leads_queue: promised callbacks (2), requested contact (1), then coverage
-    # deadline order (overdue first). Only these top K rows are read and decrypted.
+    keys = set(
+        s.scalars(
+            select(model.op_zone)
+            .where(
+                model.tenant_id == p["tenant_id"],
+                model.seller_id == p["seller_id"],
+                model.op_campaign_id == campaign_id,
+            )
+            .distinct()
+        )
+    )
+    learned = learned_bands(service, s, p, now)
+    return {key: prime_time.score(key or prime_time.UNSURE, now, learned) for key in keys}
+
+
+def band_order(model, bands):
+    """The SQL expression for a lead's band now; an unfilled zone counts as unsure."""
+    unsure = bands.get(None, bands.get(prime_time.UNSURE, prime_time.LOW))
+    whens = [(model.op_zone == key, value) for key, value in bands.items() if key is not None]
+    whens.append((model.op_zone.is_(None), unsure))
+    return case(*whens, else_=literal(prime_time.LOW))
+
+
+_LEARNED = {}
+
+
+def learned_bands(service, s, p, now):
+    """This workspace's own answer rate per local half-hour, cached for 15 minutes (P5 learning)."""
+    cached = _LEARNED.get(p["tenant_id"])
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
+    from app.service import dt
+
+    calls, leads = MODELS["call_attempts"], MODELS["leads"]
+    samples = {}
+    rows = s.execute(
+        select(calls.data, leads.op_zone)
+        .join(leads, leads.id == calls.op_lead_id)
+        .where(calls.tenant_id == p["tenant_id"], calls.seller_id == p["seller_id"])
+        .order_by(calls.created_at.desc())
+        .limit(20000)
+    )
+    for data, zone in rows:
+        started = dt(data.get("submitted_at"))
+        zones = prime_time.zones_of(zone)
+        if not started or data.get("is_test") or data.get("test_contact") or len(zones) != 1:
+            continue
+        index = prime_time.slot(started.astimezone(prime_time.ZoneInfo(zones[0])))
+        if index is None:
+            continue
+        dials, answers = samples.get(index, (0, 0))
+        samples[index] = (dials + 1, answers + int(bool(data.get("answered_at"))))
+    learned = prime_time.learned_scores(samples)
+    _LEARNED[p["tenant_id"]] = (time.monotonic() + 900, learned)
+    return learned
+
+
+def _due_leads(s, p, campaign_id, after, now, catalog, bands):
+    model = MODELS["leads"]
+    band = band_order(model, bands)
+    # Promised callbacks (2), requested contact (1), then the best local time band now (plan P5), then
+    # coverage deadline order (overdue first). Only these top K rows are read and decrypted.
     page = []
     if p.get("callback_lead_id"):
         page.append(model.id == p["callback_lead_id"])
     elif (names := p.get("dial_lists")) is not None:
         page.append(or_(False, *(in_list(model, name) for name in names)))
     if after is not None:
-        priority, coverage, identity = after
+        priority, value, coverage, identity = after
         page.append(
             or_(
                 model.op_priority < priority,
                 and_(
                     model.op_priority == priority,
-                    tuple_(model.op_coverage_at, model.id) > tuple_(coverage, identity),
+                    or_(
+                        band < value,
+                        and_(
+                            band == value, tuple_(model.op_coverage_at, model.id) > tuple_(coverage, identity)
+                        ),
+                    ),
                 ),
             )
         )
@@ -289,7 +356,7 @@ def _due_leads(s, p, campaign_id, after, now, catalog):
                 or_(model.op_due_at <= now, model.op_due_at.is_(None)),
                 *page,
             )
-            .order_by(model.op_priority.desc(), model.op_coverage_at, model.id)
+            .order_by(model.op_priority.desc(), band.desc(), model.op_coverage_at, model.id)
             .limit(PAGE_SIZE)
         )
     )
@@ -298,7 +365,8 @@ def _due_leads(s, p, campaign_id, after, now, catalog):
 def _selection_page(service, s, p, campaign_id, after):
     now = service.clock()
     campaign = ops.required(service, s, "campaigns", campaign_id, p)
-    leads = _due_leads(s, p, campaign_id, after, now, campaign.data.get("lists", {}))
+    bands = prime_bands(service, s, p, campaign_id, now)
+    leads = _due_leads(s, p, campaign_id, after, now, campaign.data.get("lists", {}), bands)
     ops._queue_context(service, s, p, campaign_id, leads)
     ops._queue_presence(service, s, p)
     config = ops.optimization_config(service, s, p, campaign_id)
@@ -324,7 +392,9 @@ def _selection_page(service, s, p, campaign_id, after):
         )
         for lead in leads
     }
-    candidates = rank_candidates([doc(lead) for lead in leads], now)
+    candidates = rank_candidates(
+        [{**doc(lead), "prime_band": bands.get(lead.op_zone, prime_time.LOW)} for lead in leads], now
+    )
     # Number health compares each number's pickups with this, the pickup rate across every number lately,
     # so a number that picks up less than the others shows (it was the model's estimate before D31).
     answers = sum((n.get("health") or {}).get("human_answers", 0) for n in inventory)
@@ -375,13 +445,19 @@ def _selection_page(service, s, p, campaign_id, after):
     selection = chosen and {
         "lead_id": chosen["id"],
         "lead_selection_probability": 1.0,
-        "selection_reason": "callbacks_then_never_called_then_longest_waiting",
+        "selection_reason": "callbacks_then_prime_time_then_never_called_then_longest_waiting",
+        # The Dialer's line: "Central leads · 10:14 there · prime" (plan P5).
+        "local": prime_time.describe(by_id[chosen["id"]].op_zone, now),
         "eligible_lead_ids": [c["id"] for c in candidates],
     }
     if not selection:
         ops._release_in_flight(service, p, held)
         last = leads[-1] if leads else None
-        cursor = (last.op_priority, last.op_coverage_at, last.id) if last else None
+        cursor = (
+            (last.op_priority, bands.get(last.op_zone, prime_time.LOW), last.op_coverage_at, last.id)
+            if last
+            else None
+        )
         # Test queues already loaded every destination in the run.
         return None, cursor, denied, bool(p.get("test_only")) or len(leads) < PAGE_SIZE
     identifier = selection["lead_id"]
@@ -594,4 +670,6 @@ def _claim_in(service, s, p, campaign_id, plan):
         "lead": doc(lead),
         "number": doc(number),
         "policy_version": campaign.data["policy_id"],
+        # Plan P5: the lead's local time and band, for the Dialer's "why this lead now" line.
+        "local": plan["selection"].get("local"),
     }

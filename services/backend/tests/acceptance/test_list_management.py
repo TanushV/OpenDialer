@@ -139,7 +139,10 @@ def test_dial_only_uses_master_and_keeps_regular_calling_safety(workspace, app):
     )
 
 
-def test_list_cadence_survives_switching_lists_and_applies_each_wait(workspace, clock):
+def test_list_cadence_survives_switching_lists_and_applies_each_wait(workspace, app, clock):
+    from datetime import datetime
+
+    from app.platform.db import MODELS
     from test_final_stage import sign_in
 
     ws = workspace
@@ -148,6 +151,13 @@ def test_list_cadence_survives_switching_lists_and_applies_each_wait(workspace, 
     import_leads(ws, [{"phone": lead["phone"]}], list_name="Default timing")
 
     def dial_and_end(name, ordinal):
+        # The wait has passed; the retry itself is due at the lead's next prime window that day (plan P5).
+        with app.state.db.transaction(False) as s:
+            due = s.get(MODELS["leads"], lead["id"]).data.get("next_attempt_at")
+        if due and datetime.fromisoformat(due) > clock.now:
+            assert datetime.fromisoformat(due) - clock.now < timedelta(hours=10)
+            clock.now = datetime.fromisoformat(due)
+            sign_in(ws)
         placed = begin(ws, choose(ws, [name]), f"touch-{ordinal}")
         assert placed["attempt_ordinal"] == ordinal
         event(ws, placed["id"], "call.hangup", hangup_cause="no_answer")

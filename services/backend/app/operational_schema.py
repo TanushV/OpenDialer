@@ -134,6 +134,8 @@ def columns(kind):
             if kind == "call_attempts"
             else {}
         ),
+        # Call insights plan P5: the lead's candidate time zones, so the queue can order by local prime time.
+        **({"op_zone": Column(String(200), nullable=True)} if kind == "leads" else {}),
         **(
             {"op_control_due_at": Column(DateTime(timezone=True), nullable=True)}
             if kind in {"call_attempts", "followup_tasks"}
@@ -316,6 +318,9 @@ def sync_columns(row):
         # A lead has no lead reference; its indexed slot holds the company group, so the
         # other contacts at one company are found without a scan.
         row.op_lead_id = data.get("company_key")
+        from app.scheduling.prime_time import zone_key
+
+        row.op_zone = zone_key(data)
     if row.__tablename__ == "usage_ledger":
         # Usage has no campaign; its indexed slot holds the budget scope (one lead list).
         row.op_campaign_id = data.get("budget_scope")

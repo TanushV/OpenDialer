@@ -332,7 +332,9 @@ def _record_outreach_attempt(service, s, p, call, lead, context):
     allowance, retry, quick_retry = ops.attempt_limits(
         service, lead.data, campaign.data, policy.data, ordinal
     )
-    next_attempt = (service.clock() + timedelta(seconds=retry)).isoformat()
+    earliest = service.clock() + timedelta(seconds=retry)
+    # Call insights plan P5: the retry waits for the lead's next prime window, never less than the spacing.
+    next_attempt = ops.prime_retry_at(lead.data, earliest, service.clock()).isoformat()
     cue = ops.attempt_voicemail_cue(
         service, s, p, lead, campaign.data, ordinal, allowance, context.callback_due
     )
@@ -348,7 +350,7 @@ def _record_outreach_attempt(service, s, p, call, lead, context):
         attempt_allowance=allowance,
         last_attempt_at=service.clock().isoformat(),
         next_attempt_at=next_attempt,
-        cadence_not_before=next_attempt,
+        cadence_not_before=earliest.isoformat(),
         # Coverage restarts from this attempt, so tried leads cannot crowd out first calls.
         coverage_due_at=next_attempt,
     )

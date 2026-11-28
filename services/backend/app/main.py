@@ -446,9 +446,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
     db = Database(settings.database_url)
     service = AppState(db, settings, clock, carrier)
     from app.leads.backfill import backfill_leads
+    from app.scheduling.prime_time import backfill_zones
     from app.telephony.ingress import archive_legacy_audio_webhooks
 
     backfill_leads(db)
+    backfill_zones(db)
     archive_legacy_audio_webhooks(db, clock())
 
     @asynccontextmanager

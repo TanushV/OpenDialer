@@ -307,7 +307,22 @@ class Database:
             )
         if not set(Base.metadata.tables) <= tables:
             Base.metadata.create_all(self.engine)
+        self.add_columns()
         self.plan()
+
+    def add_columns(self):
+        """A column added to a table in a later version (nullable, no default) is added to an existing store.
+
+        The new column starts empty; its owner fills it on the next write of each row, or in a backfill.
+        """
+        inspector = inspect(self.engine)
+        with self.engine.begin() as connection:
+            for name, table in Base.metadata.tables.items():
+                present = {column["name"] for column in inspector.get_columns(name)}
+                for column in table.columns:
+                    if column.name not in present and column.nullable and column.server_default is None:
+                        kind = column.type.compile(dialect=self.engine.dialect)
+                        connection.execute(text(f'ALTER TABLE "{name}" ADD COLUMN "{column.name}" {kind}'))
 
     def plan(self):
         with self.engine.begin() as connection:

@@ -306,6 +306,7 @@ HOMES = {
     "start_script_test_in": "app.optimization.script_lab",
     "start_test_session": "app.service",
     "save_test_contact": "app.test_list",
+    "prime_retry_at": "app.scheduling.prime_time",
     "start_transcription_in": "app.telephony.workflows",
     "store_facts_in": "app.preparation.workflows",
     "store_prepared_in": "app.preparation.workflows",
@@ -367,6 +368,7 @@ def _bundle():  # pragma: no cover
     import app.preparation.workflows  # noqa: F401
     import app.privacy  # noqa: F401
     import app.rep_workflows  # noqa: F401
+    import app.scheduling.prime_time  # noqa: F401
     import app.scheduling.queue  # noqa: F401
     import app.service  # noqa: F401
     import app.telephony.callbacks  # noqa: F401

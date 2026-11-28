@@ -616,3 +616,23 @@ def test_two_desktop_authorities_dial_from_one_pool_and_receive_only_their_own_c
         assert "CALLER_NUMBER_PAUSED" not in {
             item["code"] for item in a.send("GET", "/v1/blockers")["blockers"]
         }
+
+
+def test_a_prospect_another_rep_called_today_is_reported_to_the_second_rep(pool_db):
+    """Call insights plan P5 step 8: the read-only check behind 'another rep called this person today'."""
+    sql = pool_db
+
+    def recent(seat, prospect=PROSPECT):
+        return json.loads(sql(f"select relay_pool_recent('{prospect}');", seat=seat))
+
+    assert recent(A) == {} and recent(B) == {}
+    assert reserve(sql, B, PROSPECT, "first")["phone"] == NUMBER
+    assert recent(A) == {}, "A reservation alone is not a call"
+    placed(sql, B, "first", "b-call")
+    assert "other_rep_at" in recent(A)
+    assert recent(B) == {}, "A rep's own call is held by its own spacing rules instead"
+    assert recent(A, PROSPECT_B) == {}
+    sql(
+        f"update relay_private.number_pool_bindings set last_submitted_at=now()-interval '25 hours' where prospect='{PROSPECT}';"
+    )
+    assert recent(A) == {}, "After a day the other rep may call again"

@@ -77,9 +77,34 @@ def _accept_number(service, s, p, lead, number, saved, accepted):
     return True
 
 
+def hold_recent(service, p, provisional, called_at):
+    """Another rep called this prospect in the last 24 hours: give the lead back until a day after that call."""
+    from datetime import timedelta
+
+    until = (dt(called_at) + timedelta(hours=24)).isoformat()
+    with service.db.transaction() as s:
+        service.db.authorize_stream(s, p)
+        reservation = ops.required(service, s, "reservations", provisional["reservation_id"], p)
+        claim = s.scalar(select(ActiveClaim).where(ActiveClaim.reservation_id == reservation.id))
+        lead = ops.required(service, s, "leads", provisional["lead"]["id"], p)
+        if until > (doc(lead).get("next_attempt_at") or ""):
+            update(lead, next_attempt_at=until, recently_contacted_until=until, other_rep_called_at=called_at)
+        update(reservation, status="cancelled")
+        if claim is not None and claim.call_id is None:
+            s.delete(claim)
+
+
 async def reserve(service, p, campaign_id, names, callback):
+    from app.numbers.pool import recent_elsewhere
+
     for _ in range(8):
         provisional = await asyncio.to_thread(ops.reserve, service, p, campaign_id, names, callback)
+        if provisional.get("preferred_is_bound") is not None and not provisional["lead"].get("test_contact"):
+            # Two reps with the same list never call one person twice in a day (plan P5, step 8).
+            called_at = await recent_elsewhere(service.managed, provisional["lead"]["phone"])
+            if called_at:
+                await asyncio.to_thread(hold_recent, service, p, provisional, called_at)
+                continue
         result = await read_history(service, p, provisional["lead"])
         if result is None or await asyncio.to_thread(apply_history, service, p, provisional, result):
             break
@@ -88,7 +113,7 @@ async def reserve(service, p, campaign_id, names, callback):
             Situation(queue="none"),
             {
                 "code": "NO_ELIGIBLE_LEADS",
-                "message": "HubSpot call history held eight contacts in this pass. Start calling again to check the next contacts.",
+                "message": "Eight contacts in a row were held (HubSpot call history, or another rep called them today). Start calling again to check the next contacts.",
             },
         )
     return await assign(service, p, provisional)

@@ -81,6 +81,24 @@ async def request(managed, method, params):
         return PoolAdmission(reason="unavailable")
 
 
+async def recent_elsewhere(managed, prospect):
+    """When another rep's computer last called this prospect, if within 24 hours (plan P5); None otherwise.
+
+    A relay without the check (not yet migrated) or a failed read answers None: the per-rep limits still apply.
+    """
+    if managed.client is None:
+        return None
+    try:
+        response = await managed.client.rpc(
+            "relay_pool_recent", {"target": prospect, **lease_params(managed)}
+        ).execute()
+    except Exception as error:
+        LOG.info("Shared recent-call check unavailable: %s", type(error).__name__)
+        return None
+    data = response.data if isinstance(response.data, dict) else {}
+    return data.get("other_rep_at")
+
+
 async def cancel(managed, ref, *, unsent=False):
     if not ref or managed.client is None:
         return

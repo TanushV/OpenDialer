@@ -592,7 +592,10 @@ export function useCallLoop() {
       setPacket(
         next.lead.test_contact
           ? null
-          : await api<Packet>(`/v1/leads/${next.lead.id}/packet`),
+          : {
+              ...(await api<Packet>(`/v1/leads/${next.lead.id}/packet`)),
+              local: next.local ?? null,
+            },
       );
       // Pause pressed while the lead was reserved or loading: no call is placed and the lead is given back.
       if (await pausedMeanwhile(true)) return;
