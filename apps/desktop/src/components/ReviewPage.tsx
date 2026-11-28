@@ -12,6 +12,7 @@ import { ReviewIssues } from "./ReviewIssues";
 import { SummaryView } from "./SummaryView";
 import { CarrierRates } from "./CarrierRates";
 import { DropOff } from "./DropOff";
+import { CallRecordingView } from "./CallRecordingView";
 
 export function ReviewPage({
   onNavigate,
@@ -162,6 +163,7 @@ export function ReviewPage({
           <p>{label(review.call.outcome || "Outcome unconfirmed")}</p>
         </div>
       </div>
+      <CallRecordingView key={review.call.id} callId={review.call.id} />
       {summary && (
         // Only calls from before 2.4.2 have one: transcripts are no longer kept (work package 9.3 C5).
         <section className="card padded" aria-label="AI summary">

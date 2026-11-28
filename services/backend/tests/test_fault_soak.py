@@ -12,7 +12,8 @@ After every step:
   checked here from the area code and a fixed holiday list, independently of the product's own rule;
 - an End as voicemail within 7 seconds of answer never reaches the carrier before 7 seconds after answer;
 - a late detection receipt never causes a hang-up, and practice speech on a test call never adds a hold;
-- no transcript text remains for a call that has ended;
+- an ended call keeps only the text call insights plan P1 allows: the prospect's side only for a one-party state, and
+  nothing for a number that opted out (checked from the area code here, independently of the product's rule);
 and at the end, a plain recovery (end the call, save its outcome, go ready) always leaves calling either able to dial
 or saying in plain words why not (G3, G10). A failing seed is a regression test: keep it in REGRESSION_SEEDS.
 
@@ -53,6 +54,8 @@ HOLIDAYS = {
         "2027-10-11 2027-11-11 2027-11-25 2027-12-24"
     ).split()
 }
+# Independent of the product: whether the fixture's area codes are one-party consent states (plan P1).
+ONE_PARTY = {"415": False, "212": True, "312": False, "512": True, "617": False, "202": True}
 HOLD = timedelta(seconds=7)
 SPEECH = ["Stop calling me, take me off your list.", "We have no budget this year.", "Who is this?"]
 
@@ -285,15 +288,28 @@ class Run:
             return {row.data["phone"] for row in s.scalars(select(model)) if row.data.get("active", True)}
 
     def transcript_text_after_end(self):
+        """Text an ended call kept that plan P1 does not allow, judged from the phone's area code here."""
         from app.platform.db import MODELS
         from sqlalchemy import select
 
         calls = self.request("GET", "/v1/workspace/calls?filter=all&q=").json()["items"]
         ended = {c["id"] for c in calls if c.get("state") in TERMINAL}
         model = MODELS["transcript_segments"]
+        wrong = []
         with self.client.app.state.db.transaction(False) as s:
-            rows = s.scalars(select(model).where(model.ctx_key.in_(ended))) if ended else []
-            return [row.data.get("text") for row in rows if row.data.get("text")]
+            rows = list(s.scalars(select(model).where(model.ctx_key.in_(ended)))) if ended else []
+            for row in rows:
+                if not row.data.get("text"):
+                    continue
+                call = s.get(MODELS["call_attempts"], row.ctx_key)
+                kind = "test_contacts" if call.data.get("test_contact") else "leads"
+                phone = s.get(MODELS[kind], call.data["lead_id"]).data["phone"]
+                allowed = phone not in self.opted_out and (
+                    row.data.get("side") == "rep" or ONE_PARTY.get(phone[2:5], False)
+                )
+                if not allowed:
+                    wrong.append((phone, row.data.get("side")))
+        return wrong
 
     STEPS = [
         go_ready,
@@ -337,7 +353,7 @@ class Run:
                 f"short-call hold broken: carrier stop for {provider} at {at.isoformat()}, answer {answered.isoformat()}"
             )
         left = self.transcript_text_after_end()
-        assert not left, f"transcript text kept after a call ended: {len(left)} segments"
+        assert not left, f"an ended call kept text plan P1 does not allow: {left[:3]}"
 
     def recover(self):
         """The plainest way back: end the call, save its outcome, go ready. Calling must then dial or say why."""

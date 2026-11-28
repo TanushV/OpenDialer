@@ -13,6 +13,7 @@ import { Keypad } from "../components/Keypad";
 import { DialLists } from "../components/LeadLists";
 import { LiveCoach } from "../components/LiveCoach";
 import { ProspectBrief } from "../components/ProspectBrief";
+import { RecordingStatus } from "../components/RecordingStatus";
 import { revealScriptPart, ScriptReader } from "../components/ScriptReader";
 import { CallbackReviewNotice, WrapUp } from "../components/WrapUp";
 import { Button } from "../ui/kit";
@@ -296,6 +297,12 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
         </>
       )}
       {between && !testing && <DueTasks />}
+      {phase.kind === "talking" && call && (
+        <RecordingStatus
+          call={call}
+          onConsent={() => void loop.act.record_consent()}
+        />
+      )}
       {phase.kind === "talking" && call && (
         <LiveCoach
           call={call}

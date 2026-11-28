@@ -30,6 +30,11 @@ def apply_in(service, s, entry):
     if endpoint:
         # Lock affected calls before any denial dirties shared report state.
         revoke_effects(service, s, p, endpoint.id, ["live", "transcription", "recording", "prerecorded"])
+        if entry["reason"] == "opt_out":
+            from app import call_records as recording
+
+            # Call insights plan P4: an opt-out deletes every recording of that phone.
+            recording.forget_endpoint(service, s, p, endpoint.id)
     row = ops._by_key(service, s, p, "suppressions", key)
     hold = entry["reason"] == "temporary_hold"
     if not row:

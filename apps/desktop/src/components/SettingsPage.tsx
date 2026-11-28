@@ -108,6 +108,7 @@ function AdminSettings({ onNavigate }: { onNavigate: (view: View) => void }) {
         }}
       />
       <LiveTranscription settings={settings} />
+      <CallRecording settings={settings} />
       <TestListSettings onNavigate={onNavigate} />
       {!settings.data && (
         <section className="card padded">
@@ -903,7 +904,7 @@ function UpdateSettings() {
   );
 }
 
-/** Work package 9.3 C5: the rep can turn live transcription and the helper off. Transcripts are never kept. */
+/** Work package 9.3 C5: the rep can turn live transcription and the helper off entirely. */
 function LiveTranscription({
   settings,
 }: {
@@ -936,9 +937,150 @@ function LiveTranscription({
       </label>
       <p className="fine">
         {on
-          ? "During a call, speech is transcribed to follow your script and power the live helper. The text is deleted when the call ends."
+          ? "During a call, speech is transcribed to follow your script and power the live helper. What a call keeps afterwards is set under Call recording."
           : "Off: no call audio leaves this computer, and the script follower and live helper do not run."}
       </p>
+    </section>
+  );
+}
+
+interface RecordingSettings {
+  record_rep: boolean;
+  transcribe_prospect_stricter: boolean;
+  recording_states: string[];
+  recording_retention_months: number | null;
+  stricter_default: string[];
+  disk_bytes: number;
+}
+
+function megabytes(bytes: number) {
+  return bytes < 1e6 ? "under 1 MB" : `${(bytes / 1e6).toFixed(0)} MB`;
+}
+
+/**
+ * Call insights plan P1 to P4: what calls keep. The rep's side always; the prospect's only where one-party
+ * consent applies or after R. The state list is a default, not legal advice; complying is the user's job.
+ */
+function CallRecording({
+  settings,
+}: {
+  settings: ReturnType<typeof useAdminSettings>;
+}) {
+  const { api, run } = useWorkspace();
+  const data = settings.data as
+    | { version?: number; recording?: RecordingSettings }
+    | undefined;
+  const rules = data?.recording;
+  if (!data || !rules) return null;
+  const save = (values: Record<string, unknown>) =>
+    void run(async () => {
+      await api("/v1/admin/settings", "PUT", {
+        expected_version: data.version,
+        request_id: crypto.randomUUID(),
+        ...values,
+      });
+      await settings.load();
+    });
+  return (
+    <section className="card padded" aria-label="Call recording">
+      <h2>Call recording</h2>
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={rules.record_rep}
+          onChange={(event) => save({ record_rep: event.target.checked })}
+        />{" "}
+        Record my side
+      </label>
+      <p className="fine">
+        Your side of each answered call is kept with its transcript. The
+        prospect's side is kept only where one person's consent is enough,
+        judged by their listed state and their area code. Elsewhere, tell them
+        the call is recorded and press R. Recordings stay on this computer,
+        encrypted, until you delete them.
+      </p>
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={rules.transcribe_prospect_stricter}
+          onChange={(event) =>
+            save({ transcribe_prospect_stricter: event.target.checked })
+          }
+        />{" "}
+        Transcribe the prospect live in stricter states
+      </label>
+      <p className="fine">
+        On: the live helper hears the prospect on every call, and nothing they
+        say is kept unless R is pressed. Off: in stricter states the prospect is
+        not transcribed until R, so the helper waits.
+      </p>
+      <label>
+        Delete recordings automatically
+        <select
+          aria-label="Delete recordings automatically"
+          value={String(rules.recording_retention_months ?? 0)}
+          onChange={(event) =>
+            save({ recording_retention_months: Number(event.target.value) })
+          }
+        >
+          <option value="0">Never</option>
+          {[1, 3, 6, 12, 24, 36].map((months) => (
+            <option key={months} value={months}>
+              After {months} {months === 1 ? "month" : "months"}
+            </option>
+          ))}
+        </select>
+      </label>
+      <details>
+        <summary>Stricter states</summary>
+        <p className="fine">
+          States where every party must consent:{" "}
+          {rules.recording_states.join(", ")}. This list is a default, not legal
+          advice. You are responsible for following recording laws where you and
+          your prospects are.
+        </p>
+        <label>
+          Edit the list (two-letter codes)
+          <input
+            aria-label="Stricter states"
+            defaultValue={rules.recording_states.join(", ")}
+            onBlur={(event) => {
+              const codes = event.target.value
+                .toUpperCase()
+                .split(/[^A-Z]+/)
+                .filter((code) => code.length === 2);
+              if (codes.join() !== rules.recording_states.join())
+                save({ recording_states: codes });
+            }}
+          />
+        </label>
+        <button
+          className="text"
+          onClick={() => save({ recording_states: rules.stricter_default })}
+        >
+          Restore the default list
+        </button>
+      </details>
+      <p className="fine">
+        Recordings use {megabytes(rules.disk_bytes)} on this computer.
+      </p>
+      <button
+        className="secondary"
+        onClick={() =>
+          void run(async () => {
+            if (
+              !window.confirm(
+                "Delete every recording and kept transcript? This cannot be undone.",
+              )
+            )
+              return;
+            await api("/v1/recordings", "DELETE");
+            await settings.load();
+          })
+        }
+      >
+        Delete all recordings
+      </button>
     </section>
   );
 }

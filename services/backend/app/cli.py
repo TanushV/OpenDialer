@@ -137,7 +137,19 @@ def self_check():
     from app.providers import chat_agent  # noqa: F401
 
     ddgs.DDGS()
-    print("ok: ddgs " + getattr(ddgs, "__version__", "?"))
+    # Call insights plan P3: the packaged backend encodes call audio as Ogg Opus and plays it back as WAV.
+    import io
+
+    import numpy as np
+    import soundfile
+
+    encoded = io.BytesIO()
+    soundfile.write(encoded, np.zeros((1600, 2), dtype=np.int16), 16000, format="OGG", subtype="OPUS")
+    encoded.seek(0)
+    samples, _ = soundfile.read(encoded, dtype="int16")
+    if samples.shape[1] != 2:
+        raise SystemExit("Call audio round trip failed")
+    print("ok: ddgs " + getattr(ddgs, "__version__", "?") + "; audio " + soundfile.__libsndfile_version__)
 
 
 def main():

@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, W
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
@@ -334,6 +334,13 @@ class ProviderSettings(Strict):
     research_route: Literal["chatgpt", "fallback"] | None = None
     # Work package 9.3 C5: off means no call audio leaves this computer for speech or the live helper.
     live_transcription: bool | None = None
+    # Call insights plan P1, P2 and P4: what calls keep, and for how long.
+    record_rep: bool | None = None
+    transcribe_prospect_stricter: bool | None = None
+    recording_states: list[Annotated[str, StringConstraints(pattern=r"^[A-Z]{2}$")]] | None = Field(
+        default=None, max_length=60
+    )
+    recording_retention_months: Literal[0, 1, 3, 6, 12, 24, 36] | None = None
 
 
 SECRET_FIELDS = {
@@ -789,11 +796,58 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.delete("/v1/calls/{call_id}/transcript")
     def delete_transcript(call_id: str, p=Depends(principal)):
-        """R10.5: the rep deletes a call's saved transcript now instead of waiting 30 days."""
+        """The rep deletes a call's kept transcript and audio now (call insights plan P4)."""
+        from app import call_records as recording
+
         with db.transaction() as s:
-            ops.required(service, s, "call_attempts", call_id, p)
+            row = ops.required(service, s, "call_attempts", call_id, p)
             ops.forget_transcript(service, s, p, call_id)
+            recording.forget_call(service, s, p, row)
         return {"deleted": True}
+
+    @app.delete("/v1/calls/{call_id}/recording")
+    def delete_recording(call_id: str, p=Depends(principal)):
+        return delete_transcript(call_id, p)
+
+    @app.delete("/v1/recordings")
+    def delete_recordings(p=Depends(administrator)):
+        from app import call_records as recording
+
+        return {"deleted": recording.forget_all(service, p)}
+
+    @app.post("/v1/calls/{call_id}/recording/consent")
+    def recording_consent(call_id: str, p=Depends(principal)):
+        """The rep told the prospect the call is recorded (R): keep their side from now (plan P1)."""
+        from app import call_records as recording
+
+        return {"recording": recording.consent(service, p, call_id)}
+
+    @app.get("/v1/calls/{call_id}/recording")
+    def call_recording(call_id: str, p=Depends(principal)):
+        """What a finished call kept: the rules it ran under, its audio's state and the kept transcript."""
+        from app.calling.state import TERMINAL
+
+        with db.transaction(False) as s:
+            row = ops.required(service, s, "call_attempts", call_id, p)
+            kept = [
+                {k: r.get(k) for k in ("segment_id", "side", "text", "start_ms", "end_ms", "script_section")}
+                for r in ops.transcript_rows(service, s, p, call_id)
+                if r.get("is_final") and r.get("text") and (row.data["state"] in TERMINAL)
+            ]
+        rules = row.data.get("recording") or {}
+        return {
+            "call_id": call_id,
+            "recording": {k: v for k, v in rules.items() if k not in {"file", "activity"}},
+            "transcript": sorted(kept, key=lambda r: (r.get("start_ms") is None, r.get("start_ms") or 0)),
+        }
+
+    @app.get("/v1/calls/{call_id}/recording/audio")
+    def call_recording_audio(call_id: str, p=Depends(principal)):
+        from fastapi.responses import Response
+
+        from app import call_records as recording
+
+        return Response(recording.audio_wav(service, p, call_id), media_type="audio/wav")
 
     @app.post("/v1/calls/{call_id}/disposition")
     def disposition(call_id: str, data: Disposition, p=Depends(principal)):
@@ -1152,6 +1206,9 @@ def create_app(settings=None, *, clock=None, carrier=None):
 
     @app.get("/v1/admin/settings")
     def read_settings(p=Depends(administrator)):
+        from app.call_records import STRICTER as STRICTER_STATES
+        from app.call_records import disk_bytes as recording_disk
+        from app.call_records import settings as recording_settings
         from app.compliance.operating import OperatingPolicy
         from app.optimization.api import HealthPolicy
         from app.optimization.workflows import DEFAULTS as OPTIMIZATION_DEFAULTS
@@ -1174,6 +1231,11 @@ def create_app(settings=None, *, clock=None, carrier=None):
             "version": config.get("version", 0),
             "budget": budget_values,
             "optimization": optimization,
+            "recording": {
+                **recording_settings(service, p),
+                "stricter_default": list(STRICTER_STATES),
+                "disk_bytes": recording_disk(service),
+            },
             "effective": {
                 **{
                     key: config.get(key, getattr(PROVIDER_DEFAULTS, key))

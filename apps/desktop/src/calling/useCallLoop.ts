@@ -853,6 +853,17 @@ export function useCallLoop() {
     telephony.current.mute();
     setMuted((value) => !value);
   }
+  /** The rep said the call is recorded: keep the prospect's side from now (plan P1). */
+  async function recordConsent() {
+    const current = callRef.current;
+    const rules = current?.recording;
+    if (!current || !rules || rules.prospect || rules.consent_at) return;
+    await api(
+      `/v1/calls/${encodeURIComponent(current.id)}/recording/consent`,
+      "POST",
+    );
+    await reloadCall(current.id);
+  }
   async function save(code: string, voicemailMessage?: "left" | "none") {
     const pressed = callRef.current;
     if (!pressed) return;
@@ -1003,6 +1014,7 @@ export function useCallLoop() {
     voicemail_none: () => run(() => save("voicemail", "none")),
     hangup: () => run(() => hangup()),
     mute,
+    record_consent: () => run(recordConsent),
     dial_now: advance,
     change_outcome: () => setEditing(true),
     save: (code: string) => run(() => save(code)),

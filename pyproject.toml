@@ -19,6 +19,7 @@ dependencies = [
   "supabase==2.33.0",
   "ddgs>=9,<10",
   "webrtcvad-wheels>=2.0.14.post1,<3",
+  "soundfile>=0.13,<1",
 ]
 [dependency-groups]
 dev = [

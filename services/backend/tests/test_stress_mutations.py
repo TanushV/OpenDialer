@@ -41,7 +41,10 @@ def plant(name, monkeypatch):
 
         monkeypatch.setattr(ops, "event", event)
     elif name == "transcript kept":
-        monkeypatch.setattr(ops, "forget_transcript", lambda *args, **kwargs: None)
+        from app import call_records as recording
+
+        # Keep every segment, the prospect's side in a stricter state included (plan P1 broken).
+        monkeypatch.setattr(recording, "keeps_text", lambda rules, row: True)
     elif name == "practice speech suppresses":
         monkeypatch.setattr(ops, "practice_call", lambda call: False)
     elif name == "dial submitted twice":
@@ -68,7 +71,7 @@ MUTANTS = {
     "opt-out ignored": ("outreach", "was dialed after it opted out"),
     "calling window ignored": ("outreach", "outside the calling window"),
     "detection hangs up": ("outreach", "late detection receipt caused a hang-up"),
-    "transcript kept": ("outreach", "transcript text kept after a call ended"),
+    "transcript kept": ("outreach", "an ended call kept text plan P1 does not allow"),
     "practice speech suppresses": ("test", "practice speech on a test call added a hold"),
     "dial submitted twice": ("outreach", "more dials than the rep requested"),
 }

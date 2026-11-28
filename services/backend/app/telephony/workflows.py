@@ -166,13 +166,9 @@ def event(service, p, event_id, event_type, call_id, payload=None, *, session=No
                 update(call, **changes)
                 if first_answer and lead is not None:
                     ops._keep_callback_promise(service, s, p, call, lead)
-            if (
-                event_type == "call.answered"
-                and call.data["state"] not in TERMINAL | {"ENDING"}
-                and ops.speech_allowed(service, s, p, call)
-            ):
+            if event_type == "call.answered" and call.data["state"] not in TERMINAL | {"ENDING"}:
                 # Test calls get the same speech as outreach; only outreach consults its calling policy.
-                ops.start_transcription_in(service, s, p, call)
+                ops.start_transcription_in(service, s, p, call, live=ops.speech_allowed(service, s, p, call))
             if (
                 event_type == "call.hangup"
                 and call.data["state"] in TERMINAL
@@ -195,23 +191,32 @@ def _outreach_context(service, s, p, call):
     return lead, ops.required(service, s, "policy_versions", campaign.data["policy_id"], p).data
 
 
-def start_transcription_in(service, s, p, call):
-    """Live speech comes only from the app's own audio tracks (plan C1): the carrier never transcribes.
+def start_transcription_in(service, s, p, call, *, live=True):
+    """At answer: what the call keeps (plan P1) and whether its speech is transcribed live (P2).
 
-    A workspace without the relay has no direct audio route, so its calls carry no live transcript.
+    Live speech comes only from the app's own audio tracks (plan C1): the carrier never transcribes. A workspace
+    without the relay has no direct audio route, so its calls carry neither a live transcript nor audio.
     """
-    update(call, live_speech=True)
-    if call.data.get("transcription_source") == "direct":
-        update(call, transcription_layout="direct_tracks")
-    else:
+    from app import call_records as recording
+
+    if call.data.get("recording"):
+        return
+    rules = recording.basis_for(service, s, p, call)
+    update(call, live_speech=bool(live), recording=rules)
+    if call.data.get("transcription_source") != "direct":
         update(call, transcription_unavailable="no_direct_audio")
+    elif live or rules["rep"] or rules["prospect"]:
+        update(call, transcription_layout="direct_tracks")
 
 
 def finish_call(service, s, p, call, reason=None):
+    from app import call_records as recording
+
     dial.finish_call(service, s, p, call, reason)
-    # Transcripts feed only the live call; their text is deleted when it ends (work package 9.3 C5).
     ops.record_script_trace(service, s, p, call)
-    ops.forget_transcript(service, s, p, call.id)
+    # The text plan P1 allows is kept until deleted; the rest is deleted now. The audio follows in a job.
+    recording.keep_transcript(service, s, p, call)
+    recording.enqueue_finalize(service, s, p, call)
     for lease in ops.scoped(service, s, "number_leases", p):
         if lease.data.get("call_id") == call.id and lease.data.get("active"):
             update(lease, active=False)

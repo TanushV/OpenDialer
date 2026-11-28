@@ -390,11 +390,20 @@ def script_section_of(service, s, p, call, segment):
     """Keep match metadata alongside the transcript revision that supports it."""
     if segment.get("side") != "rep" or not segment.get("is_final") or segment.get("system_audio"):
         return {"script_section": None, "section_score": None, "script_candidate": None}
+    from app import call_records as recording
+    from app.calling import audio_tracks
     from app.script_follow import bleeds, match, sequence
 
     rows = _recent_rows(service, s, p, call, segment)
-    if any(row.data.get("side") == "remote" and bleeds(segment, row.data) for row in rows):
-        # The prospect's voice reached the rep's microphone (plan C6): not the rep's speech.
+    heard = recording.side_policy(call.data, "remote", live=bool(call.data.get("live_speech")))[0]
+    if any(row.data.get("side") == "remote" and bleeds(segment, row.data) for row in rows) or (
+        not heard
+        and audio_tracks.bleed_suspect(
+            audio_tracks.current(p["tenant_id"], call.id), segment.get("start_ms"), segment.get("end_ms")
+        )
+    ):
+        # The prospect's voice reached the rep's microphone (plan C6): not the rep's speech. Without the
+        # prospect's words to compare, a quieter rep segment inside prospect speech counts as bleed.
         return {"script_section": None, "section_score": None, "script_candidate": None, "bleed": True}
     script = call.data.get("script_snapshot")
     if not script:

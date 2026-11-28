@@ -22,8 +22,8 @@ def finished_call(ws, *, outcome="not_interested", said="We have no budget for t
     return call_id
 
 
-def test_review_shows_the_outcome_and_call_shape_but_no_transcript_text(workspace):
-    """Work package 9.3 C5: text is deleted at call end; the word-free call shape stays for script learning."""
+def test_review_shows_the_outcome_call_shape_and_only_the_text_the_call_kept(workspace):
+    """Call insights plan P1: the rep's side is kept; the prospect's only where one-party consent applies."""
     ws = workspace
     call(ws, "PUT", "/v1/admin/settings", json={"openrouter_api_key": "test-openrouter"})
     cid = finished_call(ws)
@@ -31,7 +31,12 @@ def test_review_shows_the_outcome_and_call_shape_but_no_transcript_text(workspac
     review = get(ws, f"/v1/calls/{cid}/review")
     assert review["call"]["state"] == "FINALIZED" and review["call"]["outcome"] == "not_interested"
     assert not review.get("summary") or review["summary"].get("status") != "ready"
-    assert not any(t.get("text") for t in review["transcript"])
+    rules = review["call"]["recording"]
+    kept = {t["side"]: t["text"] for t in review["transcript"] if t.get("text")}
+    expected = {"rep": "Hi, this is Example Seller calling about a brief introduction."}
+    if rules["prospect"]:
+        expected["remote"] = "We have no budget for this right now."
+    assert kept == expected, rules
     assert review["human_notes"] is None
     assert review["script_trace"] is not None, "The script trace is written at call end, for script learning"
 

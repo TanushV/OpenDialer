@@ -220,6 +220,10 @@ export interface Call {
   transcription_source?: string;
   transcription_layout?: string;
   transcription_disabled?: boolean;
+  /** Whether this call's speech is transcribed live (call insights plan P2). */
+  live_speech?: boolean;
+  /** What the call keeps (plan P1): the rep's side, the prospect's when sure or after R. */
+  recording?: Recording | null;
   agent_provider_id?: string;
   /** Rep-visible edit counter used for wrap-up conflicts (row version moves on bookkeeping). */
   edit_version?: number;
@@ -646,3 +650,26 @@ export const isTerminal = (call: { state: string } | null | undefined) =>
 /** The rep is still on the line: the call has not finished. */
 export const isActiveCall = (call: { state: string } | null | undefined) =>
   !!call && !isTerminal(call);
+
+/** The rules a call ran under and its audio's state (call insights plan P1 to P4). */
+export interface Recording {
+  rep: boolean;
+  prospect: boolean;
+  prospect_live: boolean;
+  /** `one_party`, a stricter state's code, `toll_free`, `unknown` or `outside_us`. */
+  reason: string;
+  consent_at: string | null;
+  consent_ms: number | null;
+  status:
+    | "pending"
+    | "capturing"
+    | "saved"
+    | "no_audio"
+    | "failed"
+    | "deleted"
+    | "opt_out"
+    | "expired";
+  duration_ms?: number;
+  bytes?: number;
+  tracks?: Record<string, { start_ms: number }>;
+}

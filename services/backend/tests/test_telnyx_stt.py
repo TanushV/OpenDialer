@@ -91,6 +91,7 @@ def test_live_socket_requires_a_current_local_call(workspace, app):
 def managed_call(workspace, app):
     from time import monotonic
 
+    from app import call_records as recording
     from app.platform.db import get, update
     from conftest import start
 
@@ -103,7 +104,13 @@ def managed_call(workspace, app):
     made = start(workspace)
     with service.db.transaction() as s:
         call = get(s, "call_attempts", made["id"], workspace["tenant_id"])
-        update(call, state="HUMAN", transcription_layout="direct_tracks")
+        update(
+            call,
+            state="HUMAN",
+            transcription_layout="direct_tracks",
+            live_speech=True,
+            recording=recording.basis(call.data | {"phone": "+14155550100"}),
+        )
     return made
 
 

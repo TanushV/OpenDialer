@@ -272,6 +272,27 @@
   padding: 6px 10px;
   font-size: 11px;
 }
+/* A call's kept transcript in Review, highlighted as its audio plays. */
+.kept-transcript {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-left: 18px;
+}
+.kept-transcript li {
+  cursor: pointer;
+  padding: 2px 0;
+}
+.kept-transcript li.current {
+  background: #f1ecfd;
+}
+/* What the call keeps, always visible while talking (call insights plan C4). */
+.recording-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 8px;
+}
 /* A far script part matched once stays a button at the top of the script pane (call insights plan P6). */
 .script-jump {
   position: sticky;

@@ -197,7 +197,7 @@ def sidecars():
             "  FAIL  frozen backend cannot load web search: " + (searched.stderr or searched.stdout)[-1500:]
         )
         return False
-    print("  pass  backend self-check (web search loads)")
+    print("  pass  backend self-check (web search loads, call audio encodes)")
     return smoke(backend)
 
 

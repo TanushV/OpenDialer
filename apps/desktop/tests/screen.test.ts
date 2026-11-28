@@ -140,11 +140,13 @@ describe("the Dialer screen phases (section 6)", () => {
       Space: "voicemail",
       Escape: "hangup",
       KeyM: "mute",
+      KeyR: "record_consent",
     });
     expect(at({ call: { state: "HUMAN" } })).toEqual({
       Space: "voicemail",
       Escape: "hangup",
       KeyM: "mute",
+      KeyR: "record_consent",
     });
     expect(Object.keys(at({ call: { state: "ENDED" } }))).toEqual([
       "Digit1",

@@ -165,6 +165,7 @@ export type Action =
   | "voicemail_none"
   | "hangup"
   | "mute"
+  | "record_consent"
   | "dial_now"
   | "change_outcome"
   | { save: number };
@@ -180,7 +181,13 @@ export function keys(phase: Phase): Record<string, Action> {
       return { Space: "skip", Escape: "hangup", KeyP: "pause" };
     case "talking":
       // Space is End as voicemail after answer; Esc stays the plain Hang up (work package 6.4).
-      return { Space: "voicemail", Escape: "hangup", KeyM: "mute" };
+      // R: the rep told the prospect the call is recorded (call insights plan P1).
+      return {
+        Space: "voicemail",
+        Escape: "hangup",
+        KeyM: "mute",
+        KeyR: "record_consent",
+      };
     case "ended":
       // One save at a time: while it answers, no key can start another.
       return phase.saving

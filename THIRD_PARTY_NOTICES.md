@@ -8,6 +8,11 @@ Source and license: [openai/codex](https://github.com/openai/codex),
 [LICENSE](https://github.com/openai/codex/blob/main/LICENSE).
 The package versions and integrity hashes are pinned in `apps/desktop/package-lock.json`.
 
+Call recording (from 2.5) bundles **python-soundfile 0.14** (BSD-3-Clause, Copyright Bastian Bechtold,
+[source](https://github.com/bastibe/python-soundfile)) and the **libsndfile 1.2.2** shared library its wheels ship,
+under **LGPL-2.1-or-later** ([source](https://github.com/libsndfile/libsndfile)), with the Ogg, Vorbis, Opus and FLAC
+codecs it is built with (BSD-style licenses). libsndfile is loaded as a separate shared library at run time.
+
 | Ecosystem | Package | Version | License | Text IDs |
 |---|---|---|---|---|
 | Cargo | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | 23f18e03dc49df91, 861399f8c21c042b, 8ada45cd9f843acf |

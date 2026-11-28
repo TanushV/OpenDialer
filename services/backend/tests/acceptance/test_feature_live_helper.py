@@ -151,8 +151,8 @@ def test_the_tip_ends_with_the_call(workspace, clock):
     assert live["coach"] is None and live["helper_status"] is None
 
 
-def test_the_transcript_is_deleted_when_the_call_ends_while_notes_and_outcome_remain(workspace, clock):
-    """Work package 9.3 C5 (replaces D7): transcript text exists only while the call is live."""
+def test_kept_text_follows_the_recording_rules_and_never_reaches_events_or_the_lead(workspace, clock):
+    """Call insights plan P1 (replaces work package C5): text the call may keep stays for review, nowhere else."""
     ws = workspace
     call_id = start(ws)["id"]
     lead_id = get(ws, f"/v1/calls/{call_id}")["lead_id"]
@@ -166,7 +166,7 @@ def test_the_transcript_is_deleted_when_the_call_ends_while_notes_and_outcome_re
     wrap_up(ws, call_id, outcome="not_interested", contact_role="right_party")
     run_jobs(ws)
     review = get(ws, f"/v1/calls/{call_id}/review")
-    assert MARKER not in json.dumps(review) and not any(t.get("text") for t in review["transcript"])
+    assert (MARKER in json.dumps(review)) is review["call"]["recording"]["prospect"]
     assert review["human_notes"] == "Wants a pricing sheet."
     assert review["call"]["outcome"] == "not_interested"
     for path in ("/v1/events", "/v1/workspace", f"/v1/leads/{lead_id}/packet"):
@@ -177,10 +177,13 @@ def test_deleting_a_transcript_after_the_call_finds_nothing_left(workspace):
     ws = workspace
     call_id = start(ws)["id"]
     answered_by_human(ws, call_id)
+    chunk(ws, call_id, "r1", "Hi, this is Example Seller calling about a brief introduction.", side="rep")
     chunk(ws, call_id, "s1", MARKER)
     call(ws, "POST", f"/v1/calls/{call_id}/hangup")
-    assert MARKER not in json.dumps(get(ws, f"/v1/calls/{call_id}/review"))
     assert call(ws, "DELETE", f"/v1/calls/{call_id}/transcript") == {"deleted": True}
+    review = get(ws, f"/v1/calls/{call_id}/review")
+    assert MARKER not in json.dumps(review) and not any(t.get("text") for t in review["transcript"])
+    assert review["call"]["recording"]["status"] == "deleted"
 
 
 def test_a_tip_shows_the_wording_of_the_matching_script_part(workspace, clock):

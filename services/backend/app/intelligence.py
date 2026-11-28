@@ -278,6 +278,10 @@ async def run_jobs(service, tenant_id=None, queues=None):
             elif lane == "postcall":
                 if kind == "aftercall_summary":
                     await ops.summarize_call(service, p, job["payload"]["call_id"])
+                elif kind == "recording_finalize":
+                    from app import call_records as recording
+
+                    await recording.finalize(service, p, job["payload"]["call_id"])
                 # Older queued finalize and review jobs (before R10.1) have nothing left to do.
             elif lane == "live_coach":
                 from app import live_help
@@ -396,6 +400,10 @@ async def maintenance_tick(service):
     await ops.periodic_optimization(service)
     service.raw.purge()
     await asyncio.to_thread(ops.purge_transcripts, service)
+    from app import call_records as recording
+
+    await asyncio.to_thread(recording.sweep_unfinished, service)
+    await asyncio.to_thread(recording.purge_expired, service)
     await asyncio.to_thread(ops.queue_unfinished_webhooks, service)
     prepare_due = time.monotonic() >= getattr(service, "_next_preparation", 0)
     if prepare_due:

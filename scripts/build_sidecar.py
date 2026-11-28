@@ -117,6 +117,11 @@ def authority_arguments():
         "ddgs",
         "--collect-all",
         "primp",
+        # Call insights plan P3: soundfile loads its bundled libsndfile (Ogg Opus) from package data.
+        "--collect-all",
+        "soundfile",
+        "--collect-all",
+        "_soundfile_data",
         str(root / "scripts/backend_entry.py"),
     ]
 
