@@ -677,6 +677,24 @@ def create_app(settings=None, *, clock=None, carrier=None):
         """D31, R11.6: where answered real calls of the last 30 days ended in the script, by outcome."""
         return ops.drop_off_report(service, p)
 
+    @app.get("/v1/review/compare")
+    def review_compare(by: str = "variant", include_test: bool = False, p=Depends(principal)):
+        """Call results by one dimension, with ranges and a minimum before a difference counts (plan phase 7)."""
+        from app import insights
+
+        if by not in insights.DIMENSIONS:
+            fail(422, "Compare by one of: " + ", ".join(insights.DIMENSIONS))
+        return insights.compare(service, p, by, include_test=include_test)
+
+    @app.get("/v1/review/variants")
+    def review_variants(p=Depends(principal)):
+        """The current master's script test: each variant's hypothesis and results (plan P7)."""
+        from app import insights
+
+        with db.transaction(False) as s:
+            template = ops.master_template(service, s, p)
+        return insights.variants(service, p, template)
+
     @app.get("/v1/review/call-statistics/export")
     def export_call_statistics(include_test: bool = False, p=Depends(principal)):
         from app.call_statistics import export

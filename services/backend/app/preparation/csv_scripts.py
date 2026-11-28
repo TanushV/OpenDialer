@@ -17,6 +17,9 @@ META_COLUMNS = {
     "scriptmasterversion": "master_version",
     "scriptpath": "path",
     "scriptgenerator": "generator",
+    # Call insights plan P7: the script test variant the generator drew, and the test it counts in (blank if none).
+    "scriptvariant": "variant",
+    "scriptvarianttest": "variant_test",
 }
 MAX_META = 200
 RESEARCH_KEY = re.sub(r"[\W_]+", "", RESEARCH_COLUMN)
@@ -119,6 +122,12 @@ def store_script_in(service, s, p, lead, template):
         claims=[],
         **({"provenance": provenance} if provenance else {}),
     )
+    if provenance and provenance.get("variant"):
+        rendered.update(
+            script_variant=provenance["variant"],
+            variant_test=provenance.get("variant_test") or None,
+            variant_in_test=bool(provenance.get("variant_test")),
+        )
     row = put(
         s,
         "script_versions",

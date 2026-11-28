@@ -821,15 +821,27 @@ def prepare_tick(service, p, finishing=None):
 
 
 def queue_threads_in(service, s, p, leads, size, room):
-    """Pack leads into threads of `size`, keeping each company's contacts together."""
-    groups = {}
+    """Pack leads into threads of `size`, keeping each company's contacts together.
+
+    With a script test (plan P7), each thread holds one variant's leads, so the agent writes inside one variant.
+    """
+    from app.preparation.templates import assign_variant
+
+    template = ops.master_template(service, s, p) or {}
+    groups, variants = {}, {}
     for lead in leads:
-        groups.setdefault(lead.data.get("company_key") or lead.id, []).append(lead)
-    threads, current = [], []
-    for group in groups.values():
-        if current and len(current) + len(group) > size:
+        variant = assign_variant(template, doc(lead))
+        variants.setdefault(variant, []).append(lead)
+    for variant, members in variants.items():
+        for lead in members:
+            groups.setdefault((variant, lead.data.get("company_key") or lead.id), []).append(lead)
+    ordered = sorted(groups.items(), key=lambda item: str(item[0][0]))
+    threads, current, current_variant = [], [], None
+    for (variant, _), group in ordered:
+        if current and (len(current) + len(group) > size or variant != current_variant):
             threads.append(current)
             current = []
+        current_variant = variant
         for lead in group:
             current.append(lead)
             if len(current) == size:
@@ -1023,6 +1035,16 @@ def claim_thread(service, p, lead_ids):
         campaign = ops.scoped(service, s, "campaigns", p)[0]
         base = ops.script_base(service, s, p, campaign)
         template = base["template"]
+        if template and template.get("variants") and claimed:
+            from app.preparation.templates import assign_variant, with_variant
+
+            # One variant per thread (plan P7); a lead drawn for another variant waits for its own thread.
+            variant = assign_variant(template, claimed[0]["lead"])
+            for item in [i for i in claimed if assign_variant(template, i["lead"]) != variant]:
+                lead = ops.required(service, s, "leads", item["lead"]["id"], p)
+                update(lead, preparation_lease=None)
+                claimed.remove(item)
+            template = with_variant(template, variant)
         for item in claimed:
             item["base_version"] = base["version"]
         memory = ops.script_memory_digest_in(service, s, p, campaign) if template else None

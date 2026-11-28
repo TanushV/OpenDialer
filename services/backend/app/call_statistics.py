@@ -35,6 +35,10 @@ CALLS = (
     "last_section_key",
     "last_option_id",
     "selected_options",
+    # Call insights plan P7: the script test variant, its test and whether this call counts in the comparison.
+    "script_variant",
+    "variant_test",
+    "variant_in_test",
 )
 EVENTS = (
     "call_id",
@@ -103,7 +107,8 @@ def csv_file(archive, filename, columns, rows):
     archive.writestr(filename, buffer.getvalue())
 
 
-def export(service, p, *, include_test=False):
+def collect(service, p, *, include_test=False):
+    """Every finished call's row, script events, the structures they used and per-stage counts."""
     calls, events, structures = [], [], {}
     reached, ended, visits = Counter(), Counter(), Counter()
     model = MODELS["call_attempts"]
@@ -197,6 +202,13 @@ def export(service, p, *, include_test=False):
                     ),
                     "rep_segments": len(segments),
                     "matched_segments": len(matches),
+                    "script_variant": script.get("script_variant"),
+                    "variant_test": script.get("variant_test"),
+                    "variant_in_test": bool(script.get("variant_in_test")),
+                    # Not exported as such: the comparison reads these (plan P7).
+                    "_stages": [key for key, _ in groupby(part["section_key"] for part in path)],
+                    "_lead_id": data.get("lead_id"),
+                    "_data": data,
                 }
             )
             if human:
@@ -219,6 +231,11 @@ def export(service, p, *, include_test=False):
                 "visits": visits[identity, key],
             }
         )
+    return calls, events, layout, stage_rows
+
+
+def export(service, p, *, include_test=False):
+    calls, events, layout, stage_rows = collect(service, p, include_test=include_test)
     output = io.BytesIO()
     with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
         csv_file(archive, "calls.csv", CALLS, calls)

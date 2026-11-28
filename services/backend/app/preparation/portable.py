@@ -23,6 +23,8 @@ COLUMNS = (
     "script_path",
     "script_master_digest",
     "script_generator",
+    "script_variant",
+    "script_variant_test",
     RESEARCH_COLUMN,
 )
 # Generation used these to choose the path and write the blocks; a finished script does not repeat them.
@@ -155,6 +157,16 @@ def export_list(service, p, list_name):
                     "script_path": data.get("path") or "",
                     "script_master_digest": data.get("template_version") or "",
                     "script_generator": generator,
+                    "script_variant": data.get("script_variant") or rendered.get("script_variant") or "",
+                    "script_variant_test": (
+                        (data.get("variant_test") or rendered.get("variant_test") or "")
+                        if (
+                            data.get("variant_in_test")
+                            if "variant_in_test" in data
+                            else rendered.get("variant_in_test")
+                        )
+                        else ""
+                    ),
                     RESEARCH_COLUMN: json.dumps(research_record(data, facts), ensure_ascii=False),
                     # AI lines the independent review rejected are left out of the script; the author should know.
                     "dropped_by_review": data.get("dropped_by_review") or [],

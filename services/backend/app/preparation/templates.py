@@ -52,6 +52,11 @@ TRIGGERS = "triggers"
 PATHS = "paths"
 PATH_DEFINITION = re.compile(r"^([a-z][a-z0-9-]*)( \(default\))?:\s*(.+)$")
 PATH_TAG = re.compile(r"\s*\[path:\s*([^\]]+)\]\s*$", re.I)
+# Call insights plan P7: `# Variants` declares one script test; code assigns each lead (by company) at random.
+VARIANTS = "variants"
+VARIANT_DEFINITION = re.compile(r"^([a-z][a-z0-9-]*)\s*\((\d{1,3})%\):\s*(.+)$")
+VARIANT_TAG = re.compile(r"\s*\[variant:\s*([^\]]+)\]\s*$", re.I)
+WHEN = re.compile(r"^\s*when:\s*(.+)$", re.I)
 # How many options of each section a lead's script uses: (minimum, maximum). Objections keep all.
 PICKS = {
     "opening": (1, 1),
@@ -124,7 +129,12 @@ class ScriptError(ValueError):
 
 
 def template_version(template):
-    """Generation identity excludes source formatting; words, cues and claims remain inputs."""
+    """Generation identity excludes source formatting; words, cues and claims remain inputs.
+
+    One variant's view of a master (plan P7) keeps the master's identity, so its scripts are current for that master.
+    """
+    if isinstance(template, dict) and template.get("master_version"):
+        return template["master_version"]
 
     def canonical(value):
         if isinstance(value, str):
@@ -204,7 +214,7 @@ def parse_markdown(markdown, *, finished=False):
                 name,
                 (
                     name
-                    if name in CONTEXT or name in {TRIGGERS, PATHS}
+                    if name in CONTEXT or name in {TRIGGERS, PATHS, VARIANTS}
                     else "custom:" + re.sub(r"[^a-z0-9]+", "-", name).strip("-"),
                     False,
                     "fixed",
@@ -219,7 +229,7 @@ def parse_markdown(markdown, *, finished=False):
             continue
         if current == SKIP:
             continue
-        if heading and current and current not in CONTEXT and current not in {TRIGGERS, PATHS}:
+        if heading and current and current not in CONTEXT and current not in {TRIGGERS, PATHS, VARIANTS}:
             card = {"title": heading[2].strip(), "line": number, "lines": []}
             raw[current]["cards"].append(card)
             continue
@@ -251,6 +261,50 @@ def parse_markdown(markdown, *, finished=False):
             default_path = key
     if PATHS in raw and not paths:
         errors.append({"line": raw[PATHS]["line"], "message": "Declare at least one path"})
+    variants, when = {}, []
+    for number, line in raw.get(VARIANTS, {}).get("lines", []):
+        if not line.strip():
+            continue
+        condition = WHEN.match(line)
+        if condition:
+            when.extend(name.strip().casefold() for name in condition[1].split(",") if name.strip())
+            continue
+        bullet = BULLET.match(line)
+        definition = VARIANT_DEFINITION.fullmatch(bullet[1].strip()) if bullet else None
+        if not definition:
+            errors.append(
+                {
+                    "line": number,
+                    "message": "Declare each variant as - variant-name (50%): what you expect it to do",
+                }
+            )
+            continue
+        key, share, hypothesis = definition.groups()
+        if key in variants:
+            errors.append({"line": number, "message": "Use unique variant names"})
+            continue
+        variants[key] = {"share": int(share), "hypothesis": hypothesis.strip()[:300]}
+    if VARIANTS in raw:
+        if len(variants) < 2:
+            errors.append(
+                {"line": raw[VARIANTS]["line"], "message": "Declare at least two variants to compare"}
+            )
+        elif sum(v["share"] for v in variants.values()) != 100 or any(
+            v["share"] < 1 for v in variants.values()
+        ):
+            errors.append(
+                {
+                    "line": raw[VARIANTS]["line"],
+                    "message": "Variant shares must each be at least 1% and add up to 100%",
+                }
+            )
+        if any(not re.fullmatch(r"[a-z][a-z0-9_-]*", name) for name in when):
+            errors.append(
+                {
+                    "line": raw[VARIANTS]["line"],
+                    "message": "Write When: as trigger types, such as When: hiring_sellers",
+                }
+            )
 
     def ai(text, line, key, option):
         def replace(match):
@@ -286,21 +340,30 @@ def parse_markdown(markdown, *, finished=False):
         return "\n".join(line for _, line in lines).strip()
 
     def option(lines, key, identity, title=None, inherited=""):
-        path_ids = []
-        tag = PATH_TAG.search(title or "")
-        if tag:
+        path_ids, variant_ids = [], []
+        while title:
+            tag, kind = PATH_TAG.search(title), "path"
+            if not tag:
+                tag, kind = VARIANT_TAG.search(title), "variant"
+            if not tag:
+                break
             title = title[: tag.start()].strip()
-            path_ids = list(dict.fromkeys(name.strip().casefold() for name in tag[1].split(",")))
-            unknown = [name or "(empty)" for name in path_ids if name not in paths]
+            names = list(dict.fromkeys(name.strip().casefold() for name in tag[1].split(",")))
+            known = paths if kind == "path" else variants
+            unknown = [name or "(empty)" for name in names if name not in known]
             if unknown or key == "objections":
                 errors.append(
                     {
                         "line": lines[0][0] if lines else raw[key]["line"],
                         "message": "Keep all objections shared"
                         if key == "objections"
-                        else "Unknown script paths: " + ", ".join(unknown),
+                        else f"Unknown script {kind}s: " + ", ".join(unknown),
                     }
                 )
+            if kind == "path":
+                path_ids = names
+            else:
+                variant_ids = names
         spoken, notes = split_cues(lines)
         value = text(spoken)
         if not value:
@@ -328,6 +391,8 @@ def parse_markdown(markdown, *, finished=False):
         }
         if path_ids:
             result["paths"] = path_ids
+        if variant_ids:
+            result["variants"] = variant_ids
         cues = "\n".join(v for v in (inherited, notes) if v)
         if cues:
             _placeholders(cues, raw[key]["line"], errors)
@@ -335,7 +400,15 @@ def parse_markdown(markdown, *, finished=False):
         return result
 
     for key, entry in raw.items():
-        if key in CONTEXT or key in {TRIGGERS, PATHS, "facts", "never_say", "follow_up", "voicemail"}:
+        if key in CONTEXT or key in {
+            TRIGGERS,
+            PATHS,
+            VARIANTS,
+            "facts",
+            "never_say",
+            "follow_up",
+            "voicemail",
+        }:
             continue
         shape = HEADINGS_BY_KEY.get(key, "fixed")
         options = []
@@ -479,6 +552,20 @@ def parse_markdown(markdown, *, finished=False):
             for path in paths
         ):
             errors.append({"line": raw[section["key"]]["line"], "message": "Every path needs this section"})
+        if section["key"] in {"opening", "close"} and any(
+            not any(not o.get("variants") or name in o["variants"] for o in section.get("options", []))
+            for name in variants
+        ):
+            errors.append(
+                {"line": raw[section["key"]]["line"], "message": "Every variant needs this section"}
+            )
+    if variants and not any(o.get("variants") for s in sections for o in s.get("options", [])):
+        errors.append(
+            {
+                "line": raw[VARIANTS]["line"],
+                "message": "Tag the options each variant uses: ## Title [variant: name]",
+            }
+        )
     if errors:
         raise ScriptError(errors)
     return {
@@ -494,6 +581,7 @@ def parse_markdown(markdown, *, finished=False):
         "never_say": never,
         "context": context,
         **({"paths": paths, "default_path": default_path or next(iter(paths))} if paths else {}),
+        **({"variants": variant_test(variants, when)} if variants else {}),
         **({"triggers": triggers} if triggers is not None else {}),
         **notes,
     }
@@ -584,6 +672,88 @@ def sections_for_path(sections, path):
     return result
 
 
+def variant_test(variants, when):
+    """The script test a master declares, with an identity that changes whenever its arms, shares or rule change."""
+    test = {"order": list(variants), "arms": variants, "when": sorted(set(when))}
+    test["id"] = hashlib.sha256(json.dumps(test, sort_keys=True).encode()).hexdigest()[:12]
+    return test
+
+
+def assign_variant(template, lead):
+    """The variant a lead gets, by a stable draw on its company (or the lead): code, not the AI, decides."""
+    test = template.get("variants")
+    if not test:
+        return None
+    unit = lead.get("company_key") or lead.get("id") or lead.get("phone") or ""
+    draw = int(hashlib.sha256(f"{test['id']}:{unit}".encode()).hexdigest()[:8], 16) % 10000
+    total = 0
+    for name in test["order"]:
+        total += test["arms"][name]["share"] * 100
+        if draw < total:
+            return name
+    return test["order"][-1]
+
+
+def variant_in_test(template, lead):
+    """Whether a lead counts in the comparison: every lead, or only leads whose checked trigger is listed in When."""
+    test = template.get("variants") or {}
+    if not test:
+        return False
+    when = test.get("when") or []
+    return not when or ((lead.get("trigger") or {}).get("type") or "none") in when
+
+
+def with_variant(template, name):
+    """The master as one variant sees it: options tagged for other variants are left out."""
+    if not template.get("variants") or not name or template.get("script_variant"):
+        return template
+    sections = []
+    for section in template["sections"]:
+        if section.get("spoken") is False or not section.get("options"):
+            sections.append(section)
+            continue
+        options = [
+            {k: v for k, v in o.items() if k != "variants"}
+            for o in section["options"]
+            if not o.get("variants") or name in o["variants"]
+        ]
+        if not options:
+            continue
+        pick = section.get("pick")
+        if pick and len(options) <= 1:
+            pick = None
+        elif pick:
+            pick = [min(limit, len(options)) for limit in pick]
+        sections.append({**section, "options": options, "pick": pick})
+    used = {o["id"] for s in sections for o in s.get("options", [])}
+    blocks = [
+        block
+        for block in template.get("blocks", [])
+        if block.get("option") in used or not block.get("option")
+    ]
+    return {
+        **template,
+        "sections": sections,
+        "blocks": blocks,
+        "script_variant": name,
+        "master_version": template_version(template),
+    }
+
+
+def variant_fields(template, lead):
+    """What a lead's script records about the test, for the call snapshot and the statistics export."""
+    test = template.get("variants")
+    if not test:
+        return {}
+    name = template.get("script_variant") or assign_variant(template, lead)
+    return {
+        "script_variant": name,
+        "variant_test": test["id"],
+        "variant_in_test": variant_in_test(template, lead),
+        "variant_hypothesis": test["arms"].get(name, {}).get("hypothesis"),
+    }
+
+
 def pick_notes(template):
     """Plain sentences for the Script preview: what each lead's script keeps, picks or shares (work package 4.4)."""
     notes = []
@@ -592,6 +762,16 @@ def pick_notes(template):
         default = template.get("default_path")
         names = ", ".join(f"{name} (default)" if name == default else name for name in paths)
         notes.append(f"Each lead gets one path: {names}. The AI writes only inside that path's options.")
+    test = template.get("variants")
+    if test:
+        arms = ", ".join(f"{name} ({test['arms'][name]['share']}%)" for name in test["order"])
+        scope = (
+            f" Only leads with these triggers count: {', '.join(test['when'])}." if test.get("when") else ""
+        )
+        notes.append(
+            f"Script test: {arms}. Each company gets one variant at random; its script keeps only that "
+            f"variant's tagged options plus untagged ones.{scope}"
+        )
     for section in template["sections"]:
         if section.get("spoken") is False or not section.get("options"):
             continue
@@ -640,6 +820,9 @@ def render(template, *, lead, seller, rep, picks=None, written=None, path=None):
         "callback_number": "{callback_number}",
     }
     path = path if path in template.get("paths", {}) else template.get("default_path")
+    if template.get("variants") and not template.get("script_variant"):
+        template = with_variant(template, assign_variant(template, lead))
+    tested = variant_fields(template, lead)
     template = {**template, "sections": sections_for_path(template["sections"], path)}
     written, chosen = written or {}, {**default_picks(template), **(picks or {})}
 
@@ -706,6 +889,7 @@ def render(template, *, lead, seller, rep, picks=None, written=None, path=None):
     return {
         "sections": sections,
         **({"script_path": path} if path else {}),
+        **tested,
         "picks": {key: list(value) for key, value in chosen.items()},
         "written": {key: dict(value) for key, value in written.items()},
         "opener": first("opening"),
