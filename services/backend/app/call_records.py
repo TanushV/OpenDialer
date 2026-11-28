@@ -393,8 +393,10 @@ def sweep_unfinished(service):
 
     model = MODELS["call_attempts"]
     due = []
+    recent = service.clock() - timedelta(days=2)
     with service.db.transaction(False) as s:
-        for call in s.scalars(select(model).where(model.op_status.in_(TERMINAL)).limit(500)):
+        query = select(model).where(model.op_status.in_(TERMINAL), model.op_at >= recent).limit(500)
+        for call in s.scalars(query):
             rules = call.data.get("recording") or {}
             ended = dt(call.data.get("ended_at"))
             if (

@@ -402,9 +402,15 @@ async def maintenance_tick(service):
     await asyncio.to_thread(ops.purge_transcripts, service)
     from app import call_records as recording
 
-    await asyncio.to_thread(recording.sweep_unfinished, service)
-    await asyncio.to_thread(recording.purge_expired, service)
-    await asyncio.to_thread(recording.backfill_metrics, service, 50)
+    # This lane wakes on every committed job, so the recording sweeps run at most once a minute, and the
+    # one-time call-numbers backfill stops once it has caught up.
+    if time.monotonic() >= getattr(service, "_next_recording_sweep", 0):
+        service._next_recording_sweep = time.monotonic() + 60
+        await asyncio.to_thread(recording.sweep_unfinished, service)
+        await asyncio.to_thread(recording.purge_expired, service)
+        if not getattr(service, "_metrics_backfilled", False):
+            filled = await asyncio.to_thread(recording.backfill_metrics, service, 50)
+            service._metrics_backfilled = filled < 50
     await asyncio.to_thread(ops.queue_unfinished_webhooks, service)
     prepare_due = time.monotonic() >= getattr(service, "_next_preparation", 0)
     if prepare_due:

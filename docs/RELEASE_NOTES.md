@@ -1,3 +1,10 @@
+# OpenDialer 2.5.1
+
+- **Steadier while calling.** The background checks that finish recordings, apply auto-delete and fill in numbers for older calls now run once a minute instead of after every background task, so a workspace with many past calls stays quick during calls.
+- **Also includes the 2.5.0 changes.** Calls kept for review (your side always, the prospect's where allowed or after R), calling that prefers each lead's prime time, a script panel that no longer jumps, script tests, call numbers, Review insights and the call export.
+
+Updates from 1.0.x through 2.5.0 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.5.0
 
 - **Calls are kept so you can learn from them.** Your side of every answered call is recorded and transcribed. The prospect's side is kept only where one person's consent is enough, judged by their listed state and area code; anywhere else, tell them the call is recorded and press R. The Dialer always shows what is being kept. Recordings stay on this computer, encrypted, until you delete them, and an opt-out deletes that number's recordings. Settings has a Call recording card with the state list and optional auto-delete.
