@@ -146,8 +146,9 @@ def test_authority_sidecar_excludes_fitting_postgres_and_phone_tables_and_no_tra
     build = sidecar_build()
     authority = build.authority_arguments()
     excluded = {authority[i + 1] for i, value in enumerate(authority) if value == "--exclude-module"}
+    # numpy ships for call recording and call numbers (call insights plan); the trainer's stack stays out.
+    assert "numpy" not in excluded
     assert {
-        "numpy",
         "scipy",
         "sklearn",
         "joblib",

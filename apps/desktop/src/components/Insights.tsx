@@ -134,8 +134,9 @@ export function Insights() {
         },
         { timeoutMs: 300_000 },
       );
+      const calls = `${result.calls} ${result.calls === 1 ? "call" : "calls"}`;
       notice(
-        `Exported ${result.calls} calls (${result.audio} with audio) to ${result.path}`,
+        `Exported ${calls} (${result.audio} with audio) to ${result.path}`,
       );
       if (native())
         await invoke("reveal_export", { path: result.path }).catch(

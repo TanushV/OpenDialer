@@ -17,9 +17,9 @@ root = Path(__file__).resolve().parents[1]
 
 # Never in the authority: fitting libraries, PostgreSQL drivers (connected mode is
 # the server image), phone tables that app/compliance/phone.py never reads, and test-only probes.
+# numpy ships: call recording (soundfile) and the call numbers need it (call insights plan phases 3 and 6).
 AUTHORITY_EXCLUDES = (
     "psutil",
-    "numpy",
     "scipy",
     "sklearn",
     "joblib",
