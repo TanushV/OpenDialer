@@ -404,6 +404,7 @@ async def maintenance_tick(service):
 
     await asyncio.to_thread(recording.sweep_unfinished, service)
     await asyncio.to_thread(recording.purge_expired, service)
+    await asyncio.to_thread(recording.backfill_metrics, service, 50)
     await asyncio.to_thread(ops.queue_unfinished_webhooks, service)
     prepare_due = time.monotonic() >= getattr(service, "_next_preparation", 0)
     if prepare_due:

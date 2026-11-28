@@ -15,7 +15,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from app import ops
+from app import call_metrics, ops
 from app.calling import audio_tracks
 from app.optimization.geography import AREA_STATES, normalize_state, us_area
 from app.platform.db import MODELS, emit, update, workspace
@@ -232,12 +232,47 @@ def _finalize(service, p, call_id):
             changes.update(status="failed", error=type(exc).__name__)
     else:
         changes.update(status="no_audio")
+    with service.db.transaction(False) as s:
+        segments = [row.data for row in ops.transcript_metadata(service, s, p, call_id)]
+    try:
+        metrics = call_metrics.compute(
+            segments,
+            changes.get("activity"),
+            rep_pcm=tracks["rep"][1] if "rep" in tracks else None,
+            prospect_pcm=tracks["remote"][1] if "remote" in tracks else None,
+        )
+    except Exception as exc:  # The recording stands without its numbers.
+        log.warning("Call %s metrics could not be computed: %s", call_id, type(exc).__name__)
+        metrics = None
     for side in ("rep", "remote"):
         (base / f"{call_id}.{side}.pcm").unlink(missing_ok=True)
     with service.db.transaction() as s:
         call = ops.required(service, s, "call_attempts", call_id, p)
         update(call, recording={**(call.data.get("recording") or {}), **changes})
+        if metrics is not None:
+            update(call, metrics=metrics)
         emit(s, p["tenant_id"], "call.updated", call, service.clock())
+
+
+def backfill_metrics(service, limit=200):
+    """Finished calls from before the call numbers get them once, from their segment timings (phase 6)."""
+    from app.calling.state import TERMINAL
+
+    model = MODELS["call_attempts"]
+    with service.db.transaction(False) as s:
+        due = [
+            (call.id, {"tenant_id": call.tenant_id, "seller_id": call.seller_id})
+            for call in s.scalars(
+                select(model).where(model.op_status.in_(TERMINAL)).order_by(model.op_at.desc())
+            )
+            if "metrics" not in call.data and call.data.get("answered_at")
+        ][:limit]
+    for call_id, p in due:
+        with service.db.transaction() as s:
+            segments = [row.data for row in ops.transcript_metadata(service, s, p, call_id)]
+            call = ops.required(service, s, "call_attempts", call_id, p)
+            update(call, metrics=call_metrics.compute(segments))
+    return len(due)
 
 
 def note_capture(service, s, p, call, side, start_ms):
