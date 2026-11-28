@@ -188,10 +188,6 @@ def revoke_effects(service, s, p, endpoint_id, permissions):
             # Also fences a raw publication already committed before this revocation.
             service.raw.revoke_scope(p["tenant_id"] + ":" + call.id)
             service.tips.end(call.id)
-            ops.control_intent(
-                service, s, p, call.id, "transcription_stop", {}, target=call.data.get("provider_id")
-            )
-            ops.stop_agent_transcription_in(service, s, p, call)
         if "live" in permissions:
             command = ops._by_key(service, s, p, "command_outbox", call.id)
             if command and command.data["status"] == "pending" and not command.data.get("sent_at"):

@@ -15,6 +15,10 @@ HOLDS = {
     "NEEDS_NUMBER": "This lead has no number yet.",
     "DNC_NOT_CHECKED": "This number needs a do-not-call check before you can dial it.",
     "CRM_SYNC_STALE": "This HubSpot list has not synced for a day, so its leads wait. Sync the list on Leads.",
+    "OUTSIDE_US": (
+        "This number is outside the 50 US states and DC, where the app's calling hours and recording rules do not"
+        " apply. Correct the number or remove the lead."
+    ),
 }
 # Section 5: a HubSpot list not synced for a day stops dialing its leads, so a HubSpot opt-out is not missed for long.
 STALE_SYNC = timedelta(hours=24)
@@ -71,6 +75,11 @@ def number_hold(lead, now=None):
             return "CRM_SYNC_STALE"
     if lead.get("live_status") == "dead":
         return "NUMBER_DEAD"
+    from app.optimization.geography import us_area
+
+    if lead.get("phone") and us_area(lead["phone"]) is None:
+        # Call insights plan C2: hours, holidays and recording rules are modeled for the US only.
+        return "OUTSIDE_US"
     hold = STATUS_HOLDS.get(lead.get("number_status"))
     if hold:
         return hold

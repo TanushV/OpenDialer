@@ -96,7 +96,7 @@ def test_test_call_speech_starts_on_answer_and_reaches_the_live_helper(workspace
     with_helper(ws)
     _, placed = place_test_call(ws)
     event(ws, placed["id"], "call.answered")
-    assert get(ws, f"/v1/calls/{placed['id']}").get("transcription_layout")
+    assert get(ws, f"/v1/calls/{placed['id']}").get("live_speech")
     chunk(ws, placed["id"], "s1", "We have no budget for this right now.")
     clock.now += timedelta(seconds=1)
     run_jobs(ws)

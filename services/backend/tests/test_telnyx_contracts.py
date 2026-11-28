@@ -6,7 +6,6 @@ account, SIP registration and carrier audio remain separate evidence.
 """
 
 import asyncio
-import base64
 import json
 from datetime import timedelta
 from time import monotonic
@@ -17,11 +16,12 @@ import pytest
 from app import ops
 from app.calling import audio_leg
 from app.calling.state import transition
-from app.platform.db import get, put, update
+from app.platform.db import MODELS, Job, get, put, update
 from app.providers.telnyx import CarrierConfigurationError, TelnyxCarrier
 from app.telephony.recovery import COMMAND_RETRY_SECONDS, within_command_window
 from conftest import start
 from helpers import bound, voicemail_policy
+from sqlalchemy import select
 
 CREDENTIAL = {
     "id": "c215ade3-0d39-418e-94be-c5f780760199",
@@ -310,107 +310,64 @@ def run_controls(w):
     w["client"].post("/v1/admin/control/run", headers=w["headers"])
 
 
-def transcription_starts(carrier):
-    return [a for a in carrier.actions if a["action"] == "transcription_start"]
-
-
-def test_answer_requests_one_inbound_stream_per_leg(workspace, carrier):
+def test_the_carrier_is_never_asked_to_transcribe(workspace, carrier):
+    """Plan C1: live speech comes only from the app's own audio tracks."""
     call = start(workspace)
     event(workspace, call, "call.answered")
     run_controls(workspace)
-    starts = transcription_starts(carrier)
-    assert sorted(a["provider_id"] for a in starts) == sorted([call["provider_id"], "agent-test-id"])
-    assert {a["payload"]["transcription_tracks"] for a in starts} == {"inbound"}
-    assert {a["payload"]["transcription_engine"] for a in starts} == {"Soniox"}
-    assert len({a["payload"]["command_id"] for a in starts}) == 2
+    workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])
+    run_controls(workspace)
+    assert not [a for a in carrier.actions if a.get("action", "").startswith("transcription")]
 
 
-def speech(w, app, call_control_id, text, event_id, **payload):
+def test_a_carrier_speech_event_is_closed_without_its_text(workspace, app, carrier):
+    call = start(workspace)
+    event(workspace, call, "call.answered")
     service = app.state.service
     receipt = asyncio.run(
         ops.accept_webhook(
             service,
-            w["tenant_id"],
+            workspace["tenant_id"],
             {
-                "id": event_id,
+                "id": "stray-speech",
                 "event_type": "call.transcription",
                 "payload": {
-                    "call_control_id": call_control_id,
-                    "transcription_data": {"transcript": text, "is_final": True, "confidence": 0.9},
-                    **payload,
+                    "call_control_id": call["provider_id"],
+                    "transcription_data": {"transcript": "private speech", "is_final": True},
                 },
             },
-            "hash-" + event_id,
+            "hash-stray-speech",
             verified=True,
         )
     )
-    return asyncio.run(ops.process_webhook(service, w["tenant_id"], receipt["receipt_id"]))
-
-
-def sides(app, w, call):
-    service = app.state.service
+    assert receipt["status"] == "processed"
     with service.db.transaction(False) as s:
-        return {row["text"]: row["side"] for row in ops.transcript_rows(service, s, principal(w), call["id"])}
+        row = s.get(MODELS["webhook_inbox"], receipt["receipt_id"])
+        assert row.data["ignored_reason"] == "carrier_transcription_removed"
+        assert "private speech" not in json.dumps(row.data)
+        assert not ops.transcript_rows(service, s, principal(workspace), call["id"])
+        jobs = [j for j in s.scalars(select(Job)) if j.payload.get("receipt_id") == receipt["receipt_id"]]
+    assert not jobs
+    assert service.raw.get("webhook:" + receipt["receipt_id"]) is None
 
 
-def test_soniox_speech_side_comes_from_the_leg_that_carried_it(workspace, app, carrier):
+def test_a_queued_carrier_transcription_command_is_cancelled(workspace, app, carrier):
     call = start(workspace)
     event(workspace, call, "call.answered")
-    run_controls(workspace)
-    agent_start = next(a for a in transcription_starts(carrier) if a["provider_id"] == "agent-test-id")
-    prospect = speech(workspace, app, call["provider_id"], "Who is calling?", "prospect-speech")
-    rep = speech(
-        workspace,
-        app,
-        "agent-test-id",
-        "This is the example rep.",
-        "rep-speech",
-        client_state=agent_start["payload"]["client_state"],
-    )
-    assert prospect["status"] == "processed" and rep["status"] == "processed", (prospect, rep)
-    assert sides(app, workspace, call) == {"Who is calling?": "remote", "This is the example rep.": "rep"}
-
-
-def test_agent_speech_after_the_call_ended_is_not_attributed_to_it(workspace, app, carrier, clock):
-    call = start(workspace)
-    event(workspace, call, "call.answered")
-    run_controls(workspace)
-    agent_start = next(a for a in transcription_starts(carrier) if a["provider_id"] == "agent-test-id")
-    workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])
-    clock.now += timedelta(seconds=30)
-    speech(
-        workspace,
-        app,
-        "agent-test-id",
-        "Talking to a colleague after the call.",
-        "late-rep-speech",
-        client_state=agent_start["payload"]["client_state"],
-    )
-    assert sides(app, workspace, call) == {}
-
-
-def test_hangup_stops_the_agent_leg_transcription(workspace, carrier):
-    call = start(workspace)
-    event(workspace, call, "call.answered")
-    run_controls(workspace)
-    workspace["client"].post(f"/v1/calls/{call['id']}/hangup", headers=workspace["headers"])
-    run_controls(workspace)
-    stops = [a for a in carrier.actions if a["action"] == "transcription_stop"]
-    assert [a["provider_id"] for a in stops] == ["agent-test-id"]
-
-
-def test_revoked_transcription_permission_stops_both_streams(workspace, app, carrier):
-    call = start(workspace)
-    event(workspace, call, "call.answered")
-    run_controls(workspace)
     service, p = app.state.service, principal(workspace)
-    from app.compliance.suppressions import revoke_effects
-
     with service.db.transaction() as s:
-        revoke_effects(service, s, p, call["endpoint_id"], ["transcription"])
+        ops.control_intent(
+            service, s, p, call["id"], "transcription_start", {"transcription_engine": "Soniox"}
+        )
     run_controls(workspace)
-    stops = {a["provider_id"] for a in carrier.actions if a["action"] == "transcription_stop"}
-    assert stops == {call["provider_id"], "agent-test-id"}
+    assert not [a for a in carrier.actions if a.get("action", "").startswith("transcription")]
+    with service.db.transaction(False) as s:
+        rows = [
+            r
+            for r in s.scalars(select(MODELS["command_outbox"]))
+            if r.data.get("action") == "transcription_start"
+        ]
+    assert [r.data["reason"] for r in rows] == ["CARRIER_TRANSCRIPTION_REMOVED"]
 
 
 def test_every_attempt_disables_voicemail_detection_and_bridges_the_rep(workspace, app, carrier):
@@ -698,126 +655,6 @@ def test_definitive_prepaid_refusal_never_clears_and_needs_no_paid_retry(
     assert [(r["status"], r["listed"], r["recovery_reason"]) for r in rows] == [(status, None, reason)]
     assert [h["status"] for h in holds] == [liability]
     assert all(h.get("reserved_usd", 0) == 0 for h in holds)
-
-
-def test_agent_leg_client_state_cannot_name_another_tenant_call(workspace, app, carrier):
-    call = start(workspace)
-    event(workspace, call, "call.answered")
-    run_controls(workspace)
-    forged = base64.b64encode(
-        json.dumps({"transcript_call_id": call["id"], "tenant_id": "another-tenant"}).encode()
-    ).decode()
-    result = speech(workspace, app, "agent-test-id", "Forged speech.", "forged-speech", client_state=forged)
-    # State naming another tenant is not ours: ignored at once, never attached and never retried.
-    assert result["status"] == "ignored"
-    assert sides(app, workspace, call) == {}
-
-
-@pytest.mark.asyncio
-async def test_inventory_reads_every_page_before_returning_numbers():
-    seen = []
-
-    def handler(request):
-        if request.url.path.endswith("/voice"):
-            return httpx.Response(
-                200, json={"data": {"call_recording": {"inbound_call_recording_enabled": False}}}
-            )
-        page = int(request.url.params["page[number]"])
-        seen.append(page)
-        assert request.url.params["page[size]"] == "250"
-        return httpx.Response(
-            200,
-            json={
-                "data": [{"id": f"number-{page}", "phone_number": f"+1415555010{page}"}],
-                "meta": {"page_number": page, "total_pages": 2},
-            },
-        )
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        result = await TelnyxCarrier("test", "app", http=http).list_numbers()
-    assert seen == [1, 2]
-    assert all(item["call_recording_enabled"] is False for item in result)
-    assert [item["id"] for item in result] == ["number-1", "number-2"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "second",
-    [
-        {"data": [], "meta": {"page_number": 2, "total_pages": 3}},
-        {"data": [], "meta": {"page_number": 1, "total_pages": 2}},
-        {"data": [], "meta": {"page_number": 2, "total_pages": "2"}},
-        {"data": [], "meta": {"page_number": 2, "total_pages": 101}},
-        {"data": [], "errors": [{"code": "test"}], "meta": {"page_number": 2, "total_pages": 2}},
-        {"data": []},
-    ],
-)
-async def test_incomplete_inventory_never_returns_a_partial_success(second):
-    def handler(request):
-        if request.url.params["page[number]"] == "1":
-            return httpx.Response(
-                200,
-                json={
-                    "data": [{"id": "number-1"}],
-                    "meta": {"page_number": 1, "total_pages": 2},
-                },
-            )
-        return httpx.Response(200, json=second)
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        with pytest.raises(ValueError, match="inventory"):
-            await TelnyxCarrier("test", "app", http=http).list_numbers()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("enabled", [True, False, None])
-async def test_number_recording_comes_from_voice_settings(enabled):
-    def handler(request):
-        if request.url.path.endswith("/voice"):
-            return httpx.Response(
-                200, json={"data": {"call_recording": {"inbound_call_recording_enabled": enabled}}}
-            )
-        return httpx.Response(200, json={"data": {"id": "number-1", "call_recording_enabled": False}})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        result = await TelnyxCarrier("test", "app", http=http).get_number("number-1")
-    assert result["data"]["call_recording_enabled"] is enabled
-
-
-@pytest.mark.asyncio
-async def test_an_area_code_without_stock_is_an_empty_search_not_an_error():
-    # Recorded from the live API on November 2, 2026 for area code 415.
-    sold_out = {
-        "errors": [
-            {
-                "code": "10031",
-                "title": "Invalid request filter",
-                "detail": "No numbers found for the given filters. Please try again with best_effort=true.",
-            }
-        ]
-    }
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda r: httpx.Response(400, json=sold_out))
-    ) as http:
-        assert await TelnyxCarrier("key", "app", http=http).search_numbers("415") == []
-    asked = []
-
-    def nearby(request):
-        asked.append(dict(request.url.params))
-        return httpx.Response(200, json={"data": [{"phone_number": "+16285611507"}]})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(nearby)) as http:
-        found = await TelnyxCarrier("key", "app", http=http).search_numbers("415")
-    assert [n["phone_number"] for n in found] == ["+16285611507"]
-    # Telnyx only offers numbers near a sold-out area code when asked for best effort.
-    assert asked[0]["filter[national_destination_code]"] == "415"
-    assert asked[0]["filter[best_effort]"] == "true"
-    other = {"errors": [{"code": "10015", "title": "Bad request"}]}
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda r: httpx.Response(400, json=other))
-    ) as http:
-        with pytest.raises(httpx.HTTPStatusError):
-            await TelnyxCarrier("key", "app", http=http).search_numbers("415")
 
 
 def test_number_search_can_filter_by_city_in_the_area_codes_state():

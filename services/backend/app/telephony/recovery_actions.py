@@ -59,11 +59,6 @@ def _job_retry_reason(service, s, p, job):
         receipt = get(s, "webhook_inbox", job.payload.get("receipt_id"), p["tenant_id"])
         if receipt.data["status"] in {"processed", "expired_raw"}:
             return "This receipt has already completed or its raw content expired"
-        if (
-            receipt.data["event_type"] == "call.transcription"
-            and service.raw.get("webhook:" + receipt.id) is None
-        ):
-            return "Raw speech expired or is unavailable; it cannot be reconstructed"
     return None
 
 

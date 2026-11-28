@@ -169,7 +169,7 @@ def _prepare_call(service, p, data):
                 "transcript_version": 0,
                 "synthetic": _replay(service, p),
                 "is_test": test_only or lead.data["phone"] in TEST_LINES or ops.in_test_session(service, p),
-                "transcription_source": "direct" if service.managed.enabled(workspace(p)) else "webhook",
+                "transcription_source": "direct" if service.managed.enabled(workspace(p)) else None,
             },
             key=data["idempotency_key"],
             now=now,
@@ -643,7 +643,6 @@ def _claim_hangup(service, p, call_id, owner, recovery_expected=None, mark_voice
             else "Await the signed dial receipt or attach a verified carrier call reference",
         )
         update(call, **moved(call.data, "hangup.requested", service.clock()))
-        ops.stop_agent_transcription_in(service, s, p, call)
         service.tips.end(call.id)
         emit(s, workspace(p), "call.updated", call, service.clock(), {"state": call.data["state"]})
         return doc(call), {"id": existing.id, "provider_id": provider_id, "command_id": command_id}, None

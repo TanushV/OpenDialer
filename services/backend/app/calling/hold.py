@@ -8,7 +8,6 @@ the recovery pass (about once a second) sends it, including after a restart, and
 
 from datetime import timedelta
 
-from app import ops
 from app.calling.records import CommandView
 from app.calling.state import TERMINAL, moved
 from app.platform.db import emit, put, update, workspace
@@ -63,7 +62,6 @@ def defer(service, s, p, call, view, existing, *, voicemail):
         **moved(call.data, "hangup.requested", service.clock()),
         carrier_hold_until=hold_until.isoformat(),
     )
-    ops.stop_agent_transcription_in(service, s, p, call)
     service.tips.end(call.id)
     emit(s, workspace(p), "call.updated", call, service.clock(), {"state": call.data["state"]})
     return True

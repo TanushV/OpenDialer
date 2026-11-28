@@ -23,6 +23,7 @@ HOLD_FIX = {
     "CRM_SYNC_STALE": ("leads", "Sync the HubSpot list in Leads"),
     "DNC_NOT_CHECKED": ("settings", "Add the RealValidito key in Settings"),
     "NEEDS_NUMBER": ("settings", "Add the Treg token in Settings to find numbers"),
+    "OUTSIDE_US": ("leads", "Correct the number in Leads or remove the lead"),
 }
 HOLD_TITLE = {
     "NUMBER_DEAD": (
@@ -46,6 +47,10 @@ HOLD_TITLE = {
     "CRM_SYNC_STALE": (
         "1 HubSpot lead waits because its list has not synced for a day",
         "{n} HubSpot leads wait because their list has not synced for a day",
+    ),
+    "OUTSIDE_US": (
+        "1 lead has a number outside the US states and DC and is skipped",
+        "{n} leads have a number outside the US states and DC and are skipped",
     ),
 }
 # Holds the rep can do nothing more about are shown last, as information.

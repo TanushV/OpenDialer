@@ -71,7 +71,7 @@ def test_turning_live_transcription_off_keeps_call_audio_on_this_computer(worksp
     placed = start(ws)
     event(ws, placed["id"], "call.answered")
     live = get(ws, f"/v1/calls/{placed['id']}")
-    assert not live.get("transcription_layout"), "No speech stream starts"
+    assert not live.get("live_speech"), "No speech stream starts"
     chunk(ws, placed["id"], "s1", "We have no budget for this right now.")
     clock.now += timedelta(seconds=1)
     run_jobs(ws)

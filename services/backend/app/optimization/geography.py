@@ -96,6 +96,21 @@ for _zone, _codes in _ZONES.items():
         STATE_ZONES.setdefault(_code, []).append(_zone)
 
 
+# North American toll-free codes: callable, but they name no state or time zone.
+TOLL_FREE = frozenset({"800", "833", "844", "855", "866", "877", "888"})
+
+
+def us_area(phone):
+    """`state` for a number in the 50 states or DC, `toll_free`, else None (Canada, the Caribbean, territories)."""
+    phone = str(phone or "")
+    if not phone.startswith("+1") or len(phone) != 12:
+        return None
+    code = phone[2:5]
+    if code in AREA_STATES:
+        return "state"
+    return "toll_free" if code in TOLL_FREE else None
+
+
 def normalize_state(value):
     text = str(value or "").strip().upper()
     if text.startswith("US-"):

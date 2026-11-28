@@ -1,4 +1,8 @@
-"""Provider receipt, retry and completion share one identity. Raw speech is ephemeral."""
+"""Provider receipt, retry and completion share one identity.
+
+Carrier speech events are never processed: live speech comes only from the app's own audio tracks (call insights
+plan C1). A stray `call.transcription` receipt is closed at once without its text.
+"""
 
 import asyncio
 import base64
@@ -11,11 +15,9 @@ from sqlalchemy.exc import IntegrityError
 
 from app import ops
 from app.calling import audio_leg
-from app.calling.state import TERMINAL
-from app.platform.db import MODELS, Job, emit, get, put, uid, update
+from app.platform.db import MODELS, Job, get, put, uid, update
 from app.privacy import RAW_TTL_SECONDS, event_metadata
 from app.service import dt, fail
-from app.transcripts import normalize_transcription
 
 
 def _carries_our_state(tenant_id, payload):
@@ -25,10 +27,6 @@ def _carries_our_state(tenant_id, payload):
     except (ValueError, TypeError):
         return False
     return isinstance(context, dict) and context.get("tenant_id") == tenant_id
-
-
-# Final segments of the rep's last utterance may trail the prospect hangup by a few seconds.
-AGENT_SPEECH_GRACE = 10
 
 
 async def accept_webhook(service, tenant_id, event, body_hash, *, verified=False, received_at=None):
@@ -91,21 +89,16 @@ def _receive_webhook(service, tenant_id, event, body_hash, verified=False, recei
                 key=event["id"],
                 now=service.clock(),
             )
-        receipt_id, expires = receipt.id, dt(receipt.data["raw_expires_at"])
-        scope = None
+        receipt_id = receipt.id
         if event["event_type"] == "call.transcription":
-            call, _ = ops._transcription_call(service, s, tenant_id, event["payload"])
-            if call:
-                p = {"tenant_id": tenant_id, "seller_id": call.seller_id}
-                scope = tenant_id + ":" + call.id
-                if ops.speech_revoked(service, s, p, call):
-                    update(
-                        receipt,
-                        status="processed",
-                        ignored_reason="permission_revoked",
-                        processed_at=service.clock().isoformat(),
-                    )
-                    return {"received": True, "receipt_id": receipt_id, "status": "processed"}
+            # Carrier transcription was removed (plan C1): close the receipt, never keep or apply its text.
+            update(
+                receipt,
+                status="processed",
+                ignored_reason="carrier_transcription_removed",
+                processed_at=service.clock().isoformat(),
+            )
+            return {"received": True, "receipt_id": receipt_id, "status": "processed"}
         service.jobs.enqueue_in(
             s,
             "webhook",
@@ -114,9 +107,6 @@ def _receive_webhook(service, tenant_id, event, body_hash, verified=False, recei
             tenant_id=tenant_id,
             priority=200,
         )
-        if event["event_type"] == "call.transcription":
-            # The worker must see the short-lived payload as soon as its job commits.
-            service.raw.put("webhook:" + receipt_id, event["payload"], expires_at=expires, scope=scope)
     return {"received": True, "receipt_id": receipt_id, "status": receipt.data["status"]}
 
 
@@ -163,43 +153,25 @@ def _process_webhook(service, tenant_id, receipt_id, callback_claim=None):
     payload, status = data["payload"], "processed"
     raw_writes = []
     try:
-        if data["event_type"] == "call.transcription":
-            payload = service.raw.get("webhook:" + receipt_id)
-            if payload is None:
-                status = "expired_raw"
         result = {"received": True, "duplicate": False}
         with service.db.transaction() as s:
             receipt = s.scalar(query)
             if receipt.data.get("lease_owner") != owner:
                 return {"received": True, "status": "processing"}
-            if status != "expired_raw":
+            if data["event_type"] == "call.transcription":
+                # Saved by a version that still had carrier transcription: nothing to apply.
+                update(receipt, ignored_reason="carrier_transcription_removed")
+            else:
                 result = ops._apply_webhook_in(service, s, tenant_id, data, payload, raw_writes)
                 if result.get("unmatched"):
                     status = "unmatched"
                 elif result.get("ignored") == "not_ours":
                     status = "ignored"
-            else:
-                call, _ = ops._transcription_call(service, s, tenant_id, data["payload"])
-                if call and ops.speech_revoked(
-                    service, s, {"tenant_id": tenant_id, "seller_id": call.seller_id}, call
-                ):
-                    status = "processed"
-                    update(receipt, ignored_reason="permission_revoked")
-                elif call:
-                    update(
-                        call,
-                        raw_expires_at=max(call.data.get("raw_expires_at", ""), data["raw_expires_at"]),
-                        unprocessed_speech_events=call.data.get("unprocessed_speech_events", 0) + 1,
-                        analysis_incomplete=True,
-                    )
-                    emit(s, tenant_id, "call.updated", call, service.clock())
             ops._finish_webhook(service, tenant_id, receipt_id, owner, status, session=s)
     except Exception as exc:
         ops._finish_webhook(service, tenant_id, receipt_id, owner, "retry", type(exc).__name__)
         raise
     ops._publish_transcripts(service, raw_writes)
-    if status in {"processed", "expired_raw", "ignored"}:
-        service.raw.discard("webhook:" + receipt_id)
     return {**result, "received": True, "status": status}
 
 
@@ -246,52 +218,8 @@ def _webhook_call(service, s, tenant_id, payload):
     return call
 
 
-def _transcription_call(service, s, tenant_id, payload):
-    """Return (call, leg). The persistent agent leg names its call in transcription client state."""
-    call = ops._webhook_call(service, s, tenant_id, payload)
-    if call:
-        return call, "prospect"
-    provider_id = payload.get("call_control_id")
-    try:
-        context = json.loads(base64.b64decode(payload.get("client_state", "")))
-    except (ValueError, TypeError):
-        context = None
-    if (
-        isinstance(provider_id, str)
-        and provider_id
-        and isinstance(context, dict)
-        and context.get("tenant_id") == tenant_id
-        and isinstance(context.get("transcript_call_id"), str)
-    ):
-        call = get(s, "call_attempts", context["transcript_call_id"], tenant_id)
-        if call and call.data.get("agent_provider_id") == provider_id:
-            return call, "agent"
-    return None, None
-
-
-def _agent_transcript_in(service, s, call, receipt, payload, raw_writes):
-    """Rep speech from the agent leg: no reducer event, no prospect-leg identity binding."""
-    received = dt(receipt["received_at"])
-    ended = dt(call.data.get("ended_at"))
-    if call.data["state"] in TERMINAL and ended and (received - ended).total_seconds() > AGENT_SPEECH_GRACE:
-        # The agent leg outlives the call; later speech belongs to no prospect conversation.
-        return {"received": True, "ignored": "speech_after_call"}
-    p = {"tenant_id": call.tenant_id, "seller_id": call.seller_id, "user_id": call.data["rep_id"]}
-    leg = "agent" if call.data.get("transcription_layout") == "leg_inbound" else None
-    for segment in normalize_transcription(payload, call.id, receipt["event_id"], leg=leg):
-        segment.pop("content_hash", None)
-        segment.pop("call_id", None)
-        ops._transcript_in(service, s, p, call.id, segment, received, raw_writes)
-    return {"received": True, "agent_transcript": True}
-
-
 def _apply_webhook_in(service, s, tenant_id, receipt, payload, raw_writes):
     event_type, event_id = receipt["event_type"], receipt["event_id"]
-    leg = None
-    if event_type == "call.transcription":
-        call, leg = ops._transcription_call(service, s, tenant_id, payload)
-        if leg == "agent":
-            return ops._agent_transcript_in(service, s, call, receipt, payload, raw_writes)
     if audio_leg.on_event(s, tenant_id, payload, event_type):
         return {"received": True, "agent_event": True}
     if ops.inbound_event(service, tenant_id, payload, event_type, session=s, receipt=receipt):
@@ -323,13 +251,6 @@ def _apply_webhook_in(service, s, tenant_id, receipt, payload, raw_writes):
         "timing_source": "provider" if receipt.get("occurred_at") else "receipt",
     }
     result = ops.event(service, p, event_id, normalized_type, call_id, event_payload, session=s)
-    # Reducer deduplication does not imply transcript processing completed.
-    if event_type == "call.transcription":
-        layout = call.data.get("transcription_layout") == "leg_inbound"
-        for segment in normalize_transcription(payload, call_id, event_id, leg=leg if layout else None):
-            segment.pop("content_hash", None)
-            segment.pop("call_id", None)
-            ops._transcript_in(service, s, p, call_id, segment, dt(receipt["received_at"]), raw_writes)
     if event_type == "call.hangup":
         # The call row is locked by the event write above, as the finalize enqueue requires.
         ops.enqueue_aftercall(service, s, p, call)

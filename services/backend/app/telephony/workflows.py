@@ -1,6 +1,4 @@
 import asyncio
-import base64
-import json
 import logging
 from datetime import timedelta
 
@@ -198,55 +196,19 @@ def _outreach_context(service, s, p, call):
 
 
 def start_transcription_in(service, s, p, call):
-    """One inbound stream per leg: the leg that carried speech identifies its speaker.
+    """Live speech comes only from the app's own audio tracks (plan C1): the carrier never transcribes.
 
-    Soniox omits `transcription_track`, so a single `both` stream cannot tell the rep from the
-    prospect. The rep's agent leg outlives the call, so its stream names the call in client state.
+    A workspace without the relay has no direct audio route, so its calls carry no live transcript.
     """
+    update(call, live_speech=True)
     if call.data.get("transcription_source") == "direct":
         update(call, transcription_layout="direct_tracks")
-        return
-    stream = {"transcription_engine": TRANSCRIPTION_ENGINE, "transcription_tracks": "inbound"}
-    ops.control_intent(service, s, p, call.id, "transcription_start", stream)
-    agent = call.data.get("agent_provider_id")
-    if agent:
-        state = json.dumps({"transcript_call_id": call.id, "tenant_id": p["tenant_id"]})
-        ops.control_intent(
-            service,
-            s,
-            p,
-            call.id,
-            "transcription_start",
-            {**stream, "client_state": base64.b64encode(state.encode()).decode()},
-            target=agent,
-            suffix="transcription_start:agent",
-        )
-    update(call, transcription_layout="leg_inbound")
-
-
-def stop_agent_transcription_in(service, s, p, call):
-    """The prospect stream ends with its leg; the persistent agent leg needs an explicit stop."""
-    start = ops._by_key(service, s, p, "command_outbox", call.id + ":transcription_start:agent")
-    if not start or start.data["status"] == "cancelled":
-        return
-    if start.data["status"] == "pending" and not start.data.get("sent_at"):
-        update(start, status="cancelled", reason="CALL_NO_LONGER_ACTIVE")
-        return
-    ops.control_intent(
-        service,
-        s,
-        p,
-        call.id,
-        "transcription_stop",
-        {},
-        target=start.data["target"],
-        suffix="transcription_stop:agent",
-    )
+    else:
+        update(call, transcription_unavailable="no_direct_audio")
 
 
 def finish_call(service, s, p, call, reason=None):
     dial.finish_call(service, s, p, call, reason)
-    ops.stop_agent_transcription_in(service, s, p, call)
     # Transcripts feed only the live call; their text is deleted when it ends (work package 9.3 C5).
     ops.record_script_trace(service, s, p, call)
     ops.forget_transcript(service, s, p, call.id)
@@ -293,7 +255,7 @@ def _claim_control(service, p, command_id):
         if (
             service.managed.enabled(p["tenant_id"])
             and not service.managed.status()["connected"]
-            and command["action"] in {"answer", "bridge", "transfer", "transcription_start"}
+            and command["action"] in {"answer", "bridge", "transfer"}
         ):
             return None
         sent = dt(current.data.get("sent_at"))
@@ -335,14 +297,10 @@ def _claim_control(service, p, command_id):
             if command["action"] != "record_start":
                 update(call, voicemail_result="blocked_before_playback")
             return None
-        if command["action"] == "transcription_start":
-            privacy = ops.required(service, s, "sellers", p["seller_id"], p).data.get("operating_policy", {})
-            if not service.settings.simulation and not (
-                privacy.get("transcription_privacy_verified")
-                and privacy.get("transcription_privacy_reference")
-            ):
-                update(current, status="cancelled", reason="RAW_CAPTURE_PRIVACY_NOT_AUTHORIZED")
-                return None
+        if command["action"] in {"transcription_start", "transcription_stop"}:
+            # Saved by a version with carrier transcription (removed, plan C1): never sent.
+            update(current, status="cancelled", reason="CARRIER_TRANSCRIPTION_REMOVED")
+            return None
             if not ops.speech_allowed(service, s, p, call):
                 update(current, status="cancelled")
                 return None

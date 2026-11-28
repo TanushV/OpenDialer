@@ -7,7 +7,6 @@ import importlib
 HOMES = {
     "_accept_generated": "app.optimization.script_lab",
     "_accept_transcript": "app.privacy",
-    "_agent_transcript_in": "app.telephony.ingress",
     "_allow_configuration_retry": "app.number_operations",
     "_apply_outcome": "app.rep_workflows",
     "_apply_webhook_in": "app.telephony.ingress",
@@ -101,7 +100,6 @@ HOMES = {
     "_task_commands": "app.telephony.callbacks",
     "_tests_view": "app.optimization.script_lab",
     "_transcript_in": "app.privacy",
-    "_transcription_call": "app.telephony.ingress",
     "_voice_connection": "app.number_operations",
     "_webhook_call": "app.telephony.ingress",
     "_wrapup_callbacks": "app.rep_workflows",
@@ -309,7 +307,6 @@ HOMES = {
     "start_test_session": "app.service",
     "save_test_contact": "app.test_list",
     "start_transcription_in": "app.telephony.workflows",
-    "stop_agent_transcription_in": "app.telephony.workflows",
     "store_facts_in": "app.preparation.workflows",
     "store_prepared_in": "app.preparation.workflows",
     "summarize_call": "app.intelligence",
