@@ -231,6 +231,8 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
     (loop.testContact ? loop.testScript : null) ||
     undefined;
   const position = visible && isActiveCall(call) ? call?.script_position : null;
+  const suggestion =
+    visible && isActiveCall(call) ? call?.script_suggestion : null;
   const scriptPane = useRef<HTMLElement>(null);
   const between = phase.kind === "paused" || phase.kind === "finished";
   const testing = testList || testPhone;
@@ -338,6 +340,7 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
                 key={call?.id ?? loop.testContact.id}
                 script={script}
                 position={position}
+                suggestion={suggestion}
               />
             )}
           </section>
@@ -398,6 +401,7 @@ function Body({ loop, visible }: { loop: Loop; visible: boolean }) {
               key={call?.id ?? packet.lead.id}
               script={script}
               position={position}
+              suggestion={suggestion}
             />
           </section>
         </div>

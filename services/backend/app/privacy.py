@@ -369,18 +369,11 @@ def paraphrased(text, segments):
     return True
 
 
-def script_section_of(service, s, p, call, segment):
-    """Keep match metadata alongside the transcript revision that supports it."""
-    if segment.get("side") != "rep" or not segment.get("is_final") or segment.get("system_audio"):
-        return {"script_section": None, "section_score": None}
-    script = call.data.get("script_snapshot")
-    if not script:
-        return {}
+def _recent_rows(service, s, p, call, segment, limit=8):
     from app.platform.db import MODELS
-    from app.script_follow import match, sequence
 
     model = MODELS["transcript_segments"]
-    rows = ops.context_rows(
+    return ops.context_rows(
         service,
         s,
         p,
@@ -389,12 +382,44 @@ def script_section_of(service, s, p, call, segment):
         model.data["is_final"].as_boolean().is_(True),
         model.data["segment_id"].as_string() != segment["segment_id"],
         model.ctx_expires_at > service.clock(),
-        limit=8,
+        limit=limit,
     )
+
+
+def script_section_of(service, s, p, call, segment):
+    """Keep match metadata alongside the transcript revision that supports it."""
+    if segment.get("side") != "rep" or not segment.get("is_final") or segment.get("system_audio"):
+        return {"script_section": None, "section_score": None, "script_candidate": None}
+    from app.script_follow import bleeds, match, sequence
+
+    rows = _recent_rows(service, s, p, call, segment)
+    if any(row.data.get("side") == "remote" and bleeds(segment, row.data) for row in rows):
+        # The prospect's voice reached the rep's microphone (plan C6): not the rep's speech.
+        return {"script_section": None, "section_score": None, "script_candidate": None, "bleed": True}
+    script = call.data.get("script_snapshot")
+    if not script:
+        return {}
     earlier = sequence([row.data for row in rows] + [segment])
     earlier = earlier[: next(i for i, row in enumerate(earlier) if row is segment)]
-    key, score = match(script, segment, earlier)
-    return {"script_section": key, "section_score": score, "script_match_version": 1}
+    key, score, candidate = match(script, segment, earlier)
+    return {
+        "script_section": key,
+        "section_score": score,
+        "script_candidate": candidate,
+        "script_match_version": 2,
+    }
+
+
+def mark_bleed(service, s, p, call, segment):
+    """A prospect segment arrived after the rep segments that repeated it: mark those as bleed (plan C6)."""
+    from app.platform.db import update
+    from app.script_follow import bleeds
+
+    if segment.get("side") != "remote" or not segment.get("is_final"):
+        return
+    for row in _recent_rows(service, s, p, call, segment):
+        if row.data.get("side") == "rep" and not row.data.get("bleed") and bleeds(row.data, segment):
+            update(row, bleed=True, script_section=None, section_score=None, script_candidate=None)
 
 
 def persistent_document(kind, data):
@@ -430,7 +455,9 @@ def persistent_document(kind, data):
                 "word_count",
                 "script_section",
                 "section_score",
+                "script_candidate",
                 "script_match_version",
+                "bleed",
             }
         }
     if kind in {"provider_events", "webhook_inbox"}:
@@ -557,6 +584,8 @@ def transcript_rows(service, s, p, call_id, *, metadata=None):
                     **item,
                     "script_section": row.data.get("script_section"),
                     "section_score": row.data.get("section_score"),
+                    "script_candidate": row.data.get("script_candidate"),
+                    "bleed": row.data.get("bleed", False),
                     "transcript_version": row.data.get("transcript_version", 0),
                     "raw_remaining_ms": service.raw.remaining_ms(key) or 0,
                 }
@@ -679,6 +708,7 @@ def _accept_transcript(service, p, call_id, segment, received_at, *, session=Non
                 key=call_id + ":" + segment["segment_id"],
                 now=service.clock(),
             )
+        mark_bleed(service, s, p, call, full)
         raw_writes.append(
             (
                 ops.raw_key(service, p, call_id, segment["segment_id"]),

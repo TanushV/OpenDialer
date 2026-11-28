@@ -272,6 +272,13 @@
   padding: 6px 10px;
   font-size: 11px;
 }
+/* A far script part matched once stays a button at the top of the script pane (call insights plan P6). */
+.script-jump {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 8px;
+}
 .muted {
   color: #7d897b;
 }

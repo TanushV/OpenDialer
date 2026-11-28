@@ -7,6 +7,13 @@ const ended = (call: Call) => ["hangup", "destroy"].includes(call.state);
 
 /** How long a microphone permission prompt can hold calling before the Dialer says why it stopped. */
 export const MICROPHONE_WAIT_MS = 30_000;
+/** Microphone processing for the rep's call leg; the SDK adds the chosen microphone's device ID. */
+export const SPEECH_AUDIO: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
+
 export const MICROPHONE_BLOCKED =
   "OpenDialer cannot use the microphone. Allow access if prompted, or check your system’s microphone settings, then press Start calling.";
 
@@ -248,6 +255,9 @@ export class Telephony {
         ? source.clone()
         : null;
       if (microphone) call.options.localStream = microphone;
+      // Ask for echo cancellation explicitly, so the prospect's voice from the speakers stays out of the
+      // rep's microphone track as far as the hardware allows (call insights plan C6).
+      else call.options.audio = SPEECH_AUDIO;
       try {
         await call.answer({ remoteElement: this.audio!, video: false });
       } catch (error) {

@@ -269,6 +269,8 @@ export interface Call {
   transcript?: Segment[];
   script_snapshot?: Script;
   script_position?: { key: string; sequence: number } | null;
+  /** A far part matched once; the Dialer offers it as a button (call insights plan P6). */
+  script_suggestion?: { key: string; sequence: number } | null;
   coach?: Coach | null;
   /** Why the live helper is quiet, when it is: no key, budget or a route failure. */
   helper_status?: {

@@ -750,13 +750,14 @@ def create_app(settings=None, *, clock=None, carrier=None):
     def get_call(call_id: str, p=Depends(principal)):
         from app import live_help
         from app.aftercall.summary import suggestion
-        from app.script_follow import latest_match
+        from app.script_follow import latest_match, latest_suggestion
 
         with db.transaction(False) as s:
             call = ops.required(service, s, "call_attempts", call_id, p)
             tip, helper = live_help.view(service, call)
             segments = ops.transcript_rows(service, s, p, call_id)
             match = latest_match(segments)
+            suggestion_row = latest_suggestion(segments)
             summary = ops.call_summary(service, s, p, call_id)
             return {
                 **{k: v for k, v in doc(call).items() if k != "recording_url"},
@@ -765,6 +766,15 @@ def create_app(settings=None, *, clock=None, carrier=None):
                 "script_position": (
                     {"key": match["script_section"], "sequence": match["transcript_version"]}
                     if match and not call.data.get("transcription_disabled")
+                    else None
+                ),
+                # Plan P6: a far part matched once is offered, never jumped to.
+                "script_suggestion": (
+                    {
+                        "key": suggestion_row["script_candidate"],
+                        "sequence": suggestion_row["transcript_version"],
+                    }
+                    if suggestion_row and not call.data.get("transcription_disabled")
                     else None
                 ),
                 "raw_evidence_status": ops.raw_status(service, call, segments),

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Sparkles } from "lucide-react";
 import type { Script, ScriptOption } from "../types";
 
@@ -123,9 +123,12 @@ export function revealScriptPart(pane: HTMLElement | null, key: string) {
 export function ScriptReader({
   script,
   position,
+  suggestion,
 }: {
   script: Partial<Script>;
   position?: { key: string; sequence: number } | null;
+  /** A far part the rep's speech matched once: offered, never jumped to (call insights plan P6). */
+  suggestion?: { key: string; sequence: number } | null;
 }) {
   const written = Object.values(script.written ?? {}).map((w) => w.text);
   const sections = script.sections ?? [];
@@ -143,8 +146,33 @@ export function ScriptReader({
       part,
     );
   }, [part, sequence]);
+  const [dismissed, setDismissed] = useState<number | null>(null);
+  const offered =
+    suggestion && suggestion.key !== part && suggestion.sequence !== dismissed
+      ? sections.find((section) =>
+          (section.options ?? []).some(
+            (option) => `${section.key}:${option.id}` === suggestion.key,
+          ),
+        )
+      : undefined;
   return (
     <div ref={reader} className="script-reader">
+      {offered && suggestion && (
+        <button
+          type="button"
+          className="secondary small script-jump"
+          data-testid="script-suggestion"
+          onClick={() => {
+            setDismissed(suggestion.sequence);
+            revealScriptPart(
+              reader.current?.closest<HTMLElement>(".script-card") ?? null,
+              suggestion.key,
+            );
+          }}
+        >
+          Jump to {offered.title} ↓
+        </button>
+      )}
       {script.script_path && (
         <p className="fine">Path · {script.script_path}</p>
       )}
