@@ -1,7 +1,7 @@
 # Call records, prime time and script tests: plan
 
 Written November 28, 2026 and approved by the owner the same day ("implement this plan end to end"), after a legal
-audit (section 4). **Status: approved, execution not started.** Read this alongside [the rebuild plan](REBUILD_PLAN.md)
+audit (section 4). **Status: in progress (phases 0 to 3 done).** Read this alongside [the rebuild plan](REBUILD_PLAN.md)
 and its Status section. Build rules are section 12A of that plan: one worker, on `main`, acceptance tests first, fast
 check after each change, full check before each push. Calling rules (G10): any new blocker declares its exit in
 `calling/blockers.py` and has an in-and-out test.
@@ -335,3 +335,8 @@ Eastern leads are prime; a due callback still goes first; retries land in prime 
 - November 28, 2026: plan written from a read-only review of the code and public vendor documentation.
 - November 28, 2026: owner approved it; legal audit added (section 4) with fixes C1 to C6; owner answers recorded
   (section 9). No code changed, no calls placed. Next: phase 0.
+- November 28, 2026: phases 0 to 3 done on `main` (`657a33f`, `0e01b44`, `a7c22dd`): carrier transcription removed and
+  numbers outside the US held (C1, C2); far script jumps need a distinctive phrase twice, speaker bleed is ignored
+  (P6, C6); recordings and transcripts kept under P1 to P4 in `app/call_records.py` and `app/calling/audio_tracks.py`,
+  with the Dialer indicator and R key, the Settings card and the Review player. Next: phase 4 (prime time).
+
