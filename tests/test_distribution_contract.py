@@ -70,9 +70,10 @@ def test_update_manifest_discloses_fresh_workspace(tmp_path):
     release_notes = (ROOT / "docs/RELEASE_NOTES.md").read_text()
     version = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())["version"]
     assert release_notes.splitlines()[0] == "# OpenDialer " + version
-    assert "Scripts made outside the app carry their research." in notes
-    assert "Longer scripts." in notes
-    assert "Also includes the 2.4.3 changes." in notes
+    assert "Calls are kept so you can learn from them." in notes
+    assert "Calling prefers prime time." in notes
+    assert "Script tests." in notes
+    assert "Scripts made outside the app carry their research." not in notes
     assert "Voicemails need no callback number." not in notes
     assert "Test calls work like real calls." not in notes
     assert "Test calling at any hour." not in notes
@@ -205,7 +206,7 @@ def test_version_identity_artifact_contract():
         next(p["version"] for p in python_lock["package"] if p["name"] == "opendialer"),
         next(p["version"] for p in cargo_lock["package"] if p["name"] == "opendialer-desktop"),
     ]
-    assert versions == ["2.4.4"] * len(versions)
+    assert versions == ["2.5.0"] * len(versions)
     assert tauri["identifier"] == "com.opendialer.desktop"
     assert tauri["app"]["windows"][0]["backgroundThrottling"] == "disabled"
     updater = tauri["plugins"]["updater"]

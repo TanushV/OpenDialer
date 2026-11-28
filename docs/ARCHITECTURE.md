@@ -89,15 +89,26 @@ hiding a defect.
   model request continues. Exact script quotes link back to the matching line. The rep can also ask via F1 or a typed
   question. One request per turn runs on OpenRouter through Cerebras with no retention. Tips stay in memory for 30
   seconds and private replies for 5 minutes. Phone screening uses the prepared Screening line directly.
-- **After the call**: no summary is written, because transcript text is deleted when the call ends (calling work
-  package 9.3 C5). The carrier saves facts such as no answer or busy; the rep saves every other outcome, including
-  whether a voicemail message was left. The next call's script and brief read the outcome and the rep's note.
-- **Transcripts** feed only the live helper and the script follower while the call is live. Their text is deleted when
-  the call ends (`telephony/workflows.finish_call`), late speech is discarded, a 3-hour backstop sweeps leftovers and
-  SQLite overwrites deleted text. Word-free metadata (matched script part, timing, speaker) stays for statistics.
-  Settings can turn live transcription off. There are no recordings.
+- **After the call**: no summary is written. The carrier saves facts such as no answer or busy; the rep saves every
+  other outcome, including whether a voicemail message was left. The next call's script and brief read the outcome
+  and the rep's note.
+- **Call records** (`call_records.py`, `calling/audio_tracks.py`; call insights plan P1 to P4): live speech comes only
+  from the app's own two audio tracks (the carrier never transcribes). The rep's side (audio and transcript) is kept
+  on every answered call; the prospect's side only when both their supplied state and their area code's state allow
+  one-party consent, or from the moment the rep presses R after saying the call is recorded. Live transcription for
+  the helper runs on every call unless Settings holds it in stricter states. Text a call may not keep is deleted when
+  it ends; a 3-hour backstop sweeps leftovers and SQLite overwrites deleted text. Audio is recorded on this computer
+  from the same PCM the transcriber gets, encoded as stereo Ogg Opus (rep left) and encrypted with the workspace key.
+  Recordings are kept until deleted, with optional auto-delete; an opt-out deletes that phone's recordings. Rep
+  segments that repeat the prospect at the same moment are speaker bleed and never count as the rep's speech.
+- **Call numbers and insights** (`call_metrics.py`, `insights.py`, `call_export.py`): each finalized call gets a fixed
+  list of numbers (talk share, monologues, response gap, interruptions, time to pitch, the rep's pitch range and
+  loudness) and never a voiceprint. Review compares results by script variant, path, local time band, list, trigger
+  or a number, with 95% ranges, and exports calls with their audio and kept transcripts as one ZIP.
 - **Calling hours and opt-outs**: outreach dials Monday to Friday, 9:00 to 17:00 in the prospect's zone, never on US
-  federal holidays; requested callbacks are exempt (`compliance/policy.py`). Every rep pulls HubSpot opt-outs at
+  federal holidays; requested callbacks are exempt (`compliance/policy.py`). Numbers outside the 50 states and DC are
+  held. Inside the window the queue prefers each lead's local prime time (`scheduling/prime_time.py`), and on shared
+  calling a prospect another rep called in the last day waits a day. Every rep pulls HubSpot opt-outs at
   Start calling, after imports and every 15 minutes (`crm.pull_opt_outs`).
 
 ## Learning

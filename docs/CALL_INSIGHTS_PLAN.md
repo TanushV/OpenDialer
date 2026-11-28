@@ -1,7 +1,7 @@
 # Call records, prime time and script tests: plan
 
 Written November 28, 2026 and approved by the owner the same day ("implement this plan end to end"), after a legal
-audit (section 4). **Status: in progress (phases 0 to 3 done).** Read this alongside [the rebuild plan](REBUILD_PLAN.md)
+audit (section 4). **Status: phases 0 to 7 built; phase 8 (release and live calls) in progress.** Read this alongside [the rebuild plan](REBUILD_PLAN.md)
 and its Status section. Build rules are section 12A of that plan: one worker, on `main`, acceptance tests first, fast
 check after each change, full check before each push. Calling rules (G10): any new blocker declares its exit in
 `calling/blockers.py` and has an in-and-out test.
@@ -339,4 +339,10 @@ Eastern leads are prime; a due callback still goes first; retries land in prime 
   numbers outside the US held (C1, C2); far script jumps need a distinctive phrase twice, speaker bleed is ignored
   (P6, C6); recordings and transcripts kept under P1 to P4 in `app/call_records.py` and `app/calling/audio_tracks.py`,
   with the Dialer indicator and R key, the Settings card and the Review player. Next: phase 4 (prime time).
+- November 28, 2026: phases 4 to 7 done on `main`: prime-time ordering, prime retries and the cross-rep 24-hour check
+  (`scheduling/prime_time.py`, relay migration `20261128120000_recent_prospect_guard.sql`, not yet applied to the
+  live relay); script variants (`preparation/templates.py`); call numbers (`call_metrics.py`); comparisons and the
+  export (`insights.py`, `call_export.py`); Review Insights card; WebKit spec `call-records.spec.ts`. Version 2.5.0
+  prepared. Next: full check, stress sweep, push, CI, signed release; owner items: Telnyx retention (C3), applying the
+  relay migration, live calls.
 

@@ -1,3 +1,14 @@
+# OpenDialer 2.5.0
+
+- **Calls are kept so you can learn from them.** Your side of every answered call is recorded and transcribed. The prospect's side is kept only where one person's consent is enough, judged by their listed state and area code; anywhere else, tell them the call is recorded and press R. The Dialer always shows what is being kept. Recordings stay on this computer, encrypted, until you delete them, and an opt-out deletes that number's recordings. Settings has a Call recording card with the state list and optional auto-delete.
+- **Calling prefers prime time.** The queue calls whoever is in their best local time band right now: 9:30 to 11:30 and 4 to 5 are prime, lunch is lowest. It never holds a lead back, and the Dialer shows each lead's zone, local time and band. Retries land in the lead's next prime window, and on shared calling a person another rep called in the last day waits a day.
+- **The script panel stops jumping.** It follows you to nearby parts as before. A far part needs a distinctive phrase said twice, and until then it shows a Jump button. The prospect's voice leaking into your microphone no longer moves it.
+- **Script tests.** Add a `# Variants` section with a share and hypothesis for each variant and tag options `[variant: name]`. Each company gets one variant at random, and Review compares them.
+- **Call numbers and insights.** Each call gets its talk share, longest stretch, response gap, questions, pace and pitch range. Review compares results by variant, path, time band, list, trigger or those numbers, with ranges and a note until there is enough data, and exports calls with their audio and transcripts.
+- **Numbers outside the US are held.** Leads in Canada, the Caribbean or US territories wait with a reason, since calling hours and recording rules here cover the 50 states and DC.
+
+Updates from 1.0.x through 2.4.4 keep your workspace. Updates from 0.9.x or 0.10.x keep your workspace and saved credentials. Versions 0.2 and 0.3 start a fresh workspace and leave earlier data on disk. macOS may ask for microphone access again. Updates from 0.6.0 or 0.6.1 may require you to re-enter keys and re-import setup or login files.
+
 # OpenDialer 2.4.4
 
 - **Scripts made outside the app carry their research.** A completed CSV can include each script's facts, quotes, links and why-now signal. Imported leads show the why-now in Leads and the Dialer, marked "checked when the script was written", with its quote and source.

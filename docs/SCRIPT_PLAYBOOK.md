@@ -29,10 +29,36 @@ independent review keeps AI text only when every assertion in it follows from th
 also states what your business does, or copies a question with assumptions in it, is dropped, and that option loses
 its AI line. The script is still published; the export and the command-line run below list any such drops.
 
+## Script tests (variants)
+
+Declare one test in a `# Variants` section: a bullet per variant with its share and what you expect it to do, and
+optionally `When:` to count only leads with certain triggers.
+
+```
+# Variants
+- direct-open (50%): Hypothesis: naming the reason first gets past the opener more often.
+- permission-open (50%): Hypothesis: asking for thirty seconds cuts early hang-ups.
+When: hiring_sellers
+
+# Opening
+## Direct [variant: direct-open]
+Hi {first_name}, {rep} with {seller}. I'm calling because ...
+## Permission [variant: permission-open]
+Hi {first_name}, {rep} with {seller}. Can I have thirty seconds to tell you why I called?
+```
+
+Shares add up to 100%. Tag options with `[variant: name]` (beside `[path: ...]` if you use paths); untagged options
+are shared by every variant, and every variant needs an Opening and a Close. Code, not the AI, gives each company one
+variant from a stable draw, so the comparison is fair, and the script for that lead keeps only its variant's options.
+The variant rides with the script, the call, the completed CSV (`script_variant`, `script_variant_test`) and the
+statistics export. Review shows each variant's hypothesis and results, and says "not enough data" until a variant has
+30 conversations. Changing the shares, the names or `When:` starts a new test.
+
 ## Finished scripts for other computers
 
 `GET /v1/preparation/export?list_name=...` returns a list's ready scripts as portable Markdown, with `{rep}` and
-`{seller}` left for the receiving rep, plus `script_path`, `script_master_digest`, `script_generator` and
+`{seller}` left for the receiving rep, plus `script_path`, `script_master_digest`, `script_generator`, the script test
+variant (`script_variant`, `script_variant_test`) and
 `script_research` (the facts behind the script, their quotes and links, and the why-now signal). Importing that CSV
 in Leads marks each lead ready and shows the why-now as "checked when the script was written". Apps before 2.4.4
 import the same file and keep `script_research` as ordinary lead data.
